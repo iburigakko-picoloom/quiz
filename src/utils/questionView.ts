@@ -7,6 +7,6 @@ export function resolveQuestionDetailedExplanation(
   if (!sessionQuestion) return '';
   const persistedQuestion = questions.find((question) => question.id === sessionQuestion.id);
   return persistedQuestion
-    ? persistedQuestion.detailedExplanation ?? ''
-    : sessionQuestion.detailedExplanation ?? '';
+    ? persistedQuestion.detailedAnswer?.body ?? persistedQuestion.detailedExplanation ?? ''
+    : sessionQuestion.detailedAnswer?.body ?? sessionQuestion.detailedExplanation ?? '';
 }

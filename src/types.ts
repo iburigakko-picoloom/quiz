@@ -18,6 +18,7 @@ export interface AppData {
 
 export interface Folder {
   id: string;
+  parentFolderId?: string;
   name: string;
   createdAt: string;
   updatedAt: string;
@@ -43,6 +44,12 @@ export interface ProblemSet {
   updatedAt: string;
 }
 
+export interface DetailedAnswer {
+  body: string;
+  imageIds: string[];
+  updatedAt: string;
+}
+
 export interface Question {
   id: string;
   setId: string;
@@ -53,6 +60,8 @@ export interface Question {
   answerText: string;
   explanation: string;
   detailedExplanation?: string;
+  detailedAnswer?: DetailedAnswer;
+  questionImageIds?: string[];
   sourcePage: string;
   category: string;
   difficulty: Difficulty;
@@ -149,6 +158,8 @@ export interface QuizSession {
 
 export type AppScreen =
   | { name: 'home' }
+  | { name: 'search' }
+  | { name: 'questionDetail'; questionId: string; backScreen: AppScreen }
   | { name: 'settings' }
   | { name: 'community'; tab?: 'mine' | 'groups' | 'discover'; groupId?: string; shareSetId?: string; shareToken?: string; backScreen?: AppScreen }
   | { name: 'sync' }

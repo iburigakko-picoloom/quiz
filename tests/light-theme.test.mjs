@@ -15,8 +15,8 @@ const quizRunnerSource = readSource('../src/screens/QuizRunner.tsx');
 
 test('shared layout and loading state use the light application palette', () => {
   assert.doesNotMatch(layoutSource, /bg-\[#050505\]|text-white/);
-  assert.match(layoutSource, /bg-\[#F1F7FA\]/);
-  assert.match(layoutSource, /text-\[#173042\]/);
+  assert.match(layoutSource, /bg-\[#FFFFFF\]/);
+  assert.match(layoutSource, /text-\[#172033\]/);
   assert.doesNotMatch(appSource, /background:\s*'#000'/);
   assert.match(appSource, /background:\s*'#f1f7fa'/);
 });

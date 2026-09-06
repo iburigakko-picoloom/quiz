@@ -10,6 +10,8 @@ import {
 } from './storage';
 import { HomeScreen } from './screens/HomeScreen';
 import { FolderScreen } from './screens/FolderScreen';
+import { SearchScreen } from './screens/SearchScreen';
+import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { ProblemSetDetailScreen } from './screens/ProblemSetDetailScreen';
 import { ProblemListScreen } from './screens/ProblemListScreen';
 import { ResultScreen } from './screens/ResultScreen';
@@ -19,6 +21,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { PrimaryBottomNav, type PrimaryNavItem } from './components/PrimaryBottomNav';
 import { StorageRecoveryPanel } from './components/StorageRecoveryPanel';
 import { createId } from './utils/id';
+import { folderSubtreeIds } from './utils/folderHierarchy';
 import { formatBackupDate, nowIso } from './utils/date';
 import {
   getBackNavigationSteps,
@@ -381,7 +384,7 @@ export default function App() {
     const next: AppScreen = item === 'home'
       ? { name: 'home' }
       : item === 'discover'
-        ? { name: 'community', tab: 'discover' }
+        ? { name: 'search' }
         : item === 'groups'
           ? { name: 'community', tab: 'groups' }
           : item === 'create'
@@ -416,7 +419,7 @@ export default function App() {
         buildPlan: (currentData) => ({
           nextData: deleteFolder(currentData, folderId),
           problemSetIds: currentData.problemSets
-            .filter((set) => set.folderId === folderId)
+            .filter((set) => folderSubtreeIds(currentData.folders, folderId).has(set.folderId))
             .map((set) => set.id),
         }),
       });
@@ -611,6 +614,8 @@ export default function App() {
         answerText: answerIndexes.map((answerIndex) => choices[answerIndex]).filter(Boolean).join(' / '),
         explanation: question.explanation.trim(),
         detailedExplanation: question.detailedExplanation?.trim() ?? '',
+        detailedAnswer: question.detailedAnswer,
+        questionImageIds: question.questionImageIds,
         sourcePage: question.sourcePage.trim(),
         category: question.category.trim() || '未分類',
         difficulty: question.difficulty ?? submission.difficulty,
@@ -699,6 +704,8 @@ export default function App() {
         answerText: answerIndexes.map((answerIndex) => choices[answerIndex]).filter(Boolean).join(' / '),
         explanation: draft.explanation.trim(),
         detailedExplanation: draft.detailedExplanation?.trim() ?? '',
+        detailedAnswer: draft.detailedAnswer ? { ...draft.detailedAnswer, body: draft.detailedExplanation?.trim() ?? draft.detailedAnswer.body } : previous?.detailedAnswer,
+        questionImageIds: draft.questionImageIds ?? previous?.questionImageIds,
         sourcePage: draft.sourcePage.trim(),
         category: draft.category.trim() || '未分類',
         difficulty: draft.difficulty ?? submission.difficulty,
@@ -1242,6 +1249,10 @@ export default function App() {
         />
       </Suspense>
     );
+  } else if (screen.name === 'search') {
+    content = <SearchScreen data={data} onOpenSet={(setId) => navigate({ name: 'problemSetDetail', setId })} onOpenQuestion={(questionId) => navigate({ name: 'questionDetail', questionId, backScreen: { name: 'search' } })} onDiscover={() => navigate({ name: 'community', tab: 'discover', backScreen: { name: 'search' } })} />;
+  } else if (screen.name === 'questionDetail') {
+    content = <QuestionDetailScreen data={data} questionId={screen.questionId} onBack={() => goBackTo(screen.backScreen)} onEdit={(setId) => navigate({ name: 'createProblemSet', editSetId: setId, backScreen: screen })} />;
   } else if (screen.name === 'community') {
     const communityBackScreen = screen.groupId
       ? screen.backScreen ?? { name: 'community' as const, tab: 'groups' as const }
@@ -1276,6 +1287,8 @@ export default function App() {
         onCreateProblemSet={(folderId) => navigate({ name: 'createProblemSet', folderId, backScreen: { name: 'folder', folderId } })}
         onOpenProblemSet={(setId) => navigate({ name: 'problemSetDetail', setId })}
         onDeleteProblemSet={handleDeleteProblemSet}
+        onSave={commitData}
+        onDeleteFolder={handleDeleteFolder}
       />
     );
   } else if (screen.name === 'problemSetDetail') {
@@ -1321,13 +1334,9 @@ export default function App() {
         setId={screen.setId}
         initialSortMode={screen.sortMode}
         onBack={problemSet ? () => goBackTo({ name: 'problemSetDetail', setId: screen.setId }) : goHome}
-        onStartFromQuestion={({ questions, initialIndex, title, subtitle, setId, sortMode }) => handleStartQuizSession({
-          title,
-          subtitle,
-          questions,
-          mode: 'quiz',
-          setId,
-          initialIndex,
+        onStartFromQuestion={({ questions, initialIndex, sortMode }) => navigate({
+          name: 'questionDetail',
+          questionId: questions[initialIndex].id,
           backScreen: { name: 'problemList', setId: screen.setId, sortMode },
         })}
       />
@@ -1430,6 +1439,7 @@ export default function App() {
       onCreateSample={() => void commitData(createSampleAppData())}
       onDeleteFolder={handleDeleteFolder}
       onOpenFolder={(folderId) => navigate({ name: 'folder', folderId })}
+      onSave={commitData}
     />
   );
   }
@@ -1563,6 +1573,7 @@ function getUpdateBlockedMessage(reason: ProtectedWorkReason) {
 }
 
 function getPrimaryNavItem(screen: AppScreen): PrimaryNavItem | null {
+  if (screen.name === 'search') return 'discover';
   if (screen.name === 'home') return 'home';
   if (screen.name === 'settings') return 'settings';
   if (screen.name === 'createProblemSet') return 'create';

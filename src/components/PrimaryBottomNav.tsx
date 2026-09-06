@@ -1,4 +1,4 @@
-import { AddSquareIcon, GroupIcon, HomeIcon, SearchIcon, SettingsIcon } from './UiIcons';
+import { PlusIcon, GroupIcon, HomeIcon, SearchIcon, SettingsIcon } from './UiIcons';
 import './PrimaryBottomNav.css';
 
 export type PrimaryNavItem = 'home' | 'discover' | 'groups' | 'create' | 'settings';
@@ -15,9 +15,9 @@ const items: Array<{
   icon: typeof HomeIcon;
 }> = [
   { id: 'home', label: 'ホーム', icon: HomeIcon },
-  { id: 'discover', label: '見つける', icon: SearchIcon },
+  { id: 'discover', label: '検索', icon: SearchIcon },
+  { id: 'create', label: '作成', icon: PlusIcon },
   { id: 'groups', label: 'グループ', icon: GroupIcon },
-  { id: 'create', label: '問題セットを作る', shortLabel: '問題作成', icon: AddSquareIcon },
   { id: 'settings', label: '設定', icon: SettingsIcon },
 ];
 
@@ -32,6 +32,7 @@ export function PrimaryBottomNav({ active, onSelect }: PrimaryBottomNavProps) {
             <button
               key={item.id}
               type="button"
+              data-destination={item.id}
               className={selected ? 'primary-bottom-nav__item primary-bottom-nav__item--active' : 'primary-bottom-nav__item'}
               aria-current={selected ? 'page' : undefined}
               aria-label={item.label}

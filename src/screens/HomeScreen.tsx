@@ -3,19 +3,15 @@ import { createPortal } from 'react-dom';
 import type { AppData, Folder } from '../types';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
+import { LibraryItemActions } from '../components/LibraryItemActions';
 import {
   CheckIcon,
   ChevronRightIcon,
-  DocumentOutlineIcon,
   FolderOutlineIcon,
-  BookmarkIcon,
   PlusIcon,
-  ProgressIcon,
-  TagIcon,
   TrashIcon,
 } from '../components/UiIcons';
 import { buildAppDataView } from '../utils/appDataView';
-import { formatDisplayDate } from '../utils/date';
 import './HomeScreen.css';
 
 interface HomeScreenProps {
@@ -24,6 +20,7 @@ interface HomeScreenProps {
   onCreateSample: () => void;
   onDeleteFolder: (folderId: string) => void;
   onOpenFolder: (folderId: string) => void;
+  onSave: (data: AppData) => Promise<boolean>;
 }
 
 export function HomeScreen({
@@ -32,12 +29,13 @@ export function HomeScreen({
   onCreateSample,
   onDeleteFolder,
   onOpenFolder,
+  onSave,
 }: HomeScreenProps) {
   const [folderName, setFolderName] = useState('');
-  const [editMode, setEditMode] = useState(false);
+  const editMode = false;
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Folder | null>(null);
-  const folders = useMemo(() => buildAppDataView(data).folders, [data]);
+  const folders = useMemo(() => buildAppDataView(data).folders.filter(({ folder }) => !folder.parentFolderId), [data]);
 
   const handleCreateFolder = () => {
     const name = folderName.trim();
@@ -52,12 +50,8 @@ export function HomeScreen({
       <div className="quiz-home">
         <header className="quiz-home__header">
           <h1 className="quiz-home__title">Quiz Make</h1>
+          <HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} />
         </header>
-
-        <section className="quiz-home__actions" aria-label="ホーム操作">
-          <HomeCircleButton active={editMode} icon={editMode ? 'done' : 'delete'} label={editMode ? '完了' : '削除'} onClick={() => setEditMode((value) => !value)} />
-          <HomeCircleButton icon="add" label="フォルダ" onClick={() => setCreateOpen(true)} />
-        </section>
 
         <section className="quiz-home__folder-list" aria-label="フォルダ一覧">
           {folders.length === 0 ? (
@@ -71,17 +65,19 @@ export function HomeScreen({
             </div>
           ) : folders.map(({ folder, ...summary }) => {
             return (
+              <div key={folder.id} className="library-row-with-actions">
               <QuizHomeFolderItem
                 key={folder.id}
                 folder={folder}
                 setCount={summary.setCount}
                 questionCount={summary.questionCount}
                 reviewCount={summary.reviewCount}
-                correctRate={summary.correctRate}
                 editMode={editMode}
                 onOpen={() => onOpenFolder(folder.id)}
                 onDelete={() => setDeleteTarget(folder)}
               />
+              <LibraryItemActions data={data} kind="folder" id={folder.id} onSave={onSave} onDelete={() => setDeleteTarget(folder)} />
+              </div>
             );
           })}
         </section>
@@ -101,7 +97,7 @@ export function HomeScreen({
         <ConfirmDialog
           open={deleteTarget !== null}
           title="削除しますか？"
-          message="このフォルダ内の問題セット、問題、学習記録、復習Levelもすべて削除されます。"
+          message={`${deleteTarget?.name ?? ''}\n子フォルダ ${data.folders.filter((folder) => folder.parentFolderId === deleteTarget?.id).length}件・問題セット ${folders.find(({ folder }) => folder.id === deleteTarget?.id)?.setCount ?? 0}件・問題 ${folders.find(({ folder }) => folder.id === deleteTarget?.id)?.questionCount ?? 0}問と学習記録・ノートを削除します。`}
           confirmLabel="削除"
           onCancel={() => setDeleteTarget(null)}
           onConfirm={() => {
@@ -117,7 +113,7 @@ export function HomeScreen({
 
 function HomeCircleButton({ active = false, icon, label, onClick }: { active?: boolean; icon: 'delete' | 'add' | 'done'; label: string; onClick: () => void }) {
   return (
-    <button type="button" className="quiz-home__action" onClick={onClick}>
+    <button type="button" className="quiz-home__action" aria-label={label} onClick={onClick}>
       <span className={`quiz-home__circle-button${active ? ' quiz-home__circle-button--active' : ''}`}>
         {icon === 'delete' ? <TrashIcon /> : icon === 'done' ? <CheckIcon /> : <PlusIcon />}
       </span>
@@ -131,7 +127,6 @@ function QuizHomeFolderItem({
   setCount,
   questionCount,
   reviewCount,
-  correctRate,
   editMode,
   onOpen,
   onDelete,
@@ -140,7 +135,6 @@ function QuizHomeFolderItem({
   setCount: number;
   questionCount: number;
   reviewCount: number;
-  correctRate: number;
   editMode: boolean;
   onOpen: () => void;
   onDelete: () => void;
@@ -154,12 +148,10 @@ function QuizHomeFolderItem({
         <span className="quiz-home__folder-body">
           <span className="quiz-home__folder-name">{folder.name}</span>
           <span className="quiz-home__folder-stats">
-            <span aria-label={`問題セット ${setCount}`}><DocumentOutlineIcon size={17} />{setCount}</span>
-            <span aria-label={`問題 ${questionCount}`}><TagIcon size={17} />{questionCount}</span>
-            <span aria-label={`復習 ${reviewCount}`}><BookmarkIcon size={17} />{reviewCount}</span>
-            <span aria-label={`正答率 ${correctRate}%`}><ProgressIcon size={17} />{correctRate}%</span>
+            <span>{setCount}セット</span>
+            <span>{questionCount}問</span>
+            {reviewCount > 0 ? <span className="library-danger">復習 {reviewCount}</span> : null}
           </span>
-          <span className="quiz-home__folder-date">更新 {formatDisplayDate(folder.updatedAt)}</span>
         </span>
         {!editMode ? <span className="quiz-home__folder-arrow"><ChevronRightIcon /></span> : null}
       </button>

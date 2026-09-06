@@ -301,7 +301,9 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
         answerIndex: question.answerIndex,
         answerIndexes: question.answerIndexes?.length ? [...question.answerIndexes] : [question.answerIndex],
         explanation: question.explanation,
-        detailedExplanation: question.detailedExplanation ?? '',
+        detailedExplanation: question.detailedAnswer?.body ?? question.detailedExplanation ?? '',
+        detailedAnswer: question.detailedAnswer,
+        questionImageIds: question.questionImageIds,
         category: question.category,
         sourcePage: question.sourcePage,
         difficulty: question.difficulty,
@@ -373,7 +375,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
           </div>
         </header>
 
-        {view === 'methods' ? <MethodChooser onSelect={startMethod} /> : null}
+        {view === 'methods' ? <MethodChooser onSelect={startMethod} onImport={() => startMethod('other')} onCsv={() => csvInputRef.current?.click()} /> : null}
+        <input ref={csvInputRef} className="create-set__hidden-input" type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void handleCsvFile(file); }} />
 
         {view === 'manual' ? (
           <div className="create-set__flow">
@@ -421,7 +424,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             ) : null}
             <SetMetaFields data={data} value={meta} onChange={setMeta} />
             <section className="create-set__panel">
-              <h2>{view === 'chatgpt' ? 'JSON' : '複数の問題'}</h2>
+              <h2>{view === 'chatgpt' ? '作成されたJSONを貼り付ける' : '複数の問題'}</h2>
               <textarea className="create-set__paste" value={pasteText} onChange={(event) => setPasteText(event.target.value)} aria-label={view === 'chatgpt' ? '問題セットJSON' : '問題の貼り付け欄'} />
               <button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' ? 'JSONを読み取る' : '読み取って確認'}</button>
             </section>
@@ -468,7 +471,6 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             <button type="button" className="create-set__method" onClick={() => csvInputRef.current?.click()}>
               <span className="create-set__method-icon"><UploadIcon /></span><span><strong>CSVを読み込む</strong></span><ChevronRightIcon />
             </button>
-            <input ref={csvInputRef} className="create-set__hidden-input" type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void handleCsvFile(file); }} />
           </section>
         ) : null}
 
@@ -629,13 +631,15 @@ function PendingQuestionSaveDialog({
   );
 }
 
-function MethodChooser({ onSelect }: { onSelect: (view: CreationView) => void }) {
+function MethodChooser({ onSelect, onImport, onCsv }: { onSelect: (view: CreationView) => void; onImport: () => void; onCsv: () => void }) {
   const methods: Array<{ view: CreationView; title: string; icon: React.ReactNode }> = [
-    { view: 'chatgpt', title: 'JSONを貼り付ける', icon: <CopyIcon /> },
+    { view: 'chatgpt', title: '生成AIで作る', icon: <CopyIcon /> },
     { view: 'copy', title: '既存問題セットをコピー', icon: <CopyIcon /> },
-    { view: 'other', title: 'その他の方法', icon: <UploadIcon /> },
   ];
-  return <section className="create-set__methods" aria-label="作成方法">{methods.map((method) => <button key={method.view} type="button" className="create-set__method" onClick={() => onSelect(method.view)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}</section>;
+  return <section className="create-set__methods" aria-label="作成方法">{methods.map((method) => <button key={method.view} type="button" className="create-set__method" onClick={() => onSelect(method.view)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}
+    <button type="button" className="create-set__method" onClick={onImport}><span className="create-set__method-icon"><DocumentOutlineIcon /></span><strong>問題セットファイルを読み込む</strong><ChevronRightIcon /></button>
+    <button type="button" className="create-set__method" onClick={onCsv}><span className="create-set__method-icon"><UploadIcon /></span><strong>CSVを読み込む</strong><ChevronRightIcon /></button>
+  </section>;
 }
 
 function SetMetaFields({ data, value, onChange, compact = false }: { data: AppData; value: SetMeta; onChange: (value: SetMeta) => void; compact?: boolean }) {
@@ -647,13 +651,6 @@ function SetMetaFields({ data, value, onChange, compact = false }: { data: AppDa
       {useNewFolder ? <label className="create-set__field"><span>新しいフォルダ名</span><input value={value.newFolderName} onChange={(event) => onChange({ ...value, newFolderName: event.target.value })} /></label> : null}
       {!compact ? <>
         <label className="create-set__field"><span>問題セット名 <b>必須</b></span><input value={value.title} onChange={(event) => onChange({ ...value, title: event.target.value })} /></label>
-        <label className="create-set__field"><span>説明</span><textarea value={value.description} onChange={(event) => onChange({ ...value, description: event.target.value })} /></label>
-        <div className="create-set__field-grid">
-          <label className="create-set__field"><span>科目・分類</span><input value={value.subject} onChange={(event) => onChange({ ...value, subject: event.target.value })} /></label>
-          <label className="create-set__field"><span>対象</span><input value={value.audience} onChange={(event) => onChange({ ...value, audience: event.target.value })} /></label>
-        </div>
-        <label className="create-set__field"><span>難易度</span><select value={value.difficulty} onChange={(event) => onChange({ ...value, difficulty: event.target.value })}><option value="basic">基礎</option><option value="standard">標準</option><option value="advanced">発展</option></select></label>
-        <label className="create-set__field"><span>作成元・資料名</span><input value={value.source} onChange={(event) => onChange({ ...value, source: event.target.value })} /></label>
       </> : null}
     </section>
   );
@@ -685,7 +682,7 @@ function InlineDraftCard({ index, value, onChange, onDelete }: { index: number; 
 }
 
 function SaveBar({ count, busy, disabled, label = '問題セットを保存', onSave }: { count: number; busy: boolean; disabled: boolean; label?: string; onSave: () => void }) {
-  return <div className="create-set__save-bar"><span>{count}問</span><button type="button" className="create-set__primary" disabled={busy || disabled} onClick={onSave}>{busy ? '保存中…' : label}</button></div>;
+  return <div className="create-set__save-bar"><span>{count}問</span><button type="button" className="create-set__primary" disabled={busy || disabled} onClick={onSave}>{busy ? '保存中…' : label === '問題セットを保存' ? `${count}問を保存` : label}</button></div>;
 }
 
 function createInitialMeta(data: AppData, initialFolderId?: string, problemSet?: ProblemSet): SetMeta {
@@ -718,7 +715,9 @@ function createDraftsFromProblemSet(data: AppData, problemSet?: ProblemSet): Bul
       answerIndex: question.answerIndex,
       answerIndexes: question.answerIndexes?.length ? [...question.answerIndexes] : [question.answerIndex],
       explanation: question.explanation,
-      detailedExplanation: question.detailedExplanation ?? '',
+      detailedExplanation: question.detailedAnswer?.body ?? question.detailedExplanation ?? '',
+        detailedAnswer: question.detailedAnswer,
+        questionImageIds: question.questionImageIds,
       category: question.category,
       sourcePage: question.sourcePage,
       difficulty: question.difficulty,
@@ -761,7 +760,7 @@ function getViewTitle(view: CreationView, sourceSetId?: string) {
   if (view === 'methods') return '問題セットを作る';
   if (view === 'manual') return sourceSetId ? 'コピーを編集' : '問題を編集';
   if (view === 'bulk') return 'CSVを確認';
-  if (view === 'chatgpt') return 'JSONを貼り付ける';
+  if (view === 'chatgpt') return '生成AIで作る';
   if (view === 'copy') return 'コピー元を選ぶ';
   return 'その他の方法';
 }

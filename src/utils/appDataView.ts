@@ -158,6 +158,18 @@ export function buildAppDataView(data: AppData): AppDataView {
     }
   }
 
+  for (const folder of data.folders) {
+    if (!folder.parentFolderId) continue;
+    const parent = folderSummaries.get(folder.parentFolderId);
+    const child = folderSummaries.get(folder.id);
+    if (!parent || !child || folderById.get(folder.parentFolderId)?.parentFolderId) continue;
+    parent.setCount += child.setCount;
+    parent.questionCount += child.questionCount;
+    parent.reviewCount += child.reviewCount;
+    parent.answerCount += child.answerCount;
+    parent.correctCount += child.correctCount;
+  }
+
   const folders = data.folders.map((folder): FolderOverview => {
     const summary = folderSummaries.get(folder.id) ?? { ...createCollectionSummary(), setCount: 0 };
     return {

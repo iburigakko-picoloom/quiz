@@ -1,6 +1,7 @@
 import type { AppData, AppScreen, QuizResult } from '../types';
 
 export function getScreenKey(screen: AppScreen): string {
+  if (screen.name === 'questionDetail') return `question-${screen.questionId}`;
   if (screen.name === 'createProblemSet') return `create-${screen.editSetId ?? ''}-${screen.folderId ?? ''}`;
   if (screen.name === 'folder') return `folder-${screen.folderId}`;
   if (screen.name === 'community') return `community-${screen.tab ?? 'mine'}-${screen.groupId ?? ''}-${screen.shareSetId ?? ''}`;

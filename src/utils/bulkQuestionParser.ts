@@ -1,3 +1,5 @@
+import type { DetailedAnswer } from '../types';
+
 export interface BulkQuestionDraft {
   id: string;
   question: string;
@@ -6,6 +8,8 @@ export interface BulkQuestionDraft {
   answerIndexes?: number[];
   explanation: string;
   detailedExplanation?: string;
+  detailedAnswer?: DetailedAnswer;
+  questionImageIds?: string[];
   category: string;
   sourcePage: string;
   difficulty?: string;

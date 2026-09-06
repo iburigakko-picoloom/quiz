@@ -23,7 +23,7 @@ const noteDrawerSource = readSource('../src/components/CategoryNoteDrawer.tsx');
 const nativePlatformSource = readSource('../src/utils/nativePlatform.ts');
 
 test('problem-set creation uses a direct, concise JSON entry', () => {
-  assert.match(createSource, /title: 'JSONを貼り付ける'/);
+  assert.match(createSource, /title: '生成AIで作る'/);
   assert.match(createSource, /'JSONを読み取る'/);
   assert.match(createSource, /CHATGPT_MATERIAL_TEMPLATE_PROMPT/);
   assert.match(createSource, /CHATGPT_PAST_EXAM_TEMPLATE_PROMPT/);
@@ -103,8 +103,8 @@ test('review starts only from its problem set and the global review route is gon
 
 test('sync screen uses an eight-character pairing flow and keeps recovery details collapsed', () => {
   assert.match(syncSource, /この端末で同期を始める/);
-  assert.match(syncSource, /別の端末とつなぐ/);
-  assert.match(syncSource, /8文字の接続コードを発行/);
+  assert.match(syncSource, /別の端末を追加/);
+  assert.match(syncSource, /接続コードを表示/);
   assert.match(syncSource, /この端末をクラウドへ保存/);
   assert.match(syncSource, /クラウドからこの端末へ読込/);
   assert.match(syncSource, /<details className="sync-advanced">/);

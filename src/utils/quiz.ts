@@ -2,6 +2,7 @@ import type { AppData, Folder, ProblemSet, Question, QuestionProgress, QuizResul
 import { createId } from './id';
 import { isToday, nowIso } from './date';
 import { isReviewTarget } from './reviewTargets';
+import { folderSubtreeIds } from './folderHierarchy';
 
 export type ReviewLevelFilter = 'all' | 'level0' | 'level1' | 'level2' | 'level3' | 'ambiguous';
 export type EffectiveReviewLevel = 0 | 1 | 2 | 3 | 'graduated';
@@ -102,11 +103,15 @@ export function shuffleArray<T>(items: T[]): T[] {
   return copy;
 }
 
-export function addFolder(data: AppData, name: string): AppData {
+export function addFolder(data: AppData, name: string, parentFolderId?: string): AppData {
+  if (parentFolderId && !data.folders.some((folder) => folder.id === parentFolderId && !folder.parentFolderId)) {
+    throw new Error('子フォルダは親フォルダ直下にだけ作成できます。');
+  }
   const timestamp = nowIso();
   const folder: Folder = {
     id: createId('folder'),
     name: name.trim(),
+    ...(parentFolderId ? { parentFolderId } : {}),
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -114,16 +119,17 @@ export function addFolder(data: AppData, name: string): AppData {
 }
 
 export function deleteFolder(data: AppData, folderId: string): AppData {
-  const setIds = data.problemSets.filter((set) => set.folderId === folderId).map((set) => set.id);
+  const folderIds = folderSubtreeIds(data.folders, folderId);
+  const setIds = data.problemSets.filter((set) => folderIds.has(set.folderId)).map((set) => set.id);
   const questionIds = data.questions.filter((question) => setIds.includes(question.setId)).map((question) => question.id);
 
   return {
     ...data,
-    folders: data.folders.filter((folder) => folder.id !== folderId),
-    problemSets: data.problemSets.filter((set) => set.folderId !== folderId),
+    folders: data.folders.filter((folder) => !folderIds.has(folder.id)),
+    problemSets: data.problemSets.filter((set) => !folderIds.has(set.folderId)),
     questions: data.questions.filter((question) => !setIds.includes(question.setId)),
     progress: data.progress.filter((progress) => !questionIds.includes(progress.questionId)),
-    answerLogs: data.answerLogs.filter((log) => log.folderId !== folderId),
+    answerLogs: data.answerLogs.filter((log) => !questionIds.includes(log.questionId) && !setIds.includes(log.setId) && !folderIds.has(log.folderId)),
   };
 }
 
@@ -273,7 +279,10 @@ export function toggleAmbiguous(data: AppData, questionId: string): AppData {
 
 export function updateQuestionDetailedExplanation(data: AppData, questionId: string, detailedExplanation: string): AppData {
   const updatedAt = nowIso();
-  return { ...data, questions: data.questions.map((question) => question.id === questionId ? { ...question, detailedExplanation, updatedAt } : question) };
+  return { ...data, questions: data.questions.map((question) => question.id === questionId ? {
+    ...question, detailedExplanation, updatedAt,
+    detailedAnswer: { body: detailedExplanation, imageIds: question.detailedAnswer?.imageIds ?? [], updatedAt },
+  } : question) };
 }
 
 export function groupReviewQuestionsByLevel(data: AppData, questions: Question[]) {

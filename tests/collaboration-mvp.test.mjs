@@ -25,7 +25,7 @@ test('local AppData stays version 1 and cloud metadata is backward-compatible', 
 });
 
 test('the primary navigation exposes the five global destinations', () => {
-  for (const label of ['ホーム', '見つける', 'グループ', '問題セットを作る', '設定']) {
+  for (const label of ['ホーム', '検索', '作成', 'グループ', '設定']) {
     assert.match(primaryNavSource, new RegExp(`label: '${label}'`));
   }
   assert.doesNotMatch(screenSource, /community-tabs/);

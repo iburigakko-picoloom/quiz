@@ -8,6 +8,7 @@ import type {
   Question,
   QuestionProgress,
 } from '../types';
+import { normalizeFolderHierarchy } from './folderHierarchy';
 
 export type AppDataNormalizationResult =
   | { ok: true; data: AppData }
@@ -80,11 +81,12 @@ function normalizeFolders(values: unknown[]): NormalizationResult<Folder[]> {
     result.push({
       id: value.id,
       name: typeof value.name === 'string' ? value.name : '',
+      ...(isNonEmptyString(value.parentFolderId) ? { parentFolderId: value.parentFolderId } : {}),
       createdAt,
       updatedAt: normalizeDate(value.updatedAt, createdAt),
     });
   }
-  return { ok: true, data: result };
+  return { ok: true, data: normalizeFolderHierarchy(result) };
 }
 
 function normalizeProblemSets(
@@ -172,6 +174,20 @@ function normalizeQuestions(
       updatedAt: normalizeDate(value.updatedAt, createdAt),
     };
     if (typeof value.detailedExplanation === 'string') item.detailedExplanation = value.detailedExplanation;
+    if (value.detailedAnswer !== undefined) {
+      const detail = value.detailedAnswer;
+      if (!isRecord(detail) || typeof detail.body !== 'string' || !Array.isArray(detail.imageIds)
+        || detail.imageIds.length > 4 || !detail.imageIds.every(isNonEmptyString)) {
+        return invalid(`questions[${index}].detailedAnswer が不正です。`);
+      }
+      item.detailedAnswer = { body: detail.body, imageIds: [...new Set(detail.imageIds as string[])], updatedAt: normalizeDate(detail.updatedAt, item.updatedAt) };
+    }
+    if (value.questionImageIds !== undefined) {
+      if (!Array.isArray(value.questionImageIds) || !value.questionImageIds.every(isNonEmptyString)) {
+        return invalid(`questions[${index}].questionImageIds が不正です。`);
+      }
+      item.questionImageIds = [...new Set(value.questionImageIds as string[])];
+    }
     result.push(item);
   }
   return { ok: true, data: result };
