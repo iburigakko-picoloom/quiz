@@ -981,7 +981,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
         <section className="sync-card sync-card--setup">
           <div className="sync-card__title-row sync-card__title-row--top">
             <div>
-              <h2>端末をつなぐ</h2>
+              <h2>同期</h2>
             </div>
             <span className={`sync-status${hasStrongConnection && authenticated ? ' sync-status--ok' : ' sync-status--unset'}`}>
               {!authenticated ? 'ログイン待ち' : hasStrongConnection ? '接続済み' : '未接続'}
@@ -1002,15 +1002,11 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
               </div>
             </div>
           ) : hasStrongConnection ? (
-            <div className="sync-connected">
-              <div className="sync-connected__summary" role="status">
-                <span className="sync-connected__dot" aria-hidden="true" />
-                <span>
-                  <strong>この端末は同期に接続されています</strong>
-                </span>
-              </div>
+            <details className="sync-advanced">
+              <summary><strong>別の端末を追加</strong><ChevronDownIcon size={20} /></summary>
+              <div className="sync-advanced__body">
               <button type="button" className="sync-button sync-button--secondary" onClick={() => void handleIssuePairingCode()} disabled={busy || !configured || !authenticated}>
-                8文字の接続コードを発行
+                接続コードを表示
               </button>
               {issuedPairingCode ? (
                 <div className="sync-pairing-code" role="status" aria-live="polite">
@@ -1023,7 +1019,8 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
                   </button>
                 </div>
               ) : null}
-            </div>
+              </div>
+            </details>
           ) : (
             <button type="button" className="sync-start-button" onClick={handleGenerate} disabled={busy || !configured || !authenticated}>
               <SyncIcon size={22} />
@@ -1033,8 +1030,10 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
             </button>
           )}
 
-          <div className="sync-pairing-join">
-            <label htmlFor="sync-pairing-code">別の端末とつなぐ</label>
+          <details className="sync-advanced">
+            <summary><strong>{hasStrongConnection ? '接続先を変更' : '別の端末から引き継ぐ'}</strong><ChevronDownIcon size={20} /></summary>
+            <div className="sync-advanced__body">
+            <label htmlFor="sync-pairing-code">接続コード</label>
             <div className="sync-pairing-join__controls">
               <input
                 id="sync-pairing-code"
@@ -1051,17 +1050,16 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
               </button>
             </div>
             <small>元の端末で発行したコードを5分以内に入力します。</small>
-          </div>
+            </div>
+          </details>
         </section>
 
         {hasStrongConnection && syncIdConnected ? (
           <section className="sync-card sync-card--transfer">
-            <div className="sync-card__title-row">
-              <div>
-                <h2>データを同期</h2>
-              </div>
-            </div>
-
+            <details className="sync-advanced" open={!lastState.lastSyncAt || undefined}>
+              <summary><strong>{lastState.lastSyncAt ? '手動で保存・読み込み' : '最初の同期'}</strong><ChevronDownIcon size={20} /></summary>
+              <div className="sync-advanced__body">
+              {!lastState.lastSyncAt ? <p>この端末のデータを保存するか、保存済みのデータを読み込んでください。</p> : null}
             <div className="sync-transfer-actions">
               <button type="button" className="sync-transfer-button sync-transfer-button--primary" onClick={handleUpload} disabled={!canRun}>
                 <UploadIcon size={24} />
@@ -1076,11 +1074,13 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
                 </span>
               </button>
             </div>
+              </div>
+            </details>
 
             <div className="sync-auto-row">
               <div>
                 <strong>自動同期</strong>
-                <small>{autoCanRun ? '変更を自動でクラウドへ保存します' : autoEnabled ? '接続設定を確認してください' : '必要なときだけ手動で同期します'}</small>
+                {autoEnabled && !autoCanRun ? <small>接続設定を確認してください</small> : null}
               </div>
               <button
                 type="button"
@@ -1103,7 +1103,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
         <details className="sync-advanced">
           <summary>
             <span>
-              <strong>バックアップ・診断・詳細</strong>
+              <strong>詳細設定・バックアップ</strong>
             </span>
             <ChevronDownIcon size={20} />
           </summary>
