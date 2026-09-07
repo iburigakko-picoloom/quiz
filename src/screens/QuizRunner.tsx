@@ -882,7 +882,7 @@ function AnswerPanel({
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
     suppressSwipeClickRef.current = false;
     const target = event.target;
-    if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"], pre, table')) return;
+    if (target instanceof Element && target.closest('input, textarea:not(.answer-sheet__detail-input), select, [contenteditable="true"], pre, table')) return;
     detailSwipeStartRef.current = { x: event.clientX, y: event.clientY, id: event.pointerId, width: detailRailRef.current?.clientWidth || 1, axis: null };
   };
 

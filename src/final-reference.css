@@ -227,5 +227,5 @@
 .answer-sheet .answer-sheet__detail-open { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; margin-top: 12px; padding: 8px 0; color: var(--ui-accent); background: transparent; border: 0; border-top: 1px solid var(--ui-border); border-radius: 0; font-size: 14px; }
 .answer-sheet .answer-sheet__detail-heading { background: white; border-bottom: 1px solid var(--ui-border); }
 .answer-sheet .answer-sheet__detail-heading h2 { font-size: 16px; }
-.answer-sheet .answer-sheet__detail-input { min-height: 36dvh; border-radius: 6px; background: white; font-size: 16px; }
+.answer-sheet .answer-sheet__detail-input { min-height: 36dvh; border-radius: 6px; background: white; font-size: 16px; touch-action: pan-y pinch-zoom; }
 .answer-sheet .answer-sheet__clipboard-button, .answer-sheet .answer-sheet__detail-save, .answer-sheet .answer-sheet__detail-cancel { min-height: 44px; border-radius: 6px; font-size: 14px; }

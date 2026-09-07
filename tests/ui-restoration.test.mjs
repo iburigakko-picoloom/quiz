@@ -22,6 +22,7 @@ test('the historical answer sheet and screen transitions remain intact', () => {
   assert.match(quizSource, /className="answer-sheet__fixed" \{\.\.\.dragProps\}/);
   assert.match(quizSource, /onPointerDownCapture: handleDetailPointerDown/);
   assert.match(quizSource, /onPointerMoveCapture: handleDetailPointerMove/);
+  assert.match(quizSource, /textarea:not\(\.answer-sheet__detail-input\)/);
   assert.match(quizSource, /panelPage === 'answer' && deltaX < 0/);
   assert.match(quizSource, /panelPage === 'detail' && deltaX > 0/);
   assert.match(quizSource, /remarkPlugins=\{\[remarkGfm\]\}/);
