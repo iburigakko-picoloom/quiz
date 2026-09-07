@@ -1,10 +1,13 @@
 import type { AppData, AppScreen, QuizResult } from '../types';
 
 export function getScreenKey(screen: AppScreen): string {
+  if (screen.name === 'settings') return `settings-${screen.page ?? 'main'}`;
   if (screen.name === 'questionDetail') return `question-${screen.questionId}`;
+  if (screen.name === 'questionEdit') return `question-edit-${screen.questionId}`;
+  if (screen.name === 'detailedAnswer') return `detailed-answer-${screen.questionId}-${Boolean(screen.editing)}`;
   if (screen.name === 'createProblemSet') return `create-${screen.editSetId ?? ''}-${screen.folderId ?? ''}`;
   if (screen.name === 'folder') return `folder-${screen.folderId}`;
-  if (screen.name === 'community') return `community-${screen.tab ?? 'mine'}-${screen.groupId ?? ''}-${screen.shareSetId ?? ''}`;
+  if (screen.name === 'community') return `community-${screen.tab ?? 'mine'}-${screen.groupPage ?? ''}-${screen.groupId ?? ''}-${screen.shareSetId ?? ''}`;
   if (screen.name === 'problemSetDetail') return `detail-${screen.setId}`;
   if (screen.name === 'problemList') return `problem-list-${screen.setId}-${screen.sortMode ?? 'ordered'}`;
   if (screen.name === 'noteList') return `note-list-${screen.setId}`;

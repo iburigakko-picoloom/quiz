@@ -50,3 +50,33 @@ Do not treat passing existing tests as acceptance of the unfinished requirements
 - No changes to AnswerPanel, quiz correctness/drag logic, canvas drawing engine, AppData persistence format, app icon, or deployed backend.
 
 This remains an incremental implementation, not completion of the full prompt. Dedicated question/detailed-answer editors and images, quiz/results/audio, group management, account/backup/sync flows, destructive confirmation pages and full-app visual QA remain open as listed above.
+
+## Final HTML reference pass — 2026-09-07 (incomplete, approval required)
+
+Reference: `QuizMake_FINAL_UI_REFERENCE_2026-09-07.html`, together with the September 4 specification. The HTML is a visual reference, not a replacement runtime.
+
+Implemented:
+- White/blue reference styling, 54px common headers, compact flat rows, set metrics and two start buttons; retained horizontal filters and both prompt-copy actions.
+- Independent question editor and text detailed-answer editor/read page. Hidden metadata is retained; stale edits fail rather than replace a newer question. Changed question/answer content resets that question's learning state as before.
+- Focus-line quiz, circle/square selection markers, correct/relearned feedback and per-device effect-sound setting. Result score, wrong-only retry in session order, and independent session-answer list.
+- Answer sheet detailed content is now read-only, without affecting ambiguity registration. Drag capture dimensions, Pointer Capture and snap handlers were not changed. The old editor branch remains unreachable and can be removed in a subsequent cleanup.
+- Settings account/data pages, backup creation/history, verified automatic pre-import snapshots, local/cloud comparison, full-screen priority confirmations, and import completion page. Sync imports reject changed local snapshots; priority upload rechecks both sides and uses remote compare-and-swap.
+- Group create/join entry pages and set/member tabs. This is NOT yet the complete group folder/invitation implementation.
+
+Verification:
+- Final rerun: 190 regression tests passed and production build passed after all changes in this pass.
+- 390px browser: question/answer positioning, selection, answer persistence, sheet rendering; settings list and backup creation/readback/history. Previous 320px and tablet checks are recorded above; new real-device touch/pen/audio QA has not been performed.
+- Production build passed with existing chunk-size/dynamic-import warnings.
+
+Blocked external action:
+- Draft migration `supabase/migrations/20260907021448_quiz_group_folders_and_invite_preview.sql` was generated with the CLI and prepared locally. Applying it to project `xqknwsjbvczyexfxlgar` was REJECTED by automatic safety review: explicit approval of the production schema/RLS/privilege changes is required. No migration was applied. Do not bypass via another SQL transport. This draft is not deployed, not database-tested, and not included in the UI-only commit.
+- It adds separate group folders, optional placements, preset accent, guarded management RPCs, invitation preview/bound join and invitation reuse/revocation. Folder deletion returns references to group root without deleting source sets.
+- Existing project security advisors include warnings on pre-existing RPCs and unrelated application objects. No unrelated schema/privileges were modified. Advisor reference: https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable
+
+Still required for full acceptance:
+- Approve, database-test and apply the group migration; wire real folders/placements, accents, invite preview/full-page management, member menus and role handling. Current subject-derived grouping is still old behavior.
+- Image Blob persistence/compression/reorder and complete backup/sync/shared-image transport. Awaiting format choice: an image-containing ZIP (JSON manifest + separate images) satisfies no-Base64 JSON plus complete portable restoration; existing JSON imports must remain supported.
+- Verified account-linked external backup and delete-local-then-local-signout flow; initial entry and account-specific post-login comparison. Existing logout behavior is unchanged and must not be labeled as the requested secure cleanup flow.
+- Remaining question delete/note-category discovery, persisted navigation/scroll across reloads, exact destructive confirmations, import validation steps/error distinctions and broader accessibility/offline/recovery/mobile QA.
+
+Do not describe this pass as full specification completion or all-screen verification.

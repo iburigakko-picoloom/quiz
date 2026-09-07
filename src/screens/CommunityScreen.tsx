@@ -39,6 +39,8 @@ import './CommunityScreen.css';
 export type CommunityTab = 'mine' | 'groups' | 'discover';
 
 interface CommunityScreenProps {
+  groupPage?: 'create' | 'join';
+  onGroupPage: (page: 'create' | 'join') => void;
   data: AppData;
   initialTab?: CommunityTab;
   initialSetId?: string;
@@ -55,6 +57,8 @@ interface CommunityScreenProps {
 }
 
 export function CommunityScreen({
+  groupPage,
+  onGroupPage,
   data,
   initialTab = 'mine',
   initialSetId,
@@ -84,6 +88,7 @@ export function CommunityScreen({
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId ?? '');
   const [groupSets, setGroupSets] = useState<CloudProblemSet[]>([]);
   const [groupMembers, setGroupMembers] = useState<CloudGroupMember[]>([]);
+  const [groupDetailTab, setGroupDetailTab] = useState<'sets' | 'members'>('sets');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'new' | 'popular'>('new');
   const [subjectFilter, setSubjectFilter] = useState('all');
@@ -102,7 +107,7 @@ export function CommunityScreen({
   const publicRequestIdRef = useRef(0);
   const isGroupDetail = Boolean(initialGroupId);
   const isGroupSetDetail = isGroupDetail && Boolean(directSet);
-  const isPrimaryRoot = !initialSetId && !initialGroupId && !shareToken && (initialTab === 'discover' || initialTab === 'groups');
+  const isPrimaryRoot = !groupPage && !initialSetId && !initialGroupId && !shareToken && (initialTab === 'discover' || initialTab === 'groups');
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const canManageSelectedGroup = selectedGroup?.role === 'owner' || selectedGroup?.role === 'admin';
   const groupFolders = useMemo(() => buildGroupProblemSetFolders(groupSets), [groupSets]);
@@ -440,7 +445,7 @@ export function CommunityScreen({
     try {
       const invite = await createGroupInvite(groupId);
       await writeClipboardText(invite.code);
-      setAuthMessage(`招待コード ${invite.code} をコピーしました（7日間有効）。`);
+      setAuthMessage(`招待コードをコピーしました。有効期限：${new Date(invite.expiresAt).toLocaleString()}`);
     } catch (reason) {
       setError(getErrorMessage(reason));
     } finally {
@@ -469,7 +474,7 @@ export function CommunityScreen({
     }
   };
 
-  const headerTitle = isGroupSetDetail
+  const headerTitle = groupPage ? (groupPage === 'create' ? 'グループを作成' : '招待コードで参加') : isGroupSetDetail
     ? '問題セット'
     : isGroupDetail
       ? 'グループ詳細'
@@ -516,8 +521,12 @@ export function CommunityScreen({
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
+                    <div className="qm-group-tabs" role="tablist" aria-label="グループの表示">
+                      <button role="tab" aria-selected={groupDetailTab === 'sets'} onClick={() => setGroupDetailTab('sets')}>問題セット {groupSets.length}</button>
+                      <button role="tab" aria-selected={groupDetailTab === 'members'} onClick={() => setGroupDetailTab('members')}>メンバー {groupMembers.length}</button>
+                    </div>
                     {busy && groupFolders.length === 0 ? <div className="community-loading" role="status">読み込み中…</div> : null}
-                    <div className="community-group-folder-list" aria-label="グループのフォルダ">
+                    <div hidden={groupDetailTab !== 'sets'} className="community-group-folder-list" aria-label="グループのフォルダ">
                       {groupFolders.map((folder) => (
                         <section key={folder.id} className="community-group-folder">
                           <div className="community-group-folder__heading">
@@ -538,10 +547,9 @@ export function CommunityScreen({
                       {!busy && groupFolders.length === 0 ? <EmptyState title="問題セットはまだありません" /> : null}
                     </div>
                     {groupMembers.length > 0 ? (
-                      <details className="community-members">
-                        <summary>メンバー・管理 <span>{groupMembers.length}人</span></summary>
+                      <section hidden={groupDetailTab !== 'members'} className="community-members" aria-label="メンバー">
                         <div className="community-members__list">
-                          {groupMembers.map((member) => (
+                          {[...groupMembers].sort((a,b) => ({owner:0,admin:1,member:2}[a.role] - {owner:0,admin:1,member:2}[b.role])).map((member) => (
                             <div key={member.userId}>
                               <span><strong>{member.displayName}</strong><small>{roleLabel(member.role)}</small></span>
                               {member.role !== 'owner' && (canManageSelectedGroup || member.userId === session.user.id) ? (
@@ -550,7 +558,7 @@ export function CommunityScreen({
                             </div>
                           ))}
                         </div>
-                      </details>
+                      </section>
                     ) : null}
                   </>
                 )}
@@ -605,13 +613,19 @@ export function CommunityScreen({
             <section className="community-section">
               {!session ? <EmptyState title="グループ機能はログイン後に使えます" action="ログイン" onAction={() => setLoginOpen(true)} /> : (
                 <>
-                  <div className="community-group-actions">
+                  {groupPage ? <div className="community-group-actions qm-group-form">
+                    {groupPage === 'create' ? <>
                     <label>新しいグループ<input value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} /></label>
                     <button type="button" disabled={busy || !newGroupName.trim()} onClick={() => void createGroup()}>作成</button>
+                    </> : <>
                     <label>招待コードで参加<input value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} /></label>
                     <button type="button" disabled={busy || !inviteCode.trim()} onClick={() => void joinGroup()}>参加</button>
-                  </div>
-                  <div className="community-card-list">
+                    </>}
+                  </div> : <div className="qm-group-entry">
+                    <button className="library-row" onClick={() => onGroupPage('create')}>グループを作成 <ChevronRightIcon size={18} /></button>
+                    <button className="library-row" onClick={() => onGroupPage('join')}>招待コードで参加 <ChevronRightIcon size={18} /></button>
+                  </div>}
+                  <div hidden={Boolean(groupPage)} className="community-card-list">
                     {groups.map((group) => (
                       <article key={group.id} className="community-group-card">
                         <button type="button" className="community-group-card__main" onClick={() => onOpenGroup(group.id)}>

@@ -11,6 +11,7 @@ import { MissingResourceState } from '../components/MissingResourceState';
 import { getAnswerIndexes, getAnswerText, getChoiceLabel, getChoiceText, getProgress, getVirtualLevel, makeResult } from '../utils/quiz';
 import { resolveQuestionDetailedExplanation } from '../utils/questionView';
 import { readClipboardText } from '../utils/nativePlatform';
+import { getAnswerFeedback, playAnswerFeedback } from '../utils/answerFeedback';
 
 type AnswerSheetState = 'expanded' | 'default' | 'hidden';
 
@@ -53,6 +54,9 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
   const [hasAnswered, setHasAnswered] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
+  const sessionAnswersRef = useRef<NonNullable<QuizResult['sessionAnswers']>>([]);
+  const submittedQuestionRef = useRef<string | null>(null);
+  const [feedback, setFeedback] = useState<'correct' | 'relearned' | 'wrong' | null>(null);
   const [wrongCount, setWrongCount] = useState(0);
   const [addedReviewCount, setAddedReviewCount] = useState(0);
   const [answerSheetState, setAnswerSheetState] = useState<AnswerSheetState>('default');
@@ -225,9 +229,15 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   };
 
   const submitAnswer = (indexes: number[]) => {
-    if (answered) return;
+    if (answered || submittedQuestionRef.current === currentQuestion.id) return;
+    submittedQuestionRef.current = currentQuestion.id;
     const normalizedIndexes = Array.from(new Set(indexes)).sort((a, b) => a - b);
+    const previousCorrect = progress?.lastAnswerCorrect;
     const result = onAnswer(currentQuestion, normalizedIndexes, mode === 'review');
+    const kind = getAnswerFeedback(previousCorrect, result.isCorrect);
+    setFeedback(kind);
+    playAnswerFeedback(kind);
+    sessionAnswersRef.current.push({ question: currentQuestion, selectedIndexes: normalizedIndexes, correct: result.isCorrect, relearned: kind === 'relearned' });
     const answeredQuestionId = currentQuestion.id;
     setSelectedIndexes(normalizedIndexes);
     setLastCorrect(result.isCorrect);
@@ -278,6 +288,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
       if (currentIndex + 1 >= questions.length) {
         onFinish({
           ...makeResult(mode, title, setId, correctCount, wrongCount, addedReviewCount),
+          sessionAnswers: sessionAnswersRef.current,
           retry: {
             questionIds: questions.slice(initialIndex).map((question) => question.id),
             subtitle,
@@ -289,6 +300,8 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
       setSelectedIndexes([]);
       setLastCorrect(null);
       setHasAnswered(false);
+      submittedQuestionRef.current = null;
+      setFeedback(null);
       setAnswerSheetState('default');
       setSavedLevelLabel('');
       setAnswerSaveState('idle');
@@ -334,6 +347,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
         <main key={currentQuestion.id} className="quiz-runner__main quiz-runner__question-stage flex min-h-0 flex-1 flex-col">
           <section className="quiz-runner__question-panel flex h-[clamp(104px,17dvh,132px)] shrink-0 items-center justify-center overflow-hidden px-5 py-3 text-center">
             <div className="min-h-0 w-full">
+              <div className="quiz-question-kicker">QUESTION {currentIndex + 1}</div>
               {currentQuestion.category ? (
                 <div className="quiz-runner__question-category mb-1 truncate text-xs font-semibold">{currentQuestion.category}</div>
               ) : null}
@@ -344,7 +358,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
                 </div>
               ) : null}
               <div className={['quiz-runner__question-text mx-auto max-h-[96px] overflow-y-auto whitespace-pre-wrap break-words font-semibold leading-[1.45] no-scrollbar', questionTextClass].join(' ')}>
-                <span className="font-black">{registeredQuestionNumber}. </span><HighlightedQuestionText text={currentQuestion.question} phrases={instructionInfo.highlightPhrases} />
+                <span className="sr-only">{registeredQuestionNumber}. </span><HighlightedQuestionText text={currentQuestion.question} phrases={instructionInfo.highlightPhrases} />
               </div>
             </div>
           </section>
@@ -355,6 +369,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
                 key={`${currentQuestion.id}_${index}`}
                 text={getChoiceText(currentQuestion, index)}
                 label={getChoiceLabel(index)}
+                multiple={isMultipleAnswer}
                 choiceCount={currentQuestion.choices.length}
                 longChoice={choiceLengthInfo.longChoice}
                 veryLongChoice={choiceLengthInfo.veryLongChoice}
@@ -386,11 +401,11 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
               <button
                 type="button"
                 onClick={handleSubmitAnswer}
-                disabled={answered}
+                disabled={answered || selectedIndexes.length === 0}
                 aria-disabled={selectedIndexes.length === 0}
                 className={`quiz-runner__submit-button${selectedIndexes.length > 0 ? ' quiz-runner__submit-button--ready' : ''}`}
               >
-                {'\u89e3\u7b54'}
+                {selectedIndexes.length ? '解答する' : '選択してください'}
               </button>
             </div>
           </section>
@@ -407,13 +422,15 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
         ) : null}
 
         {answered ? createPortal(
+          <>
+          {feedback && feedback !== 'wrong' ? <div key={currentQuestion.id} className={`quiz-feedback quiz-feedback--${feedback}`} aria-hidden="true" /> : null}
           <AnswerPanel
             isCorrect={lastCorrect === true}
+            relearned={feedback === 'relearned'}
             answer={answerText}
             explanation={currentQuestion.explanation}
             detailedExplanation={currentDetailedExplanation}
             questionId={currentQuestion.id}
-            sourcePage={currentQuestion.sourcePage}
             savedLevelLabel={savedLevelLabel}
             answerSaveState={answerSaveState}
             readOnly={readOnly}
@@ -427,7 +444,8 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             onSaveDetailedExplanation={(value) => onSaveDetailedExplanation(currentQuestion.id, value)}
             onRetryAnswerSave={answerRetryRef.current ? handleRetryAnswerSave : undefined}
             onNext={handleNext}
-          />,
+          />
+          </>,
           document.body,
         ) : null}
       </div>
@@ -465,6 +483,7 @@ function ProgressBand({ label, percent }: { label: string; percent: number }) {
 function QuizChoiceButton({
   text,
   label,
+  multiple,
   choiceCount,
   longChoice,
   veryLongChoice,
@@ -476,6 +495,7 @@ function QuizChoiceButton({
 }: {
   text: string;
   label: string;
+  multiple: boolean;
   choiceCount: number;
   longChoice: boolean;
   veryLongChoice: boolean;
@@ -511,9 +531,10 @@ function QuizChoiceButton({
       aria-pressed={!answered ? isSelected : undefined}
       className={`quiz-choice${densityClass}${textSizeClass}${stateClass}`}
     >
-      <span className="quiz-choice__label">
-        ({label})
+      <span className={`quiz-choice__label${multiple ? ' quiz-choice__label--multiple' : ''}`} aria-hidden="true">
+        {answered && isCorrectChoice ? '✓' : answered && isSelected ? '×' : isSelected ? '●' : ''}
       </span>
+      <span className="sr-only">選択肢 {label}{answered && isCorrectChoice ? ' 正解' : answered && isSelected ? ' 不正解' : ''}</span>
       <span className="quiz-choice__text">{text}</span>
     </button>
   );
@@ -595,10 +616,10 @@ function splitTextByPhrases(text: string, phrases: string[]) {
 function AnswerPanel({
   questionId,
   isCorrect,
+  relearned,
   answer,
   explanation,
   detailedExplanation,
-  sourcePage,
   savedLevelLabel,
   answerSaveState,
   readOnly,
@@ -615,10 +636,10 @@ function AnswerPanel({
 }: {
   questionId: string;
   isCorrect: boolean;
+  relearned: boolean;
   answer: string;
   explanation: string;
   detailedExplanation: string;
-  sourcePage: string;
   savedLevelLabel: string;
   answerSaveState: 'idle' | 'saving' | 'saved' | 'error';
   readOnly: boolean;
@@ -1000,7 +1021,9 @@ function AnswerPanel({
   };
 
   const hasSavedDetail = savedDetailText.trim().length > 0;
-  const detailEditingDisabled = readOnly || answerSaveState !== 'saved';
+  // Learning is read-only for detailed answers; editing lives on its own page.
+  // Keep this separate from readOnly, which also controls the ambiguity action.
+  const detailEditingDisabled = true;
   const canSaveDetail = !detailEditingDisabled && hasUnsavedDetail && (detailText.trim().length > 0 || hasSavedDetail) && !isSavingDetail;
 
   const answerPage = (
@@ -1016,7 +1039,6 @@ function AnswerPanel({
       <div className="answer-sheet__explanation-block">
         <p className="answer-sheet__label">{'\u89e3\u8aac'}</p>
         <ExplanationContent text={explanation} className="answer-sheet__explanation-text" />
-        {sourcePage ? <p className="answer-sheet__source">{'\u53c2\u7167\uff1a'}{sourcePage}</p> : null}
         {state === 'expanded' && (!detailEditingDisabled || hasSavedDetail) ? (
           <button
             ref={detailOpenRef}
@@ -1131,6 +1153,7 @@ function AnswerPanel({
         <p className="sr-only" role="status" aria-live="polite">{isCorrect ? '\u6b63\u89e3\u3067\u3059' : '\u4e0d\u6b63\u89e3\u3067\u3059'}{`\u3002\u6b63\u89e3\u306f${answer}\u3067\u3059`}</p>
         <div className="answer-sheet__hidden-handle" />
         <div className="answer-sheet__hidden-bar">
+          {relearned ? <span className="answer-sheet__relearned">覚え直した</span> : null}
           <span className={'answer-sheet__hidden-result ' + (isCorrect ? 'answer-sheet__hidden-result--correct' : 'answer-sheet__hidden-result--wrong')}>{isCorrect ? '\u6b63\u89e3' : '\u4e0d\u6b63\u89e3'}</span>
           <button type="button" className="answer-sheet__hidden-open" onClick={onDefault}>{'\u89e3\u7b54\u3092\u898b\u308b'}</button>
           <button type="button" className="answer-sheet__hidden-next" onClick={handleNextWithDraftCheck} disabled={answerSaveState !== 'saved' || isSavingDetail}>{isLast ? '\u7d50\u679c\u3078' : '\u6b21\u3078'}</button>
@@ -1155,6 +1178,7 @@ function AnswerPanel({
       </button>
       <div className="answer-sheet__fixed" {...dragProps}>
         <div>
+          {relearned ? <span className="answer-sheet__relearned">覚え直した</span> : null}
           <div className={'answer-sheet__result ' + (isCorrect ? 'answer-sheet__result--correct' : 'answer-sheet__result--wrong')}>{isCorrect ? '\u6b63\u89e3' : '\u4e0d\u6b63\u89e3'}</div>
           {savedLevelLabel ? <p className="answer-sheet__saved">{savedLevelLabel}</p> : null}
         </div>

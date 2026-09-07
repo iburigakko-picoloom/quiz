@@ -32,7 +32,7 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
   const previousProtectedWorkReasonRef = useRef(protectedWorkReason);
   const resumeSyncRef = useRef<(() => void) | null>(null);
   protectedWorkReasonRef.current = protectedWorkReason;
-  const [pendingRemoteImport, setPendingRemoteImport] = useState<{ syncId: string; updatedAt: string } | null>(null);
+  const [pendingRemoteImport, setPendingRemoteImport] = useState<{ syncId: string; updatedAt: string; localHash: string } | null>(null);
   const [remoteImportBusy, setRemoteImportBusy] = useState(false);
 
   const cancelRemoteImport = () => {
@@ -100,9 +100,17 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
       return;
     }
 
+    if (download.value.updatedAt !== target.updatedAt) {
+      setLastSyncState({ status: '確認中にクラウドが更新されました。同期画面で確認してください', error: '' });
+      setPendingRemoteImport(null);
+      promptedRemoteUpdatedAtRef.current = '';
+      setRemoteImportBusy(false);
+      return;
+    }
     const imported = await importQuizMakeData(download.value.payload, {
       expectedSyncId: target.syncId,
       authoritativeUpdatedAt: download.value.updatedAt,
+      expectedLocalHash: target.localHash,
     });
     if (!imported.ok) {
       setLastSyncState({ status: 'クラウド読み込み失敗', error: imported.error });
@@ -260,7 +268,8 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
 
         promptedRemoteUpdatedAtRef.current = promptKey;
         setLastSyncState({ status: 'クラウドに新しいデータがあります', error: '' });
-        setPendingRemoteImport({ syncId: settings.syncId, updatedAt: meta.value.updatedAt });
+        const localHash = computePayloadHash(await exportQuizMakeData());
+        setPendingRemoteImport({ syncId: settings.syncId, updatedAt: meta.value.updatedAt, localHash });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'クラウド確認に失敗しました。';
         console.warn('Auto sync remote check failed.', error);
@@ -307,10 +316,11 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
 
   return (
     <ConfirmDialog
+      fullPage
       open={pendingRemoteImport !== null && protectedWorkReason === null}
       title={'クラウドに新しいデータがあります'}
-      message={'この端末のデータをクラウドの内容で上書きします。\n必要な場合は同期設定画面の「現在データをJSONバックアップ」で先に保存してください。'}
-      confirmLabel={remoteImportBusy ? '読み込み中…' : '読み込む'}
+      message={'残す：クラウド\n上書き：この端末\n\n復元用バックアップを作成・読み戻し確認してから上書きします。'}
+      confirmLabel={remoteImportBusy ? '読み込み中…' : 'バックアップして端末を上書き'}
       busy={remoteImportBusy}
       onCancel={cancelRemoteImport}
       onConfirm={() => void confirmRemoteImport()}

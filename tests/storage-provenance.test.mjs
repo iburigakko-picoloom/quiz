@@ -127,6 +127,10 @@ function createIndexedDbHarness() {
 
   function createObjectStore(values, transaction, beginRequest, maybeComplete) {
     return {
+      add(value, key = value.id) {
+        return beginRequest(() => { if (values.has(String(key))) throw new Error('ConstraintError'); values.set(String(key), structuredClone(value)); return key; });
+      },
+      getAll() { return beginRequest(() => [...values.values()]); },
       get(key) {
         return beginRequest(() => values.get(String(key)));
       },
@@ -357,6 +361,7 @@ test('cloud replacement re-establishes app and note authority and clears prior t
   });
 
   assert.equal(imported.ok, true);
+  assert.equal(idb.store('quiz-make-backups', 'backups').size, 1, 'replacement keeps a durable pre-import snapshot');
   assert.equal(localStorage.getItem(storage.APP_DATA_RECOVERY_REQUIRED_KEY), null);
   assert.equal(localStorage.getItem(notes.CATEGORY_NOTES_RECOVERY_REQUIRED_KEY), null);
   assert.deepEqual(JSON.parse(localStorage.getItem(notes.CATEGORY_NOTES_MANIFEST_KEY)), {

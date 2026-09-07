@@ -116,6 +116,7 @@ export interface ImportedProblemSet {
 }
 
 export interface QuizResult {
+  sessionAnswers?: { question: Question; selectedIndexes: number[]; correct: boolean; relearned: boolean }[];
   mode: 'quiz' | 'review';
   title: string;
   setId?: string;
@@ -159,9 +160,12 @@ export interface QuizSession {
 export type AppScreen =
   | { name: 'home' }
   | { name: 'search' }
+  | { name: 'backupComplete'; folderCount: number; setCount: number; questionCount: number }
   | { name: 'questionDetail'; questionId: string; backScreen: AppScreen }
-  | { name: 'settings' }
-  | { name: 'community'; tab?: 'mine' | 'groups' | 'discover'; groupId?: string; shareSetId?: string; shareToken?: string; backScreen?: AppScreen }
+  | { name: 'questionEdit'; questionId: string; backScreen: AppScreen }
+  | { name: 'detailedAnswer'; questionId: string; backScreen: AppScreen; editing?: boolean }
+  | { name: 'settings'; page?: 'account' | 'transfer' | 'backups' | 'logout' }
+  | { name: 'community'; tab?: 'mine' | 'groups' | 'discover'; groupPage?: 'create' | 'join'; groupId?: string; shareSetId?: string; shareToken?: string; backScreen?: AppScreen }
   | { name: 'sync' }
   | { name: 'privacy' }
   | { name: 'createProblemSet'; folderId?: string; editSetId?: string; backScreen?: AppScreen }
@@ -169,6 +173,7 @@ export type AppScreen =
   | { name: 'problemSetDetail'; setId: string }
   | { name: 'problemList'; setId: string; sortMode?: ProblemSortMode }
   | { name: 'noteList'; setId: string }
+  | { name: 'sessionAnswers'; result: QuizResult }
   | { name: 'noteDetail'; setId: string; category: string; backScreen?: AppScreen }
   | { name: 'import'; folderId: string; newFolderName?: string; backScreen?: AppScreen }
   | { name: 'quiz'; setId: string; mode: QuizMode }

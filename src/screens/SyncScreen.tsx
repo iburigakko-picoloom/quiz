@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SyncComparison } from '../components/SyncComparison';
+import { saveBackupPayload } from '../utils/backupRepository';
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ChevronDownIcon, CopyIcon, DownloadIcon, SyncIcon, UploadIcon } from '../components/UiIcons';
@@ -79,6 +81,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
     payload: SyncPayload;
     summary: SyncPayloadSummary;
     remoteUpdatedAt: string;
+    localHash: string;
   } | null>(null);
   const [pendingCloudOverwrite, setPendingCloudOverwrite] = useState<{
     syncId: string;
@@ -705,7 +708,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
     setMessage(`クラウドへ保存しました。更新: ${formatDateTime(verify.value.updatedAt)} / ${formatSyncSummary(remoteSummary)}`);
   };
 
-  const handleUpload = async () => {
+  const handleUpload = async (preparedPayload?: SyncPayload, confirmedRemoteUpdatedAt?: string) => {
     if (!configured) {
       setError('クラウド同期の接続設定が完了していません。');
       return;
@@ -721,10 +724,10 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
 
     try {
       const operationSyncId = normalizedSyncId;
-      const payload = await exportQuizMakeData();
+      const payload = preparedPayload ?? await exportQuizMakeData();
       const localHash = computePayloadHash(payload);
       const localSummary = summarizeSyncPayload(payload);
-      await uploadAndVerify(operationSyncId, payload, localHash, localSummary, false);
+      await uploadAndVerify(operationSyncId, payload, localHash, localSummary, Boolean(preparedPayload && confirmedRemoteUpdatedAt), confirmedRemoteUpdatedAt);
     } catch (caughtError) {
       const detail = caughtError instanceof Error ? caughtError.message : String(caughtError);
       setMessage('');
@@ -754,6 +757,13 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
     setError('');
     setMessage('確認済みの内容でクラウドを上書きしています...');
     try {
+      const [latestLocal, latestRemote] = await Promise.all([exportQuizMakeData(), downloadSyncData(target.syncId)]);
+      if (!latestRemote.ok) throw new Error(latestRemote.error);
+      if (computePayloadHash(latestLocal) !== target.localHash || latestRemote.value?.updatedAt !== target.expectedRemoteUpdatedAt) {
+        throw new Error('確認中に内容が更新されました。同期状態を確認し直してください。');
+      }
+      await saveBackupPayload(latestLocal, 'before-sync');
+      await saveBackupPayload(latestRemote.value.payload, 'before-sync');
       await uploadAndVerify(
         target.syncId,
         target.payload,
@@ -804,12 +814,16 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
     }
 
     const remoteSummary = summarizeSyncPayload(result.value.payload);
+    let localHash: string;
+    try { localHash = computePayloadHash(await exportQuizMakeData()); }
+    catch { setError('端末の状態を確認できないため、読み込みを中止しました。'); return; }
     setMessage('');
     setPendingCloudImport({
       syncId: operationSyncId,
       payload: result.value.payload,
       summary: remoteSummary,
       remoteUpdatedAt: result.value.updatedAt,
+      localHash,
     });
   };
 
@@ -855,6 +869,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
         payload: latestRemote.value.payload,
         summary: latestSummary,
         remoteUpdatedAt: latestRemote.value.updatedAt,
+        localHash: target.localHash,
       });
       setMessage('確認中にクラウドデータが更新されたため、最新の内容に更新しました。内容を確認して、もう一度読み込んでください。');
       return;
@@ -864,6 +879,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
     const importResult = await importQuizMakeData(latestRemote.value.payload, {
       expectedSyncId: target.syncId,
       authoritativeUpdatedAt: latestRemote.value.updatedAt,
+      expectedLocalHash: target.localHash,
     });
     setLastState(getLastSyncState());
     if (!importResult.ok) {
@@ -1056,26 +1072,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
 
         {hasStrongConnection && syncIdConnected ? (
           <section className="sync-card sync-card--transfer">
-            <details className="sync-advanced" open={!lastState.lastSyncAt || undefined}>
-              <summary><strong>{lastState.lastSyncAt ? '手動で保存・読み込み' : '最初の同期'}</strong><ChevronDownIcon size={20} /></summary>
-              <div className="sync-advanced__body">
-              {!lastState.lastSyncAt ? <p>この端末のデータを保存するか、保存済みのデータを読み込んでください。</p> : null}
-            <div className="sync-transfer-actions">
-              <button type="button" className="sync-transfer-button sync-transfer-button--primary" onClick={handleUpload} disabled={!canRun}>
-                <UploadIcon size={24} />
-                <span>
-                  <strong>{busy ? '処理中...' : 'この端末をクラウドへ保存'}</strong>
-                </span>
-              </button>
-              <button type="button" className="sync-transfer-button" onClick={handleDownload} disabled={!canRun}>
-                <DownloadIcon size={24} />
-                <span>
-                  <strong>{busy ? '処理中...' : 'クラウドからこの端末へ読込'}</strong>
-                </span>
-              </button>
-            </div>
-              </div>
-            </details>
+            <SyncComparison syncId={normalizedSyncId} disabled={!canRun} onUpload={handleUpload} onDownload={handleDownload} />
 
             <div className="sync-auto-row">
               <div>
@@ -1244,15 +1241,17 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
       />
       <ConfirmDialog
         open={pendingCloudImport !== null}
+        fullPage
         title={'クラウドから読み込みますか？'}
-        message={pendingCloudImport ? `クラウドのデータでこの端末のデータを上書きします。\n\nクラウド内容: ${formatSyncSummary(pendingCloudImport.summary)}\n\n必要な場合は、先に詳細メニューの「JSONバックアップを保存」を実行してください。` : ''}
-        confirmLabel={busy ? '読み込み中…' : '読み込む'}
+        message={pendingCloudImport ? `残す：クラウド（${formatDateTime(pendingCloudImport.remoteUpdatedAt)}）\n${formatSyncSummary(pendingCloudImport.summary)}\n\n上書き：この端末\n端末の復元用バックアップを作成・読み戻し確認してから実行します。` : ''}
+        confirmLabel={busy ? '読み込み中…' : 'バックアップして端末を上書き'}
         busy={busy}
         onCancel={cancelCloudImport}
         onConfirm={() => void confirmCloudImport()}
       />
       <ConfirmDialog
         open={pendingCloudOverwrite !== null}
+        fullPage
         title="クラウドに別のデータがあります"
         message={pendingCloudOverwrite ? `この端末が最後に確認した後で、クラウド側が更新されています。\n\nこの端末の内容で強制的に上書きしますか？\n端末内容: ${formatSyncSummary(pendingCloudOverwrite.summary)}\n\n必要な場合は、先に詳細メニューの「JSONバックアップを保存」を実行してください。` : ''}
         confirmLabel="強制上書き"

@@ -46,7 +46,8 @@ test('discovery and group screens remove redundant copy explanations', () => {
   assert.doesNotMatch(communitySource, /placeholder=/);
   assert.match(communitySource, /グループ詳細/);
   assert.match(communitySource, /community-group-folder-list/);
-  assert.match(communitySource, /<details className="community-members">/);
+  assert.match(communitySource, /role="tablist" aria-label="グループの表示"/);
+  assert.match(communitySource, /hidden=\{groupDetailTab !== 'members'\}/);
   assert.match(communitySource, /自分の問題にコピー/);
 });
 
@@ -106,8 +107,12 @@ test('sync screen uses an eight-character pairing flow and keeps recovery detail
   assert.match(syncSource, /この端末で同期を始める/);
   assert.match(syncSource, /別の端末を追加/);
   assert.match(syncSource, /接続コードを表示/);
-  assert.match(syncSource, /この端末をクラウドへ保存/);
-  assert.match(syncSource, /クラウドからこの端末へ読込/);
+  const comparisonSource = readSource('../src/components/SyncComparison.tsx');
+  assert.match(syncSource, /<SyncComparison/);
+  assert.match(comparisonSource, /端末を優先/);
+  assert.match(comparisonSource, /クラウドを優先/);
+  assert.match(comparisonSource, /saveBackupPayload\(local,'before-sync'\)/);
+  assert.match(comparisonSource, /remote.value\?\.updatedAt !== pending.remote\?\.updatedAt/);
   assert.match(syncSource, /<details className="sync-advanced">/);
   assert.match(syncSource, /復旧用の同期ID/);
   assert.match(syncSource, /setStoredSyncId\(''\)/);

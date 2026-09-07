@@ -50,7 +50,8 @@ test('groups navigate to a dedicated detail with foldered problem sets', () => {
   assert.match(screenSource, /initialGroupId/);
   assert.match(screenSource, /community-group-folder-list/);
   assert.match(screenSource, /community-group-set-list/);
-  assert.match(screenSource, /<details className="community-members">/);
+  assert.match(screenSource, /role="tablist" aria-label="グループの表示"/);
+  assert.match(screenSource, /hidden=\{groupDetailTab !== 'members'\}/);
   assert.doesNotMatch(screenSource, /selectedGroupId === group\.id/);
 });
 

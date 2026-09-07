@@ -9,6 +9,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   busy?: boolean;
+  fullPage?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -20,6 +21,7 @@ export function ConfirmDialog({
   confirmLabel = '\u524a\u9664\u3059\u308b',
   cancelLabel = '\u30ad\u30e3\u30f3\u30bb\u30eb',
   busy = false,
+  fullPage = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -77,7 +79,7 @@ export function ConfirmDialog({
 
   return createPortal(
     <div
-      className="confirm-dialog"
+      className={`confirm-dialog${fullPage ? ' confirm-dialog--full-page' : ''}`}
       role="presentation"
       onMouseDown={(event) => {
         if (!busy && event.target === event.currentTarget) onCancel();

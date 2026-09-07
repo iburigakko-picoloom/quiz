@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
+import { BackButton } from '../components/BackButton';
+import { isAnswerSoundEnabled, setAnswerSoundEnabled } from '../utils/answerFeedback';
 import {
   ChevronRightIcon,
   DocumentOutlineIcon,
@@ -24,6 +26,9 @@ import {
 import './SettingsScreen.css';
 
 interface SettingsScreenProps {
+  page?: 'account' | 'transfer' | 'backups' | 'logout';
+  onNavigate: (page: 'account' | 'transfer' | 'backups' | 'logout') => void;
+  onBack: () => void;
   onExport: () => void;
   onImportBackup: (file: File) => Promise<string | null>;
   onClearAll: () => Promise<boolean>;
@@ -31,7 +36,8 @@ interface SettingsScreenProps {
   onOpenPrivacy: () => void;
 }
 
-export function SettingsScreen({ onExport, onImportBackup, onClearAll, onOpenSync, onOpenPrivacy }: SettingsScreenProps) {
+export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBackup, onClearAll, onOpenSync, onOpenPrivacy }: SettingsScreenProps) {
+  const [sound, setSound] = useState(isAnswerSoundEnabled);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState('');
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
@@ -151,10 +157,23 @@ export function SettingsScreen({ onExport, onImportBackup, onClearAll, onOpenSyn
     <Layout>
       <div className="settings-screen">
         <header className="settings-screen__header">
-          <h1>設定</h1>
+          {page ? <BackButton onClick={onBack} /> : null}
+          <h1>{page === 'account' ? 'アカウント' : page === 'transfer' ? 'インポート・エクスポート' : page === 'backups' ? 'バックアップ' : page === 'logout' ? 'ログアウト' : '設定'}</h1>
         </header>
 
         <main className="settings-screen__body">
+          {!page ? <>
+            <SettingsRow icon={<ProfileIcon />} title={session ? displayName || 'アカウント' : '未ログイン'} detail={session ? 'ログイン中' : undefined} arrow onClick={() => onNavigate('account')} />
+            <section className="settings-section"><div className="settings-section__heading"><h2>学習</h2></div>
+              <label className="settings-row"><span className="settings-row__icon"><DocumentOutlineIcon /></span><span className="settings-row__text"><strong>解答効果音</strong></span><input type="checkbox" role="switch" checked={sound} onChange={(event) => { try { setAnswerSoundEnabled(event.target.checked); setSound(event.target.checked); setMessage(''); } catch { setMessage('設定を保存できませんでした。'); } }} /></label>
+            </section>
+            <section className="settings-section"><div className="settings-section__heading"><h2>データ</h2></div>
+              <SettingsRow icon={<SyncIcon />} title="同期" arrow onClick={onOpenSync} />
+              <SettingsRow icon={<DownloadIcon />} title="バックアップ" arrow onClick={() => onNavigate('backups')} />
+              <SettingsRow icon={<UploadIcon />} title="インポート・エクスポート" arrow onClick={() => onNavigate('transfer')} />
+            </section>
+          </> : null}
+          {page === 'account' ? <>
           <section className="settings-section" aria-labelledby="settings-account-title">
             <div className="settings-section__heading">
               <h2 id="settings-account-title">アカウント</h2>
@@ -187,18 +206,26 @@ export function SettingsScreen({ onExport, onImportBackup, onClearAll, onOpenSyn
             {accountError ? <p className="settings-account__notice settings-account__notice--error" role="alert">{accountError}</p> : null}
           </section>
 
+          <SettingsRow icon={<SyncIcon />} title="同期" arrow onClick={onOpenSync} />
+          </> : null}
+
+          {page === 'transfer' || page === 'backups' ? <>
           <section className="settings-section" aria-labelledby="settings-data-title">
             <div className="settings-section__heading"><h2 id="settings-data-title">データ管理</h2></div>
-            <SettingsRow icon={<SyncIcon />} title="端末間の同期" arrow onClick={onOpenSync} />
-            <SettingsRow icon={<DownloadIcon />} title="バックアップを書き出す" onClick={onExport} />
-            <SettingsRow icon={<UploadIcon />} title="バックアップを読み込む" onClick={() => fileInputRef.current?.click()} />
+            <SettingsRow icon={<UploadIcon />} title="アプリデータを読み込む" onClick={() => fileInputRef.current?.click()} />
+            <SettingsRow icon={<DownloadIcon />} title="アプリデータを書き出す" onClick={onExport} />
+            <p>問題セットJSONの登録は「作成」から行います</p>
           </section>
+          </> : null}
 
+          {!page ? <>
           <section className="settings-section" aria-labelledby="settings-info-title">
             <div className="settings-section__heading"><h2 id="settings-info-title">アプリ情報</h2></div>
             <SettingsRow icon={<DocumentOutlineIcon />} title="プライバシーポリシー" arrow onClick={onOpenPrivacy} />
           </section>
+          </> : null}
 
+          {page === 'transfer' ? <details><summary>その他の操作</summary>
           <section className="settings-section settings-section--danger" aria-labelledby="settings-danger-title">
             <div className="settings-section__heading">
               <h2 id="settings-danger-title">データの削除</h2>
@@ -206,6 +233,7 @@ export function SettingsScreen({ onExport, onImportBackup, onClearAll, onOpenSyn
             </div>
             <SettingsRow icon={<TrashIcon />} title="端末の学習データを削除" detail="フォルダ・問題・履歴・ノートを消去" danger onClick={() => setClearConfirmOpen(true)} />
           </section>
+          </details> : null}
 
           {message ? <div className={message.includes('失敗') ? 'settings-screen__notice settings-screen__notice--error' : 'settings-screen__notice'} role="status">{message}</div> : null}
         </main>

@@ -12,10 +12,16 @@ import { HomeScreen } from './screens/HomeScreen';
 import { FolderScreen } from './screens/FolderScreen';
 import { SearchScreen } from './screens/SearchScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
+import { QuestionEditScreen } from './screens/QuestionEditScreen';
+import { DetailedAnswerScreen } from './screens/DetailedAnswerScreen';
 import { NoteOverviewScreen } from './screens/NoteOverviewScreen';
 import { ProblemSetDetailScreen } from './screens/ProblemSetDetailScreen';
 import { ProblemListScreen } from './screens/ProblemListScreen';
 import { ResultScreen } from './screens/ResultScreen';
+import { SessionAnswersScreen } from './screens/SessionAnswersScreen';
+import { BackupScreen } from './screens/BackupScreen';
+import { BackupCompleteScreen } from './screens/BackupCompleteScreen';
+import { saveBackupPayload } from './utils/backupRepository';
 import type { CreateProblemSetSubmission, LegacyImportTarget } from './screens/CreateProblemSetScreen';
 import { AutoSyncController } from './components/AutoSyncController';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -1088,6 +1094,8 @@ export default function App() {
     setBackupImportError('');
 
     if (target.kind === 'legacy') {
+      try { await saveBackupPayload(await exportQuizMakeRecoveryData(), 'before-import'); }
+      catch { setBackupImportError('復元用バックアップを保存できないため、読み込みを中止しました。'); setBackupImportBusy(false); return; }
       const saved = await persistThenCommitData(target.data);
       if (!saved) {
         setBackupImportError('バックアップを端末へ保存できませんでした。現在の画面を閉じず、空き容量や保存設定を確認してください。');
@@ -1102,7 +1110,7 @@ export default function App() {
       setPendingBackupImport(null);
       setBackupImportBusy(false);
       setStorageLoadError('');
-      replaceScreen({ name: 'home' });
+      replaceScreen({ name: 'backupComplete', folderCount: target.data.folders.length, setCount: target.data.problemSets.length, questionCount: target.data.questions.length });
       return;
     }
 
@@ -1128,7 +1136,7 @@ export default function App() {
     setPendingBackupImport(null);
     setBackupImportBusy(false);
     setStorageLoadError('');
-    replaceScreen({ name: 'home' });
+    replaceScreen({ name: 'backupComplete', folderCount: loaded.folders.length, setCount: loaded.problemSets.length, questionCount: loaded.questions.length });
   };
   const handleStartQuizSession = (session: QuizSession) => {
     navigate({ name: 'quizSession', session });
@@ -1264,12 +1272,44 @@ export default function App() {
         />
       </Suspense>
     );
+  } else if (screen.name === 'backupComplete') {
+    content = <BackupCompleteScreen {...screen} onHome={goHome} />;
   } else if (screen.name === 'search') {
     content = <SearchScreen data={data} onOpenSet={(setId) => navigate({ name: 'problemSetDetail', setId })} onOpenQuestion={(questionId) => navigate({ name: 'questionDetail', questionId, backScreen: { name: 'search' } })} onDiscover={() => navigate({ name: 'community', tab: 'discover', backScreen: { name: 'search' } })} />;
   } else if (screen.name === 'questionDetail') {
-    content = <QuestionDetailScreen data={data} questionId={screen.questionId} onBack={() => goBackTo(screen.backScreen)} onEdit={(setId) => navigate({ name: 'createProblemSet', editSetId: setId, backScreen: screen })} />;
+    content = <QuestionDetailScreen data={data} questionId={screen.questionId} onBack={() => goBackTo(screen.backScreen)}
+      onEdit={() => navigate({ name: 'questionEdit', questionId: screen.questionId, backScreen: screen })}
+      onDetail={(editing) => navigate({ name: 'detailedAnswer', questionId: screen.questionId, editing, backScreen: screen })}
+      onNote={(setId, category) => navigate({ name: 'noteDetail', setId, category, backScreen: screen })} />;
+  } else if (screen.name === 'questionEdit' || screen.name === 'detailedAnswer') {
+    const question = data.questions.find((item) => item.id === screen.questionId);
+    const finishEdit = () => {
+      if (getScreenKey(screenRef.current) !== getScreenKey(screen)) return;
+      setCreateDraftDirty(false); createDraftDirtyRef.current = false;
+      confirmedProtectedExitRef.current = true;
+      performBackNavigation(screen.backScreen);
+    };
+    content = !question ? <div className="library-page"><button onClick={() => goBackTo(screen.backScreen)}>戻る</button><p>問題が見つかりません</p></div> : screen.name === 'questionEdit' ?
+      <QuestionEditScreen question={question} onBack={() => goBackTo(screen.backScreen)} onDirtyChange={setCreateDraftDirty} onSave={async (draft, original) => {
+        const current = dataRef.current;
+        const latest = current.questions.find((item) => item.id === original.id);
+        if (!latest || JSON.stringify(latest) !== JSON.stringify(original)) return '問題が別の操作で更新されました。入力内容を控えて開き直してください。';
+        const choices = draft.choices.map((choice) => choice.trim()) as Question['choices'];
+        const answers = getAnswerIndexes(draft);
+        if (!draft.question.trim() || choices.some((choice) => !choice) || !answers.length) return '問題文、選択肢、正解を確認してください。';
+        const next = { ...latest, question: draft.question.trim(), choices, answerIndex: answers[0], answerIndexes: answers.length > 1 ? answers : undefined, answerText: answers.map((index) => choices[index]).join(' / '), explanation: draft.explanation, category: draft.category.trim() || '未分類', updatedAt: nowIso() };
+        const reset = hasQuestionLearningContentChanged(latest, next);
+        const saved = await persistThenCommitData({ ...current, questions: current.questions.map((item) => item.id === next.id ? next : item), progress: reset ? current.progress.filter((item) => item.questionId !== next.id) : current.progress, answerLogs: reset ? current.answerLogs.filter((item) => item.questionId !== next.id) : current.answerLogs });
+        if (!saved) return '保存できませんでした。入力内容を残しています。';
+        finishEdit(); return null;
+      }} /> : <DetailedAnswerScreen question={question} editing={Boolean(screen.editing)} onBack={() => goBackTo(screen.backScreen)} onEdit={() => replaceScreen({ ...screen, editing: true })} onDirtyChange={setCreateDraftDirty} onSave={async (body, original) => {
+        const latest = dataRef.current.questions.find((item) => item.id === original.id);
+        if (!latest || JSON.stringify(latest) !== JSON.stringify(original)) return '問題が別の操作で更新されました。入力内容を控えて開き直してください。';
+        await handleSaveDetailedExplanation(original.id, body);
+        finishEdit(); return null;
+      }} />;
   } else if (screen.name === 'community') {
-    const communityBackScreen = screen.groupId
+    const communityBackScreen = screen.groupId || screen.groupPage
       ? screen.backScreen ?? { name: 'community' as const, tab: 'groups' as const }
       : screen.backScreen && screen.backScreen.name !== 'community'
         ? screen.backScreen
@@ -1277,6 +1317,8 @@ export default function App() {
     content = (
       <Suspense fallback={<div className="quiz-app-loading">共有機能を読み込み中...</div>}>
         <CommunityScreen
+          groupPage={screen.groupPage}
+          onGroupPage={(groupPage) => navigate({ name: 'community', tab: 'groups', groupPage, backScreen: { name: 'community', tab: 'groups' } })}
           data={data}
           initialTab={screen.tab}
           initialSetId={screen.shareSetId}
@@ -1437,11 +1479,21 @@ export default function App() {
         returnLabel={getResultReturnLabel(returnScreen)}
         onReturn={returnScreen.name === 'home' ? goHome : () => goBackTo(returnScreen)}
         onRetry={() => handleRetry(screen.result)}
+        onRetryWrong={() => {
+          const questions = (screen.result.sessionAnswers ?? []).filter((answer) => !answer.correct).map((answer) => answer.question);
+          if (questions.length) navigate({ name: 'quizSession', session: { title: screen.result.title, questions, mode: screen.result.mode, setId: screen.result.setId, backScreen: returnScreen, isPreview: screen.result.retry?.isPreview } });
+        }}
+        onOpenAnswers={() => navigate({ name: 'sessionAnswers', result: screen.result })}
       />
     );
+  } else if (screen.name === 'sessionAnswers') {
+    content = <SessionAnswersScreen result={screen.result} onBack={() => goBackTo({ name: 'result', result: screen.result })} />;
   } else if (screen.name === 'settings') {
-    content = (
+    content = screen.page === 'backups' ? <BackupScreen onBack={() => goBackTo({ name: 'settings' })} onRestore={handleImportBackup} /> : (
       <SettingsScreen
+        page={screen.page}
+        onNavigate={(page) => navigate({ name: 'settings', page })}
+        onBack={() => goBackTo({ name: 'settings' })}
         onExport={handleExport}
         onImportBackup={handleImportBackup}
         onClearAll={handleClearAll}
@@ -1483,9 +1535,10 @@ export default function App() {
       ) : null}
       <ConfirmDialog
         open={pendingBackupImport !== null}
+        fullPage
         title={'バックアップを読み込みますか？'}
         message={pendingBackupImport ? getBackupImportMessage(pendingBackupImport) : ''}
-        confirmLabel={backupImportBusy ? '読み込み中…' : '読み込む'}
+        confirmLabel={backupImportBusy ? '読み込み中…' : 'バックアップして読み込む'}
         busy={backupImportBusy}
         onCancel={cancelImportBackup}
         onConfirm={() => void confirmImportBackup()}
@@ -1565,7 +1618,7 @@ function isQuizInProgressScreen(screen: AppScreen) {
 
 function getProtectedExitReason(screen: AppScreen, createDraftDirty: boolean): 'quiz' | 'create' | null {
   if (isQuizInProgressScreen(screen)) return 'quiz';
-  if (screen.name === 'createProblemSet' && createDraftDirty) return 'create';
+  if ((screen.name === 'createProblemSet' || screen.name === 'questionEdit' || (screen.name === 'detailedAnswer' && screen.editing)) && createDraftDirty) return 'create';
   return null;
 }
 
@@ -1597,9 +1650,9 @@ function getUpdateBlockedMessage(reason: ProtectedWorkReason) {
 function getPrimaryNavItem(screen: AppScreen): PrimaryNavItem | null {
   if (screen.name === 'search') return 'discover';
   if (screen.name === 'home') return 'home';
-  if (screen.name === 'settings') return 'settings';
+  if (screen.name === 'settings' && !screen.page) return 'settings';
   if (screen.name === 'createProblemSet') return 'create';
-  if (screen.name === 'community' && !screen.groupId && !screen.shareSetId && !screen.shareToken) {
+  if (screen.name === 'community' && !screen.groupPage && !screen.groupId && !screen.shareSetId && !screen.shareToken) {
     if (screen.tab === 'groups') return 'groups';
     if (screen.tab === 'discover') return 'discover';
   }

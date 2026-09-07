@@ -40,6 +40,7 @@ import {
   withCoordinatedDataRead,
 } from './dataCoordination';
 import type { CloudAccessTokenResult } from './cloudService';
+import { saveBackupPayload } from './backupRepository';
 export type SyncPayload = {
   version: 1;
   updatedAt: string;
@@ -488,7 +489,7 @@ export function exportQuizMakeRecoveryData(updatedAt = new Date().toISOString())
 
 export function importQuizMakeData(
   payload: SyncPayload,
-  options: { expectedSyncId?: string; authoritativeUpdatedAt?: string } = {},
+  options: { expectedSyncId?: string; authoritativeUpdatedAt?: string; expectedLocalHash?: string } = {},
 ): Promise<SyncResult<number>> {
   return runSyncDataOperation(async () => {
     const expectedSyncId = options.expectedSyncId?.trim();
@@ -512,7 +513,7 @@ export function importQuizMakeData(
     try {
       return await withCoordinatedDataMutation(
         ['app', 'notes'],
-        () => importQuizMakeDataUnlocked(payload, expectedSyncId, options.authoritativeUpdatedAt),
+        () => importQuizMakeDataUnlocked(payload, expectedSyncId, options.authoritativeUpdatedAt, options.expectedLocalHash),
         { requireCrossContext: true },
       );
     } catch (error) {
@@ -531,6 +532,7 @@ async function importQuizMakeDataUnlocked(
   payload: SyncPayload,
   expectedSyncId?: string,
   authoritativeUpdatedAt?: string,
+  expectedLocalHash?: string,
 ): Promise<SyncResult<number>> {
   const validation = validateSyncPayload(payload);
   if (!validation.ok) return validation;
@@ -544,6 +546,10 @@ async function importQuizMakeDataUnlocked(
     previousNotes = await exportCategoryNotesRaw({ coordinationLockHeld: true, mode: 'recovery' });
     previousIntegrity = captureDataIntegritySnapshot();
     previousLocalStorage = collectCurrentQuizMakeLocalStorage();
+    if (expectedLocalHash && computePayloadHash({version:1, updatedAt:'', localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes}) !== expectedLocalHash) {
+      return { ok: false, code: 'local_changed', error: '確認中に端末データが更新されました。内容を確認し直してください。' };
+    }
+    await saveBackupPayload({ version: 1, updatedAt: new Date().toISOString(), localStorage: { ...previousLocalStorage, [APP_DATA_STORAGE_KEY]: previousAppDataRaw }, indexedDbNotes: previousNotes }, expectedSyncId ? 'before-sync' : 'before-import');
     localStorage.setItem(DATA_IMPORT_IN_PROGRESS_KEY, JSON.stringify({ version: 1, startedAt: new Date().toISOString() }));
   } catch (error) {
     return {
