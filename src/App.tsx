@@ -12,6 +12,7 @@ import { HomeScreen } from './screens/HomeScreen';
 import { FolderScreen } from './screens/FolderScreen';
 import { SearchScreen } from './screens/SearchScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
+import { NoteOverviewScreen } from './screens/NoteOverviewScreen';
 import { ProblemSetDetailScreen } from './screens/ProblemSetDetailScreen';
 import { ProblemListScreen } from './screens/ProblemListScreen';
 import { ResultScreen } from './screens/ResultScreen';
@@ -87,6 +88,8 @@ export default function App() {
   const [libraryMutationBusy, setLibraryMutationBusy] = useState(false);
   const [storageError, setStorageError] = useState('');
   const navigationStackRef = useRef<AppScreen[]>([{ name: 'home' }]);
+  const noteExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
+  const noteHistoryPendingRef = useRef(false);
   const browserDepthRef = useRef(0);
   const pendingBackTargetRef = useRef<AppScreen | null>(null);
   const pendingBackStepsRef = useRef(1);
@@ -158,6 +161,18 @@ export default function App() {
       const historySteps = pendingBackStepsRef.current;
       pendingBackTargetRef.current = null;
       pendingBackStepsRef.current = 1;
+
+      if (current.name === 'noteDetail' && noteExitGuardRef.current) {
+        if (noteHistoryPendingRef.current) {
+          window.history.pushState({ quizMake: true }, '');
+          return;
+        }
+        noteHistoryPendingRef.current = true;
+        void noteExitGuardRef.current(() => applyBackNavigation(target, historySteps)).then((completed) => {
+          if (!completed) window.history.pushState({ quizMake: true }, '');
+        }).finally(() => { noteHistoryPendingRef.current = false; });
+        return;
+      }
 
       const exitReason = getProtectedExitReason(current, createDraftDirtyRef.current);
       if (exitReason && !confirmedProtectedExitRef.current) {
@@ -1342,12 +1357,19 @@ export default function App() {
       />
     );
   } else if (screen.name === 'noteList') {
+    content = <NoteOverviewScreen data={data} setId={screen.setId}
+      onBack={() => goBackTo({ name: 'problemSetDetail', setId: screen.setId })}
+      onOpen={(category) => navigate({ name: 'noteDetail', setId: screen.setId, category })} />;
+  } else if (screen.name === 'noteDetail') {
     const problemSet = data.problemSets.find((set) => set.id === screen.setId);
     content = (
       <NoteListScreen
         data={data}
         setId={screen.setId}
-        onBack={problemSet ? () => goBackTo({ name: 'problemSetDetail', setId: screen.setId }) : goHome}
+        initialCategory={screen.category}
+        registerExitGuard={(guard) => { noteExitGuardRef.current = guard; }}
+        onOpenQuestions={() => navigate({ name: 'problemList', setId: screen.setId })}
+        onBack={problemSet ? () => goBackTo(screen.backScreen ?? { name: 'noteList', setId: screen.setId }) : goHome}
       />
     );
   } else if (screen.name === 'import') {
@@ -1517,7 +1539,7 @@ export default function App() {
 }
 
 function getScreenLoadingMessage(screen: AppScreen) {
-  if (screen.name === 'noteList') return 'ノートを読み込み中…';
+  if (screen.name === 'noteList' || screen.name === 'noteDetail') return 'ノートを読み込み中…';
   if (screen.name === 'import') return '問題の取り込み画面を読み込み中…';
   if (screen.name === 'settings') return '設定画面を読み込み中…';
   if (screen.name === 'sync') return '同期設定を読み込み中…';
@@ -1556,7 +1578,7 @@ function getSyncProtectedWorkReason(
   if (libraryMutationActive) return 'library' as const;
   if (backupImportActive) return 'backup' as const;
   if (screen.name === 'import') return 'import' as const;
-  if (screen.name === 'noteList') return 'notes' as const;
+  if (screen.name === 'noteList' || screen.name === 'noteDetail') return 'notes' as const;
   if (screen.name === 'sync') return 'sync' as const;
   return getProtectedExitReason(screen, createDraftDirty);
 }

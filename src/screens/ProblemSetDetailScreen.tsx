@@ -86,9 +86,11 @@ export function ProblemSetDetailScreen({
   }
 
   const allReviewQuestions = buildReviewQuestions(data, questions);
-  const logs = data.answerLogs.filter((log) => log.setId === setId);
-  const correct = logs.filter((log) => log.isCorrect).length;
-  const correctRate = logs.length === 0 ? 0 : Math.round((correct / logs.length) * 100);
+  const reachedLevelThree = questions.filter((question) => {
+    const progress = getProgress(data, question.id);
+    return progress.reviewLevel === 3 || progress.isGraduated;
+  }).length;
+  const levelThreeRate = questions.length ? Math.round(reachedLevelThree / questions.length * 100) : 0;
   const selectedLabel = getCategoryLabel(startCategory);
   const reviewFilterLabel = getReviewFilterLabel(reviewFilter);
 
@@ -128,24 +130,27 @@ export function ProblemSetDetailScreen({
     });
   };
 
-  const startReview = () => {
-    if (allReviewQuestions.length === 0) return;
-    onStartSession({
-      questions: allReviewQuestions,
-      mode: 'review',
-      title: problemSet.title,
-      subtitle: 'この問題セットの復習',
-      setId,
-    });
-  };
-
   return (
     <Layout>
       <div className="quiz-detail">
-        <DetailHeader title={problemSet.title} onBack={onBack} onEdit={onEdit} />
+        <DetailHeader title={problemSet.title} onBack={onBack} onEdit={onEdit} onShare={onShare} />
 
         <div className="quiz-detail__content-grid">
           <div className="quiz-detail__main-column">
+            <section className="quiz-detail__summary" aria-label="学習状況">
+              <div className="quiz-detail__metric">
+                <span>{'\u554f\u984c\u6570'}</span>
+                <strong>{questions.length}</strong>
+              </div>
+              <div className="quiz-detail__metric">
+                <span>{'\u5fa9\u7fd2'}</span>
+                <strong>{allReviewQuestions.length}</strong>
+              </div>
+              <div className="quiz-detail__metric">
+                <span>Level 3到達率</span>
+                <strong>{levelThreeRate}%</strong>
+              </div>
+            </section>
             <section className="quiz-detail__start-panel" aria-labelledby="quiz-detail-start-title">
               <div className="quiz-detail__section-heading">
                 <div className="quiz-detail__section-title">
@@ -208,8 +213,7 @@ export function ProblemSetDetailScreen({
                   disabled={filteredStartQuestions.length === 0}
                   onClick={startOrdered}
                 >
-                  <strong>登録順</strong>
-                  <small>{filteredStartQuestions.length}問を出題</small>
+                  <strong>登録順で解く</strong>
                 </button>
                 <button
                   type="button"
@@ -217,43 +221,18 @@ export function ProblemSetDetailScreen({
                   disabled={filteredStartQuestions.length === 0}
                   onClick={startRandom}
                 >
-                  <strong>ランダム</strong>
-                  <small>{filteredStartQuestions.length}問を出題</small>
-                </button>
-                <button
-                  type="button"
-                  className="quiz-detail__start-action quiz-detail__start-action--review"
-                  disabled={allReviewQuestions.length === 0}
-                  onClick={startReview}
-                  aria-label="この問題セットを復習"
-                >
-                  <strong>復習</strong>
-                  <small>{allReviewQuestions.length ? `${allReviewQuestions.length}問が対象` : '対象なし'}</small>
+                  <strong>ランダムで解く</strong>
                 </button>
               </div>
             </section>
 
-            <section className="quiz-detail__summary" aria-label="学習状況">
-              <div className="quiz-detail__metric">
-                <span>{'\u554f\u984c\u6570'}</span>
-                <strong>{questions.length}</strong>
-              </div>
-              <div className="quiz-detail__metric">
-                <span>{'\u5fa9\u7fd2'}</span>
-                <strong>{allReviewQuestions.length}</strong>
-              </div>
-              <div className="quiz-detail__metric">
-                <span>{'\u6b63\u7b54\u7387'}</span>
-                <strong>{correctRate}%</strong>
-              </div>
-            </section>
+
 
             <section className="quiz-detail__body">
               <div className="quiz-detail__entry-grid">
                 <button type="button" className="quiz-detail__list-entry" onClick={onOpenProblemList}>
                   <span>
                     <strong>{'\u554f\u984c\u4e00\u89a7'}</strong>
-                    <small>{questions.length}{'\u554f / \u5206\u985e\u5225\u306b\u8868\u793a'}</small>
                   </span>
                   <b aria-hidden="true">{'\u203a'}</b>
                 </button>
@@ -261,7 +240,6 @@ export function ProblemSetDetailScreen({
                   <button type="button" className="quiz-detail__list-entry quiz-detail__note-list-entry" onClick={onOpenNoteList}>
                     <span>
                       <strong>{'\u30ce\u30fc\u30c8\u4e00\u89a7'}</strong>
-                      <small>{selectedLabel}{' / \u5206\u985e\u5225\u30ce\u30fc\u30c8'}</small>
                     </span>
                     <b aria-hidden="true">{'\u203a'}</b>
                   </button>
@@ -269,13 +247,7 @@ export function ProblemSetDetailScreen({
               </div>
             </section>
 
-            <button type="button" className="quiz-detail__share-button" onClick={onShare}>
-              <span>
-                <strong>{'\u5171\u6709\u8a2d\u5b9a'}</strong>
-                <small>{'\u30ea\u30f3\u30af\u3084\u516c\u958b\u7bc4\u56f2\u3092\u7ba1\u7406'}</small>
-              </span>
-              <b aria-hidden="true">{'\u203a'}</b>
-            </button>
+
 
           </div>
         </div>
@@ -284,17 +256,19 @@ export function ProblemSetDetailScreen({
   );
 }
 
-function DetailHeader({ title, onBack, onEdit }: { title: string; onBack: () => void; onEdit?: () => void }) {
+function DetailHeader({ title, onBack, onEdit, onShare }: { title: string; onBack: () => void; onEdit?: () => void; onShare?: () => void }) {
   return (
     <header className="quiz-detail__header">
       <div className="quiz-detail__header-slope" />
       <BackButton onClick={onBack} className="quiz-detail__back-button" />
       <h1 className="quiz-detail__title">{title}</h1>
-      {onEdit ? (
-        <button type="button" className="quiz-detail__header-icon quiz-detail__header-edit" aria-label="問題セットを編集" onClick={onEdit}>編集</button>
-      ) : (
-        <div className="quiz-detail__header-icon">{'\u22ef'}</div>
-      )}
+      {onEdit || onShare ? <details className="library-actions library-header-add">
+        <summary aria-label="問題セットの操作">…</summary>
+        <div className="library-actions__body">
+          {onEdit ? <button type="button" onClick={onEdit}>問題セットを編集</button> : null}
+          {onShare ? <button type="button" onClick={onShare}>共有設定</button> : null}
+        </div>
+      </details> : null}
     </header>
   );
 }

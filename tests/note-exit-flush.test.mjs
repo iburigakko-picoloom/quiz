@@ -23,6 +23,23 @@ import {
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const noteListSource = readSource('../src/screens/NoteListScreen.tsx');
+const noteOverviewSource = readSource('../src/screens/NoteOverviewScreen.tsx');
+const appSource = readSource('../src/App.tsx');
+
+test('note list opens a dedicated category canvas and browser back waits for its flush', () => {
+  assert.match(noteOverviewSource, /onClick=\{\(\) => onOpen\(category\)\}/);
+  assert.doesNotMatch(noteOverviewSource, /CategoryNotePanel/);
+  assert.match(appSource, /name: 'noteDetail', setId: screen.setId, category/);
+  assert.match(noteListSource, /initialCategory \?\? noteCategories\[0\]/);
+  assert.match(noteListSource, /registerExitGuard\?\.\(requestNoteTransition\)/);
+  assert.match(appSource, /noteExitGuardRef.current\(\(\) => applyBackNavigation\(target, historySteps\)\)/);
+  assert.match(appSource, /if \(!completed\) window.history.pushState/);
+  assert.match(noteListSource, /requestNoteTransition\(onOpenQuestions\)/);
+  const noteCss = readSource('../src/screens/NoteListScreen.css');
+  const specCss = readSource('../src/ui-spec.css');
+  assert.doesNotMatch(noteCss, /background: #000000|background: #202020/);
+  assert.match(specCss, /\.quiz-notes \.quiz-notes__body--detail \{ display: flex/);
+});
 const notePanelSource = readSource('../src/components/CategoryNoteDrawer.tsx');
 const quizRunnerSource = readSource('../src/screens/QuizRunner.tsx');
 

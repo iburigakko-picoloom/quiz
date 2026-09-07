@@ -8,6 +8,7 @@ export function getScreenKey(screen: AppScreen): string {
   if (screen.name === 'problemSetDetail') return `detail-${screen.setId}`;
   if (screen.name === 'problemList') return `problem-list-${screen.setId}-${screen.sortMode ?? 'ordered'}`;
   if (screen.name === 'noteList') return `note-list-${screen.setId}`;
+  if (screen.name === 'noteDetail') return `note-detail-${screen.setId}-${screen.category}`;
   if (screen.name === 'import') return `import-${screen.folderId}`;
   if (screen.name === 'quiz') return `quiz-${screen.setId}-${screen.mode}`;
   if (screen.name === 'quizSession') return `quiz-session-${screen.session.setId ?? 'custom'}-${screen.session.initialIndex ?? 0}-${screen.session.questions.length}`;
@@ -42,7 +43,7 @@ export function getResultReturnScreen(result: QuizResult, data: AppData): AppScr
   if (target.name === 'folder') {
     return data.folders.some((folder) => folder.id === target.folderId) ? target : { name: 'home' };
   }
-  if (target.name === 'problemSetDetail' || target.name === 'problemList' || target.name === 'noteList') {
+  if (target.name === 'problemSetDetail' || target.name === 'problemList' || target.name === 'noteList' || target.name === 'noteDetail') {
     return data.problemSets.some((set) => set.id === target.setId) ? target : { name: 'home' };
   }
   if (target.name === 'import') {

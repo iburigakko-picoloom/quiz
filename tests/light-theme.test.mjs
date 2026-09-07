@@ -25,8 +25,12 @@ test('set-scoped review UI and its shared header use restrained light surfaces',
   assert.doesNotMatch(headerSource, /bg-\[#202020\]|bg-\[#2B2B2B\]|text-white/);
   assert.match(headerSource, /bg-white/);
   assert.doesNotMatch(headerSource, /bg-gradient|skew/);
-  assert.match(detailSource, /この問題セットを復習/);
-  assert.match(detailSource, /mode: 'review'/);
+  assert.match(detailSource, /Level 3到達率/);
+  assert.match(detailSource, /登録順で解く/);
+  assert.match(detailSource, /ランダムで解く/);
+  assert.doesNotMatch(detailSource, /この問題セットを復習/);
+  assert.match(detailSource, /progress.reviewLevel === 3 \|\| progress.isGraduated/);
+  assert.match(detailSource, /questions.length \? Math.round\(reachedLevelThree \/ questions.length \* 100\) : 0/);
 });
 
 test('quiz exit confirmation uses the light surface palette', () => {
@@ -56,16 +60,17 @@ test('problem-set detail restores visible horizontally scrollable conditions bef
   const filterIndex = detailSource.indexOf('quiz-detail__filters"');
   const actionIndex = detailSource.indexOf('aria-label="学習方法"');
   const summaryIndex = detailSource.indexOf('quiz-detail__summary');
-  const shareIndex = detailSource.indexOf('quiz-detail__share-button');
+  const listIndex = detailSource.indexOf('quiz-detail__entry-grid');
 
-  assert.ok(startIndex >= 0 && startIndex < summaryIndex && summaryIndex < shareIndex);
+  assert.ok(summaryIndex >= 0 && summaryIndex < startIndex && actionIndex < listIndex);
   assert.ok(filterIndex >= 0 && filterIndex < actionIndex);
-  assert.match(detailSource, /aria-label="学習方法"[\s\S]*?登録順[\s\S]*?ランダム[\s\S]*?復習/);
+  assert.match(detailSource, /aria-label="学習方法"[\s\S]*?登録順で解く[\s\S]*?ランダムで解く/);
+  assert.match(detailSource, /aria-label="問題セットの操作"[\s\S]*?onClick=\{onShare\}/);
   assert.doesNotMatch(detailSource, /<details className="quiz-detail__filters">/);
   assert.match(detailCss, /\.quiz-detail \.quiz-detail__segments \{[^}]*flex-wrap:\s*nowrap[^}]*overflow-x:\s*auto/);
   assert.match(detailCss, /\.quiz-detail \.quiz-detail__segments::-webkit-scrollbar \{[^}]*display:\s*none/);
   assert.match(detailCss, /\.quiz-detail button\.quiz-detail__segment-item \{[^}]*flex:\s*0 0 auto/);
-  assert.match(detailCss, /@media \(max-width: 430px\)[\s\S]*?quiz-detail__start-action--review[\s\S]*?grid-column:\s*1 \/ -1/);
+  assert.doesNotMatch(detailSource, /quiz-detail__start-action--review/);
 });
 
 test('sync settings uses the same restrained light palette as other settings screens', () => {

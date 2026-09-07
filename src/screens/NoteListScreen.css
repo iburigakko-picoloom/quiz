@@ -18,8 +18,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #000000;
-  color: #ffffff;
+  background: var(--ui-page, #FFFFFF);
+  color: var(--ui-text, #172033);
 }
 
 .quiz-notes__header {
@@ -27,7 +27,7 @@
   height: calc(100px + var(--safe-top, 0px));
   flex: 0 0 calc(100px + var(--safe-top, 0px));
   overflow: hidden;
-  background: #202020;
+  background: var(--ui-surface, #FFFFFF);
 }
 
 .quiz-notes__header-slope {
@@ -77,7 +77,7 @@
 
 .quiz-notes__title-wrap p {
   margin-top: 7px;
-  color: #bdbdbd;
+  color: var(--ui-text-muted, #667085);
   font-size: 13px;
   font-weight: 800;
 }
@@ -107,9 +107,9 @@
 .quiz-notes__categories,
 .quiz-notes__panel-wrap {
   min-height: 0;
-  border: 1px solid #2f2f2f;
-  border-radius: 18px;
-  background: #151515;
+  border: 1px solid var(--ui-border, #E4E8EF);
+  border-radius: 6px;
+  background: var(--ui-surface, #FFFFFF);
   overflow: hidden;
 }
 
@@ -129,7 +129,7 @@
 }
 
 .quiz-notes__section-title span {
-  color: #ffffff;
+  color: var(--ui-text, #172033);
   font-size: 18px;
   font-weight: 900;
 }
@@ -166,11 +166,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid #303030;
+  border: 1px solid var(--ui-border, #E4E8EF);
   border-radius: 15px;
-  background: #242424;
+  background: var(--ui-surface, #FFFFFF);
   padding: 0 13px 0 15px;
-  color: #e5e5e5;
+  color: var(--ui-text, #172033);
   text-align: left;
 }
 
@@ -193,7 +193,7 @@
 .quiz-notes__category--active {
   border-color: rgba(23, 105, 255, 0.5);
   background: rgba(23, 105, 255, 0.1);
-  color: #ffffff;
+  color: var(--ui-text, #172033);
   box-shadow: inset 4px 0 0 #1769ff;
 }
 
@@ -229,9 +229,9 @@
     display: block;
     margin: 0 auto;
     max-width: 430px;
-    border: 1px solid #2f2f2f;
-    border-radius: 20px;
-    background: #202020;
+    border: 1px solid var(--ui-border, #E4E8EF);
+    border-radius: 6px;
+    background: var(--ui-surface, #FFFFFF);
     padding: 22px;
     text-align: center;
   }
@@ -244,7 +244,7 @@
 
   .quiz-notes__unsupported p {
     margin: 0;
-    color: #a3a3a3;
+    color: var(--ui-text-muted, #667085);
     font-size: 14px;
     font-weight: 750;
     line-height: 1.6;

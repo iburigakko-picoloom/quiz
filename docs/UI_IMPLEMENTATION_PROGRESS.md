@@ -27,12 +27,26 @@ Baseline: main 85b59dd, fetched before edits. This is an incremental checkpoint,
 ## Still required before calling the full specification complete
 
 - Finish Phase 1/2 route/state persistence across reloads, full-page destructive confirmations and all hierarchy destination fields; current list deletion uses the existing confirmation dialog, without Undo.
-- Problem-set detail metrics/order/two start actions, and removal of remaining regular-screen metadata.
+- Removal of remaining regular-screen metadata outside the updated problem-set detail.
 - Dedicated question editing, detailed-answer full-page editing, image Blob persistence/compression/reorder and complete backup/shared-image round trips. Current question edit opens the existing set editor. Optional image IDs alone do not implement image storage.
-- Separate note detail routing while preserving the existing canvas and flush protection.
+- Note follow-ups: discovery of saved categories no longer present in questions, direct question-to-note links, and consolidated auxiliary menus.
 - Quiz focus-line layout, correct/relearned sound and feedback, effect-sound setting, revised results and session-answer page.
 - Group folders/accents, group/member tabs, invitation preview/full-page management and reference permission checks using the existing backend model.
 - Account/entry/logout backup flow, local/cloud comparison and full-page overwrite confirmation, backup list and import completion flows.
 - Finish common tokens across old screen-specific CSS, offline/update/recovery states, broader visual checks including keyboard/landscape and real devices.
 
 Do not treat passing existing tests as acceptance of the unfinished requirements above. Continue with small checked changes, preserving the answer drag behavior and data compatibility.
+
+## Second checkpoint — set detail and note navigation
+
+- Rechecked specification sections 7 and 9 and the matching implementation-prompt requirements.
+- Set detail now shows question/review/Level 3 metrics first (graduated included, empty set 0%), then the existing horizontal category/Level controls, and exactly two start actions with the same filters.
+- Sharing and set editing moved to the header overflow menu; redundant start/list captions removed. Problem and note links use a one-column layout.
+- Note list is a separate category-row page. A dedicated note-detail route uses the existing CategoryNotePanel, with category-specific navigation identity and a guarded link back to questions.
+- Explicit back, close, rotation, and browser-history back wait for the existing canvas flush. Note-detail also blocks automatic remote import/update using the existing protected-work mechanism.
+- Fixed old dark note-screen CSS and the obsolete sidebar grid that otherwise shrank the dedicated canvas.
+- Verified 320px set detail and note list, 1024×768 note canvas, page addition/save/reopen (2 pages restored), and return to portrait unsupported-device state. No real-device pen-stroke or OS browser-back failure injection was performed.
+- Regression suite: 188 tests passed. Production build passed; existing bundle warnings remain.
+- No changes to AnswerPanel, quiz correctness/drag logic, canvas drawing engine, AppData persistence format, app icon, or deployed backend.
+
+This remains an incremental implementation, not completion of the full prompt. Dedicated question/detailed-answer editors and images, quiz/results/audio, group management, account/backup/sync flows, destructive confirmation pages and full-app visual QA remain open as listed above.

@@ -13,9 +13,12 @@ interface NoteListScreenProps {
   data: AppData;
   setId: string;
   onBack: () => void;
+  initialCategory?: string;
+  onOpenQuestions?: () => void;
+  registerExitGuard?: (guard: ((proceed: () => void) => Promise<boolean>) | null) => void;
 }
 
-export function NoteListScreen({ data, setId, onBack }: NoteListScreenProps) {
+export function NoteListScreen({ data, setId, onBack, initialCategory, onOpenQuestions, registerExitGuard }: NoteListScreenProps) {
   const problemSet = data.problemSets.find((set) => set.id === setId);
   const questions = useMemo(() => getQuestionsBySet(data, setId), [data, setId]);
   const noteCategories = useMemo(() => {
@@ -23,7 +26,7 @@ export function NoteListScreen({ data, setId, onBack }: NoteListScreenProps) {
     if (categories.length > 0) return categories;
     return [normalizeProblemCategory(questions[0]?.category)];
   }, [questions]);
-  const [selectedCategory, setSelectedCategory] = useState(() => noteCategories[0] ?? '未分類');
+  const [selectedCategory, setSelectedCategory] = useState(() => initialCategory ?? noteCategories[0] ?? '未分類');
   const [isTabletLandscape, setIsTabletLandscape] = useState(() => getIsTabletLandscape());
   const [isLeavingNote, setIsLeavingNote] = useState(false);
   const [transitionError, setTransitionError] = useState('');
@@ -66,6 +69,11 @@ export function NoteListScreen({ data, setId, onBack }: NoteListScreenProps) {
     noteTransitionQueueRef.current = queued.then(() => undefined, () => undefined);
     return queued;
   }, []);
+
+  useEffect(() => {
+    registerExitGuard?.(requestNoteTransition);
+    return () => registerExitGuard?.(null);
+  }, [registerExitGuard, requestNoteTransition]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -134,17 +142,18 @@ export function NoteListScreen({ data, setId, onBack }: NoteListScreenProps) {
             disabled={isLeavingNote}
           />
           <div className="quiz-notes__title-wrap">
-            <h1>ノート一覧</h1>
+            <h1>{initialCategory ? selectedCategory : 'ノート一覧'}</h1>
             <p>{title}</p>
           </div>
+          {onOpenQuestions ? <button type="button" className="note-detail-questions" disabled={isLeavingNote} onClick={() => void requestNoteTransition(onOpenQuestions)}>問題一覧</button> : null}
         </header>
 
         {transitionError ? <div className="quiz-notes__transition-error" role="alert">{transitionError}</div> : null}
 
-        <main className="quiz-notes__body">
+        <main className={`quiz-notes__body${initialCategory ? ' quiz-notes__body--detail' : ''}`}>
           {isTabletLandscape ? (
             <>
-              <aside className="quiz-notes__categories" aria-label="分類別ノート">
+              {!initialCategory ? <aside className="quiz-notes__categories" aria-label="分類別ノート">
                 <div className="quiz-notes__section-title">
                   <span>分類</span>
                   <strong>{noteCategories.length}</strong>
@@ -167,7 +176,7 @@ export function NoteListScreen({ data, setId, onBack }: NoteListScreenProps) {
                     </button>
                   ))}
                 </div>
-              </aside>
+              </aside> : null}
 
               <section className="quiz-notes__panel-wrap">
                 <CategoryNotePanel
@@ -182,7 +191,7 @@ export function NoteListScreen({ data, setId, onBack }: NoteListScreenProps) {
             </>
           ) : (
             <section className="quiz-notes__unsupported">
-              <h2>ノート一覧</h2>
+              <h2>ノート</h2>
               <p>ノート機能はタブレット横画面で表示されます。</p>
             </section>
           )}

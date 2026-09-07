@@ -18,7 +18,7 @@ test('automatic cloud imports wait until local work is no longer protected', () 
   assert.match(autoSyncSource, /uploadRunningRef\.current \|\| remoteCheckRunningRef\.current/);
   assert.match(autoSyncSource, /remoteCheckRunningRef\.current \|\| uploadRunningRef\.current/);
   assert.match(autoSyncSource, /shouldCheckRemoteAfterUpload[\s\S]*?uploadRunningRef\.current = false;[\s\S]*?checkRemote\(true\)/);
-  assert.match(appSource, /screen\.name === 'noteList'\) return 'notes'/);
+  assert.match(appSource, /screen\.name === 'noteList' \|\| screen\.name === 'noteDetail'\) return 'notes'/);
   assert.match(appSource, /screen\.name === 'import'\) return 'import'/);
   assert.match(appSource, /screen\.name === 'sync'\) return 'sync'/);
   assert.match(appSource, /backupImportActive\) return 'backup'/);
