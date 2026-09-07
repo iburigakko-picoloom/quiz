@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
 import { BackButton } from '../components/BackButton';
-import { isAnswerSoundEnabled, setAnswerSoundEnabled } from '../utils/answerFeedback';
+import { isAnswerSoundEnabled, setAnswerSoundEnabled, prepareAnswerAudio, playAnswerFeedback } from '../utils/answerFeedback';
 import {
   ChevronRightIcon,
   DocumentOutlineIcon,
@@ -165,7 +165,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
           {!page ? <>
             <SettingsRow icon={<ProfileIcon />} title={session ? displayName || 'アカウント' : '未ログイン'} detail={session ? 'ログイン中' : undefined} arrow onClick={() => onNavigate('account')} />
             <section className="settings-section"><div className="settings-section__heading"><h2>学習</h2></div>
-              <label className="settings-row"><span className="settings-row__icon"><DocumentOutlineIcon /></span><span className="settings-row__text"><strong>解答効果音</strong></span><input type="checkbox" role="switch" checked={sound} onChange={(event) => { try { setAnswerSoundEnabled(event.target.checked); setSound(event.target.checked); setMessage(''); } catch { setMessage('設定を保存できませんでした。'); } }} /></label>
+              <label className="settings-row"><span className="settings-row__icon"><DocumentOutlineIcon /></span><span className="settings-row__text"><strong>解答効果音</strong></span><input type="checkbox" role="switch" checked={sound} onChange={(event) => { try { setAnswerSoundEnabled(event.target.checked); setSound(event.target.checked); setMessage(''); if (event.target.checked) { prepareAnswerAudio(); playAnswerFeedback('correct'); } } catch { setMessage('設定を保存できませんでした。'); } }} /></label>
             </section>
             <section className="settings-section"><div className="settings-section__heading"><h2>データ</h2></div>
               <SettingsRow icon={<SyncIcon />} title="同期" arrow onClick={onOpenSync} />

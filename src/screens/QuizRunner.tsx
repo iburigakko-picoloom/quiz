@@ -11,7 +11,7 @@ import { MissingResourceState } from '../components/MissingResourceState';
 import { getAnswerIndexes, getAnswerText, getChoiceLabel, getChoiceText, getProgress, getVirtualLevel, makeResult } from '../utils/quiz';
 import { resolveQuestionDetailedExplanation } from '../utils/questionView';
 import { readClipboardText } from '../utils/nativePlatform';
-import { getAnswerFeedback, playAnswerFeedback } from '../utils/answerFeedback';
+import { getAnswerFeedback, playAnswerFeedback, prepareAnswerAudio } from '../utils/answerFeedback';
 
 type AnswerSheetState = 'expanded' | 'default' | 'hidden';
 
@@ -216,6 +216,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
 
   const handleChoice = (index: number) => {
     if (answered) return;
+    prepareAnswerAudio();
     setAnswerMessage('');
     if (isMultipleAnswer) {
       setSelectedIndexes((current) => (
@@ -230,6 +231,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
 
   const submitAnswer = (indexes: number[]) => {
     if (answered || submittedQuestionRef.current === currentQuestion.id) return;
+    prepareAnswerAudio();
     submittedQuestionRef.current = currentQuestion.id;
     const normalizedIndexes = Array.from(new Set(indexes)).sort((a, b) => a - b);
     const previousCorrect = progress?.lastAnswerCorrect;

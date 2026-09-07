@@ -9,11 +9,36 @@ export function getAnswerFeedback(previousCorrect: boolean | null | undefined, c
   return !correct ? 'wrong' : previousCorrect === false ? 'relearned' : 'correct';
 }
 let context: AudioContext | undefined;
+
+function getAudioContext(): AudioContext {
+  if (!context || context.state === 'closed') {
+    const AudioContextClass = globalThis.AudioContext
+      ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) throw new Error('Audio is unavailable');
+    context = new AudioContextClass();
+  }
+  return context;
+}
+
+// Call directly from a user gesture, before saving or rendering the answer.
+export function prepareAnswerAudio(): void {
+  if (!isAnswerSoundEnabled()) return;
+  try {
+    const audio = getAudioContext();
+    if (audio.state === 'running') return;
+    void audio.resume().catch(() => undefined);
+    const source = audio.createBufferSource();
+    source.buffer = audio.createBuffer(1, 1, audio.sampleRate);
+    source.connect(audio.destination);
+    source.onended = () => source.disconnect();
+    source.start();
+  } catch { /* Audio must never prevent selecting or saving an answer. */ }
+}
+
 export function playAnswerFeedback(kind: 'correct' | 'relearned' | 'wrong'): void {
   if (kind === 'wrong' || !isAnswerSoundEnabled()) return;
   try {
-    context ??= new AudioContext();
-    const audio = context;
+    const audio = getAudioContext();
     const play = () => {
       const start = audio.currentTime;
       const gain = audio.createGain();
