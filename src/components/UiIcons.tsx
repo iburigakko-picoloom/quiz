@@ -16,6 +16,7 @@ function iconProps(size: IconProps['size'], props: SVGProps<SVGSVGElement>) {
     strokeLinejoin: 'round' as const,
     focusable: 'false' as const,
     ...props,
+    className: ['quiz-ui-icon', props.className].filter(Boolean).join(' '),
   };
 }
 
