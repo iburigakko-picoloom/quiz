@@ -15,7 +15,7 @@ const items: Array<{
   icon: typeof HomeIcon;
 }> = [
   { id: 'home', label: 'ホーム', icon: HomeIcon },
-  { id: 'discover', label: '検索', icon: SearchIcon },
+  { id: 'discover', label: '見つける', icon: SearchIcon },
   { id: 'create', label: '作成', icon: PlusIcon },
   { id: 'groups', label: 'グループ', icon: GroupIcon },
   { id: 'settings', label: '設定', icon: SettingsIcon },

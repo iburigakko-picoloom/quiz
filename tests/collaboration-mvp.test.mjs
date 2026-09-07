@@ -25,7 +25,7 @@ test('local AppData stays version 1 and cloud metadata is backward-compatible', 
 });
 
 test('the primary navigation exposes the five global destinations', () => {
-  for (const label of ['ホーム', '検索', '作成', 'グループ', '設定']) {
+  for (const label of ['ホーム', '見つける', '作成', 'グループ', '設定']) {
     assert.match(primaryNavSource, new RegExp(`label: '${label}'`));
   }
   assert.doesNotMatch(screenSource, /community-tabs/);
@@ -34,6 +34,10 @@ test('the primary navigation exposes the five global destinations', () => {
 });
 
 test('public discovery supports required filters, detail preview and both primary actions', () => {
+  assert.match(appSource, /item === 'discover'\s*\? \{ name: 'community', tab: 'discover' \}/);
+  assert.doesNotMatch(appSource, /<SearchScreen|import \{ SearchScreen \}/);
+  assert.match(screenSource, /community-discovery-row/);
+  assert.match(screenSource, /onClick=\{\(\) => onDetail\(set\)\}/);
   assert.match(screenSource, />科目<select/);
   assert.match(screenSource, />難易度<select/);
   assert.match(screenSource, /問題の内容を確認/);

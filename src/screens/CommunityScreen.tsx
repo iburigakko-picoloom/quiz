@@ -650,13 +650,17 @@ export function CommunityScreen({
                     <div className="community-search__input"><SearchIcon size={19} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="公開問題セットを検索" /></div>
                     <select value={sort} onChange={(event) => setSort(event.target.value as 'new' | 'popular')} aria-label="並び順"><option value="new">新着順</option><option value="popular">人気順</option></select>
                   </div>
+                  <div className="community-discovery-tools"><span>{!cloudConfigured ? '未接続' : publicLoading ? '検索中…' : error ? '取得できませんでした' : `${visiblePublicSets.length}件`}</span>
+                  <details className="community-discovery-filter"><summary>絞り込み{subjectFilter !== 'all' || difficultyFilter !== 'all' ? ` ${Number(subjectFilter !== 'all') + Number(difficultyFilter !== 'all')}` : ''}</summary>
                   <div className="community-filters" aria-label="絞り込み">
                     <label>科目<select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">すべて</option>{subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
                     <label>難易度<select value={difficultyFilter} onChange={(event) => setDifficultyFilter(event.target.value)}><option value="all">すべて</option><option value="basic">基礎</option><option value="standard">標準</option><option value="advanced">発展</option></select></label>
                   </div>
+                  </details>
+                  </div>
                   {publicLoading ? <div className="community-notice" role="status">公開問題セットを読み込み中…</div> : null}
-                  <ProblemSetCards sets={visiblePublicSets} busy={busy || publicLoading} onCopy={(set) => void copySharedSet(set)} onPractice={(set) => void practiceSharedSet(set)} onDetail={(set) => void openSharedDetail(set, 'discover')} onReport={setReportTarget} />
-                  {cloudConfigured && visiblePublicSets.length === 0 && !publicLoading ? <EmptyState title="条件に合うセットはありません" /> : null}
+                  {!publicLoading && !error ? <ProblemSetCards sets={visiblePublicSets} busy={busy} onCopy={(set) => void copySharedSet(set)} onPractice={(set) => void practiceSharedSet(set)} onDetail={(set) => void openSharedDetail(set, 'discover')} onReport={setReportTarget} /> : null}
+                  {cloudConfigured && visiblePublicSets.length === 0 && !publicLoading && !error ? <EmptyState title="条件に合うセットはありません" /> : null}
                 </>
               )}
             </section>
@@ -790,6 +794,11 @@ function CommunityModal({ ariaLabel, busy = false, onClose, children }: {
 }
 
 function ProblemSetCards({ sets, busy, onCopy, onPractice, onDetail, onReport, detailed = false }: { sets: CloudProblemSet[]; busy: boolean; onCopy: (set: CloudProblemSet) => void; onPractice: (set: CloudProblemSet) => void; onDetail?: (set: CloudProblemSet) => void; onReport: (set: CloudProblemSet) => void; detailed?: boolean }) {
+  if (!detailed && onDetail) return <div className="community-discovery-list">{sets.map((set) => <button key={set.id} className="community-discovery-row" disabled={busy} onClick={() => onDetail(set)}>
+    <span className="library-icon"><DocumentOutlineIcon /></span>
+    <span className="library-row__body"><strong>{set.title}</strong><span>{[set.subject, `${set.questionCount}問`].filter(Boolean).join(' · ')}</span></span>
+    <ChevronRightIcon size={22} />
+  </button>)}</div>;
   return <div className="community-public-list">{sets.map((set) => (
     <article key={set.id} className="community-public-card">
       <div className="community-public-card__top"><div><span>{set.subject || '未分類'}</span><h3>{set.title}</h3></div><small>更新 {formatDate(set.updatedAt)}</small></div>

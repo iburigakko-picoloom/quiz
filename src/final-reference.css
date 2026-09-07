@@ -200,3 +200,22 @@
 .primary-bottom-nav .primary-bottom-nav__item span { font-size: 12px; line-height: 1.3; }
 .primary-bottom-nav .primary-bottom-nav__item--active { color: var(--ui-accent); }
 .primary-bottom-nav .primary-bottom-nav__item[data-destination=create] > svg { width: 42px; height: 42px; padding: 8px; margin-top: -8px; }
+.community-screen .community-search { grid-template-columns: minmax(0, 1fr) 96px; }
+.community-screen .community-search__input, .community-screen .community-search select,
+.community-screen .community-filters select { border-radius: 6px; border-color: #CBD3DF; color: var(--ui-text); }
+.community-screen .community-search__input > svg { width: 24px; height: 24px; margin-left: 10px; color: var(--ui-accent); }
+.community-screen .community-search input { padding-inline: 8px; font-size: 16px; }
+.community-screen .community-search select { padding-inline: 8px; font-size: 13px; }
+.community-discovery-tools { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--ui-text-muted); font-size: 13px; }
+.community-discovery-filter { margin-left: auto; }
+.community-discovery-filter > summary { display: flex; align-items: center; justify-content: center; min-height: 44px; min-width: 88px; border: 1px solid var(--ui-border); border-radius: 6px; color: var(--ui-accent); cursor: pointer; list-style: none; font-weight: 700; }
+.community-discovery-filter > summary::-webkit-details-marker { display: none; }
+.community-discovery-filter[open] { flex: 0 0 100%; }
+.community-discovery-filter[open] > summary { width: 88px; margin-left: auto; }
+.community-discovery-filter .community-filters { margin-top: 12px; padding-bottom: 8px; }
+.community-discovery-list { border-top: 1px solid var(--ui-border); }
+.community-discovery-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 76px; padding: 12px 2px; border: 0; border-bottom: 1px solid var(--ui-border); background: white; color: var(--ui-text); text-align: left; cursor: pointer; }
+.community-discovery-row .library-row__body strong { font-size: 16px; line-height: 1.5; }
+.community-discovery-row > svg { color: #53657D; }
+.community-discovery-row:active { background: var(--ui-accent-soft); }
+.community-discovery-row:focus-visible, .community-discovery-filter > summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }

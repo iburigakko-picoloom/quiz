@@ -10,7 +10,6 @@ import {
 } from './storage';
 import { HomeScreen } from './screens/HomeScreen';
 import { FolderScreen } from './screens/FolderScreen';
-import { SearchScreen } from './screens/SearchScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { QuestionEditScreen } from './screens/QuestionEditScreen';
 import { DetailedAnswerScreen } from './screens/DetailedAnswerScreen';
@@ -405,7 +404,7 @@ export default function App() {
     const next: AppScreen = item === 'home'
       ? { name: 'home' }
       : item === 'discover'
-        ? { name: 'search' }
+        ? { name: 'community', tab: 'discover' }
         : item === 'groups'
           ? { name: 'community', tab: 'groups' }
           : item === 'create'
@@ -1274,8 +1273,6 @@ export default function App() {
     );
   } else if (screen.name === 'backupComplete') {
     content = <BackupCompleteScreen {...screen} onHome={goHome} />;
-  } else if (screen.name === 'search') {
-    content = <SearchScreen data={data} onOpenSet={(setId) => navigate({ name: 'problemSetDetail', setId })} onOpenQuestion={(questionId) => navigate({ name: 'questionDetail', questionId, backScreen: { name: 'search' } })} onDiscover={() => navigate({ name: 'community', tab: 'discover', backScreen: { name: 'search' } })} />;
   } else if (screen.name === 'questionDetail') {
     content = <QuestionDetailScreen data={data} questionId={screen.questionId} onBack={() => goBackTo(screen.backScreen)}
       onEdit={() => navigate({ name: 'questionEdit', questionId: screen.questionId, backScreen: screen })}
@@ -1308,22 +1305,23 @@ export default function App() {
         await handleSaveDetailedExplanation(original.id, body);
         finishEdit(); return null;
       }} />;
-  } else if (screen.name === 'community') {
-    const communityBackScreen = screen.groupId || screen.groupPage
-      ? screen.backScreen ?? { name: 'community' as const, tab: 'groups' as const }
-      : screen.backScreen && screen.backScreen.name !== 'community'
-        ? screen.backScreen
+  } else if (screen.name === 'community' || screen.name === 'search') {
+    const communityScreen: Extract<AppScreen, { name: 'community' }> = screen.name === 'search' ? { name: 'community', tab: 'discover' } : screen;
+    const communityBackScreen = communityScreen.groupId || communityScreen.groupPage
+      ? communityScreen.backScreen ?? { name: 'community' as const, tab: 'groups' as const }
+      : communityScreen.backScreen && communityScreen.backScreen.name !== 'community'
+        ? communityScreen.backScreen
         : null;
     content = (
       <Suspense fallback={<div className="quiz-app-loading">共有機能を読み込み中...</div>}>
         <CommunityScreen
-          groupPage={screen.groupPage}
+          groupPage={communityScreen.groupPage}
           onGroupPage={(groupPage) => navigate({ name: 'community', tab: 'groups', groupPage, backScreen: { name: 'community', tab: 'groups' } })}
           data={data}
-          initialTab={screen.tab}
-          initialSetId={screen.shareSetId}
-          initialGroupId={screen.groupId}
-          shareToken={screen.shareToken}
+          initialTab={communityScreen.tab}
+          initialSetId={communityScreen.shareSetId}
+          initialGroupId={communityScreen.groupId}
+          shareToken={communityScreen.shareToken}
           onBack={communityBackScreen ? () => goBackTo(communityBackScreen) : goHome}
           onCreateProblemSet={() => navigate({ name: 'createProblemSet', backScreen: screen })}
           onOpenGroup={(groupId) => navigate({ name: 'community', tab: 'groups', groupId, backScreen: { name: 'community', tab: 'groups' } })}
