@@ -20,8 +20,10 @@ test('the historical answer sheet and screen transitions remain intact', () => {
   assert.match(quizSource, /const snapByDrag = \(dragOffset: number, velocityY: number\)/);
   assert.match(quizSource, /onPointerDown: handlePointerDown[\s\S]*?onPointerMove: handlePointerMove[\s\S]*?onPointerUp: handlePointerUp/);
   assert.match(quizSource, /className="answer-sheet__fixed" \{\.\.\.dragProps\}/);
-  assert.match(quizSource, /onPointerDown: handleDetailPointerDown/);
-  assert.match(quizSource, /panelPage === 'answer' && deltaX > 0/);
+  assert.match(quizSource, /onPointerDownCapture: handleDetailPointerDown/);
+  assert.match(quizSource, /onPointerMoveCapture: handleDetailPointerMove/);
+  assert.match(quizSource, /panelPage === 'answer' && deltaX < 0/);
+  assert.match(quizSource, /panelPage === 'detail' && deltaX > 0/);
   assert.match(quizSource, /remarkPlugins=\{\[remarkGfm\]\}/);
 });
 
@@ -34,6 +36,19 @@ test('learning feedback animates without removing reduced-motion support', () =>
   assert.match(globalCss, /@keyframes answerResultReveal/);
   assert.match(globalCss, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.quiz-runner__question-stage/);
   assert.match(navCss, /\.primary-bottom-nav__item:active/);
+});
+
+test('sheet swipes follow the pointer across the sheet without stealing text editing', () => {
+  assert.match(quizSource, /onPointerMoveCapture: handleDetailPointerMove/);
+  assert.match(quizSource, /rail\.style\.transition = 'none'/);
+  assert.match(quizSource, /rail\.style\.transform = `translateX/);
+  assert.match(quizSource, /if \(draggingRef\.current\) resetDrag\(\)/);
+  assert.match(quizSource, /onPointerCancelCapture:/);
+  assert.match(quizSource, /suppressSwipeClickRef\.current && event\.detail !== 0/);
+  assert.match(quizSource, /!target\.closest\('\.answer-sheet__drag-area'\)/);
+  const css = readSource('../src/final-reference.css');
+  assert.match(css, /\.answer-sheet__drag-capture \{[^}]*width: 100%/);
+  assert.match(css, /\.answer-sheet__content-rail--detail \{ transform: translateX\(-100%\)/);
 });
 
 test('detailed answers open from the standard sheet and an empty answer is editable', () => {

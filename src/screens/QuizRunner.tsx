@@ -678,7 +678,9 @@ function AnswerPanel({
   const lastPointerTimeRef = useRef(0);
   const velocityYRef = useRef(0);
   const startHeightRef = useRef(320);
-  const detailSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const detailRailRef = useRef<HTMLDivElement | null>(null);
+  const detailSwipeStartRef = useRef<{ x: number; y: number; id: number; width: number; axis: 'x' | 'y' | null } | null>(null);
+  const suppressSwipeClickRef = useRef(false);
   const wasDragGestureRef = useRef(false);
   const activeQuestionIdRef = useRef(questionId);
   const committedDetailRef = useRef<string | null>(null);
@@ -808,7 +810,7 @@ function AnswerPanel({
   const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const target = event.target;
-    if (target instanceof Element && target.closest('button, a, input, textarea, select, [role="button"]')) return;
+    if (target instanceof Element && !target.closest('.answer-sheet__drag-area') && target.closest('button, a, input, textarea, select, [role="button"]')) return;
 
     const now = performance.now();
     wasDragGestureRef.current = false;
@@ -878,30 +880,62 @@ function AnswerPanel({
 
   const handleDetailPointerDown = (event: PointerEvent<HTMLElement>) => {
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    suppressSwipeClickRef.current = false;
     const target = event.target;
-    if (target instanceof Element && target.closest('button, a, input, textarea, select, pre, [data-no-page-swipe]')) return;
-    detailSwipeStartRef.current = { x: event.clientX, y: event.clientY };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"], pre, table')) return;
+    detailSwipeStartRef.current = { x: event.clientX, y: event.clientY, id: event.pointerId, width: detailRailRef.current?.clientWidth || 1, axis: null };
+  };
+
+  const settleDetailSwipe = () => {
+    const rail = detailRailRef.current;
+    if (!rail) return;
+    rail.style.removeProperty('transition');
+    requestAnimationFrame(() => rail.style.removeProperty('transform'));
+  };
+
+  const handleDetailPointerMove = (event: PointerEvent<HTMLElement>) => {
+    const start = detailSwipeStartRef.current;
+    if (!start || start.id !== event.pointerId) return;
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    if (!start.axis) {
+      if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < 8) return;
+      start.axis = Math.abs(deltaX) > Math.abs(deltaY) * 1.15 ? 'x' : 'y';
+      if (start.axis === 'x') {
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed && selection.toString().trim()) {
+          start.axis = 'y';
+          return;
+        }
+        if (draggingRef.current) resetDrag();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        suppressSwipeClickRef.current = true;
+      }
+    }
+    if (start.axis !== 'x') return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rail = detailRailRef.current;
+    if (rail) {
+      const position = (panelPage === 'detail' ? -start.width : 0) + deltaX;
+      rail.style.transition = 'none';
+      rail.style.transform = `translateX(${Math.max(-start.width, Math.min(0, position))}px)`;
+    }
   };
 
   const handleDetailPointerUp = (event: PointerEvent<HTMLElement>) => {
     const start = detailSwipeStartRef.current;
+    if (!start || start.id !== event.pointerId) return;
     detailSwipeStartRef.current = null;
+    if (start.axis !== 'x') return;
+    event.stopPropagation();
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (!start) return;
-
     const deltaX = event.clientX - start.x;
-    const deltaY = event.clientY - start.y;
-    if (Math.abs(deltaX) < 44 || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
-    const selection = window.getSelection();
-    if (selection && !selection.isCollapsed && selection.toString().trim()) return;
-    if (panelPage === 'answer' && deltaX > 0) {
-      openDetailPage();
-      return;
+    if (Math.abs(deltaX) >= Math.max(44, start.width * 0.2)) {
+      if (panelPage === 'answer' && deltaX < 0) openDetailPage();
+      if (panelPage === 'detail' && deltaX > 0) handleLeaveDetailPage();
     }
-    if (panelPage === 'detail' && deltaX < 0) {
-      handleLeaveDetailPage();
-    }
+    settleDetailSwipe();
   };
 
   const handleClipboardRead = async () => {
@@ -1018,9 +1052,17 @@ function AnswerPanel({
   };
 
   const detailSwipeProps = {
-    onPointerDown: handleDetailPointerDown,
-    onPointerUp: handleDetailPointerUp,
-    onPointerCancel: () => { detailSwipeStartRef.current = null; },
+    onPointerDownCapture: handleDetailPointerDown,
+    onPointerMoveCapture: handleDetailPointerMove,
+    onPointerUpCapture: handleDetailPointerUp,
+    onPointerCancelCapture: () => { detailSwipeStartRef.current = null; settleDetailSwipe(); },
+    onClickCapture: (event: React.MouseEvent<HTMLElement>) => {
+      if (suppressSwipeClickRef.current && event.detail !== 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        suppressSwipeClickRef.current = false;
+      }
+    },
   };
 
   const hasSavedDetail = savedDetailText.trim().length > 0;
@@ -1030,8 +1072,8 @@ function AnswerPanel({
   const answerPage = (
     <div
       className="answer-sheet__content-page"
-      aria-hidden={state === 'expanded' && panelPage !== 'answer'}
-      inert={state === 'expanded' && panelPage !== 'answer'}
+      aria-hidden={panelPage !== 'answer'}
+      inert={panelPage !== 'answer'}
     >
       <div className="answer-sheet__answer-box">
         <p className="answer-sheet__label">{'\u6b63\u89e3'}</p>
@@ -1153,7 +1195,7 @@ function AnswerPanel({
   }
 
   return (
-    <section ref={sheetRef} tabIndex={-1} aria-label={'\u56de\u7b54\u7d50\u679c'} className={'answer-sheet answer-sheet--' + state + ' ' + (isDragging ? 'answer-sheet--dragging' : '')}>
+    <section ref={sheetRef} tabIndex={-1} aria-label={'\u56de\u7b54\u7d50\u679c'} className={'answer-sheet answer-sheet--' + state + ' ' + (isDragging ? 'answer-sheet--dragging' : '')} {...detailSwipeProps}>
       <p className="sr-only" role="status" aria-live="polite">{isCorrect ? '\u6b63\u89e3\u3067\u3059' : '\u4e0d\u6b63\u89e3\u3067\u3059'}{`\u3002\u6b63\u89e3\u306f${answer}\u3067\u3059`}</p>
       <div className="answer-sheet__drag-capture" aria-hidden="true" {...dragProps} />
       <button
@@ -1174,13 +1216,11 @@ function AnswerPanel({
         </div>
           <button type="button" onClick={onHide} className="answer-sheet__hide-button" disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingAmbiguous}>{'\u3057\u307e\u3046'}</button>
       </div>
-      <div className={'answer-sheet__scroll ' + (state === 'expanded' ? 'answer-sheet__scroll--pages' : '')} {...detailSwipeProps}>
-        {state === 'expanded' ? (
-          <div className={'answer-sheet__content-rail ' + (panelPage === 'detail' ? 'answer-sheet__content-rail--detail' : '')}>
+      <div className="answer-sheet__scroll answer-sheet__scroll--pages">
+          <div ref={detailRailRef} className={'answer-sheet__content-rail ' + (panelPage === 'detail' ? 'answer-sheet__content-rail--detail' : '')}>
             {answerPage}
             {detailPage}
           </div>
-        ) : answerPage}
       </div>
       {answerSaveState === 'error' && onRetryAnswerSave ? (
         <button type="button" className="answer-sheet__retry-save" onClick={onRetryAnswerSave}>回答の保存を再試行</button>

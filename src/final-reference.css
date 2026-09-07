@@ -219,8 +219,10 @@
 .community-discovery-row > svg { color: #53657D; }
 .community-discovery-row:active { background: var(--ui-accent-soft); }
 .community-discovery-row:focus-visible, .community-discovery-filter > summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
-.answer-sheet__content-rail { flex-direction: row-reverse; }
-.answer-sheet__content-rail--detail { transform: translateX(100%); }
+.answer-sheet__content-rail { flex-direction: row; }
+.answer-sheet:not(.answer-sheet--hidden) { touch-action: pan-y pinch-zoom; }
+.answer-sheet__content-rail--detail { transform: translateX(-100%); }
+.answer-sheet__drag-capture { left: 0; right: 0; width: 100%; transform: none; }
 .answer-sheet__scroll { touch-action: pan-y pinch-zoom; }
 .answer-sheet .answer-sheet__detail-open { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; margin-top: 12px; padding: 8px 0; color: var(--ui-accent); background: transparent; border: 0; border-top: 1px solid var(--ui-border); border-radius: 0; font-size: 14px; }
 .answer-sheet .answer-sheet__detail-heading { background: white; border-bottom: 1px solid var(--ui-border); }
