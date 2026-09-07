@@ -716,7 +716,7 @@ function AnswerPanel({
 
   useEffect(() => {
     setPanelPage('answer');
-  }, [questionId, state]);
+  }, [questionId]);
 
   const getBaseSheetHeight = (targetState: AnswerSheetState) => {
     if (targetState === 'hidden') return 64;
@@ -871,21 +871,24 @@ function AnswerPanel({
   };
 
   const openDetailPage = () => {
+    if (state !== 'expanded') onExpand();
     setPanelPage('detail');
     requestAnimationFrame(() => detailBackRef.current?.focus());
   };
 
   const handleDetailPointerDown = (event: PointerEvent<HTMLElement>) => {
-    if (event.pointerType === 'mouse') return;
+    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
     const target = event.target;
     if (target instanceof Element && target.closest('button, a, input, textarea, select, pre, [data-no-page-swipe]')) return;
     detailSwipeStartRef.current = { x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
   const handleDetailPointerUp = (event: PointerEvent<HTMLElement>) => {
     const start = detailSwipeStartRef.current;
     detailSwipeStartRef.current = null;
-    if (!start || state !== 'expanded') return;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (!start) return;
 
     const deltaX = event.clientX - start.x;
     const deltaY = event.clientY - start.y;
@@ -1021,9 +1024,7 @@ function AnswerPanel({
   };
 
   const hasSavedDetail = savedDetailText.trim().length > 0;
-  // Learning is read-only for detailed answers; editing lives on its own page.
-  // Keep this separate from readOnly, which also controls the ambiguity action.
-  const detailEditingDisabled = true;
+  const detailEditingDisabled = readOnly || answerSaveState !== 'saved';
   const canSaveDetail = !detailEditingDisabled && hasUnsavedDetail && (detailText.trim().length > 0 || hasSavedDetail) && !isSavingDetail;
 
   const answerPage = (
@@ -1039,16 +1040,16 @@ function AnswerPanel({
       <div className="answer-sheet__explanation-block">
         <p className="answer-sheet__label">{'\u89e3\u8aac'}</p>
         <ExplanationContent text={explanation} className="answer-sheet__explanation-text" />
-        {state === 'expanded' && (!detailEditingDisabled || hasSavedDetail) ? (
+        {(
           <button
             ref={detailOpenRef}
             type="button"
             className={'answer-sheet__detail-open' + (hasUnsavedDetail ? ' answer-sheet__detail-open--unsaved' : '')}
             onClick={openDetailPage}
           >
-            {hasUnsavedDetail ? '\u8a73\u7d30\u89e3\u8aac\uff08\u672a\u4fdd\u5b58\uff09' : '\u8a73\u7d30\u89e3\u8aac\u3092\u898b\u308b'} {'\u203a'}
+            詳細解答 <span aria-hidden="true">›</span>
           </button>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -1064,7 +1065,7 @@ function AnswerPanel({
         <button ref={detailBackRef} type="button" className="answer-sheet__detail-back" onClick={handleLeaveDetailPage} disabled={isSavingDetail}>
           {'\u2039'} {'\u89e3\u7b54\u306b\u623b\u308b'}
         </button>
-        <h2>{'\u8a73\u7d30\u89e3\u8aac'}</h2>
+        <h2>詳細解答</h2>
         {hasSavedDetail && !isEditingDetail && !detailEditingDisabled ? (
           <button
             type="button"
@@ -1092,19 +1093,18 @@ function AnswerPanel({
         </p>
       ) : null}
       {(hasSavedDetail && !isEditingDetail) || detailEditingDisabled ? (
-        <div className="answer-sheet__detail-reading" data-no-page-swipe>
+        <div className="answer-sheet__detail-reading">
           {hasSavedDetail
             ? <ExplanationContent text={savedDetailText} className="answer-sheet__explanation-text" />
             : <p className="answer-sheet__detail-empty">{'詳細解説は登録されていません'}</p>}
         </div>
       ) : (
         <div className="answer-sheet__detail-editor" aria-busy={isSavingDetail} data-no-page-swipe>
-          {!hasSavedDetail ? <p className="answer-sheet__detail-helper">{'\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u306e\u8a73\u7d30\u89e3\u8aac\u3092\u8aad\u307f\u8fbc\u3093\u3067\u767b\u9332\u3067\u304d\u307e\u3059'}</p> : null}
-          {!hasSavedDetail ? (
+          {(
             <button type="button" className="answer-sheet__clipboard-button" onClick={() => void handleClipboardRead()} disabled={isSavingDetail}>
-              {'\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u304b\u3089\u30b3\u30d4\u30fc'}
+              クリップボードから貼り付け
             </button>
-          ) : null}
+          )}
            <textarea
             ref={detailInputRef}
             className="answer-sheet__detail-input"
@@ -1132,16 +1132,6 @@ function AnswerPanel({
               {hasSavedDetail ? '\u5909\u66f4\u3092\u53d6\u308a\u6d88\u3059' : '\u5165\u529b\u3092\u30af\u30ea\u30a2'}
             </button>
           ) : null}
-          <details className="answer-sheet__detail-preview">
-            <summary>{'\u8868\u793a\u30d7\u30ec\u30d3\u30e5\u30fc'}</summary>
-            <div className="answer-sheet__detail-preview-content">
-              {detailText.trim() ? (
-                <ExplanationContent text={detailText} className="answer-sheet__explanation-text" />
-              ) : (
-                <p className="answer-sheet__detail-empty">{'\u8a73\u7d30\u89e3\u8aac\u306f\u307e\u3060\u5165\u529b\u3055\u308c\u3066\u3044\u307e\u305b\u3093'}</p>
-              )}
-            </div>
-          </details>
         </div>
       )}
     </div>
@@ -1184,7 +1174,7 @@ function AnswerPanel({
         </div>
           <button type="button" onClick={onHide} className="answer-sheet__hide-button" disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingAmbiguous}>{'\u3057\u307e\u3046'}</button>
       </div>
-      <div className={'answer-sheet__scroll ' + (state === 'expanded' ? 'answer-sheet__scroll--pages' : '')} {...(state === 'expanded' ? detailSwipeProps : {})}>
+      <div className={'answer-sheet__scroll ' + (state === 'expanded' ? 'answer-sheet__scroll--pages' : '')} {...detailSwipeProps}>
         {state === 'expanded' ? (
           <div className={'answer-sheet__content-rail ' + (panelPage === 'detail' ? 'answer-sheet__content-rail--detail' : '')}>
             {answerPage}

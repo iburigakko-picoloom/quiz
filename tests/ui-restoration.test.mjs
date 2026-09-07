@@ -36,6 +36,16 @@ test('learning feedback animates without removing reduced-motion support', () =>
   assert.match(navCss, /\.primary-bottom-nav__item:active/);
 });
 
+test('detailed answers open from the standard sheet and an empty answer is editable', () => {
+  const open = quizSource.slice(quizSource.indexOf('const openDetailPage'), quizSource.indexOf('const handleClipboardRead'));
+  assert.match(open, /if \(state !== 'expanded'\) onExpand\(\)/);
+  assert.doesNotMatch(open, /if \(!start \|\| state !== 'expanded'\)/);
+  assert.match(open, /setPointerCapture/);
+  assert.match(quizSource, /const detailEditingDisabled = readOnly \|\| answerSaveState !== 'saved'/);
+  assert.match(quizSource, /\{\.\.\.detailSwipeProps\}/);
+  assert.doesNotMatch(quizSource, /className="answer-sheet__detail-preview"|className="answer-sheet__detail-helper"/);
+});
+
 test('management icons use soft fills and one shared blue currentColor system', () => {
   for (const icon of ['FolderOutlineIcon', 'DocumentOutlineIcon', 'BookmarkIcon', 'TagIcon', 'ProgressIcon', 'ProfileIcon']) {
     assert.match(iconSource, new RegExp(`export function ${icon}`));
