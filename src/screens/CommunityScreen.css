@@ -252,3 +252,8 @@
   .community-public-card { padding: 15px; }
   .community-public-card__actions button { padding: 0 8px; font-size: 12px; }
 }
+.community-add-types { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 16px; }
+.community-add-types label { display: flex; align-items: center; gap: 6px; }
+.community-add-preview { margin: 0; padding: 0; max-height: 30dvh; overflow-y: auto; list-style: none; }
+.community-add-preview li { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid #e2e8f0; overflow-wrap: anywhere; }
+.community-section__heading { flex-wrap: wrap; gap: 12px; }
