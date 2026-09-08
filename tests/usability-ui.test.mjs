@@ -22,6 +22,12 @@ const resultCss = readSource('../src/screens/ResultScreen.css');
 const noteDrawerSource = readSource('../src/components/CategoryNoteDrawer.tsx');
 const nativePlatformSource = readSource('../src/utils/nativePlatform.ts');
 
+test('creation methods do not single out the first option with a tinted frame', () => {
+  const theme = readSource('../src/ui-spec.css');
+  assert.doesNotMatch(theme, /\.create-set__methods\s*>\s*button:first-child/);
+  assert.match(createCss, /\.create-set__method\s*\{[^}]*background:\s*#fff/);
+});
+
 test('problem-set creation uses a direct, concise JSON entry', () => {
   assert.match(createSource, /title: '生成AIで作る'/);
   assert.match(createSource, /'JSONを読み取る'/);

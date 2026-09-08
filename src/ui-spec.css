@@ -40,7 +40,6 @@
 .create-set .create-set__method, .create-set .create-set__panel { border-radius: 6px; box-shadow: none; }
 .create-set .create-set__method-icon { width: 32px; height: 32px; border-radius: 6px; color: var(--ui-accent); background: var(--ui-accent-soft); }
 .create-set .create-set__method-icon svg { width: 18px; height: 18px; }
-.create-set .create-set__methods > button:first-child { background: var(--ui-accent-soft); }
 .create-set, .create-set .create-set__flow { background: white; color: var(--ui-text); }
 .create-set .create-set__primary { background: var(--ui-accent); border-radius: 7px; }
 .create-set .create-set__field input, .create-set .create-set__field select, .create-set .create-set__field textarea, .create-set .create-set__paste { border-radius: 6px; color: var(--ui-text); }
