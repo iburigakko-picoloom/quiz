@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { lineLoginAvailable, signInWithLine, linkLineIdentity, getLineLinkStatus, onCloudAuthStateChange } from '../utils/cloudService';
 import './LineLoginButton.css';
+import { lineLinkReturn, clearLineLinkAttempt } from '../utils/lineAuthReturn';
 
 export function LineLoginButton({ link = false, userId }: { link?: boolean; userId?: string }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(link ? lineLinkReturn?.error ?? '' : '');
+  const returnPending = useRef(link && Boolean(lineLinkReturn));
   const [status, setStatus] = useState<'checking' | 'linked' | 'unlinked' | 'failed'>('checking');
   const revision = useRef(0);
   const refresh = useCallback(async () => {
@@ -17,7 +19,16 @@ export function LineLoginButton({ link = false, userId }: { link?: boolean; user
         getLineLinkStatus(userId),
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 12000); }),
       ]);
-      if (request === revision.current) setStatus(linked ? 'linked' : 'unlinked');
+      if (request === revision.current) {
+        setStatus(linked ? 'linked' : 'unlinked');
+        if (linked) setError('');
+        if (returnPending.current) {
+          if (lineLinkReturn?.userId !== userId) setError('連携を開始したアカウントと異なります。元のアカウントを確認してください。');
+          else if (!linked) setError(lineLinkReturn?.error || 'LINEから戻りましたが、連携完了を確認できませんでした。再確認しても変わらない場合は、認証設定の確認が必要です。');
+          returnPending.current = false;
+          clearLineLinkAttempt();
+        }
+      }
     } catch {
       if (request === revision.current) setStatus('failed');
     } finally { clearTimeout(timer); }

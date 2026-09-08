@@ -22,6 +22,7 @@ import { BackupScreen } from './screens/BackupScreen';
 import { BackupCompleteScreen } from './screens/BackupCompleteScreen';
 import { saveBackupPayload } from './utils/backupRepository';
 import type { CreateProblemSetSubmission, LegacyImportTarget } from './screens/CreateProblemSetScreen';
+import { lineLinkReturn } from './utils/lineAuthReturn';
 import { AutoSyncController } from './components/AutoSyncController';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { PrimaryBottomNav, type PrimaryNavItem } from './components/PrimaryBottomNav';
@@ -78,7 +79,7 @@ export default function App() {
   const [storageLoadAttempt, setStorageLoadAttempt] = useState(0);
   const dataRef = useRef(data);
   const durableDataRef = useRef(data);
-  const [screen, setScreen] = useState<AppScreen>({ name: 'home' });
+  const [screen, setScreen] = useState<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
   const [transitionDirection, setTransitionDirection] = useState<'forward' | 'back' | 'replace'>('replace');
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [pendingExitTarget, setPendingExitTarget] = useState<AppScreen | null>(null);
@@ -92,7 +93,7 @@ export default function App() {
   const [storageRecoverySyncOpen, setStorageRecoverySyncOpen] = useState(false);
   const [libraryMutationBusy, setLibraryMutationBusy] = useState(false);
   const [storageError, setStorageError] = useState('');
-  const navigationStackRef = useRef<AppScreen[]>([{ name: 'home' }]);
+  const navigationStackRef = useRef<AppScreen[]>(lineLinkReturn ? [{ name: 'home' }, { name: 'settings', page: 'account' }] : [{ name: 'home' }]);
   const noteExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
   const noteHistoryPendingRef = useRef(false);
   const browserDepthRef = useRef(0);
@@ -102,7 +103,7 @@ export default function App() {
   const pendingExitModeRef = useRef<'back' | 'replace'>('back');
   const confirmedProtectedExitRef = useRef(false);
   const createDraftDirtyRef = useRef(false);
-  const screenRef = useRef<AppScreen>({ name: 'home' });
+  const screenRef = useRef<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
   const dataRevisionRef = useRef(0);
   const libraryMutationBusyRef = useRef(false);
 

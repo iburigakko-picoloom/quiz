@@ -1,4 +1,5 @@
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
+import { beginLineLinkAttempt, clearLineLinkAttempt } from './lineAuthReturn';
 import type { AppData, ProblemSetVisibility } from '../types';
 import {
   beginNativeAuthAttempt,
@@ -121,15 +122,19 @@ export async function linkLineIdentity(): Promise<boolean> {
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw new Error('現在のアカウントを確認できません。ログイン状態を確認してください。');
   if (userData.user.identities?.some((identity) => identity.provider === 'custom:line')) return true;
-  const { error } = await client.auth.linkIdentity({
+  const { data, error } = await client.auth.linkIdentity({
     provider: 'custom:line',
-    options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile' },
+    options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile', skipBrowserRedirect: true },
   });
   if (error) {
     if (error.code === 'manual_linking_disabled') throw new Error('LINE連携は管理者側の有効化待ちです。現在のログイン状態はそのままです。');
     if (error.code === 'identity_already_exists') throw new Error('このLINEは別のアカウントに連携済みです。自動統合は行いません。');
     throw new Error('LINE連携を開始できませんでした。現在のアカウントのまま、もう一度お試しください。');
   }
+  if (!data.url) throw new Error('LINE認証の移動先を取得できませんでした。');
+  beginLineLinkAttempt(userData.user.id);
+  try { window.location.assign(data.url); }
+  catch { clearLineLinkAttempt(); throw new Error('LINE認証画面を開けませんでした。'); }
   return false;
 }
 
