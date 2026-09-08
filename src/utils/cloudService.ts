@@ -109,12 +109,18 @@ export async function sendMagicLink(email: string, returnTarget?: NativeAuthRetu
 
 export const lineLoginAvailable = cloudConfigured && !nativeAuthPlatform;
 
-export async function linkLineIdentity(): Promise<void> {
+export async function getLineLinkStatus(userId: string): Promise<boolean> {
+  const { data, error } = await requireCloudClient().auth.getUser();
+  if (error || !data.user || data.user.id !== userId || !Array.isArray(data.user.identities)) throw new Error('LINEの連携状態を確認できませんでした。');
+  return data.user.identities.some((identity) => identity.provider === 'custom:line');
+}
+
+export async function linkLineIdentity(): Promise<boolean> {
   if (nativeAuthPlatform) throw new Error('LINE連携はブラウザ版でご利用ください。');
   const client = requireCloudClient();
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw new Error('現在のアカウントを確認できません。ログイン状態を確認してください。');
-  if (userData.user.identities?.some((identity) => identity.provider === 'custom:line')) return;
+  if (userData.user.identities?.some((identity) => identity.provider === 'custom:line')) return true;
   const { error } = await client.auth.linkIdentity({
     provider: 'custom:line',
     options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile' },
@@ -124,6 +130,7 @@ export async function linkLineIdentity(): Promise<void> {
     if (error.code === 'identity_already_exists') throw new Error('このLINEは別のアカウントに連携済みです。自動統合は行いません。');
     throw new Error('LINE連携を開始できませんでした。現在のアカウントのまま、もう一度お試しください。');
   }
+  return false;
 }
 
 export async function signInWithLine(): Promise<void> {

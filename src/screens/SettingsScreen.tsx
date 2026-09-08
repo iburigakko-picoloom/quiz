@@ -188,7 +188,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
               ) : session ? (
                 <div className="settings-account__content">
                   <strong>{session.user.email ?? 'ログイン中'}</strong>
-                  <LineLoginButton link linked={session.user.identities?.some((identity) => identity.provider === 'custom:line')} />
+                  <LineLoginButton key={session.user.id} link userId={session.user.id} />
                   <label className="settings-account__field"><span>共有時の表示名</span><input value={displayName} maxLength={40} onChange={(event) => setDisplayName(event.target.value)} /></label>
                   <div className="settings-account__actions">
                     <button type="button" className="settings-account__primary" disabled={accountBusy || !displayName.trim()} onClick={() => void saveDisplayName()}>表示名を保存</button>

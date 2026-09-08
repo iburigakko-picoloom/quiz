@@ -1,3 +1,7 @@
 .line-login-button { width: 100%; min-height: 44px; padding: 10px 16px; border: 1px solid #dbe3ed; border-radius: 8px; background: white; color: #1765dc; font: inherit; font-weight: 600; cursor: pointer; }
 .line-login-button:disabled { opacity: .6; cursor: default; }
 .line-login-button:focus-visible { outline: 2px solid #1765dc; outline-offset: 2px; }
+.line-link { display: grid; gap: 8px; min-width: 0; }
+.line-link__status { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: .85rem; color: #173042; }
+.line-link__status button { min-height: 44px; border: 0; background: transparent; color: #1765dc; padding: 6px 8px; font: inherit; }
+.line-link__status button:disabled { opacity: .5; }
