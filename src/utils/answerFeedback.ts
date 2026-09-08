@@ -36,16 +36,18 @@ export function prepareAnswerAudio(): void {
 }
 
 export function playAnswerFeedback(kind: 'correct' | 'relearned' | 'wrong'): void {
-  if (kind === 'wrong' || !isAnswerSoundEnabled()) return;
+  if (!isAnswerSoundEnabled()) return;
   try {
     const audio = getAudioContext();
     const play = () => {
       const start = audio.currentTime;
       const gain = audio.createGain();
-      gain.gain.value = 0.7;
+      gain.gain.value = 1;
       gain.connect(audio.destination);
-      const duration = kind === 'relearned' ? 0.76 : 0.54;
-      for (const [frequency, delay] of kind === 'relearned' ? [[660, 0], [880, 0.11]] : [[784, 0]]) {
+      const duration = kind === 'relearned' ? 0.76 : kind === 'wrong' ? 0.42 : 0.54;
+      const notes = kind === 'wrong' ? [[330, 0], [220, 0.12]]
+        : kind === 'relearned' ? [[660, 0], [880, 0.11]] : [[784, 0]];
+      for (const [frequency, delay] of notes) {
         const oscillator = audio.createOscillator();
         const envelope = audio.createGain();
         oscillator.type = 'sine';

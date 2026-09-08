@@ -63,3 +63,50 @@ test('answer sound defaults on and persists a per-device preference', () => {
     else delete globalThis.localStorage;
   }
 });
+
+test('all answer outcomes play louder audio, while the off preference stays silent', () => {
+  const keys = ['AudioContext', 'window', 'localStorage'];
+  const originals = keys.map((key) => Object.getOwnPropertyDescriptor(globalThis, key));
+  const oscillators = [];
+  const gains = [];
+  let enabled = true;
+  let audio;
+  class FakeAudioContext {
+    state = 'running';
+    currentTime = 0;
+    destination = {};
+    constructor() { audio = this; }
+    createGain() {
+      const node = { gain: { value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} };
+      gains.push(node);
+      return node;
+    }
+    createOscillator() {
+      const node = { frequency: { value: 0 }, connect() {}, disconnect() {}, start() {}, stop() {} };
+      oscillators.push(node);
+      return node;
+    }
+  }
+  Object.defineProperty(globalThis, 'AudioContext', { configurable: true, value: FakeAudioContext });
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { setTimeout() {} } });
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => enabled ? 'on' : 'off' } });
+  try {
+    for (const [kind, frequencies] of [['correct', [784]], ['relearned', [660, 880]], ['wrong', [330, 220]]]) {
+      oscillators.length = 0;
+      gains.length = 0;
+      playAnswerFeedback(kind);
+      assert.deepEqual(oscillators.map((node) => node.frequency.value), frequencies);
+      assert.equal(gains[0].gain.value, 1);
+    }
+    enabled = false;
+    oscillators.length = 0;
+    for (const kind of ['correct', 'relearned', 'wrong']) playAnswerFeedback(kind);
+    assert.equal(oscillators.length, 0);
+  } finally {
+    if (audio) audio.state = 'closed';
+    keys.forEach((key, index) => {
+      if (originals[index]) Object.defineProperty(globalThis, key, originals[index]);
+      else delete globalThis[key];
+    });
+  }
+});
