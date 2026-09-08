@@ -4,8 +4,9 @@ import type { AppData, Difficulty, ProblemSet, ProblemSetCreationMethod } from '
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
-import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, UploadIcon } from '../components/UiIcons';
-import { getDraftAnswerIndexes, parseBulkQuestionText, parseQuestionCsv, getDraftIssues, type BulkQuestionDraft } from '../utils/bulkQuestionParser';
+import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon } from '../components/UiIcons';
+import { getDraftAnswerIndexes, parseBulkQuestionText, getDraftIssues, type BulkQuestionDraft } from '../utils/bulkQuestionParser';
+import { CreationNotes } from './CreationNotes';
 import {
   CHATGPT_MATERIAL_TEMPLATE_PROMPT,
   CHATGPT_PAST_EXAM_TEMPLATE_PROMPT,
@@ -50,10 +51,11 @@ interface CreateProblemSetScreenProps {
   onDirtyChange?: (dirty: boolean) => void;
   initialFolderId?: string;
   editSetId?: string;
+  copySetId?: string;
   onBack?: () => void;
 }
 
-type CreationView = 'methods' | 'manual' | 'bulk' | 'chatgpt' | 'copy' | 'other';
+type CreationView = 'methods' | 'manual' | 'bulk' | 'chatgpt' | 'copy' | 'other' | 'notes';
 
 interface SetMeta {
   folderId: string;
@@ -66,7 +68,7 @@ interface SetMeta {
   source: string;
 }
 
-export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, editSetId, onBack }: CreateProblemSetScreenProps) {
+export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
   const editingProblemSet = data.problemSets.find((problemSet) => problemSet.id === editSetId);
   const initialDraftsRef = useRef<BulkQuestionDraft[]>(createDraftsFromProblemSet(data, editingProblemSet));
   const [view, setView] = useState<CreationView>(editingProblemSet ? 'manual' : 'methods');
@@ -83,7 +85,9 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
   const [aiStep, setAiStep] = useState<1 | 2>(1);
   const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
   const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
-  const csvInputRef = useRef<HTMLInputElement | null>(null);
+  const [notesDirty, setNotesDirty] = useState(false);
+  const [notePromptCopied, setNotePromptCopied] = useState(false);
+  const initializedCopyRef = useRef<string | undefined>(undefined);
   const saveInFlightRef = useRef(false);
   const initialMetaRef = useRef(meta);
   const activeMethodRef = useRef<CreationView | null>(editingProblemSet ? 'manual' : null);
@@ -106,7 +110,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
     || creationRequest.trim().length > 0
     || sourceSetId !== undefined
     || hasUncommittedQuestion
-  ), [creationRequest, drafts, hasUncommittedQuestion, meta, pasteText, sourceSetId]);
+    || notesDirty
+  ), [creationRequest, drafts, hasUncommittedQuestion, meta, pasteText, sourceSetId, notesDirty]);
   const creationMethod: ProblemSetCreationMethod = sourceSetId
     ? 'copy'
     : view === 'chatgpt'
@@ -143,6 +148,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
     setPasteText('');
     setCreationRequest('');
     setAiStep(1);
+    setNotePromptCopied(false);
     setSourceSetId(undefined);
     setError('');
     setView(next);
@@ -334,22 +340,11 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
     setError('');
   };
 
-  const handleCsvFile = async (file: File) => {
-    const result = parseQuestionCsv(await file.text());
-    if (result.errors?.length) {
-      setError(result.errors.join('。'));
-      return;
-    }
-    if (result.questions.length === 0) {
-      setError('CSVから問題を読み取れませんでした。見出しに「問題文、選択肢1〜4、正解」を含めてください。');
-      return;
-    }
-    setDrafts(result.questions.map(normalizeEditableQuestionDraft));
-    setPasteText('');
-    setView('bulk');
-    activeMethodRef.current = 'bulk';
-    setError('');
-  };
+  useEffect(() => {
+    if (!copySetId || initializedCopyRef.current === copySetId) return;
+    initializedCopyRef.current = copySetId;
+    chooseCopySource(copySetId);
+  }, [copySetId]);
 
   const copyPromptTemplate = async (kind: 'simple' | 'material' | 'past-exam') => {
     try {
@@ -374,8 +369,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
             <BackButton
-              onClick={editingProblemSet && onBack ? onBack : () => view === 'chatgpt' && aiStep === 2 ? setAiStep(1) : goTo('methods')}
-              label={editingProblemSet ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : '作成方法へ戻る'}
+              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => view === 'chatgpt' && aiStep === 2 ? setAiStep(1) : goTo('methods')}
+              label={editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : '作成方法へ戻る'}
             />
           )}
           <div>
@@ -383,8 +378,10 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
           </div>
         </header>
 
-        {view === 'methods' ? <MethodChooser onSelect={startMethod} onImport={() => startMethod('other')} onCsv={() => csvInputRef.current?.click()} /> : null}
-        <input ref={csvInputRef} className="create-set__hidden-input" type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void handleCsvFile(file); }} />
+        {view === 'methods' ? <MethodChooser onSelect={startMethod} /> : null}
+        <div className="create-set__flow" hidden={view !== 'notes'}>
+          <CreationNotes onDirtyChange={setNotesDirty} onGenerate={() => { setNotePromptCopied(true); setAiStep(2); goTo('chatgpt'); activeMethodRef.current = 'chatgpt'; }} />
+        </div>
 
         {view === 'manual' ? (
           <div className="create-set__flow">
@@ -431,9 +428,11 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
               <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button>
             </section> : null}
             {view !== 'chatgpt' || aiStep === 2 ? <>
+            {notePromptCopied ? <p className="create-set__notice" role="status">依頼文をコピーしました。生成AIへ貼り付け、作成されたJSONをここへ取り込んでください。</p> : null}
             <SetMetaFields data={data} value={meta} onChange={setMeta} />
             <section className="create-set__panel">
               <h2>{view === 'chatgpt' ? '作成されたJSONを貼り付ける' : '複数の問題'}</h2>
+              <button type="button" className="create-set__ai-copy" onClick={openLegacyImport}><DocumentOutlineIcon size={18} />JSONファイルを選ぶ</button>
               <textarea className="create-set__paste" value={pasteText} onChange={(event) => setPasteText(event.target.value)} aria-label={view === 'chatgpt' ? '問題セットJSON' : '問題の貼り付け欄'} />
               <button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' ? 'JSONを読み取る' : '読み取って確認'}</button>
             </section>
@@ -477,9 +476,6 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             <SetMetaFields data={data} value={meta} onChange={setMeta} compact />
             <button type="button" className="create-set__method" onClick={openLegacyImport}>
               <span className="create-set__method-icon"><DocumentOutlineIcon /></span><span><strong>問題セットファイルを読み込む</strong></span><ChevronRightIcon />
-            </button>
-            <button type="button" className="create-set__method" onClick={() => csvInputRef.current?.click()}>
-              <span className="create-set__method-icon"><UploadIcon /></span><span><strong>CSVを読み込む</strong></span><ChevronRightIcon />
             </button>
           </section>
         ) : null}
@@ -641,14 +637,12 @@ function PendingQuestionSaveDialog({
   );
 }
 
-function MethodChooser({ onSelect, onImport, onCsv }: { onSelect: (view: CreationView) => void; onImport: () => void; onCsv: () => void }) {
+function MethodChooser({ onSelect }: { onSelect: (view: CreationView) => void }) {
   const methods: Array<{ view: CreationView; title: string; icon: React.ReactNode }> = [
     { view: 'chatgpt', title: '生成AIで作る', icon: <CopyIcon /> },
-    { view: 'copy', title: '既存問題セットをコピー', icon: <CopyIcon /> },
+    { view: 'notes', title: 'メモから作る', icon: <DocumentOutlineIcon /> },
   ];
   return <section className="create-set__methods" aria-label="作成方法">{methods.map((method) => <button key={method.view} type="button" className="create-set__method" onClick={() => onSelect(method.view)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}
-    <button type="button" className="create-set__method" onClick={onImport}><span className="create-set__method-icon"><DocumentOutlineIcon /></span><strong>問題セットファイルを読み込む</strong><ChevronRightIcon /></button>
-    <button type="button" className="create-set__method" onClick={onCsv}><span className="create-set__method-icon"><UploadIcon /></span><strong>CSVを読み込む</strong><ChevronRightIcon /></button>
   </section>;
 }
 
@@ -778,6 +772,7 @@ function getViewTitle(view: CreationView, sourceSetId?: string) {
   if (view === 'manual') return sourceSetId ? 'コピーを編集' : '問題を編集';
   if (view === 'bulk') return 'CSVを確認';
   if (view === 'chatgpt') return '生成AIで作る';
+  if (view === 'notes') return 'メモから作る';
   if (view === 'copy') return 'コピー元を選ぶ';
   return 'その他の方法';
 }

@@ -34,6 +34,7 @@ interface ProblemSetDetailScreenProps {
   setId: string;
   onBack: () => void;
   onEdit: () => void;
+  onCopy?: () => void;
   onOpenProblemList: () => void;
   onOpenNoteList: () => void;
   onShare: () => void;
@@ -52,6 +53,7 @@ export function ProblemSetDetailScreen({
   setId,
   onBack,
   onEdit,
+  onCopy,
   onOpenProblemList,
   onOpenNoteList,
   onShare,
@@ -132,7 +134,7 @@ export function ProblemSetDetailScreen({
   return (
     <Layout>
       <div className="quiz-detail">
-        <DetailHeader title={problemSet.title} onBack={onBack} onEdit={onEdit} onShare={onShare} />
+        <DetailHeader title={problemSet.title} onBack={onBack} onEdit={onEdit} onCopy={onCopy} onShare={onShare} />
 
         <div className="quiz-detail__content-grid">
           <div className="quiz-detail__main-column">
@@ -248,7 +250,7 @@ export function ProblemSetDetailScreen({
   );
 }
 
-function DetailHeader({ title, onBack, onEdit, onShare }: { title: string; onBack: () => void; onEdit?: () => void; onShare?: () => void }) {
+function DetailHeader({ title, onBack, onEdit, onShare, onCopy }: { title: string; onBack: () => void; onEdit?: () => void; onShare?: () => void; onCopy?: () => void }) {
   return (
     <header className="quiz-detail__header">
       <div className="quiz-detail__header-slope" />
@@ -258,6 +260,7 @@ function DetailHeader({ title, onBack, onEdit, onShare }: { title: string; onBac
         <summary aria-label="問題セットの操作">…</summary>
         <div className="library-actions__body">
           {onEdit ? <button type="button" onClick={onEdit}>問題セットを編集</button> : null}
+          {onCopy ? <button type="button" onClick={onCopy}>問題セットをコピー</button> : null}
           {onShare ? <button type="button" onClick={onShare}>共有設定</button> : null}
         </div>
       </details> : null}

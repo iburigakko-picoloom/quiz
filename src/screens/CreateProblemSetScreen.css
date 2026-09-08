@@ -37,6 +37,19 @@
 .create-set__ai-methods > .create-set__primary { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .create-set__steps button:focus-visible, .create-set__ai-copy:focus-visible { outline: 2px solid #1769ff; outline-offset: 3px; }
 .create-set__ai-copy:not(:disabled):active { background: #edf4ff; }
+.create-set__flow[hidden] { display: none; }
+.create-set__notes { min-width: 0; }
+.create-set__notes > label { display: block; margin-top: 12px; font-size: .8rem; color: #64748b; }
+.create-set__notes-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.create-set__notes-toolbar span { font-size: .75rem; color: #64748b; }
+.create-set__notes-toolbar button { min-height: 44px; border: 0; background: transparent; color: #2859a6; font: inherit; }
+.create-set__note-title, .create-set__note-body { display: block; width: 100%; border: 0; background: white; color: #172033; padding: 12px 4px; font: inherit; }
+.create-set__note-title { font-weight: 700; font-size: 1.15rem; border-bottom: 1px solid #e4e8ef; }
+.create-set__note-body { min-height: 42dvh; resize: vertical; font-size: 16px; line-height: 1.8; }
+.create-set__note-footer { display: flex; justify-content: flex-end; margin-top: 12px; }
+.create-set__note-row { display: grid; gap: 5px; width: 100%; min-height: 64px; padding: 12px 4px; text-align: left; border: 0; border-bottom: 1px solid #e4e8ef; background: white; color: #172033; font: inherit; }
+.create-set__note-row strong, .create-set__note-row span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.create-set__note-row span { color: #64748b; font-size: .8rem; }
 .create-set__prompt-panel h2 { margin-bottom: 11px; }
 .create-set__prompt-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
 .create-set__prompt-actions button { min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #cddce3; border-radius: 12px; background: #fbfdfe; padding: 9px 10px; color: #174b84; font: inherit; font-size: .86rem; font-weight: 900; }

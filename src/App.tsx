@@ -1273,6 +1273,7 @@ export default function App() {
           onDirtyChange={setCreateDraftDirty}
           initialFolderId={screen.folderId}
           editSetId={screen.editSetId}
+          copySetId={screen.copySetId}
           onBack={createBackScreen ? () => goBackTo(createBackScreen) : undefined}
         />
       </Suspense>
@@ -1369,6 +1370,7 @@ export default function App() {
           backScreen: { name: 'problemSetDetail', setId: screen.setId },
         })}
         onOpenProblemList={() => navigate({ name: 'problemList', setId: screen.setId })}
+        onCopy={() => navigate({ name: 'createProblemSet', copySetId: screen.setId, backScreen: { name: 'problemSetDetail', setId: screen.setId } })}
         onOpenNoteList={() => navigate({ name: 'noteList', setId: screen.setId })}
         onShare={() => navigate({
           name: 'community',

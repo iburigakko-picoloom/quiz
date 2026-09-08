@@ -173,7 +173,7 @@ export type AppScreen =
   | { name: 'community'; tab?: 'mine' | 'groups' | 'discover'; groupPage?: 'create' | 'join'; groupId?: string; shareSetId?: string; shareToken?: string; backScreen?: AppScreen }
   | { name: 'sync' }
   | { name: 'privacy' }
-  | { name: 'createProblemSet'; folderId?: string; editSetId?: string; backScreen?: AppScreen }
+  | { name: 'createProblemSet'; folderId?: string; editSetId?: string; copySetId?: string; backScreen?: AppScreen }
   | { name: 'folder'; folderId: string }
   | { name: 'problemSetDetail'; setId: string }
   | { name: 'problemList'; setId: string; sortMode?: ProblemSortMode }
