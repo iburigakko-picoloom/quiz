@@ -107,6 +107,18 @@ export async function sendMagicLink(email: string, returnTarget?: NativeAuthRetu
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
+export const lineLoginAvailable = cloudConfigured && !nativeAuthPlatform;
+
+export async function signInWithLine(): Promise<void> {
+  if (nativeAuthPlatform) throw new Error('LINEログインはブラウザ版でご利用ください。');
+  const client = requireCloudClient();
+  const { error } = await client.auth.signInWithOAuth({
+    provider: 'custom:line',
+    options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile' },
+  });
+  if (error) throw new Error(toFriendlyCloudError(error.message));
+}
+
 export async function initializeCloudNativeAuth(): Promise<() => Promise<void>> {
   if (!cloudClient || !nativeAuthPlatform) return async () => undefined;
   return startNativeAuthListener(cloudClient);
@@ -201,6 +213,9 @@ export async function publishLocalProblemSet(params: {
   if (!problemSet) throw new Error('共有する問題セットが見つかりません。');
   const questions = params.data.questions.filter((item) => item.setId === params.setId);
   if (questions.length === 0) throw new Error('問題がないセットは共有できません。');
+  if (questions.some((question) => question.distractors?.length || question.shuffleChoices)) {
+    throw new Error('ランダム選択肢付きの問題は、現在は端末内の学習・同期・バックアップに対応しています。公開共有にはまだ対応していません。');
+  }
 
   const { data, error } = await client.rpc('publish_problem_set', {
     p_set: {

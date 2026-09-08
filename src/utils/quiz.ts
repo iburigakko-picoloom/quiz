@@ -212,6 +212,7 @@ export function recordAnswer(
     folderId,
     selectedIndex: selectedIndexes[0] ?? -1,
     selectedIndexes,
+    presentedChoices: [...question.choices],
     isCorrect,
     answeredAt: timestamp,
   };

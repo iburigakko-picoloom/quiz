@@ -44,6 +44,7 @@ import {
 import { isStrongSyncId } from '../utils/syncState';
 import { saveJsonBackup, writeClipboardText } from '../utils/nativePlatform';
 import { getCloudSession, onCloudAuthStateChange, sendMagicLink } from '../utils/cloudService';
+import { LineLoginButton } from '../components/LineLoginButton';
 import './SyncScreen.css';
 
 interface SyncScreenProps {
@@ -966,6 +967,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
               <h2 id="sync-auth-title">同期にはログインが必要です</h2>
             </div>
             <div className="sync-auth-gate__form">
+              <LineLoginButton />
               <label htmlFor="sync-login-email">メールアドレス</label>
               <div>
                 <input

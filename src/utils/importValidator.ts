@@ -283,6 +283,8 @@ export function validateImportJson(text: string): ValidationResult {
       });
     }
 
+    if (rawQuestion.shuffleChoices !== undefined && typeof rawQuestion.shuffleChoices !== 'boolean') errors.push(`${path}.shuffleChoices は真偽値にしてください。`);
+    if (rawQuestion.distractors !== undefined && (!Array.isArray(rawQuestion.distractors) || rawQuestion.distractors.length > 50 || !rawQuestion.distractors.every((item) => isNonEmptyString(item) && item.length <= IMPORT_RESOURCE_LIMITS.choice))) errors.push(`${path}.distractors は空でない文字列50個以内にしてください。`);
     if (!isNonEmptyString(rawQuestion.explanation)) {
       errors.push(`${path}.explanation は空でない文字列にしてください。`);
     } else {
@@ -335,6 +337,7 @@ export function validateImportJson(text: string): ValidationResult {
       : ['', '', '', ''];
     const answerIndexesResult = getAnswerIndexes(rawQuestion, choices.length, path);
     errors.push(...answerIndexesResult.errors);
+    if (Array.isArray(rawQuestion.distractors) && rawQuestion.distractors.some((text) => typeof text === 'string' && answerIndexesResult.value.some((index) => choices[index] === text.trim()))) errors.push(`${path}.distractors に正解と同じ語句が含まれています。`);
 
     if (
       isNonEmptyString(rawQuestion.question) &&
@@ -348,6 +351,8 @@ export function validateImportJson(text: string): ValidationResult {
         id: typeof rawQuestion.id === 'string' ? rawQuestion.id : undefined,
         question: rawQuestion.question,
         choices: choices as ImportedQuestion['choices'],
+        distractors: Array.isArray(rawQuestion.distractors) ? [...new Set(rawQuestion.distractors as string[])].filter((text) => typeof text === 'string').map((text) => text.trim()) : undefined,
+        shuffleChoices: typeof rawQuestion.shuffleChoices === 'boolean' ? rawQuestion.shuffleChoices : undefined,
         answerIndex: answerIndexes[0],
         answerIndexes,
         answerText: typeof rawQuestion.answerText === 'string' && rawQuestion.answerText.trim() !== ''

@@ -22,6 +22,7 @@ import {
   type PendingQuestionSaveDecision,
 } from './createProblemSetSave';
 import './CreateProblemSetScreen.css';
+import { buildSimpleCreationPrompt } from '../utils/simpleCreationPrompt';
 
 export interface CreateProblemSetSubmission {
   folderId: string;
@@ -77,7 +78,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
   const [sourceSetId, setSourceSetId] = useState<string | undefined>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [copiedTemplate, setCopiedTemplate] = useState<'material' | 'past-exam' | ''>('');
+  const [copiedTemplate, setCopiedTemplate] = useState<'simple' | 'material' | 'past-exam' | ''>('');
+  const [creationRequest, setCreationRequest] = useState('');
   const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
   const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
   const csvInputRef = useRef<HTMLInputElement | null>(null);
@@ -298,6 +300,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
         id: `copy-${index + 1}`,
         question: question.question,
         choices: [...question.choices],
+        distractors: question.distractors,
+        shuffleChoices: question.shuffleChoices,
         answerIndex: question.answerIndex,
         answerIndexes: question.answerIndexes?.length ? [...question.answerIndexes] : [question.answerIndex],
         explanation: question.explanation,
@@ -343,9 +347,9 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
     setError('');
   };
 
-  const copyPromptTemplate = async (kind: 'material' | 'past-exam') => {
+  const copyPromptTemplate = async (kind: 'simple' | 'material' | 'past-exam') => {
     try {
-      const template = kind === 'material'
+      const template = kind === 'simple' ? buildSimpleCreationPrompt(creationRequest) : kind === 'material'
         ? CHATGPT_MATERIAL_TEMPLATE_PROMPT
         : CHATGPT_PAST_EXAM_TEMPLATE_PROMPT;
       await writeClipboardText(template);
@@ -402,6 +406,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             {view === 'chatgpt' ? (
               <section className="create-set__panel create-set__prompt-panel" aria-labelledby="create-set-prompt-title">
                 <h2 id="create-set-prompt-title">生成用プロンプト</h2>
+                <label className="create-set__field"><span>作りたい問題集</span><textarea value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
+                <button type="button" className="create-set__primary" disabled={!creationRequest.trim()} onClick={() => void copyPromptTemplate('simple')}>{copiedTemplate === 'simple' ? 'コピーしました' : '依頼文をコピー'}</button>
                 <div className="create-set__prompt-actions">
                   <button
                     type="button"
@@ -664,6 +670,11 @@ function QuestionFields({ value, onChange }: { value: BulkQuestionDraft; onChang
       <label className="create-set__field"><span>問題文 <b>必須</b></span><textarea value={value.question} onChange={(event) => onChange({ ...value, question: event.target.value })} /></label>
       <fieldset className="create-set__choices"><legend>選択肢と正解 <b>必須・複数選択可</b></legend>{choices.map((choice, index) => <div key={index} className="create-set__choice-row"><input type="checkbox" checked={answerIndexes.includes(index)} onChange={(event) => onChange(updateDraftAnswerSelection(value, choices, index, event.target.checked))} aria-label={`${index + 1}番を正解にする`} /><input value={choice} onChange={(event) => onChange({ ...value, choices: choices.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} aria-label={`選択肢 ${index + 1}`} />{index === 4 ? <button type="button" aria-label="5番目の選択肢を削除" onClick={() => onChange(normalizeDraftAnswers({ ...value, choices: choices.slice(0, 4) }))}>×</button> : null}</div>)}{choices.length === 4 ? <button type="button" className="create-set__text-button" onClick={() => onChange({ ...value, choices: [...choices, ''] })}>＋ 5番目の選択肢</button> : null}</fieldset>
       <label className="create-set__field"><span>解説</span><textarea value={value.explanation} onChange={(event) => onChange({ ...value, explanation: event.target.value })} /></label>
+      <details>
+        <summary>選択肢のランダム出題</summary>
+        <label><input type="checkbox" checked={value.shuffleChoices !== false && (value.shuffleChoices === true || Boolean(value.distractors?.length))} onChange={(event) => onChange({ ...value, shuffleChoices: event.target.checked })} />誤答の抽選・位置の入れ替え</label>
+        <label className="create-set__field"><span>追加の誤答候補（1行に1つ・50個まで）</span><textarea value={value.distractors?.join('\n') ?? ''} onChange={(event) => onChange({ ...value, distractors: event.target.value.split('\n'), shuffleChoices: true })} /></label>
+      </details>
       <label className="create-set__field"><span>詳細解説</span><textarea value={value.detailedExplanation ?? ''} onChange={(event) => onChange({ ...value, detailedExplanation: event.target.value })} /></label>
       <label className="create-set__field"><span>難易度</span><select value={value.difficulty ?? ''} onChange={(event) => onChange({ ...value, difficulty: event.target.value || undefined })}><option value="">問題セットと同じ</option><option value="basic">基礎</option><option value="standard">標準</option><option value="advanced">発展</option></select></label>
       <div className="create-set__field-grid"><label className="create-set__field"><span>分類</span><input value={value.category} onChange={(event) => onChange({ ...value, category: event.target.value })} /></label><label className="create-set__field"><span>参照</span><input value={value.sourcePage} onChange={(event) => onChange({ ...value, sourcePage: event.target.value })} /></label></div>
@@ -712,6 +723,8 @@ function createDraftsFromProblemSet(data: AppData, problemSet?: ProblemSet): Bul
       id: question.id,
       question: question.question,
       choices: [...question.choices],
+      distractors: question.distractors,
+      shuffleChoices: question.shuffleChoices,
       answerIndex: question.answerIndex,
       answerIndexes: question.answerIndexes?.length ? [...question.answerIndexes] : [question.answerIndex],
       explanation: question.explanation,
@@ -744,7 +757,7 @@ function updateDraftAnswerSelection(draft: BulkQuestionDraft, choices: string[],
 function parseGeneratedContent(text: string) {
   const jsonResult = validateImportJson(text);
   if (jsonResult.ok) {
-    const questions = jsonResult.value.questions.map((question, index) => refreshIssues(normalizeDraftAnswers({ id: `generated-${index + 1}`, question: question.question, choices: [...question.choices], answerIndex: question.answerIndex ?? question.answerIndexes?.[0] ?? null, answerIndexes: question.answerIndexes?.length ? [...question.answerIndexes] : undefined, explanation: question.explanation, detailedExplanation: question.detailedExplanation ?? '', category: question.category ?? '', sourcePage: question.sourcePage ?? question.reference ?? '', difficulty: question.difficulty, issues: [] })));
+    const questions = jsonResult.value.questions.map((question, index) => refreshIssues(normalizeDraftAnswers({ id: `generated-${index + 1}`, question: question.question, choices: [...question.choices], distractors: question.distractors, shuffleChoices: question.shuffleChoices, answerIndex: question.answerIndex ?? question.answerIndexes?.[0] ?? null, answerIndexes: question.answerIndexes?.length ? [...question.answerIndexes] : undefined, explanation: question.explanation, detailedExplanation: question.detailedExplanation ?? '', category: question.category ?? '', sourcePage: question.sourcePage ?? question.reference ?? '', difficulty: question.difficulty, issues: [] })));
     return { questions };
   }
   return parseBulkQuestionText(text);

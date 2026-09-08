@@ -24,6 +24,7 @@ import {
   updateCloudDisplayName,
 } from '../utils/cloudService';
 import './SettingsScreen.css';
+import { LineLoginButton } from '../components/LineLoginButton';
 
 interface SettingsScreenProps {
   page?: 'account' | 'transfer' | 'backups' | 'logout';
@@ -197,6 +198,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
               ) : (
                 <div className="settings-account__content">
                   <strong>未ログイン</strong>
+                  <LineLoginButton />
                   <label className="settings-account__field"><span>メールアドレス</span><input type="email" value={email} autoComplete="email" onChange={(event) => setEmail(event.target.value)} /></label>
                   <button type="button" className="settings-account__primary" disabled={accountBusy || !email.trim()} onClick={() => void sendLoginLink()}>{accountBusy ? '送信中…' : 'ログイン用リンクを送る'}</button>
                 </div>

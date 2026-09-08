@@ -515,6 +515,8 @@ export default function App() {
       setId,
       question: question.question,
       choices: question.choices,
+      distractors: question.distractors,
+      shuffleChoices: question.shuffleChoices,
       answerIndex: question.answerIndex ?? question.answerIndexes?.[0] ?? 0,
       answerIndexes: question.answerIndexes,
       answerText: question.answerText ?? (question.answerIndexes ?? [question.answerIndex ?? 0])
@@ -629,6 +631,8 @@ export default function App() {
         setId,
         question: question.question.trim(),
         choices,
+        distractors: question.distractors,
+        shuffleChoices: question.shuffleChoices,
         answerIndex: answerIndexes[0] ?? 0,
         answerIndexes: answerIndexes.length > 1 ? answerIndexes : undefined,
         answerText: answerIndexes.map((answerIndex) => choices[answerIndex]).filter(Boolean).join(' / '),
@@ -719,6 +723,8 @@ export default function App() {
         setId,
         question: draft.question.trim(),
         choices,
+        distractors: draft.distractors,
+        shuffleChoices: draft.shuffleChoices,
         answerIndex: answerIndexes[0] ?? 0,
         answerIndexes: answerIndexes.length > 1 ? answerIndexes : undefined,
         answerText: answerIndexes.map((answerIndex) => choices[answerIndex]).filter(Boolean).join(' / '),
@@ -1680,6 +1686,7 @@ function makeUniqueProblemSetTitle(data: AppData, folderId: string, rawTitle: st
 function hasQuestionLearningContentChanged(previous: Question, next: Question): boolean {
   return previous.question.trim() !== next.question.trim()
     || JSON.stringify(previous.choices) !== JSON.stringify(next.choices)
+    || JSON.stringify(previous.distractors ?? []) !== JSON.stringify(next.distractors ?? [])
     || JSON.stringify([...getAnswerIndexes(previous)].sort((left, right) => left - right))
       !== JSON.stringify([...getAnswerIndexes(next)].sort((left, right) => left - right));
 }

@@ -51,6 +51,8 @@ export interface DetailedAnswer {
 }
 
 export interface Question {
+  distractors?: string[];
+  shuffleChoices?: boolean;
   id: string;
   setId: string;
   question: string;
@@ -84,6 +86,7 @@ export interface QuestionProgress {
 }
 
 export interface AnswerLog {
+  presentedChoices?: string[];
   id: string;
   questionId: string;
   setId: string;
@@ -95,6 +98,8 @@ export interface AnswerLog {
 }
 
 export interface ImportedQuestion {
+  distractors?: string[];
+  shuffleChoices?: boolean;
   id?: string;
   question: string;
   choices: ChoiceList;

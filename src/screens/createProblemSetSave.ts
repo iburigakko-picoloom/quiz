@@ -16,7 +16,7 @@ export type PendingQuestionSaveResolution =
 export function normalizeEditableQuestionDraft(draft: BulkQuestionDraft): BulkQuestionDraft {
   const choices = [...draft.choices];
   while (choices.length < 4) choices.push('');
-  return normalizeDraftAnswers({ ...draft, choices: choices.slice(0, 5) });
+  return normalizeDraftAnswers({ ...draft, choices: choices.slice(0, 5), distractors: draft.distractors?.map((text) => text.trim()).filter(Boolean) });
 }
 
 export function normalizeDraftAnswers(draft: BulkQuestionDraft): BulkQuestionDraft {
@@ -103,6 +103,8 @@ function comparableDraft(draft: BulkQuestionDraft): string {
   return JSON.stringify({
     question: normalized.question,
     choices: normalized.choices,
+    distractors: normalized.distractors,
+    shuffleChoices: normalized.shuffleChoices,
     answerIndexes: normalized.answerIndexes,
     explanation: normalized.explanation,
     detailedExplanation: normalized.detailedExplanation ?? '',

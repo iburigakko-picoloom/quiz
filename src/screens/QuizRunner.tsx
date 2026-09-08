@@ -12,6 +12,7 @@ import { getAnswerIndexes, getAnswerText, getChoiceLabel, getChoiceText, getProg
 import { resolveQuestionDetailedExplanation } from '../utils/questionView';
 import { readClipboardText } from '../utils/nativePlatform';
 import { getAnswerFeedback, playAnswerFeedback, prepareAnswerAudio } from '../utils/answerFeedback';
+import { randomizeQuestionChoices } from '../utils/choiceRandomization';
 
 type AnswerSheetState = 'expanded' | 'default' | 'hidden';
 
@@ -148,7 +149,12 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
     return () => document.body.classList.remove('quiz-note-open');
   }, [noteAreaOpen]);
 
-  const currentQuestion = questions[currentIndex];
+  const sourceQuestion = questions[currentIndex];
+  const presentationRef = useRef<{ index: number; question: Question | undefined } | null>(null);
+  if (!presentationRef.current || presentationRef.current.index !== currentIndex || presentationRef.current.question?.id !== sourceQuestion?.id) {
+    presentationRef.current = { index: currentIndex, question: sourceQuestion ? randomizeQuestionChoices(sourceQuestion) : undefined };
+  }
+  const currentQuestion = presentationRef.current.question;
   const currentDetailedExplanation = useMemo(
     () => resolveQuestionDetailedExplanation(data.questions, currentQuestion),
     [currentQuestion, data.questions],

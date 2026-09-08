@@ -174,6 +174,14 @@ function normalizeQuestions(
       updatedAt: normalizeDate(value.updatedAt, createdAt),
     };
     if (typeof value.detailedExplanation === 'string') item.detailedExplanation = value.detailedExplanation;
+    if (value.distractors !== undefined) {
+      if (!Array.isArray(value.distractors) || value.distractors.length > 50 || !value.distractors.every((text) => isNonEmptyString(text) && text.length <= 10000)) return invalid(`questions[${index}].distractors が不正です。`);
+      item.distractors = [...new Set(value.distractors as string[])];
+    }
+    if (value.shuffleChoices !== undefined) {
+      if (typeof value.shuffleChoices !== 'boolean') return invalid(`questions[${index}].shuffleChoices が不正です。`);
+      item.shuffleChoices = value.shuffleChoices;
+    }
     if (value.detailedAnswer !== undefined) {
       const detail = value.detailedAnswer;
       if (!isRecord(detail) || typeof detail.body !== 'string' || !Array.isArray(detail.imageIds)
@@ -273,6 +281,7 @@ function normalizeAnswerLogs(
       folderId: set.folderId,
       selectedIndex,
       ...(indexes.length > 0 ? { selectedIndexes: indexes } : {}),
+      ...(Array.isArray(value.presentedChoices) && value.presentedChoices.length === question.choices.length && value.presentedChoices.every((text) => typeof text === 'string') ? { presentedChoices: value.presentedChoices as string[] } : {}),
       isCorrect: typeof value.isCorrect === 'boolean' ? value.isCorrect : false,
       answeredAt,
     };

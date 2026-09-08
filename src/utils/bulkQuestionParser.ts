@@ -1,6 +1,8 @@
 import type { DetailedAnswer } from '../types';
 
 export interface BulkQuestionDraft {
+  distractors?: string[];
+  shuffleChoices?: boolean;
   id: string;
   question: string;
   choices: string[];
@@ -168,9 +170,12 @@ export function getDraftAnswerIndexes(
 }
 
 export function getDraftIssues(
-  question: Pick<BulkQuestionDraft, 'question' | 'choices' | 'answerIndex' | 'answerIndexes'>,
+  question: Pick<BulkQuestionDraft, 'question' | 'choices' | 'answerIndex' | 'answerIndexes' | 'distractors'>,
 ): string[] {
   const issues: string[] = [];
+  const pool = question.distractors?.map((text) => text.trim()).filter(Boolean) ?? [];
+  if (pool.length > 50 || pool.some((text) => text.length > 10000)) issues.push('誤答候補は50個以内・各1万文字以内にしてください');
+  if (pool.some((text) => getDraftAnswerIndexes(question).some((index) => question.choices[index].trim() === text))) issues.push('誤答候補に正解と同じ語句があります');
   if (!question.question.trim()) issues.push('問題文を入力してください');
   if (question.choices.length !== 4 && question.choices.length !== 5) issues.push('選択肢は4個または5個にしてください');
   if (question.choices.some((choice) => !choice.trim())) issues.push('空の選択肢があります');
