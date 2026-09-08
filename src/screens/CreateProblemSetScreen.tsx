@@ -80,6 +80,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
   const [busy, setBusy] = useState(false);
   const [copiedTemplate, setCopiedTemplate] = useState<'simple' | 'material' | 'past-exam' | ''>('');
   const [creationRequest, setCreationRequest] = useState('');
+  const [aiStep, setAiStep] = useState<1 | 2>(1);
   const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
   const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
   const csvInputRef = useRef<HTMLInputElement | null>(null);
@@ -102,9 +103,10 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
     JSON.stringify(meta) !== JSON.stringify(initialMetaRef.current)
     || JSON.stringify(drafts) !== JSON.stringify(initialDraftsRef.current)
     || pasteText.trim().length > 0
+    || creationRequest.trim().length > 0
     || sourceSetId !== undefined
     || hasUncommittedQuestion
-  ), [drafts, hasUncommittedQuestion, meta, pasteText, sourceSetId]);
+  ), [creationRequest, drafts, hasUncommittedQuestion, meta, pasteText, sourceSetId]);
   const creationMethod: ProblemSetCreationMethod = sourceSetId
     ? 'copy'
     : view === 'chatgpt'
@@ -139,6 +141,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
     setQuestionEditor(createBlankDraft('manual-editor'));
     setEditingIndex(null);
     setPasteText('');
+    setCreationRequest('');
+    setAiStep(1);
     setSourceSetId(undefined);
     setError('');
     setView(next);
@@ -370,8 +374,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
             <BackButton
-              onClick={editingProblemSet && onBack ? onBack : () => goTo('methods')}
-              label={editingProblemSet ? '問題セットへ戻る' : '作成方法へ戻る'}
+              onClick={editingProblemSet && onBack ? onBack : () => view === 'chatgpt' && aiStep === 2 ? setAiStep(1) : goTo('methods')}
+              label={editingProblemSet ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : '作成方法へ戻る'}
             />
           )}
           <div>
@@ -404,30 +408,29 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
         {(view === 'bulk' || view === 'chatgpt') ? (
           <div className="create-set__flow">
             {view === 'chatgpt' ? (
-              <section className="create-set__panel create-set__prompt-panel" aria-labelledby="create-set-prompt-title">
-                <h2 id="create-set-prompt-title">生成用プロンプト</h2>
-                <label className="create-set__field"><span>作りたい問題集</span><textarea value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
-                <button type="button" className="create-set__primary" disabled={!creationRequest.trim()} onClick={() => void copyPromptTemplate('simple')}>{copiedTemplate === 'simple' ? 'コピーしました' : '依頼文をコピー'}</button>
-                <div className="create-set__prompt-actions">
-                  <button
-                    type="button"
-                    className={copiedTemplate === 'material' ? 'is-copied' : ''}
-                    onClick={() => void copyPromptTemplate('material')}
-                  >
-                    <CopyIcon size={19} />
-                    <span>{copiedTemplate === 'material' ? 'コピーしました' : '資料用をコピー'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={copiedTemplate === 'past-exam' ? 'is-copied' : ''}
-                    onClick={() => void copyPromptTemplate('past-exam')}
-                  >
-                    <CopyIcon size={19} />
-                    <span>{copiedTemplate === 'past-exam' ? 'コピーしました' : '過去問用をコピー'}</span>
-                  </button>
-                </div>
-              </section>
+              <nav className="create-set__steps" aria-label="生成AIで作る手順">
+                <button type="button" aria-current={aiStep === 1 ? 'step' : undefined} onClick={() => setAiStep(1)}><span>STEP 1</span>問題を作る</button>
+                <button type="button" aria-current={aiStep === 2 ? 'step' : undefined} onClick={() => setAiStep(2)}><span>STEP 2</span>JSONを取り込む</button>
+              </nav>
             ) : null}
+            {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
+              <article className="create-set__ai-method">
+                <h2><span>1</span>説明から作る</h2>
+                <label className="create-set__field"><span>作りたい問題集の説明</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
+                <button type="button" className="create-set__ai-copy" disabled={!creationRequest.trim()} onClick={() => void copyPromptTemplate('simple')}><CopyIcon size={18} />{copiedTemplate === 'simple' ? 'コピーしました' : '依頼文を作成・コピー'}</button>
+              </article>
+              <article className="create-set__ai-method">
+                <h2><span>2</span>資料から作る</h2>
+                <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('material')}><CopyIcon size={18} />{copiedTemplate === 'material' ? 'コピーしました' : '資料用プロンプトをコピー'}</button><p>このプロンプトと資料PDFを一緒に生成AIへ貼り付けてください。</p></div>
+              </article>
+              <article className="create-set__ai-method">
+                <h2><span>3</span>過去問から作る</h2>
+                <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('past-exam')}><CopyIcon size={18} />{copiedTemplate === 'past-exam' ? 'コピーしました' : '過去問用プロンプトをコピー'}</button><p>このプロンプトと過去問PDFを一緒に生成AIへ貼り付けてください。複数年度分でも使えます。</p></div>
+              </article>
+              <p className="create-set__ai-note">生成AIが作成したJSONは、ステップ2へ貼り付けます。</p>
+              <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button>
+            </section> : null}
+            {view !== 'chatgpt' || aiStep === 2 ? <>
             <SetMetaFields data={data} value={meta} onChange={setMeta} />
             <section className="create-set__panel">
               <h2>{view === 'chatgpt' ? '作成されたJSONを貼り付ける' : '複数の問題'}</h2>
@@ -452,6 +455,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
               </section>
             ) : null}
             {reviewedDrafts.length > 0 ? <SaveBar count={reviewedDrafts.length} busy={busy} disabled={needsReviewCount > 0} onSave={() => void submit()} /> : null}
+            </> : null}
           </div>
         ) : null}
 

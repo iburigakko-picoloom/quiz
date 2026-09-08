@@ -41,11 +41,11 @@
 .question-detail-choices li { min-height: 48px; padding: 8px 10px; }
 .create-set .create-set__header { min-height: calc(64px + var(--safe-top, 0px)); padding-block: var(--safe-top, 0px) 0; background: white; }
 .create-set .create-set__header h1 { font-size: 16px; font-weight: 700; }
-.create-set .create-set__method { min-height: 66px; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; padding: 10px 2px; }
+.create-set .create-set__method { min-height: 62px; grid-template-columns: 40px minmax(0, 1fr) 20px; gap: 12px; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; padding: 10px 2px; }
 .create-set .create-set__methods { gap: 0; }
 .create-set .create-set__panel { padding: 0; border: 0; }
 .create-set .create-set__field > span { font-size: 12px; }
-.create-set .create-set__prompt-actions { border-left: 3px solid var(--ui-accent); padding: 14px; background: #F8FAFD; }
+.create-set .create-set__prompt-actions { padding: 0; background: white; }
 .library-page button:disabled { opacity: .5; cursor: default; }
 .library-page button.qm-primary, .library-page button.qm-secondary { display: block; width: 100%; min-height: 46px; margin: 8px 0; padding: 10px 14px; border: 1px solid var(--ui-accent); border-radius: 7px; font-size: 13px; font-weight: 700; color: white; background: var(--ui-accent); }
 .library-page button.qm-secondary { color: var(--ui-accent); background: white; border-color: var(--ui-border); }
