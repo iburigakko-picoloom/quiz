@@ -52,7 +52,7 @@ interface CommunityScreenProps {
   onCreateProblemSet: () => void;
   onOpenGroup: (groupId: string) => void;
   onOpenLocalSet: (setId: string) => void;
-  onCopySharedSet: (set: CloudProblemSet) => Promise<string | null>;
+  onCopySharedSet: (set: CloudProblemSet, folderId: string) => Promise<string | null>;
   onPracticeSharedSet: (set: CloudProblemSet) => void;
   onPublished: (localSetId: string, result: CloudPublishResult) => Promise<void>;
   onUnpublished: (localSetId: string) => Promise<void>;
@@ -102,6 +102,10 @@ export function CommunityScreen({
   const [addTarget, setAddTarget] = useState<{ visibility: 'public' | 'group'; groupId?: string; name: string } | null>(null);
   const [addIds, setAddIds] = useState<string[]>([]);
   const [addReview, setAddReview] = useState(false);
+  const [copyTarget, setCopyTarget] = useState<{ set: CloudProblemSet; token: string } | null>(null);
+  const [copyFolderId, setCopyFolderId] = useState('');
+  const [copyError, setCopyError] = useState('');
+  const copyBusyRef = useRef(false);
   const [publicationInfo, setPublicationInfo] = useState<Record<string, PublicationInfo>>({});
   const detailsFor = (id: string): PublicationInfo => publicationInfo[id] ?? {
     audience: data.problemSets.find((set) => set.id === id)?.audience ?? '',
@@ -335,21 +339,33 @@ export function CommunityScreen({
     }
   };
 
-  const copySharedSet = async (summary: CloudProblemSet, token = '') => {
+  const copySharedSet = (summary: CloudProblemSet, token = '') => {
+    setCopyFolderId('');
+    setCopyError('');
+    setCopyTarget({ set: summary, token });
+  };
+  const confirmCopy = async () => {
+    if (!copyTarget || !data.folders.some((folder) => folder.id === copyFolderId) || copyBusyRef.current) return;
+    copyBusyRef.current = true;
+    const { set: summary, token } = copyTarget;
     setBusy(true);
-    setError('');
+    setCopyError('');
     try {
       const detail = summary.questions ? summary : await getSharedProblemSet(summary.id, token);
-      const localSetId = await onCopySharedSet(detail);
+      const localSetId = await onCopySharedSet(detail, copyFolderId);
       if (localSetId) {
         await recordCloudCopy(detail.id, localSetId).catch(() => undefined);
         setDirectSet((current) => current?.id === detail.id ? { ...current, addCount: current.addCount + 1 } : current);
         setPublicSets((items) => items.map((item) => item.id === detail.id ? { ...item, addCount: item.addCount + 1 } : item));
+        setCopyTarget(null);
         onOpenLocalSet(localSetId);
+      } else {
+        setCopyError('取り込めませんでした。保存先と空き容量を確認してください。');
       }
     } catch (reason) {
-      setError(getErrorMessage(reason));
+      setCopyError(getErrorMessage(reason));
     } finally {
+      copyBusyRef.current = false;
       setBusy(false);
     }
   };
@@ -729,6 +745,20 @@ export function CommunityScreen({
 
         </main>
 
+        {copyTarget ? <CommunityModal ariaLabel="取り込み先を選択" busy={busy} onClose={() => setCopyTarget(null)}>
+          <h2>取り込み先を選択</h2>
+          <p>{copyTarget.set.title}</p>
+          <div className="community-copy-folders" role="radiogroup" aria-label="保存先フォルダ">
+            {data.folders.map((folder) => <label key={folder.id} className="community-copy-folder">
+              <input type="radio" name="copy-folder" value={folder.id} checked={copyFolderId === folder.id} disabled={busy} onChange={() => setCopyFolderId(folder.id)} />
+              <FolderOutlineIcon size={26} />
+              <span>{folder.parentFolderId ? <small>{data.folders.find((parent) => parent.id === folder.parentFolderId)?.name} /</small> : null}{folder.name}</span>
+            </label>)}
+            {!data.folders.length ? <p>ホームでフォルダを作成してください。</p> : null}
+          </div>
+          {copyError ? <p role="alert">{copyError}</p> : null}
+          <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setCopyTarget(null)}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !data.folders.some((folder) => folder.id === copyFolderId)} onClick={() => void confirmCopy()}>{busy ? '取り込み中…' : 'ここに取り込む'}</button></div>
+        </CommunityModal> : null}
         {addTarget ? (
           <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)}>
             <h2>{Object.keys(addResults).length ? busy ? '公開中…' : '公開結果' : addReview ? '公開しますか？' : '公開する問題を選択'}</h2>

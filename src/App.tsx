@@ -788,7 +788,7 @@ export default function App() {
     return null;
   };
 
-  const handleCopySharedProblemSet = async (sharedSet: CloudProblemSet): Promise<string | null> => {
+  const handleCopySharedProblemSet = async (sharedSet: CloudProblemSet, targetFolderId: string): Promise<string | null> => {
     const importedQuestions = sharedSet.questions ?? [];
     if (importedQuestions.length === 0) {
       setStorageError('追加できる問題がありません。');
@@ -801,11 +801,11 @@ export default function App() {
 
     const timestamp = nowIso();
     const current = dataRef.current;
-    const existingFolder = current.folders.find((folder) => folder.name === '追加した問題セット');
-    const targetFolderId = existingFolder?.id ?? createId('folder');
-    const folders = existingFolder
-      ? current.folders.map((folder) => folder.id === targetFolderId ? { ...folder, updatedAt: timestamp } : folder)
-      : [{ id: targetFolderId, name: '追加した問題セット', createdAt: timestamp, updatedAt: timestamp }, ...current.folders];
+    if (!current.folders.some((folder) => folder.id === targetFolderId)) {
+      setStorageError('取り込み先のフォルダが見つかりません。選び直してください。');
+      return null;
+    }
+    const folders = current.folders.map((folder) => folder.id === targetFolderId ? { ...folder, updatedAt: timestamp } : folder);
     const setId = createId('set');
     const problemSet: ProblemSet = {
       id: setId,
