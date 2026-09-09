@@ -1346,12 +1346,12 @@ button:disabled {
   .quiz-runner__question-panel {
     height: auto !important;
     min-height: 88px;
-    max-height: 124px;
+    max-height: 177px;
     padding: 10px 18px;
   }
 
   .quiz-runner__question-text {
-    max-height: 86px !important;
+    max-height: 139px !important;
   }
 
   .quiz-runner__choices {
@@ -1394,13 +1394,13 @@ button:disabled {
 @media (max-width: 380px) and (max-height: 720px) {
   .quiz-runner__question-panel {
     min-height: 78px;
-    max-height: 112px;
+    max-height: 165px;
     padding-top: 8px;
     padding-bottom: 8px;
   }
 
   .quiz-runner__question-text {
-    max-height: 76px !important;
+    max-height: 129px !important;
   }
 
   .quiz-runner__choices {
