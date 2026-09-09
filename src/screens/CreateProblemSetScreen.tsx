@@ -384,7 +384,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
         ? CHATGPT_MATERIAL_TEMPLATE_PROMPT
         : CHATGPT_PAST_EXAM_TEMPLATE_PROMPT;
       await writeClipboardText(kind === 'past-exam'
-        ? `${template}\n\n【今回の条件】\n問題数と選択肢数は指定しません。資料にある問題と選択肢を尊重し、数合わせの追加・削除はしないでください。\n${allowMultiple ? '複数回答の問題も取り込み、answerIndexesで正解を表してください。' : '単一回答の問題のみ取り込んでください。複数回答問題を単一回答へ改変しないでください。'}`
+        ? `${template}\n\n【今回の条件】\n問題数と選択肢数は指定しません。資料にある問題と選択肢を尊重し、数合わせの追加・削除はしないでください。\n単一回答・複数回答は元の過去問に従ってください。複数回答の問題も取り込み、answerIndexesで正解を表してください。正解の数を変更したり、複数回答を理由に問題を除外したりしないでください。`
         : applyCreationConditions(template, { choiceCount, questionCount: count, allowMultiple }));
       setCopiedTemplate(kind);
       setError('');
@@ -446,13 +446,11 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
               <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '自分で作る'], ['material', '資料から作る'], ['past-exam', '過去問から作る']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => setAiMethod(method)}>{label}</button>)}<span className="create-set__method-indicator" aria-hidden="true" style={{ transform: `translateX(calc(${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 100}% + ${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 6}px))` }} /></nav>
-              <div className={`create-set__generation-options${aiMethod === 'past-exam' ? ' create-set__generation-options--past' : ''}`}>
-                {aiMethod !== 'past-exam' ? <>
+              {aiMethod !== 'past-exam' ? <div className="create-set__generation-options">
                 <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{ transform: `translateX(${choiceCount === 5 ? 100 : 0}%)` }} />{([4, 5] as const).map((count) => <button type="button" key={count} aria-pressed={choiceCount === count} onClick={() => setChoiceCount(count)}>{count}択</button>)}</div></fieldset>
                 <label>問題数<input type="number" min={1} max={2000} step={1} inputMode="numeric" value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /></label>
-                </> : null}
                 <label className="create-set__multiple-option"><span>複数回答の許可</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} /></span></label>
-              </div>
+              </div> : null}
               <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>
                 <h2><span>1</span>自分で作る</h2>
                 <label className="create-set__field"><span>作りたい問題集の説明</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
