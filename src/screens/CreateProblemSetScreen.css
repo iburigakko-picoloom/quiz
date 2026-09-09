@@ -1,6 +1,6 @@
 .create-set,
 .create-set * { box-sizing: border-box; }
-.create-set { min-height: 100dvh; flex: 0 0 auto; padding: 0; color: #173042; background: #f1f7fa; }
+.create-set { min-height: 100dvh; flex: 0 0 auto; padding: 0; color: #173042; background: #fff; }
 .create-set::after { content: ''; display: block; height: calc(var(--primary-nav-height) + var(--safe-bottom) + 24px); }
 .create-set__header { position: sticky; z-index: 6; top: 0; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; align-items: center; width: 100%; min-height: calc(72px + var(--safe-top)); max-width: none; margin: 0 0 14px; padding: var(--safe-top) 14px 0; border-bottom: 1px solid #dce5ef; background: #fff; }
 .create-set__header--root { grid-template-columns: minmax(0, 1fr); padding-right: 18px; padding-left: 18px; }

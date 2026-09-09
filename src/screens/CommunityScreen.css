@@ -4,7 +4,7 @@
 .community-screen {
   min-height: 100%;
   padding-bottom: calc(var(--primary-nav-height) + var(--safe-bottom) + 18px);
-  background: #f1f5f9;
+  background: #fff;
   color: #183241;
 }
 

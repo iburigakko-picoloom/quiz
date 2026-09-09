@@ -363,7 +363,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
 
   return (
     <Layout>
-      <main className="create-set">
+      <main className={`create-set${view === 'methods' ? ' create-set--chooser' : ''}`}>
         <header className={`create-set__header${view === 'methods' && !onBack ? ' create-set__header--root' : ''}`}>
           {view === 'methods' ? (
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
