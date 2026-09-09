@@ -804,7 +804,7 @@ function PdfPromptFlow({ pdfLabel, copied, onCopy, onNext }: { pdfLabel: string;
     <span className="create-set__flow-arrow" aria-hidden="true">↓</span>
     <div className="create-set__flow-ai"><CopyIcon size={22} /><strong>生成AIに貼り付け</strong></div>
     <span className="create-set__flow-arrow" aria-hidden="true">↓</span>
-    <button type="button" className="create-set__primary create-set__flow-next" onClick={onNext} aria-label="STEP 2へ"><strong>STEP 2</strong><ChevronRightIcon size={18} /></button>
+    <button type="button" className="create-set__primary" onClick={onNext}>ステップ2へ <ChevronRightIcon size={18} /></button>
   </div>;
 }
 
