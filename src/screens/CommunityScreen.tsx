@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Session } from '@supabase/supabase-js';
 import type { AppData, ProblemSetVisibility } from '../types';
 import { BackButton } from '../components/BackButton';
+import { PublicationMenu } from '../components/PublicationMenu';
 import { Layout } from '../components/Layout';
 import { ChevronRightIcon, DocumentOutlineIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
 import { buildGroupProblemSetFolders } from '../utils/groupDataView';
@@ -607,7 +608,10 @@ export function CommunityScreen({
         {authMessage ? <div className="community-notice" role="status">{authMessage}<button type="button" onClick={() => setAuthMessage('')}>閉じる</button></div> : null}
 
         <main className="community-screen__body">
-          {directSet && directSet.ownerId === session?.user.id ? <div className="community-section__heading"><span>自分の公開</span><button type="button" disabled={busy} onClick={() => requestRemove([directSet], directSet.title)}>公開を取り消す</button></div> : null}
+          {directSet ? <div className="community-detail-toolbar">
+            {!isGroupSetDetail && !shareToken ? <button type="button" onClick={() => { setDirectSet(null); setTab(detailBackTab); }}>‹ 一覧へ戻る</button> : <span />}
+            {directSet.ownerId === session?.user.id ? <div><span>自分の公開</span><PublicationMenu title={directSet.title} busy={busy} onRemove={() => requestRemove([directSet], directSet.title)} /></div> : null}
+          </div> : null}
           {isGroupDetail ? (
             isGroupSetDetail && directSet ? (
               <section className="community-section" aria-label="グループの問題セット詳細">
@@ -737,7 +741,6 @@ export function CommunityScreen({
 
           {tab === 'discover' ? (
             <section className="community-section">
-              {directSet ? <div className="community-section__heading"><h2>共有された問題セット</h2>{!shareToken ? <button type="button" onClick={() => { setDirectSet(null); setTab(detailBackTab); }}>一覧へ戻る</button> : null}</div> : null}
               {directSet ? <ProblemSetCards sets={[directSet]} busy={busy} onCopy={(set) => void copySharedSet(set, shareToken)} onPractice={(set) => void practiceSharedSet(set, shareToken)} onReport={setReportTarget} detailed /> : (
                 <>
                   <div className="community-search">
@@ -931,13 +934,13 @@ function ProblemSetCards({ sets, busy, onCopy, onPractice, onDetail, onReport, d
     <ChevronRightIcon size={22} />
   </button>)}</div>;
   return <div className="community-public-list">{sets.map((set) => (
-    <article key={set.id} className="community-public-card">
-      <div className="community-public-card__top"><div><span>{set.subject || '未分類'}</span><h3>{set.title}</h3></div><small>更新 {formatDate(set.updatedAt)}</small></div>
+    <article key={set.id} className={`community-public-card${detailed ? ' community-public-card--detail' : ''}`}>
+      <div className="community-public-card__top"><div>{set.subject ? <span>{set.subject}</span> : null}<h3>{set.title}</h3></div>{!detailed ? <small>更新 {formatDate(set.updatedAt)}</small> : null}</div>
       {set.audience ? <p>{set.audience}</p> : null}
       {set.description ? <p>{set.description}</p> : null}
       <div className="community-public-card__meta"><span>{set.questionCount}問</span><span>{difficultyLabel(set.difficulty)}</span><span>追加 {set.addCount}</span><span>作成：{set.authorName}</span></div>
       {detailed && set.questions ? <details><summary>問題の内容を確認</summary>{set.questions.slice(0, 5).map((question, index) => <div className="community-question-preview" key={`${index}_${question.question}`}><strong>{index + 1}. {question.question}</strong><span>{question.choices.join(' / ')}</span></div>)}</details> : null}
-      <div className="community-public-card__actions"><button type="button" className="community-primary" disabled={busy} onClick={() => onCopy(set)}>自分の問題にコピー</button><button type="button" disabled={busy} onClick={() => onPractice(set)}>このまま解く</button></div>
+      <div className="community-public-card__actions"><button type="button" className="community-primary" disabled={busy} onClick={() => onPractice(set)}>このまま解く</button><button type="button" disabled={busy} onClick={() => onCopy(set)}>自分のフォルダにコピー</button></div>
       <div className="community-public-card__minor-actions">{onDetail && !detailed ? <button type="button" onClick={() => onDetail(set)}>詳細を見る</button> : null}<button type="button" onClick={() => onReport(set)}>誤りを報告</button></div>
     </article>
   ))}</div>;

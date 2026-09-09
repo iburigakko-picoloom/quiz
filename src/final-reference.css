@@ -245,3 +245,17 @@
 .answer-sheet .answer-sheet__detail-heading h2 { font-size: 16px; }
 .answer-sheet .answer-sheet__detail-input { min-height: 36dvh; border-radius: 6px; background: white; font-size: 16px; touch-action: pan-y pinch-zoom; }
 .answer-sheet .answer-sheet__clipboard-button, .answer-sheet .answer-sheet__detail-save, .answer-sheet .answer-sheet__detail-cancel { min-height: 44px; border-radius: 6px; font-size: 14px; }
+.community-detail-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.community-detail-toolbar > button { border: 0; background: transparent; color: #2859a6; padding: 8px 0; min-height: 44px; font: inherit; }
+.community-detail-toolbar > div { display: flex; align-items: center; gap: 8px; color: #526973; font-size: 12px; }
+.community-screen .publication-menu-trigger { flex-shrink: 0; width: 44px; min-height: 44px; border: 0; border-radius: 10px; padding: 0; background: transparent; color: #526973; font-size: 26px; line-height: 1; }
+.community-screen .publication-menu-trigger:hover { background: #f1f5f9; }
+.community-screen .publication-menu-trigger:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.community-screen .community-public-card--detail { border: 0; box-shadow: none; background: white; padding: 0 4px 24px; border-radius: 0; }
+.community-public-card--detail .community-public-card__top { display: block; }
+.community-public-card--detail .community-public-card__top h3 { font-size: 24px; line-height: 1.5; margin: 12px 0; overflow-wrap: anywhere; }
+.community-public-card--detail .community-public-card__meta { gap: 8px 14px; flex-wrap: wrap; margin: 16px 0 24px; }
+.community-public-card--detail > details { margin: 20px 0; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; border-radius: 0; background: white; }
+.community-public-card--detail > details > summary { padding: 16px 4px; background: white; }
+.community-screen .community-public-card--detail .community-public-card__actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 24px; }
+.community-screen .community-public-card--detail .community-public-card__actions button { width: 100%; min-height: 52px; padding: 12px 16px; font-size: 16px; line-height: 1.5; border-radius: 12px; }

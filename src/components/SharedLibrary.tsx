@@ -3,6 +3,7 @@ import type { CloudProblemSet } from '../utils/cloudService';
 import { sharedFolderTree, folderSets, type SharedFolderNode } from '../utils/sharedFolders';
 import { ChevronRightIcon, FolderOutlineIcon, DocumentOutlineIcon } from './UiIcons';
 import './SharedLibrary.css';
+import { PublicationMenu } from './PublicationMenu';
 
 export function SharedLibrary({ sets, userId, busy, onOpen, onRemove, loadFolder }: {
   sets: CloudProblemSet[]; userId?: string; busy: boolean;
@@ -24,7 +25,7 @@ export function SharedLibrary({ sets, userId, busy, onOpen, onRemove, loadFolder
   };
   const renderSet = (set: CloudProblemSet) => <div className="shared-library__row" key={set.id}>
     <button type="button" className="shared-library__open" disabled={busy} onClick={() => onOpen(set)}><DocumentOutlineIcon size={28} /><span><strong>{set.title}</strong><small>{[set.audience, `${set.questionCount}問`, set.ownerId === userId ? '自分の公開' : set.authorName].filter(Boolean).join(' · ')}</small></span><ChevronRightIcon size={18} /></button>
-    {set.ownerId === userId ? <button type="button" className="shared-library__remove" disabled={busy || !!loading} aria-label={`${set.title}の公開を取り消す`} onClick={() => onRemove([set], set.title)}>公開取消</button> : null}
+    {set.ownerId === userId ? <PublicationMenu title={set.title} busy={busy || !!loading} onRemove={() => onRemove([set], set.title)} /> : null}
   </div>;
   const renderFolder = (original: SharedFolderNode, depth = 0): React.ReactNode => {
     const cached = loaded[original.key];
@@ -36,7 +37,7 @@ export function SharedLibrary({ sets, userId, busy, onOpen, onRemove, loadFolder
           if (open) setOpened((old) => old.filter((key) => key !== node.key));
           else { if (depth === 0 && loadFolder && !await ensure(node)) return; setOpened((old) => [...old, node.key]); }
         }}><FolderOutlineIcon size={30} /><span><strong>{node.name}</strong><small>{loading === node.key ? '読み込み中…' : node.ownerId === userId ? '自分の公開' : node.authorName}</small></span><ChevronRightIcon className="shared-library__arrow" size={18} style={{ transform: open ? 'rotate(90deg)' : undefined }} /></button>
-        {node.ownerId === userId ? <button type="button" className="shared-library__remove" disabled={busy || !!loading} aria-label={`${node.name}の公開を取り消す`} onClick={async () => { const contents = await ensure(node); if (contents?.length) onRemove(contents, node.name); }}>公開取消</button> : null}
+        {node.ownerId === userId ? <PublicationMenu title={node.name} busy={busy || !!loading} onRemove={() => { void ensure(node).then((contents) => { if (contents?.length) onRemove(contents, node.name); }); }} /> : null}
       </div>
       <div className={`shared-library__children${open ? ' is-open' : ''}`} inert={!open} aria-hidden={!open}><div>{node.folders.map((folder) => renderFolder(folder, depth + 1))}{node.sets.map(renderSet)}</div></div>
     </section>;
