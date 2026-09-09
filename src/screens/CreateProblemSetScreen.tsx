@@ -451,7 +451,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
                 <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{ transform: `translateX(${choiceCount === 5 ? 100 : 0}%)` }} />{([4, 5] as const).map((count) => <button type="button" key={count} aria-pressed={choiceCount === count} onClick={() => setChoiceCount(count)}>{count}択</button>)}</div></fieldset>
                 <label>問題数<input type="number" min={1} max={2000} step={1} inputMode="numeric" value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /></label>
                 </> : null}
-                <label className="create-set__multiple-option"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} />複数回答を許可</label>
+                <label className="create-set__multiple-option"><span>複数回答の許可</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} /></span></label>
               </div>
               <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>
                 <h2><span>1</span>自分で作る</h2>
