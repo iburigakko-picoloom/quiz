@@ -58,7 +58,7 @@ test('discovery and group screens remove redundant copy explanations', () => {
   assert.match(communitySource, /community-group-folder-list/);
   assert.match(communitySource, /role="tablist" aria-label="グループの表示"/);
   assert.match(communitySource, /hidden=\{groupDetailTab !== 'members'\}/);
-  assert.match(communitySource, /自分の問題にコピー/);
+  assert.match(communitySource, /自分のフォルダにコピー/);
 });
 
 test('shared layout scrolls long screens and create actions never float over form controls', () => {
@@ -119,8 +119,8 @@ test('sync screen uses an eight-character pairing flow and keeps recovery detail
   assert.match(syncSource, /接続コードを表示/);
   const comparisonSource = readSource('../src/components/SyncComparison.tsx');
   assert.match(syncSource, /<SyncComparison/);
-  assert.match(comparisonSource, /端末を優先/);
-  assert.match(comparisonSource, /クラウドを優先/);
+  assert.match(comparisonSource, /端末 → クラウドに同期/);
+  assert.match(comparisonSource, /クラウド → 端末に読み込む/);
   assert.match(comparisonSource, /saveBackupPayload\(local,'before-sync'\)/);
   assert.match(comparisonSource, /remote.value\?\.updatedAt !== pending.remote\?\.updatedAt/);
   assert.match(syncSource, /<details className="sync-advanced">/);

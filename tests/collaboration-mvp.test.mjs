@@ -42,7 +42,7 @@ test('public discovery supports required filters, detail preview and both primar
   assert.match(screenSource, />難易度<select/);
   assert.match(screenSource, /問題の内容を確認/);
   assert.match(screenSource, /このまま解く/);
-  assert.match(screenSource, /自分の問題にコピー/);
+  assert.match(screenSource, /自分のフォルダにコピー/);
   const previewAnswerBody = appSource.slice(appSource.indexOf('const handlePreviewAnswer'), appSource.indexOf('const handleCreateProblemSet'));
   assert.doesNotMatch(previewAnswerBody, /commitData|persistThenCommitData|recordAnswer/);
   assert.match(previewAnswerBody, /学習履歴には記録しません/);
