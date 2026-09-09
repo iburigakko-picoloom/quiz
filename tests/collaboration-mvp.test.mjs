@@ -39,7 +39,9 @@ test('public discovery supports required filters, detail preview and both primar
   assert.match(screenSource, /community-discovery-row/);
   assert.match(screenSource, /onClick=\{\(\) => onDetail\(set\)\}/);
   assert.match(screenSource, />科目<select/);
-  assert.match(screenSource, />難易度<select/);
+  assert.match(screenSource, /<h3>難易度<\/h3>/);
+  assert.match(screenSource, /aria-pressed=\{conditionDraft.difficulty === value\}/);
+  assert.match(screenSource, /この条件で検索/);
   assert.match(screenSource, /問題の内容を確認/);
   assert.match(screenSource, /このまま解く/);
   assert.match(screenSource, /自分のフォルダにコピー/);

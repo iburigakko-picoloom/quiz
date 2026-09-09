@@ -100,6 +100,7 @@ export function CommunityScreen({
   const [sort, setSort] = useState<'new' | 'popular'>('new');
   const [subjectFilter, setSubjectFilter] = useState('all');
   const [difficultyFilter, setDifficultyFilter] = useState('all');
+  const [conditionDraft, setConditionDraft] = useState<{ sort: 'new' | 'popular'; subject: string; difficulty: string } | null>(null);
   const [shareLocalSetId, setShareLocalSetId] = useState(() => initialSetId && !shareToken && initialTab === 'mine' ? initialSetId : '');
   const [shareVisibility, setShareVisibility] = useState<Exclude<ProblemSetVisibility, 'private'>>('link');
   const [shareGroupIds, setShareGroupIds] = useState<string[]>([]);
@@ -776,15 +777,7 @@ export function CommunityScreen({
                 <>
                   <div className="community-search">
                     <div className="community-search__input"><SearchIcon size={19} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="公開問題セットを検索" /></div>
-                    <select value={sort} onChange={(event) => setSort(event.target.value as 'new' | 'popular')} aria-label="並び順"><option value="new">新着順</option><option value="popular">人気順</option></select>
-                  </div>
-                  <div className="community-discovery-tools"><span>{!cloudConfigured ? '未接続' : publicLoading ? '検索中…' : error ? '取得できませんでした' : `${visiblePublicSets.length}セット`}</span>
-                  <details className="community-discovery-filter"><summary>絞り込み{subjectFilter !== 'all' || difficultyFilter !== 'all' ? ` ${Number(subjectFilter !== 'all') + Number(difficultyFilter !== 'all')}` : ''}</summary>
-                  <div className="community-filters" aria-label="絞り込み">
-                    <label>科目<select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">すべて</option>{subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
-                    <label>難易度<select value={difficultyFilter} onChange={(event) => setDifficultyFilter(event.target.value)}><option value="all">すべて</option><option value="basic">基礎</option><option value="standard">標準</option><option value="advanced">発展</option></select></label>
-                  </div>
-                  </details>
+                    <button type="button" className="community-condition-trigger" aria-haspopup="dialog" onClick={() => setConditionDraft({ sort, subject: subjectFilter, difficulty: difficultyFilter })}>条件{subjectFilter !== 'all' || difficultyFilter !== 'all' || sort !== 'new' ? ' •' : ''}</button>
                   </div>
                   <div className="community-section__heading"><h2>公開ライブラリ</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
                   {publicLoading ? <div className="community-notice" role="status">公開問題セットを読み込み中…</div> : null}
@@ -801,6 +794,16 @@ export function CommunityScreen({
         </main>
 
 
+
+        {conditionDraft ? <CommunityModal ariaLabel="条件" sidePanel onClose={() => setConditionDraft(null)}>
+          <header className="community-conditions__header"><button type="button" aria-label="条件を閉じる" onClick={() => setConditionDraft(null)}>×</button><h2>条件</h2><button type="button" onClick={() => setConditionDraft({ sort: 'new', subject: 'all', difficulty: 'all' })}>クリア</button></header>
+          <div className="community-conditions__body">
+            <section><h3>並び順</h3><div className="community-conditions__chips">{([['new', '新着順'], ['popular', '人気順']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={conditionDraft.sort === value} onClick={() => setConditionDraft({ ...conditionDraft, sort: value })}>{label}</button>)}</div></section>
+            <section><label className="community-conditions__select">科目<select value={conditionDraft.subject} onChange={(event) => setConditionDraft({ ...conditionDraft, subject: event.target.value })}><option value="all">指定しない</option>{subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label></section>
+            <section><h3>難易度</h3><div className="community-conditions__chips">{[['all', '指定しない'], ['basic', '基礎'], ['standard', '標準'], ['advanced', '発展']].map(([value, label]) => <button type="button" key={value} aria-pressed={conditionDraft.difficulty === value} onClick={() => setConditionDraft({ ...conditionDraft, difficulty: value })}>{label}</button>)}</div></section>
+          </div>
+          <footer className="community-conditions__footer"><button type="button" className="community-primary" onClick={() => { setSort(conditionDraft.sort); setSubjectFilter(conditionDraft.subject); setDifficultyFilter(conditionDraft.difficulty); setConditionDraft(null); }}>この条件で検索</button></footer>
+        </CommunityModal> : null}
         {moveTarget ? <CommunityModal ariaLabel="公開先のフォルダを移動" busy={busy} onClose={() => setMoveTarget(null)}>
           <h2>フォルダを移動</h2><p>{moveTarget.title}</p>
           <div className="community-copy-folders" role="radiogroup" aria-label="公開フォルダ">
@@ -891,7 +894,8 @@ export function CommunityScreen({
   );
 }
 
-function CommunityModal({ ariaLabel, busy = false, onClose, children }: {
+function CommunityModal({ ariaLabel, busy = false, onClose, children, sidePanel = false }: {
+  sidePanel?: boolean;
   ariaLabel: string;
   busy?: boolean;
   onClose: () => void;
@@ -948,7 +952,7 @@ function CommunityModal({ ariaLabel, busy = false, onClose, children }: {
 
   return createPortal(
     <div
-      className="community-overlay"
+      className={`community-overlay${sidePanel ? ' community-overlay--conditions' : ''}`}
       role="presentation"
       onMouseDown={(event) => {
         if (!busy && event.target === event.currentTarget) onClose();
@@ -956,7 +960,7 @@ function CommunityModal({ ariaLabel, busy = false, onClose, children }: {
     >
       <section
         ref={dialogRef}
-        className="community-sheet"
+        className={`community-sheet${sidePanel ? ' community-conditions' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
