@@ -213,6 +213,15 @@
 .community-publication-preview { display: grid; gap: 20px; }
 .community-publication-preview > section { min-width: 0; overflow-wrap: anywhere; padding-bottom: 16px; border-bottom: 1px solid #e2e8f0; }
 .community-screen .community-search select { padding-inline: 8px; font-size: 13px; }
+.quiz-home .quiz-home__folder-main, .quiz-folder .library-row {
+  transition: background-color 140ms ease;
+}
+.quiz-home .quiz-home__folder-main:active, .quiz-folder .library-row:active {
+  background-color: #eef4ff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .quiz-home .quiz-home__folder-main, .quiz-folder .library-row { transition: none; }
+}
 .community-discovery-tools { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--ui-text-muted); font-size: 13px; }
 .community-discovery-filter { margin-left: auto; }
 .community-discovery-filter > summary { display: flex; align-items: center; justify-content: center; min-height: 44px; min-width: 88px; border: 1px solid var(--ui-border); border-radius: 6px; color: var(--ui-accent); cursor: pointer; list-style: none; font-weight: 700; }
