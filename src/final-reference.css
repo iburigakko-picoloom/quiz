@@ -289,3 +289,35 @@
 .community-public-card--detail > details > summary { padding: 16px 4px; background: white; }
 .community-screen .community-public-card--detail .community-public-card__actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 24px; }
 .community-screen .community-public-card--detail .community-public-card__actions button { width: 100%; min-height: 52px; padding: 12px 16px; font-size: 16px; line-height: 1.5; border-radius: 12px; }
+
+/* Shared library spacing: local folders, discovery and groups stay in step. */
+:root { --library-set-row-height: 88px; --library-folder-row-height: 96px; --library-row-padding-y: 20px; --library-label-gap: 8px; }
+.quiz-folder .library-row,
+.community-screen .shared-library__open,
+.community-screen .community-discovery-row,
+.community-screen .community-group-card__main {
+  min-height: var(--library-set-row-height); padding-block: var(--library-row-padding-y); gap: 14px;
+}
+.quiz-home .quiz-home__folder-main,
+.quiz-folder .library-row[aria-expanded],
+.community-screen .shared-library__folder > .shared-library__row > .shared-library__open {
+  min-height: var(--library-folder-row-height); padding-block: var(--library-row-padding-y);
+}
+.quiz-folder .library-row__body,
+.community-screen .community-discovery-row .library-row__body { gap: var(--library-label-gap); }
+.quiz-folder .library-row__body strong,
+.community-screen .shared-library__open strong { line-height: 1.55; }
+.quiz-folder .library-row__body > span,
+.community-screen .shared-library__open small {
+  white-space: normal; overflow: visible; line-height: 1.65; overflow-wrap: anywhere;
+}
+.community-screen .shared-library__open small,
+.community-screen .community-group-card__main small { margin-top: var(--library-label-gap); }
+.quiz-folder .library-row-with-actions,
+.community-screen .shared-library__row { gap: 8px; }
+.quiz-folder .library-section > h2 { margin-bottom: 12px; }
+@media (max-width: 360px) {
+  .quiz-folder .library-row, .community-screen .shared-library__open { gap: 10px; }
+  .quiz-folder .library-row-with-actions, .community-screen .shared-library__row { gap: 4px; }
+  .quiz-folder .library-child-sets { margin-left: 6px; padding-left: 8px; }
+}
