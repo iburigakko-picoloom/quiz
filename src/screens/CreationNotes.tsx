@@ -40,7 +40,7 @@ export function CreationNotes({ onGenerate, onDirtyChange }: { onGenerate: () =>
     } catch { setError('依頼文をコピーできませんでした。もう一度お試しください。'); }
     finally { setBusy(false); }
   };
-  return <section className="create-set__notes" aria-label="作成用メモ">
+  return <section className="create-set__notes" aria-label="苦手メモ">
     {error ? <div role="alert">{error}{!loaded.error ? <button type="button" onClick={() => save(notes)}>再保存</button> : null}</div> : null}
     {loaded.error ? null : selected ? <>
       <div className="create-set__notes-toolbar"><button type="button" onClick={() => { if (save(notes)) setSelectedId(null); }}>メモ一覧</button><button type="button" onClick={() => { if (window.confirm('このメモを削除しますか？') && save(notes.filter((note) => note.id !== selected.id))) setSelectedId(null); }}>削除</button></div>

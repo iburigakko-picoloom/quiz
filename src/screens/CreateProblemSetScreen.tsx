@@ -4,12 +4,13 @@ import type { AppData, Difficulty, ProblemSet, ProblemSetCreationMethod } from '
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
-import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon } from '../components/UiIcons';
+import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, StudyIcon } from '../components/UiIcons';
 import { getDraftAnswerIndexes, parseBulkQuestionText, getDraftIssues, type BulkQuestionDraft } from '../utils/bulkQuestionParser';
 import { CreationNotes } from './CreationNotes';
 import {
   CHATGPT_MATERIAL_TEMPLATE_PROMPT,
   CHATGPT_PAST_EXAM_TEMPLATE_PROMPT,
+  IMPORT_RESOURCE_LIMITS,
   validateImportJson,
 } from '../utils/importValidator';
 import { writeClipboardText } from '../utils/nativePlatform';
@@ -83,6 +84,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
   const [copiedTemplate, setCopiedTemplate] = useState<'simple' | 'material' | 'past-exam' | ''>('');
   const [creationRequest, setCreationRequest] = useState('');
   const [aiStep, setAiStep] = useState<1 | 2>(1);
+  const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>('simple');
+  const jsonFileRef = useRef<HTMLInputElement>(null);
   const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
   const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
   const [notesDirty, setNotesDirty] = useState(false);
@@ -212,6 +215,22 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
     }
     setDrafts(generated.questions.map(normalizeEditableQuestionDraft));
     setError('');
+  };
+
+  const importJsonFile = async (file: File) => {
+    setBusy(true);
+    try {
+      if (file.size > IMPORT_RESOURCE_LIMITS.maxFileBytes) throw new Error('8MB以内のJSONファイルを選んでください。');
+      const text = await file.text();
+      const result = validateImportJson(text);
+      if (!result.ok) throw new Error('問題セットのJSONを読み取れませんでした。内容を確認してください。');
+      setMeta((current) => ({ ...current, title: current.title.trim() ? current.title : result.value.setTitle, source: current.source || result.value.source || '' }));
+      setPasteText(text);
+      setDrafts(parseGeneratedContent(text).questions.map(normalizeEditableQuestionDraft));
+      setAiStep(2);
+      setError('');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'ファイルを読み込めませんでした。'); }
+    finally { setBusy(false); }
   };
 
   const persistDrafts = async (finalDrafts: BulkQuestionDraft[]) => {
@@ -411,16 +430,17 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
               </nav>
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
-              <article className="create-set__ai-method">
+              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '説明から作る'], ['material', '資料から作る'], ['past-exam', '過去問から作る']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => setAiMethod(method)}>{label}</button>)}</nav>
+              <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>
                 <h2><span>1</span>説明から作る</h2>
                 <label className="create-set__field"><span>作りたい問題集の説明</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
                 <button type="button" className="create-set__ai-copy" disabled={!creationRequest.trim()} onClick={() => void copyPromptTemplate('simple')}><CopyIcon size={18} />{copiedTemplate === 'simple' ? 'コピーしました' : '依頼文を作成・コピー'}</button>
               </article>
-              <article className="create-set__ai-method">
+              <article className="create-set__ai-method" hidden={aiMethod !== 'material'}>
                 <h2><span>2</span>資料から作る</h2>
                 <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('material')}><CopyIcon size={18} />{copiedTemplate === 'material' ? 'コピーしました' : '資料用プロンプトをコピー'}</button></div>
               </article>
-              <article className="create-set__ai-method">
+              <article className="create-set__ai-method" hidden={aiMethod !== 'past-exam'}>
                 <h2><span>3</span>過去問から作る</h2>
                 <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('past-exam')}><CopyIcon size={18} />{copiedTemplate === 'past-exam' ? 'コピーしました' : '過去問用プロンプトをコピー'}</button></div>
               </article>
@@ -431,7 +451,8 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             <SetMetaFields data={data} value={meta} onChange={setMeta} />
             <section className="create-set__panel">
               <h2>{view === 'chatgpt' ? '作成されたJSONを貼り付ける' : '複数の問題'}</h2>
-              <button type="button" className="create-set__ai-copy" onClick={openLegacyImport}><DocumentOutlineIcon size={18} />JSONファイルを選ぶ</button>
+              <input ref={jsonFileRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importJsonFile(file); }} />
+              <button type="button" className="create-set__ai-copy" disabled={busy} onClick={() => jsonFileRef.current?.click()}><DocumentOutlineIcon size={18} />{busy ? '読み込み中…' : 'JSONファイルを選ぶ'}</button>
               <textarea className="create-set__paste" value={pasteText} onChange={(event) => setPasteText(event.target.value)} aria-label={view === 'chatgpt' ? '問題セットJSON' : '問題の貼り付け欄'} />
               <button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' ? 'JSONを読み取る' : '読み取って確認'}</button>
             </section>
@@ -639,7 +660,7 @@ function PendingQuestionSaveDialog({
 function MethodChooser({ onSelect }: { onSelect: (view: CreationView) => void }) {
   const methods: Array<{ view: CreationView; title: string; icon: React.ReactNode }> = [
     { view: 'chatgpt', title: '生成AIで作る', icon: <CopyIcon /> },
-    { view: 'notes', title: 'メモから作る', icon: <DocumentOutlineIcon /> },
+    { view: 'notes', title: '苦手メモ', icon: <StudyIcon /> },
   ];
   return <section className="create-set__methods" aria-label="作成方法">{methods.map((method) => <button key={method.view} type="button" className="create-set__method" onClick={() => onSelect(method.view)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}
   </section>;
@@ -771,7 +792,7 @@ function getViewTitle(view: CreationView, sourceSetId?: string) {
   if (view === 'manual') return sourceSetId ? 'コピーを編集' : '問題を編集';
   if (view === 'bulk') return 'CSVを確認';
   if (view === 'chatgpt') return '生成AIで作る';
-  if (view === 'notes') return 'メモから作る';
+  if (view === 'notes') return '苦手メモ';
   if (view === 'copy') return 'コピー元を選ぶ';
   return 'その他の方法';
 }

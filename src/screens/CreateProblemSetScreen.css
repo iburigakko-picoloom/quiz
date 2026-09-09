@@ -135,3 +135,7 @@
   .create-set__pending-actions { grid-template-columns: 1fr; }
   .create-set__pending-button--include { grid-column: auto; }
 }
+.create-set__method-tabs { display: flex; gap: 6px; overflow-x: auto; padding-block: 8px; }
+.create-set__method-tabs button { flex: 1 0 auto; min-height: 44px; padding: 8px 10px; border: 0; border-bottom: 2px solid transparent; background: white; color: #64748b; font: inherit; font-size: 14px; }
+.create-set__method-tabs button[aria-pressed=true] { color: #2859a6; border-bottom-color: #2859a6; }
+.create-set__ai-method[hidden] { display: none; }
