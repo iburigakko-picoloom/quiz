@@ -418,17 +418,16 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
               </article>
               <article className="create-set__ai-method">
                 <h2><span>2</span>資料から作る</h2>
-                <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('material')}><CopyIcon size={18} />{copiedTemplate === 'material' ? 'コピーしました' : '資料用プロンプトをコピー'}</button><p>このプロンプトと資料PDFを一緒に生成AIへ貼り付けてください。</p></div>
+                <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('material')}><CopyIcon size={18} />{copiedTemplate === 'material' ? 'コピーしました' : '資料用プロンプトをコピー'}</button></div>
               </article>
               <article className="create-set__ai-method">
                 <h2><span>3</span>過去問から作る</h2>
-                <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('past-exam')}><CopyIcon size={18} />{copiedTemplate === 'past-exam' ? 'コピーしました' : '過去問用プロンプトをコピー'}</button><p>このプロンプトと過去問PDFを一緒に生成AIへ貼り付けてください。複数年度分でも使えます。</p></div>
+                <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('past-exam')}><CopyIcon size={18} />{copiedTemplate === 'past-exam' ? 'コピーしました' : '過去問用プロンプトをコピー'}</button></div>
               </article>
-              <p className="create-set__ai-note">生成AIが作成したJSONは、ステップ2へ貼り付けます。</p>
               <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button>
             </section> : null}
             {view !== 'chatgpt' || aiStep === 2 ? <>
-            {notePromptCopied ? <p className="create-set__notice" role="status">依頼文をコピーしました。生成AIへ貼り付け、作成されたJSONをここへ取り込んでください。</p> : null}
+            {notePromptCopied ? <p className="create-set__notice" role="status">依頼文をコピーしました</p> : null}
             <SetMetaFields data={data} value={meta} onChange={setMeta} />
             <section className="create-set__panel">
               <h2>{view === 'chatgpt' ? '作成されたJSONを貼り付ける' : '複数の問題'}</h2>
