@@ -62,7 +62,12 @@
 .library-actions__trigger { display: grid; place-items: center; min-width: 44px; min-height: 44px; border: 0; background: transparent; color: inherit; font-size: 24px; }
 .library-actions__trigger:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
 .library-actions__body.library-actions__dialog { position: fixed; inset: 0; margin: auto; width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - var(--safe-top, 0px) - var(--safe-bottom, 0px) - 48px); overflow-y: auto; border-radius: 14px; padding: 16px; }
-.library-actions__dialog::backdrop { background: rgb(15 23 42 / 28%); }
+.library-actions__dialog::backdrop { background: rgb(15 23 42 / 12%); }
+.library-actions__body.library-actions__dialog { width: min(280px, calc(100vw - 48px)); padding: 8px; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 8px 28px rgb(15 23 42 / 10%); }
+.library-actions__body.library-actions__dialog button { appearance: none; border: 0; box-shadow: none; border-radius: 6px; min-height: 44px; padding: 10px 14px; font: inherit; font-size: 15px; font-weight: 500; color: #334155; }
+.library-actions__body.library-actions__dialog button.library-danger { color: #b84b55; }
+.library-actions__body.library-actions__dialog button:focus-visible { outline: 2px solid #2859a6; outline-offset: -2px; }
+.library-actions__body.library-actions__dialog button:active { background: #f3f4f6; }
 .library-actions__body { position: absolute; right: 0; z-index: 60; width: min(290px, calc(100vw - 40px)); padding: 12px; background: white; border: 1px solid var(--ui-border); border-radius: 6px; }
 .library-actions__body button, .library-form button { display: block; min-height: 44px; width: 100%; text-align: left; background: white; color: var(--ui-accent); border-radius: 7px; padding: 8px; }
 .library-actions__body button.library-danger { color: var(--ui-danger); }
