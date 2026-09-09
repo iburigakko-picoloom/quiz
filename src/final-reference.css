@@ -194,8 +194,8 @@
 .sync-screen .sync-screen__header h1, .create-set .create-set__header h1 { font-size: 20px; }
 .quiz-home .quiz-home__header .quiz-home__circle-button { background: var(--ui-accent-soft); border-radius: 10px; }
 .quiz-home .quiz-home__circle-button svg { width: 28px; height: 28px; }
-.quiz-home .quiz-home__folder-main { min-height: 80px; gap: 14px; padding: 14px 4px; }
-.quiz-home .quiz-home__folder-name { font-size: 17px; line-height: 1.45; }
+.quiz-home .quiz-home__folder-main { min-height: 88px; gap: 14px; padding: 18px 4px; }
+.quiz-home .quiz-home__folder-name { font-size: 18px; line-height: 1.45; }
 .quiz-home .quiz-home__folder-stats { font-size: 13px; line-height: 1.5; flex-wrap: wrap; }
 .quiz-home .quiz-home__folder-icon, .library-icon,
 .settings-screen .settings-row__icon, .settings-screen .settings-account__icon,
@@ -210,6 +210,13 @@
 .create-set .create-set__method-icon svg, .community-screen .community-group-card__icon svg,
 .community-screen .community-set-card__icon svg { width: 26px; height: 26px; }
 .quiz-home .quiz-home__folder-arrow { color: #53657D; }
+.quiz-home .quiz-home__folder-icon, .quiz-folder .library-row[aria-expanded] .library-icon { width: 46px; min-width: 46px; height: 46px; flex-basis: 46px; }
+.quiz-home .quiz-home__folder-icon svg, .quiz-folder .library-row[aria-expanded] .library-icon svg { width: 30px; height: 30px; }
+.quiz-folder .library-row[aria-expanded] { min-height: 80px; padding-block: 16px; }
+.quiz-folder .library-row[aria-expanded] .library-row__body strong { font-size: 18px; }
+.shared-library__folder > .shared-library__row > .shared-library__open { min-height: 80px; padding-block: 16px; }
+.shared-library__folder > .shared-library__row > .shared-library__open strong { font-size: 17px; }
+.shared-library__folder > .shared-library__row > .shared-library__open > svg:first-child { width: 34px; height: 34px; }
 .quiz-home .quiz-home__folder-arrow svg, .library-row > svg { width: 22px; height: 22px; }
 .primary-bottom-nav .primary-bottom-nav__item { color: #526176; gap: 4px; }
 .primary-bottom-nav .primary-bottom-nav__item > svg { width: 27px; height: 27px; stroke-width: 2.1; }
