@@ -430,7 +430,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
               </nav>
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
-              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '説明から作る'], ['material', '資料から作る'], ['past-exam', '過去問から作る']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => setAiMethod(method)}>{label}</button>)}</nav>
+              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '説明から作る'], ['material', '資料から作る'], ['past-exam', '過去問から作る']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => setAiMethod(method)}>{label}</button>)}<span className="create-set__method-indicator" aria-hidden="true" style={{ transform: `translateX(calc(${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 100}% + ${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 6}px))` }} /></nav>
               <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>
                 <h2><span>1</span>説明から作る</h2>
                 <label className="create-set__field"><span>作りたい問題集の説明</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
