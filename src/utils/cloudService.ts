@@ -249,6 +249,7 @@ export async function publishLocalProblemSet(params: {
   setId: string;
   visibility: Exclude<ProblemSetVisibility, 'private'>;
   groupIds?: string[];
+  addDestinations?: boolean;
   authorName: string;
   publicationInfo?: { audience: string; description: string };
   includeFolder?: boolean;
@@ -277,6 +278,7 @@ export async function publishLocalProblemSet(params: {
       visibility: params.visibility,
       author_name: params.authorName.trim(),
       group_ids: params.groupIds ?? [],
+      add_destinations: params.addDestinations ?? false,
     },
     p_questions: questions.map((question, position) => ({
       position,

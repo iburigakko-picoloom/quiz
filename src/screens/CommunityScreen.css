@@ -232,6 +232,8 @@
 .community-sheet legend { padding: 0 5px; color: #526973; font-size: 13px; font-weight: 850; }
 .community-sheet label.community-check { display: flex; align-items: center; gap: 8px; }
 .community-sheet label.community-check input { width: 18px; height: 18px; }
+.community-destinations .community-check { min-height: 44px; overflow-wrap: anywhere; }
+.community-destinations .community-check input { flex-shrink: 0; }
 .community-sheet__hint { padding: 11px; border-radius: 12px; background: #f3f8f8; }
 .community-sheet__actions { display: grid; grid-template-columns: 1fr 1.35fr; gap: 9px; }
 .community-sheet__actions > button:not(.community-primary):not(.community-danger),
