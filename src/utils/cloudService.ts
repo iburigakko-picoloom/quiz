@@ -109,11 +109,14 @@ export async function sendMagicLink(email: string, returnTarget?: NativeAuthRetu
 }
 
 export const lineLoginAvailable = cloudConfigured && !nativeAuthPlatform;
+// Keep the existing provider until the dedicated provider has been created and verified.
+export const lineAuthProvider: 'custom:line' | 'custom:quizmake-line' = import.meta.env.VITE_LINE_AUTH_PROVIDER === 'custom:quizmake-line'
+  ? 'custom:quizmake-line' : 'custom:line';
 
 export async function getLineLinkStatus(userId: string): Promise<boolean> {
   const { data, error } = await requireCloudClient().auth.getUser();
   if (error || !data.user || data.user.id !== userId || !Array.isArray(data.user.identities)) throw new Error('LINEの連携状態を確認できませんでした。');
-  return data.user.identities.some((identity) => identity.provider === 'custom:line');
+  return data.user.identities.some((identity) => identity.provider === lineAuthProvider);
 }
 
 export async function linkLineIdentity(): Promise<boolean> {
@@ -121,9 +124,9 @@ export async function linkLineIdentity(): Promise<boolean> {
   const client = requireCloudClient();
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) throw new Error('現在のアカウントを確認できません。ログイン状態を確認してください。');
-  if (userData.user.identities?.some((identity) => identity.provider === 'custom:line')) return true;
+  if (userData.user.identities?.some((identity) => identity.provider === lineAuthProvider)) return true;
   const { data, error } = await client.auth.linkIdentity({
-    provider: 'custom:line',
+    provider: lineAuthProvider,
     options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile', skipBrowserRedirect: true },
   });
   if (error) {
@@ -142,7 +145,7 @@ export async function signInWithLine(): Promise<void> {
   if (nativeAuthPlatform) throw new Error('LINEログインはブラウザ版でご利用ください。');
   const client = requireCloudClient();
   const { error } = await client.auth.signInWithOAuth({
-    provider: 'custom:line',
+    provider: lineAuthProvider,
     options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile' },
   });
   if (error) throw new Error(toFriendlyCloudError(error.message));

@@ -7,7 +7,7 @@ const linking = source.slice(source.indexOf('export async function linkLineIdent
 test('LINE linking verifies the current user and never starts a new login or deletes data', () => {
   assert.match(linking, /auth\.getUser\(\)/);
   assert.match(linking, /auth\.linkIdentity\(/);
-  assert.match(linking, /provider: 'custom:line'/);
+  assert.match(linking, /provider: lineAuthProvider/);
   assert.doesNotMatch(linking, /signInWithOAuth|signOut|removeItem|clear\(/);
   assert.match(linking, /manual_linking_disabled/);
   assert.match(linking, /identity_already_exists/);
@@ -17,15 +17,17 @@ test('LINE status queries the server and distinguishes unlinked from failed chec
   const statusSource = source.slice(source.indexOf('export async function getLineLinkStatus'), source.indexOf('export async function linkLineIdentity'));
   let response;
   let calls = 0;
-  const getStatus = new Function('requireCloudClient', `${stripTypeScriptTypes(statusSource.replace('export ', ''))}; return getLineLinkStatus;`)(() => ({ auth: { getUser: async () => { calls++; return response; } } }));
+  const getStatus = new Function('requireCloudClient', 'lineAuthProvider', `${stripTypeScriptTypes(statusSource.replace('export ', ''))}; return getLineLinkStatus;`)(() => ({ auth: { getUser: async () => { calls++; return response; } } }), 'custom:quizmake-line');
   response = { data: { user: { id: 'current', identities: [{ provider: 'custom:line' }] } }, error: null };
+  assert.equal(await getStatus('current'), false, 'shared LINE identity is not a Quiz Make link');
+  response.data.user.identities = [{ provider: 'custom:quizmake-line' }];
   assert.equal(await getStatus('current'), true);
   response.data.user.identities = [{ provider: 'email' }];
   assert.equal(await getStatus('current'), false);
   await assert.rejects(getStatus('different'), /確認できません/);
   response = { data: { user: null }, error: new Error('network') };
   await assert.rejects(getStatus('current'), /確認できません/);
-  assert.equal(calls, 4);
+  assert.equal(calls, 5);
 });
 
 test('LINE UI refreshes on return and has timeout, retry and stale-response guards', () => {
