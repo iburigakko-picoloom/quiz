@@ -8,6 +8,7 @@ import { ChevronRightIcon, DocumentOutlineIcon, FolderOutlineIcon, GroupIcon, Se
 import { buildGroupProblemSetFolders } from '../utils/groupDataView';
 import { PublishPicker } from '../components/PublishPicker';
 import { PublicationDetails, type PublicationInfo } from '../components/PublicationDetails';
+import { SharedLibrary } from '../components/SharedLibrary';
 import { writeClipboardText } from '../utils/nativePlatform';
 import {
   buildShareUrl,
@@ -22,6 +23,7 @@ import {
   listGroupProblemSets,
   listMyGroups,
   listMyPublishedSets,
+  listPublicFolderSets,
   listPublicProblemSets,
   onCloudAuthStateChange,
   publishLocalProblemSet,
@@ -102,6 +104,9 @@ export function CommunityScreen({
   const [addTarget, setAddTarget] = useState<{ visibility: 'public' | 'group'; groupId?: string; name: string } | null>(null);
   const [addIds, setAddIds] = useState<string[]>([]);
   const [addReview, setAddReview] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{ sets: CloudProblemSet[]; title: string } | null>(null);
+  const [removeError, setRemoveError] = useState('');
+  const removeBusyRef = useRef(false);
   const [copyTarget, setCopyTarget] = useState<{ set: CloudProblemSet; token: string } | null>(null);
   const [copyFolderId, setCopyFolderId] = useState('');
   const [copyError, setCopyError] = useState('');
@@ -508,6 +513,37 @@ export function CommunityScreen({
     }
   };
 
+  const requestRemove = (sets: CloudProblemSet[], title: string) => {
+    if (!session || !sets.length || sets.some((set) => set.ownerId !== session.user.id)) return;
+    setRemoveError(''); setRemoveTarget({ sets, title });
+  };
+  const confirmRemove = async () => {
+    if (!removeTarget || removeBusyRef.current || !session) return;
+    if (removeTarget.sets.some((set) => set.ownerId !== session.user.id)) return;
+    removeBusyRef.current = true; setBusy(true); setRemoveError('');
+    const removed = new Set<string>();
+    let localWarning = false;
+    try {
+      for (const set of removeTarget.sets) {
+        await unpublishCloudProblemSet(set.id);
+        removed.add(set.id);
+        const local = data.problemSets.find((item) => item.cloudSetId === set.id || item.id === set.localSetId);
+        if (local) await onUnpublished(local.id).catch(() => { localWarning = true; });
+      }
+      setRemoveTarget(null);
+      setAuthMessage(localWarning ? '公開を取り消しました。端末の表示は再読み込みしてください。' : '公開を取り消しました。');
+    } catch (reason) {
+      setRemoveTarget((current) => current ? { ...current, sets: current.sets.filter((set) => !removed.has(set.id)) } : null);
+      setRemoveError(getErrorMessage(reason));
+    } finally {
+      setPublicSets((items) => items.filter((set) => !removed.has(set.id)));
+      setGroupSets((items) => items.filter((set) => !removed.has(set.id)));
+      setPublishedSets((items) => items.filter((set) => !removed.has(set.id)));
+      setDirectSet((set) => set && removed.has(set.id) ? null : set);
+      setBusy(false); removeBusyRef.current = false;
+    }
+  };
+
   const openAdd = (visibility: 'public' | 'group') => {
     if (!requireLogin()) return;
     setShareLocalSetId('');
@@ -528,7 +564,7 @@ export function CommunityScreen({
       const authorName = await getCloudDisplayName().catch(() => '');
       for (const set of addSets) {
         try {
-          const result = await publishLocalProblemSet({ data, setId: set.id, publicationInfo: detailsFor(set.id), visibility: target.visibility, groupIds: target.groupId ? [target.groupId] : [], authorName: authorName || 'Quiz Make ユーザー' });
+          const result = await publishLocalProblemSet({ data, setId: set.id, includeFolder: true, publicationInfo: detailsFor(set.id), visibility: target.visibility, groupIds: target.groupId ? [target.groupId] : [], authorName: authorName || 'Quiz Make ユーザー' });
           // A remote success must never be undone merely because local storage failed.
           try { await onPublished(set.id, result); results[set.id] = '公開済み'; }
           catch { results[set.id] = '公開済み（端末の状態保存に失敗）'; }
@@ -571,6 +607,7 @@ export function CommunityScreen({
         {authMessage ? <div className="community-notice" role="status">{authMessage}<button type="button" onClick={() => setAuthMessage('')}>閉じる</button></div> : null}
 
         <main className="community-screen__body">
+          {directSet && directSet.ownerId === session?.user.id ? <div className="community-section__heading"><span>自分の公開</span><button type="button" disabled={busy} onClick={() => requestRemove([directSet], directSet.title)}>公開を取り消す</button></div> : null}
           {isGroupDetail ? (
             isGroupSetDetail && directSet ? (
               <section className="community-section" aria-label="グループの問題セット詳細">
@@ -600,23 +637,7 @@ export function CommunityScreen({
                     </div>
                     {busy && groupFolders.length === 0 ? <div className="community-loading" role="status">読み込み中…</div> : null}
                     <div hidden={groupDetailTab !== 'sets'} className="community-group-folder-list" aria-label="グループのフォルダ">
-                      {groupFolders.map((folder) => (
-                        <section key={folder.id} className="community-group-folder">
-                          <div className="community-group-folder__heading">
-                            <span aria-hidden="true"><FolderOutlineIcon size={32} /></span>
-                            <div><strong>{folder.name}</strong><small>{folder.problemSets.length}セット</small></div>
-                          </div>
-                          <div className="community-group-set-list">
-                            {folder.problemSets.map((problemSet) => (
-                              <button key={problemSet.id} type="button" onClick={() => void openSharedDetail(problemSet, 'groups')}>
-                                <span aria-hidden="true"><DocumentOutlineIcon size={22} /></span>
-                                <span><strong>{problemSet.title}</strong><small>{problemSet.questionCount}問</small></span>
-                                <ChevronRightIcon size={20} />
-                              </button>
-                            ))}
-                          </div>
-                        </section>
-                      ))}
+                      <SharedLibrary key={groupSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={groupSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'groups')} onRemove={requestRemove} />
                       {!busy && groupFolders.length === 0 ? <EmptyState title="問題セットはまだありません" /> : null}
                     </div>
                     {groupMembers.length > 0 ? (
@@ -733,7 +754,7 @@ export function CommunityScreen({
                   </div>
                   <div className="community-section__heading"><h2>みんなの問題セット</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
                   {publicLoading ? <div className="community-notice" role="status">公開問題セットを読み込み中…</div> : null}
-                  {!publicLoading && !error ? <ProblemSetCards sets={visiblePublicSets} busy={busy} onCopy={(set) => void copySharedSet(set)} onPractice={(set) => void practiceSharedSet(set)} onDetail={(set) => void openSharedDetail(set, 'discover')} onReport={setReportTarget} /> : null}
+                  {!publicLoading && !error ? <SharedLibrary key={visiblePublicSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={visiblePublicSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'discover')} onRemove={requestRemove} loadFolder={listPublicFolderSets} /> : null}
                   {cloudConfigured && visiblePublicSets.length === 0 && !publicLoading && !error ? <EmptyState title="条件に合うセットはありません" /> : null}
                 </>
               )}
@@ -745,6 +766,12 @@ export function CommunityScreen({
 
         </main>
 
+        {removeTarget ? <CommunityModal ariaLabel="公開を取り消す" busy={busy} onClose={() => setRemoveTarget(null)}>
+          <h2>公開を取り消しますか？</h2><p>{removeTarget.title} · {removeTarget.sets.length}セット</p>
+          <p>公開先と共有リンクから削除します。ホームの元データと、他の人が取り込んだコピーは残ります。</p>
+          {removeError ? <p role="alert">{removeError}</p> : null}
+          <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setRemoveTarget(null)}>キャンセル</button><button type="button" className="community-danger" disabled={busy} onClick={() => void confirmRemove()}>{busy ? '取り消し中…' : '公開を取り消す'}</button></div>
+        </CommunityModal> : null}
         {copyTarget ? <CommunityModal ariaLabel="取り込み先を選択" busy={busy} onClose={() => setCopyTarget(null)}>
           <h2>取り込み先を選択</h2>
           <p>{copyTarget.set.title}</p>
@@ -770,7 +797,7 @@ export function CommunityScreen({
             </> : null}
             {!Object.keys(addResults).length ? <>
               {addReview ? <p>{addTarget.visibility === 'public' ? '誰でも閲覧・コピーできます。' : 'メンバーが閲覧・コピーできます。'}{addSets.some((set) => set.cloudSetId) ? '共有中のセットは公開先が変わります。' : ''}</p> : null}
-              <details><summary>公開について</summary><p>学習履歴は公開しません。フォルダ内の問題はセット単位で公開されます。</p></details>
+              <details><summary>公開について</summary><p>フォルダ構成を含めて公開します。学習履歴は公開しません。</p></details>
             </> : null}
             <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '戻る' : 'キャンセル'}</button>{!Object.keys(addResults).length ? <button type="button" className="community-primary" disabled={busy || !addSets.length || (addReview && !addSets.every((set) => detailsValid(set.id)))} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? '次へ' : '公開する'}</button> : null}</div>
           </CommunityModal>

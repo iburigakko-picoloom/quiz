@@ -1,6 +1,7 @@
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
 import { beginLineLinkAttempt, clearLineLinkAttempt } from './lineAuthReturn';
 import { getLineAvatarUrl } from './lineAvatar';
+import { localFolderPath, type SharedFolderPart } from './sharedFolders';
 import type { AppData, ProblemSetVisibility } from '../types';
 import {
   beginNativeAuthAttempt,
@@ -51,6 +52,7 @@ export interface CloudQuestion {
 }
 
 export interface CloudProblemSet {
+  folderPath?: SharedFolderPart[];
   id: string;
   localSetId: string;
   ownerId: string;
@@ -249,6 +251,7 @@ export async function publishLocalProblemSet(params: {
   groupIds?: string[];
   authorName: string;
   publicationInfo?: { audience: string; description: string };
+  includeFolder?: boolean;
 }): Promise<CloudPublishResult> {
   const client = requireCloudClient();
   const problemSet = params.data.problemSets.find((item) => item.id === params.setId);
@@ -262,6 +265,7 @@ export async function publishLocalProblemSet(params: {
   const { data, error } = await client.rpc('publish_problem_set', {
     p_set: {
       local_set_id: problemSet.id,
+      ...(params.includeFolder ? { folder_path: localFolderPath(params.data.folders, problemSet.folderId) } : {}),
       title: problemSet.title,
       description,
       subject: problemSet.subject ?? '',
@@ -304,7 +308,7 @@ export async function listPublicProblemSets(query = '', sort: 'new' | 'popular' 
   const client = requireCloudClient();
   let request = client
     .from('shared_problem_sets')
-    .select('id,owner_id,author_name,title,description,subject,audience,difficulty,creation_method,source,visibility,question_count,add_count,published_at,updated_at')
+    .select('id,owner_id,author_name,title,description,subject,audience,difficulty,creation_method,source,visibility,question_count,add_count,published_at,updated_at,folder_path')
     .eq('visibility', 'public')
     .limit(60);
   const trimmed = query.trim();
@@ -323,11 +327,24 @@ export async function listMyPublishedSets(): Promise<CloudProblemSet[]> {
   if (!userData.user) return [];
   const { data, error } = await client
     .from('shared_problem_sets')
-    .select('id,local_set_id,owner_id,author_name,title,description,subject,audience,difficulty,creation_method,source,visibility,question_count,add_count,published_at,updated_at')
+    .select('id,local_set_id,owner_id,author_name,title,description,subject,audience,difficulty,creation_method,source,visibility,question_count,add_count,published_at,updated_at,folder_path')
     .eq('owner_id', userData.user.id)
     .order('updated_at', { ascending: false });
   if (error) throw new Error(toFriendlyCloudError(error.message));
   return (data ?? []).map(mapProblemSetRow);
+}
+
+export async function listPublicFolderSets(ownerId: string, folderId: string): Promise<CloudProblemSet[]> {
+  const sets: CloudProblemSet[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await requireCloudClient().from('shared_problem_sets')
+      .select('id,owner_id,author_name,title,description,subject,audience,difficulty,creation_method,source,visibility,question_count,add_count,published_at,updated_at,folder_path')
+      .eq('visibility', 'public').eq('owner_id', ownerId).contains('folder_path', [{ id: folderId }])
+      .order('id').range(offset, offset + 499);
+    if (error) throw new Error(toFriendlyCloudError(error.message));
+    sets.push(...(data ?? []).map(mapProblemSetRow));
+    if (!data || data.length < 500) return sets;
+  }
 }
 
 export async function unpublishCloudProblemSet(setId: string): Promise<void> {
@@ -437,6 +454,7 @@ function requireCloudClient() {
 
 function mapProblemSetRow(row: Record<string, unknown>): CloudProblemSet {
   return {
+    folderPath: Array.isArray(row.folder_path) ? row.folder_path.filter((part): part is SharedFolderPart => Boolean(part && typeof part === 'object' && typeof part.id === 'string' && typeof part.name === 'string')).slice(0, 2) : [],
     id: String(row.id ?? ''),
     localSetId: String(row.local_set_id ?? row.localSetId ?? ''),
     ownerId: String(row.owner_id ?? row.ownerId ?? ''),

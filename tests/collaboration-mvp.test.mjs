@@ -53,7 +53,7 @@ test('groups navigate to a dedicated detail with foldered problem sets', () => {
   assert.match(appSource, /onOpenGroup=\{\(groupId\) => navigate\(\{ name: 'community', tab: 'groups', groupId/);
   assert.match(screenSource, /initialGroupId/);
   assert.match(screenSource, /community-group-folder-list/);
-  assert.match(screenSource, /community-group-set-list/);
+  assert.match(screenSource, /<SharedLibrary[^\n]*sets=\{groupSets\}/);
   assert.match(screenSource, /role="tablist" aria-label="グループの表示"/);
   assert.match(screenSource, /hidden=\{groupDetailTab !== 'members'\}/);
   assert.doesNotMatch(screenSource, /selectedGroupId === group\.id/);
