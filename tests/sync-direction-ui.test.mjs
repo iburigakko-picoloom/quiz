@@ -2,10 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('startup conflict offers a non-destructive path to upload confirmation', () => {
+test('startup conflict stays silent and never imports cloud data', () => {
   const source = readFileSync(new URL('../src/components/AutoSyncController.tsx', import.meta.url), 'utf8');
-  assert.match(source, /alternateLabel="端末 → クラウドに同期"/);
-  assert.match(source, /cancelRemoteImport\(\); onOpenSync\(\)/);
+  assert.doesNotMatch(source, /ConfirmDialog|importQuizMakeData/);
   assert.match(source, /localHash === computePayloadHash\(remote.value.payload\)/);
 });
 

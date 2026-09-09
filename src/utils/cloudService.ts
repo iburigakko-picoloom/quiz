@@ -339,7 +339,7 @@ export async function listPublicFolderSets(ownerId: string, folderId: string): P
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await requireCloudClient().from('shared_problem_sets')
       .select('id,owner_id,author_name,title,description,subject,audience,difficulty,creation_method,source,visibility,question_count,add_count,published_at,updated_at,folder_path')
-      .eq('visibility', 'public').eq('owner_id', ownerId).contains('folder_path', [{ id: folderId }])
+      .eq('visibility', 'public').eq('owner_id', ownerId).contains('folder_path', JSON.stringify([{ id: folderId }]))
       .order('id').range(offset, offset + 499);
     if (error) throw new Error(toFriendlyCloudError(error.message));
     sets.push(...(data ?? []).map(mapProblemSetRow));

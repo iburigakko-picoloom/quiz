@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   cleanupLegacySyncBackups,
   computePayloadHash,
@@ -7,13 +7,11 @@ import {
   getAutoSyncSettings,
   getLastSyncState,
   getRemoteSyncMeta,
-  importQuizMakeData,
   setLastSyncState,
   setLastSyncStateForConnection,
   uploadSyncData,
 } from '../utils/syncService';
 import type { ProtectedWorkReason } from '../utils/protectedWork';
-import { ConfirmDialog } from './ConfirmDialog';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 60000;
@@ -21,10 +19,9 @@ const LOCAL_CHANGE_RETRY_MS = 750;
 
 interface AutoSyncControllerProps {
   protectedWorkReason: ProtectedWorkReason | null;
-  onOpenSync: () => void;
 }
 
-export function AutoSyncController({ protectedWorkReason, onOpenSync }: AutoSyncControllerProps) {
+export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerProps) {
   const uploadRunningRef = useRef(false);
   const remoteCheckRunningRef = useRef(false);
   const lastRemoteCheckAtRef = useRef(0);
@@ -33,120 +30,6 @@ export function AutoSyncController({ protectedWorkReason, onOpenSync }: AutoSync
   const previousProtectedWorkReasonRef = useRef(protectedWorkReason);
   const resumeSyncRef = useRef<(() => void) | null>(null);
   protectedWorkReasonRef.current = protectedWorkReason;
-  const [pendingRemoteImport, setPendingRemoteImport] = useState<{ syncId: string; updatedAt: string; localHash: string } | null>(null);
-  const [remoteImportBusy, setRemoteImportBusy] = useState(false);
-
-  const cancelRemoteImport = () => {
-    if (remoteImportBusy) return;
-    setPendingRemoteImport(null);
-    setLastSyncState({ status: 'クラウド読み込みを保留しました', error: '' });
-  };
-
-  const confirmRemoteImport = async () => {
-    const target = pendingRemoteImport;
-    if (!target || remoteImportBusy) return;
-    if (protectedWorkReasonRef.current) {
-      setLastSyncState({ status: 'クラウド読み込みは作業終了後に確認します', error: '' });
-      return;
-    }
-
-    const settings = getAutoSyncSettings();
-    if (!settings.enabled || settings.syncId !== target.syncId) {
-      setPendingRemoteImport(null);
-      promptedRemoteUpdatedAtRef.current = '';
-      setLastSyncState({ status: '同期設定が変わったため読み込みを中止しました', error: '' });
-      return;
-    }
-    setRemoteImportBusy(true);
-    setLastSyncState({ status: 'クラウドから読み込み中...', error: '' });
-
-    const download = await downloadSyncData(target.syncId);
-    const settingsAfterDownload = getAutoSyncSettings();
-    if (!settingsAfterDownload.enabled || settingsAfterDownload.syncId !== target.syncId) {
-      setPendingRemoteImport(null);
-      promptedRemoteUpdatedAtRef.current = '';
-      setRemoteImportBusy(false);
-      return;
-    }
-    if (!download.ok) {
-      if (download.code !== 'authentication_required') console.warn('Auto sync download failed.', download.error);
-      setLastSyncState({
-        status: download.code === 'authentication_required' ? '自動同期: ログインが必要です' : 'クラウド読み込み失敗',
-        error: download.error,
-      });
-      promptedRemoteUpdatedAtRef.current = '';
-      setPendingRemoteImport(null);
-      setRemoteImportBusy(false);
-      return;
-    }
-    if (!download.value) {
-      setLastSyncState({ status: 'クラウドデータが見つかりません', error: '' });
-      setPendingRemoteImport(null);
-      setRemoteImportBusy(false);
-      return;
-    }
-
-    if (protectedWorkReasonRef.current) {
-      setLastSyncState({ status: 'クラウド読み込みは作業終了後に確認します', error: '' });
-      setRemoteImportBusy(false);
-      return;
-    }
-
-    const latestSettings = getAutoSyncSettings();
-    if (!latestSettings.enabled || latestSettings.syncId !== target.syncId) {
-      setPendingRemoteImport(null);
-      promptedRemoteUpdatedAtRef.current = '';
-      setRemoteImportBusy(false);
-      setLastSyncState({ status: '同期設定が変わったため読み込みを中止しました', error: '' });
-      return;
-    }
-
-    if (download.value.updatedAt !== target.updatedAt) {
-      setLastSyncState({ status: '確認中にクラウドが更新されました。同期画面で確認してください', error: '' });
-      setPendingRemoteImport(null);
-      promptedRemoteUpdatedAtRef.current = '';
-      setRemoteImportBusy(false);
-      return;
-    }
-    const imported = await importQuizMakeData(download.value.payload, {
-      expectedSyncId: target.syncId,
-      authoritativeUpdatedAt: download.value.updatedAt,
-      expectedLocalHash: target.localHash,
-    });
-    if (!imported.ok) {
-      setLastSyncState({ status: 'クラウド読み込み失敗', error: imported.error });
-      promptedRemoteUpdatedAtRef.current = '';
-      setPendingRemoteImport(null);
-      setRemoteImportBusy(false);
-      return;
-    }
-    const settingsAfterImport = getAutoSyncSettings();
-    if (!settingsAfterImport.enabled || settingsAfterImport.syncId !== target.syncId) {
-      setPendingRemoteImport(null);
-      promptedRemoteUpdatedAtRef.current = '';
-      setRemoteImportBusy(false);
-      return;
-    }
-    if (!setLastSyncStateForConnection(target.syncId, {
-      lastSyncAt: download.value.updatedAt,
-      lastRemoteUpdatedAt: download.value.updatedAt,
-      lastUploadHash: computePayloadHash(download.value.payload),
-      status: 'クラウドから読み込みました',
-      error: '',
-    })) {
-      setPendingRemoteImport(null);
-      promptedRemoteUpdatedAtRef.current = '';
-      setRemoteImportBusy(false);
-      return;
-    }
-    window.setTimeout(() => window.location.reload(), 700);
-  };
-
-  useEffect(() => {
-    if (!pendingRemoteImport || !protectedWorkReason) return;
-    setLastSyncState({ status: 'クラウドに新しいデータがあります（作業終了後に確認）', error: '' });
-  }, [pendingRemoteImport, protectedWorkReason]);
-
   useEffect(() => {
     cleanupLegacySyncBackups();
     let localChangeRetryTimer: number | null = null;
@@ -277,7 +160,6 @@ export function AutoSyncController({ protectedWorkReason, onOpenSync }: AutoSync
             lastUploadHash: localHash,
             status: '端末とクラウドは同じ内容です', error: '',
           });
-          setPendingRemoteImport(null);
           return;
         }
         const promptKey = `${settings.syncId}:${meta.value.updatedAt}`;
@@ -285,7 +167,7 @@ export function AutoSyncController({ protectedWorkReason, onOpenSync }: AutoSync
 
         promptedRemoteUpdatedAtRef.current = promptKey;
         setLastSyncState({ status: '端末とクラウドに異なる内容があります', error: '' });
-        setPendingRemoteImport({ syncId: settings.syncId, updatedAt: remote.value.updatedAt, localHash });
+        // Resolve differences only when the user opens Settings > Sync.
       } catch (error) {
         const message = error instanceof Error ? error.message : 'クラウド確認に失敗しました。';
         console.warn('Auto sync remote check failed.', error);
@@ -330,19 +212,5 @@ export function AutoSyncController({ protectedWorkReason, onOpenSync }: AutoSync
     if (previousReason && !protectedWorkReason) resumeSyncRef.current?.();
   }, [protectedWorkReason]);
 
-  return (
-    <ConfirmDialog
-      fullPage
-      open={pendingRemoteImport !== null && protectedWorkReason === null}
-      title={'同期する内容を選んでください'}
-      message={'端末を更新した場合は「端末 → クラウドに同期」へ進んでください。上書き前にバックアップします。'}
-      alternateLabel="端末 → クラウドに同期"
-      onAlternate={() => { cancelRemoteImport(); onOpenSync(); }}
-      cancelLabel="あとで"
-      confirmLabel={remoteImportBusy ? '読み込み中…' : 'バックアップして端末を上書き'}
-      busy={remoteImportBusy}
-      onCancel={cancelRemoteImport}
-      onConfirm={() => void confirmRemoteImport()}
-    />
-  );
+  return null;
 }

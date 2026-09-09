@@ -1531,7 +1531,7 @@ export default function App() {
 
   return (
     <>
-      <AutoSyncController protectedWorkReason={protectedWorkReason} onOpenSync={() => navigate({ name: 'sync' })} />
+      <AutoSyncController protectedWorkReason={protectedWorkReason} />
       <div key={getScreenKey(screen)} className={`quiz-screen-transition quiz-screen-transition--${transitionDirection}`}>
         <Suspense fallback={(
           <div className="quiz-app-loading" role="status" aria-live="polite">
