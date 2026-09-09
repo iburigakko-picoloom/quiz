@@ -451,13 +451,13 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
               </article>
               <article className="create-set__ai-method" hidden={aiMethod !== 'material'}>
                 <h2><span>2</span>資料から作る</h2>
-                <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('material')}><CopyIcon size={18} />{copiedTemplate === 'material' ? 'コピーしました' : '資料用プロンプトをコピー'}</button></div>
+                <PdfPromptFlow pdfLabel="資料PDF" copied={copiedTemplate === 'material'} onCopy={() => void copyPromptTemplate('material')} onNext={() => setAiStep(2)} />
               </article>
               <article className="create-set__ai-method" hidden={aiMethod !== 'past-exam'}>
                 <h2><span>3</span>過去問から作る</h2>
-                <div className="create-set__ai-copy-row"><button type="button" className="create-set__ai-copy" onClick={() => void copyPromptTemplate('past-exam')}><CopyIcon size={18} />{copiedTemplate === 'past-exam' ? 'コピーしました' : '過去問用プロンプトをコピー'}</button></div>
+                <PdfPromptFlow pdfLabel="過去問PDF" copied={copiedTemplate === 'past-exam'} onCopy={() => void copyPromptTemplate('past-exam')} onNext={() => setAiStep(2)} />
               </article>
-              <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button>
+              {aiMethod === 'simple' ? <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button> : null}
             </section> : null}
             {view !== 'chatgpt' || aiStep === 2 ? <>
             {notePromptCopied ? <p className="create-set__notice" role="status">依頼文をコピーしました</p> : null}
@@ -783,6 +783,20 @@ function updateDraftAnswerSelection(draft: BulkQuestionDraft, choices: string[],
     ? Array.from(new Set([...current, index])).sort((left, right) => left - right)
     : current.filter((answerIndex) => answerIndex !== index);
   return { ...draft, choices, answerIndex: answerIndexes[0] ?? null, answerIndexes };
+}
+
+function PdfPromptFlow({ pdfLabel, copied, onCopy, onNext }: { pdfLabel: string; copied: boolean; onCopy: () => void; onNext: () => void }) {
+  return <div className="create-set__pdf-flow" aria-label={`${pdfLabel}とプロンプトを生成AIに貼り付け、できたJSONをステップ2で取り込む`}>
+    <div className="create-set__pdf-inputs">
+      <button type="button" className="create-set__ai-copy" onClick={onCopy}><CopyIcon size={24} /><span>{copied ? 'コピーしました' : 'プロンプトをコピー'}</span></button>
+      <span className="create-set__flow-plus" aria-hidden="true">＋</span>
+      <div className="create-set__pdf-material"><DocumentOutlineIcon size={30} /><span>{pdfLabel}</span></div>
+    </div>
+    <span className="create-set__flow-arrow" aria-hidden="true">↓</span>
+    <div className="create-set__flow-ai"><CopyIcon size={22} /><strong>生成AIに貼り付け</strong></div>
+    <span className="create-set__flow-arrow" aria-hidden="true">↓</span>
+    <button type="button" className="create-set__primary create-set__flow-next" onClick={onNext}><span>STEP 2</span><strong>できたJSONを取り込む</strong><ChevronRightIcon size={18} /></button>
+  </div>;
 }
 
 function parseGeneratedContent(text: string) {

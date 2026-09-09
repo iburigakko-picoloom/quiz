@@ -39,8 +39,10 @@ test('problem-set creation uses a direct, concise JSON entry', () => {
   assert.match(createSource, /aiStep === 1/);
   assert.match(createSource, /aiStep === 2/);
   assert.match(createSource, /依頼文を作成・コピー/);
-  assert.match(createSource, /資料用プロンプトをコピー/);
-  assert.match(createSource, /過去問用プロンプトをコピー/);
+  assert.match(createSource, /PdfPromptFlow pdfLabel="資料PDF"/);
+  assert.match(createSource, /PdfPromptFlow pdfLabel="過去問PDF"/);
+  assert.match(createSource, /プロンプトをコピー/);
+  assert.match(createSource, /生成AIに貼り付け/);
   assert.match(createSource, /コピーしました/);
   assert.match(nativePlatformSource, /navigator\.clipboard\?\.writeText/);
   assert.match(nativePlatformSource, /document\.execCommand\('copy'\)/);

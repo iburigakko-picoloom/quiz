@@ -152,3 +152,13 @@
 .create-set__generation-options input[type=number] { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #d5dbe3; border-radius: 7px; }
 .create-set__generation-options > .create-set__multiple-option { grid-column: 1 / -1; display: flex; align-items: center; min-height: 44px; }
 .create-set__multiple-option input { width: 20px; height: 20px; accent-color: #2859a6; }
+.create-set__pdf-flow { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 0; }
+.create-set__pdf-inputs { display: grid; grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; }
+.create-set .create-set__pdf-inputs .create-set__ai-copy, .create-set__pdf-material { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; min-width: 0; min-height: 104px; padding: 12px 6px; text-align: center; font-size: 14px; line-height: 1.5; }
+.create-set__pdf-material { color: #526173; }
+.create-set__flow-plus, .create-set__flow-arrow { color: #7c8a9a; font-size: 24px; text-align: center; }
+.create-set__flow-ai { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px; color: #334155; font-size: 15px; }
+.create-set .create-set__flow-next { display: grid; grid-template-columns: 1fr auto; width: 100%; gap: 4px 8px; text-align: left; }
+.create-set__flow-next > span { font-size: 11px; letter-spacing: .08em; }
+.create-set__flow-next > strong { font-size: 15px; grid-column: 1; }
+.create-set__flow-next > svg { grid-column: 2; grid-row: 1 / 3; align-self: center; }
