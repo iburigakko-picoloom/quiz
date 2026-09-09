@@ -8,7 +8,7 @@ import { Layout } from '../components/Layout';
 import { ChevronRightIcon, DocumentOutlineIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
 import { buildGroupProblemSetFolders } from '../utils/groupDataView';
 import { PublishPicker } from '../components/PublishPicker';
-import { PublicationDetails, type PublicationInfo } from '../components/PublicationDetails';
+import { PublicationDetails, publicationPurposes, type PublicationInfo } from '../components/PublicationDetails';
 import { SharedLibrary } from '../components/SharedLibrary';
 import type { SharedFolderPart } from '../utils/sharedFolders';
 import { movePublishedSetFolder } from '../utils/cloudService';
@@ -98,9 +98,9 @@ export function CommunityScreen({
   const [groupDetailTab, setGroupDetailTab] = useState<'sets' | 'members'>('sets');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'new' | 'popular'>('new');
-  const [subjectFilter, setSubjectFilter] = useState('all');
+  const [audienceFilter, setAudienceFilter] = useState('all');
   const [difficultyFilter, setDifficultyFilter] = useState('all');
-  const [conditionDraft, setConditionDraft] = useState<{ sort: 'new' | 'popular'; subject: string; difficulty: string } | null>(null);
+  const [conditionDraft, setConditionDraft] = useState<{ sort: 'new' | 'popular'; audience: string; difficulty: string } | null>(null);
   const [shareLocalSetId, setShareLocalSetId] = useState(() => initialSetId && !shareToken && initialTab === 'mine' ? initialSetId : '');
   const [shareVisibility, setShareVisibility] = useState<Exclude<ProblemSetVisibility, 'private'>>('link');
   const [shareGroupIds, setShareGroupIds] = useState<string[]>([]);
@@ -145,11 +145,11 @@ export function CommunityScreen({
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const canManageSelectedGroup = selectedGroup?.role === 'owner' || selectedGroup?.role === 'admin';
   const groupFolders = useMemo(() => buildGroupProblemSetFolders(groupSets), [groupSets]);
-  const subjectOptions = useMemo(() => [...new Set(publicSets.map((set) => set.subject).filter(Boolean))].sort(), [publicSets]);
+  const audienceOptions = useMemo(() => [...new Set([...publicationPurposes, ...publicSets.map((set) => set.audience).filter(Boolean)])], [publicSets]);
   const visiblePublicSets = useMemo(() => publicSets.filter((set) => (
-    (subjectFilter === 'all' || set.subject === subjectFilter)
+    (audienceFilter === 'all' || set.audience === audienceFilter)
     && (difficultyFilter === 'all' || set.difficulty === difficultyFilter)
-  )), [publicSets, subjectFilter, difficultyFilter]);
+  )), [publicSets, audienceFilter, difficultyFilter]);
   const orphanedPublishedSets = useMemo(() => publishedSets.filter((published) => !data.problemSets.some((local) => (
     local.cloudSetId === published.id || local.id === published.localSetId
   ))), [data.problemSets, publishedSets]);
@@ -778,7 +778,7 @@ export function CommunityScreen({
                 <>
                   <div className="community-search">
                     <div className="community-search__input"><SearchIcon size={19} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="公開問題セットを検索" /></div>
-                    <button type="button" className="community-condition-trigger" aria-haspopup="dialog" onClick={() => setConditionDraft({ sort, subject: subjectFilter, difficulty: difficultyFilter })}>条件{subjectFilter !== 'all' || difficultyFilter !== 'all' || sort !== 'new' ? ' •' : ''}</button>
+                    <button type="button" className="community-condition-trigger" aria-haspopup="dialog" onClick={() => setConditionDraft({ sort, audience: audienceFilter, difficulty: difficultyFilter })}>条件{audienceFilter !== 'all' || difficultyFilter !== 'all' || sort !== 'new' ? ' •' : ''}</button>
                   </div>
                   <div className="community-section__heading"><h2>公開ライブラリ</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
                   {publicLoading ? <div className="community-notice" role="status">公開問題セットを読み込み中…</div> : null}
@@ -799,13 +799,13 @@ export function CommunityScreen({
 
 
         {conditionDraft ? <CommunityModal ariaLabel="条件" sidePanel onClose={() => setConditionDraft(null)}>
-          <header className="community-conditions__header"><button type="button" aria-label="条件を閉じる" onClick={() => setConditionDraft(null)}>×</button><h2>条件</h2><button type="button" onClick={() => setConditionDraft({ sort: 'new', subject: 'all', difficulty: 'all' })}>クリア</button></header>
+          <header className="community-conditions__header"><button type="button" aria-label="条件を閉じる" onClick={() => setConditionDraft(null)}>×</button><h2>条件</h2><button type="button" onClick={() => setConditionDraft({ sort: 'new', audience: 'all', difficulty: 'all' })}>クリア</button></header>
           <div className="community-conditions__body">
             <section><h3>並び順</h3><div className="community-conditions__chips">{([['new', '新着順'], ['popular', '人気順']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={conditionDraft.sort === value} onClick={() => setConditionDraft({ ...conditionDraft, sort: value })}>{label}</button>)}</div></section>
-            <section><label className="community-conditions__select">科目<select value={conditionDraft.subject} onChange={(event) => setConditionDraft({ ...conditionDraft, subject: event.target.value })}><option value="all">指定しない</option>{subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label></section>
+            <section><label className="community-conditions__select">対策・用途<select value={conditionDraft.audience} onChange={(event) => setConditionDraft({ ...conditionDraft, audience: event.target.value })}><option value="all">指定しない</option>{audienceOptions.map((purpose) => <option key={purpose} value={purpose}>{purpose}</option>)}</select></label></section>
             <section><h3>難易度</h3><div className="community-conditions__chips">{[['all', '指定しない'], ['basic', '基礎'], ['standard', '標準'], ['advanced', '発展']].map(([value, label]) => <button type="button" key={value} aria-pressed={conditionDraft.difficulty === value} onClick={() => setConditionDraft({ ...conditionDraft, difficulty: value })}>{label}</button>)}</div></section>
           </div>
-          <footer className="community-conditions__footer"><button type="button" className="community-primary" onClick={() => { setSort(conditionDraft.sort); setSubjectFilter(conditionDraft.subject); setDifficultyFilter(conditionDraft.difficulty); setConditionDraft(null); }}>この条件で検索</button></footer>
+          <footer className="community-conditions__footer"><button type="button" className="community-primary" onClick={() => { setSort(conditionDraft.sort); setAudienceFilter(conditionDraft.audience); setDifficultyFilter(conditionDraft.difficulty); setConditionDraft(null); }}>この条件で検索</button></footer>
         </CommunityModal> : null}
         {moveTarget ? <CommunityModal ariaLabel="公開先のフォルダを移動" busy={busy} onClose={() => setMoveTarget(null)}>
           <h2>フォルダを移動</h2><p>{moveTarget.title}</p>

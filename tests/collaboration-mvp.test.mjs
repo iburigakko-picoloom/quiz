@@ -38,7 +38,9 @@ test('public discovery supports required filters, detail preview and both primar
   assert.doesNotMatch(appSource, /<SearchScreen|import \{ SearchScreen \}/);
   assert.match(screenSource, /community-discovery-row/);
   assert.match(screenSource, /onClick=\{\(\) => onDetail\(set\)\}/);
-  assert.match(screenSource, />科目<select/);
+  assert.match(screenSource, />対策・用途<select/);
+  assert.match(screenSource, /publicationPurposes, \.\.\.publicSets.map\(\(set\) => set.audience\)/);
+  assert.match(screenSource, /set.audience === audienceFilter/);
   assert.match(screenSource, /<h3>難易度<\/h3>/);
   assert.match(screenSource, /aria-pressed=\{conditionDraft.difficulty === value\}/);
   assert.match(screenSource, /この条件で検索/);
