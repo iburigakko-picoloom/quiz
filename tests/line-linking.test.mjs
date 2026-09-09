@@ -14,7 +14,8 @@ test('LINE linking verifies the current user and never starts a new login or del
 });
 
 test('LINE status queries the server and distinguishes unlinked from failed checks', async () => {
-  const statusSource = source.slice(source.indexOf('export async function getLineLinkStatus'), source.indexOf('export async function linkLineIdentity'));
+  const statusStart = source.indexOf('export async function getLineLinkStatus');
+  const statusSource = source.slice(statusStart, source.indexOf('export async function ', statusStart + 1));
   let response;
   let calls = 0;
   const getStatus = new Function('requireCloudClient', 'lineAuthProvider', `${stripTypeScriptTypes(statusSource.replace('export ', ''))}; return getLineLinkStatus;`)(() => ({ auth: { getUser: async () => { calls++; return response; } } }), 'custom:quizmake-line');

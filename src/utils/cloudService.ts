@@ -1,5 +1,6 @@
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
 import { beginLineLinkAttempt, clearLineLinkAttempt } from './lineAuthReturn';
+import { getLineAvatarUrl } from './lineAvatar';
 import type { AppData, ProblemSetVisibility } from '../types';
 import {
   beginNativeAuthAttempt,
@@ -117,6 +118,12 @@ export async function getLineLinkStatus(userId: string): Promise<boolean> {
   const { data, error } = await requireCloudClient().auth.getUser();
   if (error || !data.user || data.user.id !== userId || !Array.isArray(data.user.identities)) throw new Error('LINEの連携状態を確認できませんでした。');
   return data.user.identities.some((identity) => identity.provider === lineAuthProvider);
+}
+
+export async function getCloudLineAvatar(userId: string): Promise<string | null> {
+  const { data, error } = await requireCloudClient().auth.getUser();
+  if (error || !data.user || data.user.id !== userId) return null;
+  return getLineAvatarUrl(data.user, lineAuthProvider);
 }
 
 export async function linkLineIdentity(): Promise<boolean> {

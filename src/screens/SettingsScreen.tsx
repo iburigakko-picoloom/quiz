@@ -8,7 +8,6 @@ import {
   ChevronRightIcon,
   DocumentOutlineIcon,
   DownloadIcon,
-  ProfileIcon,
   SyncIcon,
   TrashIcon,
   UploadIcon,
@@ -25,6 +24,7 @@ import {
 } from '../utils/cloudService';
 import './SettingsScreen.css';
 import { LineLoginButton } from '../components/LineLoginButton';
+import { AccountAvatar } from '../components/AccountAvatar';
 
 interface SettingsScreenProps {
   page?: 'account' | 'transfer' | 'backups' | 'logout';
@@ -164,7 +164,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
 
         <main className="settings-screen__body">
           {!page ? <>
-            <SettingsRow icon={<ProfileIcon />} title={session ? displayName || 'アカウント' : '未ログイン'} detail={session ? 'ログイン中' : undefined} arrow onClick={() => onNavigate('account')} />
+            <SettingsRow icon={<AccountAvatar userId={session?.user.id} />} title={session ? displayName || 'アカウント' : '未ログイン'} detail={session ? 'ログイン中' : undefined} arrow onClick={() => onNavigate('account')} />
             <section className="settings-section"><div className="settings-section__heading"><h2>学習</h2></div>
               <label className="settings-row"><span className="settings-row__icon"><DocumentOutlineIcon /></span><span className="settings-row__text"><strong>解答効果音</strong></span><input type="checkbox" role="switch" checked={sound} onChange={(event) => { try { setAnswerSoundEnabled(event.target.checked); setSound(event.target.checked); setMessage(''); if (event.target.checked) { prepareAnswerAudio(); playAnswerFeedback('correct'); } } catch { setMessage('設定を保存できませんでした。'); } }} /></label>
             </section>
@@ -180,7 +180,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
               <h2 id="settings-account-title">アカウント</h2>
             </div>
             <div className="settings-account">
-              <span className="settings-account__icon" aria-hidden="true"><ProfileIcon /></span>
+              <span className="settings-account__icon" aria-hidden="true"><AccountAvatar userId={session?.user.id} /></span>
               {!cloudConfigured ? (
                 <div className="settings-account__content"><strong>共有機能は現在利用できません</strong><small>端末内の問題作成・学習・バックアップはそのまま使えます。</small></div>
               ) : !authReady ? (
