@@ -11,6 +11,9 @@ mkdirSync(output, { recursive: true });
     ['tilt', 8, 538, 270, 294],
     ['sit', 571, 550, 185, 272],
     ['look', 809, 334, 213, 214],
+    ['stand', 526, 8, 275, 307],
+    ['turn', 755, 550, 207, 282],
+    ['rest', 962, 609, 318, 188],
   ]) {
     await sharp(source).extract({ left, top, width, height }).resize({ height: 320 }).webp({ quality: 92 }).toFile(path.join(output, `${name}.webp`));
   }
