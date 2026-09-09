@@ -29,6 +29,7 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
   const parentId = requested?.parentFolderId ?? folderId;
   const folder = view.folderById.get(parentId);
   const [expanded, setExpanded] = useState<string | null>(() => requested?.parentFolderId ? folderId : folderNavigation.get(parentId)?.expanded ?? null);
+  const [animatedChild, setAnimatedChild] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -80,14 +81,16 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
     {children.length > 0 ? <section className="library-section"><h2>子フォルダ</h2>
       {children.map(({ folder: child, setCount, questionCount, reviewCount }) => <div key={child.id}>
         <div className="library-row-with-actions">
-          <button type="button" className="library-row" aria-expanded={expanded === child.id} onClick={() => setExpanded(expanded === child.id ? null : child.id)}>
+          <button type="button" className="library-row" aria-expanded={expanded === child.id} onClick={() => { setAnimatedChild(child.id); setExpanded(expanded === child.id ? null : child.id); }}>
             <span className="library-icon"><FolderOutlineIcon size={18} /></span>
             <span className="library-row__body"><strong>{child.name}</strong><span>{setCount}セット · {questionCount}問 {reviewCount > 0 ? <em>復習 {reviewCount}</em> : null}</span></span>
-            <ChevronRightIcon size={18} style={{ transform: expanded === child.id ? 'rotate(90deg)' : undefined }} />
+            <ChevronRightIcon size={18} className="quiz-folder__child-chevron" style={{ transform: expanded === child.id ? 'rotate(90deg)' : undefined }} />
           </button>
           <LibraryItemActions data={data} kind="folder" id={child.id} onSave={onSave} onDelete={() => setDeleteFolder(child)} onAddSet={() => onCreateProblemSet(child.id)} />
         </div>
-        {expanded === child.id ? <div className="library-child-sets">{(view.problemSetsByFolderId.get(child.id) ?? []).map(renderSet)}{!setCount ? <p>問題セットがありません</p> : null}</div> : null}
+        {expanded === child.id ? <div className={`quiz-folder__child-reveal${animatedChild === child.id ? ' quiz-folder__child-reveal--animated' : ''}`}>
+          <div className="quiz-folder__child-content"><div className="library-child-sets">{(view.problemSetsByFolderId.get(child.id) ?? []).map(renderSet)}{!setCount ? <p>問題セットがありません</p> : null}</div></div>
+        </div> : null}
       </div>)}
     </section> : null}
     <section className="library-section"><h2>問題セット</h2>{sets.map(renderSet)}{sets.length === 0 ? <p>問題セットがありません</p> : null}</section>

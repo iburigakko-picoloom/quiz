@@ -1,3 +1,41 @@
+.quiz-folder__child-chevron {
+  transition: transform 240ms ease;
+}
+
+.quiz-folder__child-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.quiz-folder__child-content {
+  min-height: 0;
+}
+
+.quiz-folder__child-reveal--animated {
+  animation: quiz-folder-child-open 240ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Clip only while opening so action menus can extend outside the list afterward. */
+.quiz-folder__child-reveal--animated > .quiz-folder__child-content {
+  animation: quiz-folder-child-clip 240ms;
+}
+
+@keyframes quiz-folder-child-open {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to { grid-template-rows: 1fr; opacity: 1; }
+}
+
+@keyframes quiz-folder-child-clip {
+  from { overflow: hidden; }
+  to { overflow: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-folder__child-chevron { transition: none; }
+  .quiz-folder__child-reveal--animated,
+  .quiz-folder__child-reveal--animated > .quiz-folder__child-content { animation: none; }
+}
+
 .quiz-folder,
 .quiz-folder * {
   box-sizing: border-box;
