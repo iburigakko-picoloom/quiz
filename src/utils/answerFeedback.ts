@@ -44,7 +44,7 @@ export function playAnswerFeedback(kind: 'correct' | 'relearned' | 'wrong'): voi
       const gain = audio.createGain();
       gain.gain.value = 1;
       gain.connect(audio.destination);
-      const duration = kind === 'relearned' ? 0.76 : kind === 'wrong' ? 0.42 : 0.54;
+      const duration = kind === 'relearned' ? 1 : kind === 'wrong' ? 0.6 : 0.75;
       const notes = kind === 'wrong' ? [[330, 0], [220, 0.12]]
         : kind === 'relearned' ? [[660, 0], [880, 0.11]] : [[784, 0]];
       for (const [frequency, delay] of notes) {

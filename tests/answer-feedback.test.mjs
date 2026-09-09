@@ -82,7 +82,7 @@ test('all answer outcomes play louder audio, while the off preference stays sile
       return node;
     }
     createOscillator() {
-      const node = { frequency: { value: 0 }, connect() {}, disconnect() {}, start() {}, stop() {} };
+      const node = { frequency: { value: 0 }, stoppedAt: 0, connect() {}, disconnect() {}, start() {}, stop(time) { this.stoppedAt = time; } };
       oscillators.push(node);
       return node;
     }
@@ -91,11 +91,12 @@ test('all answer outcomes play louder audio, while the off preference stays sile
   Object.defineProperty(globalThis, 'window', { configurable: true, value: { setTimeout() {} } });
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => enabled ? 'on' : 'off' } });
   try {
-    for (const [kind, frequencies] of [['correct', [784]], ['relearned', [660, 880]], ['wrong', [330, 220]]]) {
+    for (const [kind, frequencies, duration] of [['correct', [784], 0.75], ['relearned', [660, 880], 1], ['wrong', [330, 220], 0.6]]) {
       oscillators.length = 0;
       gains.length = 0;
       playAnswerFeedback(kind);
       assert.deepEqual(oscillators.map((node) => node.frequency.value), frequencies);
+      assert.ok(oscillators.every((node) => node.stoppedAt === duration));
       assert.equal(gains[0].gain.value, 1);
     }
     enabled = false;
