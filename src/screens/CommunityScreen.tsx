@@ -6,7 +6,7 @@ import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
 import { ChevronRightIcon, DocumentOutlineIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
 import { buildGroupProblemSetFolders } from '../utils/groupDataView';
-import { folderSubtreeIds } from '../utils/folderHierarchy';
+import { PublishPicker } from '../components/PublishPicker';
 import { writeClipboardText } from '../utils/nativePlatform';
 import {
   buildShareUrl,
@@ -99,15 +99,13 @@ export function CommunityScreen({
   const [shareGroupIds, setShareGroupIds] = useState<string[]>([]);
   const [shareResult, setShareResult] = useState<{ url: string; visibility: ProblemSetVisibility } | null>(null);
   const [addTarget, setAddTarget] = useState<{ visibility: 'public' | 'group'; groupId?: string; name: string } | null>(null);
-  const [addKind, setAddKind] = useState<'set' | 'folder'>('set');
-  const [addId, setAddId] = useState('');
+  const [addIds, setAddIds] = useState<string[]>([]);
+  const [addReview, setAddReview] = useState(false);
   const [addResults, setAddResults] = useState<Record<string, string>>({});
   const addBusyRef = useRef(false);
   const addSets = useMemo(() => {
-    if (!addId) return [];
-    const folders = folderSubtreeIds(data.folders, addId);
-    return data.problemSets.filter((set) => addKind === 'set' ? set.id === addId : folders.has(set.folderId));
-  }, [data.folders, data.problemSets, addKind, addId]);
+    return data.problemSets.filter((set) => addIds.includes(set.id));
+  }, [data.problemSets, addIds]);
   const [directSet, setDirectSet] = useState<CloudProblemSet | null>(null);
   const [detailBackTab, setDetailBackTab] = useState<'discover' | 'groups'>('discover');
   const [newGroupName, setNewGroupName] = useState('');
@@ -488,8 +486,8 @@ export function CommunityScreen({
   const openAdd = (visibility: 'public' | 'group') => {
     if (!requireLogin()) return;
     setShareLocalSetId('');
-    setAddKind('set');
-    setAddId('');
+    setAddIds([]);
+    setAddReview(false);
     setAddResults({});
     setAddTarget({ visibility, ...(visibility === 'group' ? { groupId: selectedGroupId } : {}), name: visibility === 'public' ? '全体公開（見つける）' : selectedGroup?.name ?? 'このグループ' });
   };
@@ -561,7 +559,7 @@ export function CommunityScreen({
               <section className="community-section community-group-detail">
                 <div className="community-section__heading">
                   <h2>{selectedGroup?.name ?? 'グループ'}</h2>
-                  <button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('group')}>＋このグループに追加</button>
+                  <button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('group')}>＋このグループに公開</button>
                   {canManageSelectedGroup ? <button type="button" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}
                 </div>
                 {!session ? (
@@ -703,9 +701,9 @@ export function CommunityScreen({
                     <label>科目<select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">すべて</option>{subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
                     <label>難易度<select value={difficultyFilter} onChange={(event) => setDifficultyFilter(event.target.value)}><option value="all">すべて</option><option value="basic">基礎</option><option value="standard">標準</option><option value="advanced">発展</option></select></label>
                   </div>
-                  <div className="community-section__heading"><h2>みんなの問題セット</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋全体公開</button></div>
                   </details>
                   </div>
+                  <div className="community-section__heading"><h2>みんなの問題セット</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
                   {publicLoading ? <div className="community-notice" role="status">公開問題セットを読み込み中…</div> : null}
                   {!publicLoading && !error ? <ProblemSetCards sets={visiblePublicSets} busy={busy} onCopy={(set) => void copySharedSet(set)} onPractice={(set) => void practiceSharedSet(set)} onDetail={(set) => void openSharedDetail(set, 'discover')} onReport={setReportTarget} /> : null}
                   {cloudConfigured && visiblePublicSets.length === 0 && !publicLoading && !error ? <EmptyState title="条件に合うセットはありません" /> : null}
@@ -721,23 +719,16 @@ export function CommunityScreen({
 
         {addTarget ? (
           <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)}>
-            <h2>{addTarget.visibility === 'public' ? '全体に公開' : 'グループに追加'}</h2>
+            <h2>{addReview ? '公開内容を確認' : addTarget.visibility === 'public' ? '全体に公開' : 'グループに公開'}</h2>
             <p>公開先：{addTarget.name}</p>
-            <fieldset disabled={busy || Object.keys(addResults).length > 0}>
-              <legend>追加するもの</legend>
-              <div className="community-add-types">
-                <label><input type="radio" name="community-add-kind" checked={addKind === 'set'} onChange={() => { setAddKind('set'); setAddId(''); }} />問題セット</label>
-                <label><input type="radio" name="community-add-kind" checked={addKind === 'folder'} onChange={() => { setAddKind('folder'); setAddId(''); }} />フォルダ</label>
-              </div>
-              <label>{addKind === 'set' ? '問題セットを選択' : 'フォルダを選択'}<select value={addId} onChange={(event) => setAddId(event.target.value)}><option value="">選択してください</option>{addKind === 'set' ? data.problemSets.map((set) => <option key={set.id} value={set.id}>{set.title}</option>) : data.folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.parentFolderId ? `${data.folders.find((parent) => parent.id === folder.parentFolderId)?.name ?? ''} / ` : ''}{folder.name}</option>)}</select></label>
-            </fieldset>
-            {addId ? <>
-              <p>{addSets.length}セット{addKind === 'folder' ? '（子フォルダ内を含む）' : ''}</p>
+            <div hidden={addReview}><PublishPicker data={data} selected={addIds} onChange={setAddIds} /></div>
+            <p aria-live="polite">{addSets.length}セットを選択</p>
+            {addReview ? <>
               <ul className="community-add-preview">{addSets.map((set) => <li key={set.id}><strong>{set.title}</strong><span>{addResults[set.id] ?? `${data.questions.filter((question) => question.setId === set.id).length}問`}</span></li>)}</ul>
             </> : null}
             <p className="community-sheet__hint">{addTarget.visibility === 'public' ? '全ユーザーが閲覧・コピーできます。' : 'このグループのメンバーが閲覧・コピーできます。'}既に共有中のセットは公開先が変更されます。学習履歴は公開しません。</p>
-            {addKind === 'folder' ? <p className="community-sheet__hint">フォルダ内のセットをまとめて追加します。フォルダ階層そのものは公開されません。</p> : null}
-            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setAddTarget(null)}>{Object.keys(addResults).length ? '閉じる' : 'キャンセル'}</button><button type="button" className="community-primary" disabled={busy || !addSets.length || Object.keys(addResults).length > 0} onClick={() => void submitAdd()}>{busy ? '追加中…' : addTarget.visibility === 'public' ? `${addSets.length}セットを全体公開` : `${addSets.length}セットをこのグループに追加`}</button></div>
+            <p className="community-sheet__hint">フォルダを選ぶと中のセットをまとめて公開します。公開先ではセット単位で表示されます。</p>
+            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '選び直す' : 'キャンセル'}</button><button type="button" className="community-primary" disabled={busy || !addSets.length || Object.keys(addResults).length > 0} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? '選択内容を確認' : addTarget.visibility === 'public' ? `${addSets.length}セットを全体公開` : `${addSets.length}セットをグループに公開`}</button></div>
           </CommunityModal>
         ) : null}
         {loginOpen ? (
