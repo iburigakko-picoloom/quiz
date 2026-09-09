@@ -252,6 +252,7 @@ export async function publishLocalProblemSet(params: {
   authorName: string;
   publicationInfo?: { audience: string; description: string };
   includeFolder?: boolean;
+  folderPath?: SharedFolderPart[];
 }): Promise<CloudPublishResult> {
   const client = requireCloudClient();
   const problemSet = params.data.problemSets.find((item) => item.id === params.setId);
@@ -265,7 +266,7 @@ export async function publishLocalProblemSet(params: {
   const { data, error } = await client.rpc('publish_problem_set', {
     p_set: {
       local_set_id: problemSet.id,
-      ...(params.includeFolder ? { folder_path: localFolderPath(params.data.folders, problemSet.folderId) } : {}),
+      ...(params.folderPath !== undefined ? { folder_path: params.folderPath } : params.includeFolder ? { folder_path: localFolderPath(params.data.folders, problemSet.folderId) } : {}),
       title: problemSet.title,
       description,
       subject: problemSet.subject ?? '',
@@ -345,6 +346,11 @@ export async function listPublicFolderSets(ownerId: string, folderId: string): P
     sets.push(...(data ?? []).map(mapProblemSetRow));
     if (!data || data.length < 500) return sets;
   }
+}
+
+export async function movePublishedSetFolder(setId: string, folderPath: SharedFolderPart[]): Promise<void> {
+  const { error } = await requireCloudClient().rpc('move_published_set_folder', { p_set_id: setId, p_folder_path: folderPath });
+  if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
 export async function unpublishCloudProblemSet(setId: string): Promise<void> {

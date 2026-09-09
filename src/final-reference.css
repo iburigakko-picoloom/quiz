@@ -1,5 +1,12 @@
 /* App styles derived from the 2026-09-07 reference, not its demo phone shell. */
 :root { --ui-page: #FFFFFF; --ui-surface: #FFFFFF; --ui-text: #172033; --ui-text-muted: #667085; --ui-border: #E4E8EF; --ui-accent: #2859A6; --ui-accent-soft: #EEF4FC; }
+.community-screen .community-discovery-tools { margin: 10px 0 16px; min-height: 36px; }
+.community-screen .community-discovery-filter > summary { min-height: 36px; padding: 6px 12px; background: white; border: 1px solid #e4e8ef; font-size: 13px; }
+.community-screen .community-section__heading h2 { font-size: 18px; line-height: 1.5; }
+.community-screen .community-section__heading > button { min-height: 40px; padding: 8px 12px; font-size: 14px; }
+.shared-library__folder > .shared-library__row { border-bottom: 0; }
+.shared-library__folder > .shared-library__children.is-open { border-top: 1px solid #edf0f4; }
+.shared-library__open > svg { color: #2859a6; }
 .app-layout__scroll, main.create-set, main.create-set .create-set__flow { background: #fff; }
 .create-set .create-set__steps button[aria-current="step"] { color: #2859a6; border-bottom-color: #2859a6; }
 .create-set .create-set__ai-copy { color: #2859a6; background: #fff; border-color: #cdd2d8; }

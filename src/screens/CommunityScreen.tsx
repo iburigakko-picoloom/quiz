@@ -10,6 +10,8 @@ import { buildGroupProblemSetFolders } from '../utils/groupDataView';
 import { PublishPicker } from '../components/PublishPicker';
 import { PublicationDetails, type PublicationInfo } from '../components/PublicationDetails';
 import { SharedLibrary } from '../components/SharedLibrary';
+import type { SharedFolderPart } from '../utils/sharedFolders';
+import { movePublishedSetFolder } from '../utils/cloudService';
 import { writeClipboardText } from '../utils/nativePlatform';
 import {
   buildShareUrl,
@@ -102,7 +104,11 @@ export function CommunityScreen({
   const [shareVisibility, setShareVisibility] = useState<Exclude<ProblemSetVisibility, 'private'>>('link');
   const [shareGroupIds, setShareGroupIds] = useState<string[]>([]);
   const [shareResult, setShareResult] = useState<{ url: string; visibility: ProblemSetVisibility } | null>(null);
-  const [addTarget, setAddTarget] = useState<{ visibility: 'public' | 'group'; groupId?: string; name: string } | null>(null);
+  const [addTarget, setAddTarget] = useState<{ visibility: 'public' | 'group'; groupId?: string; name: string; folderPath?: SharedFolderPart[] } | null>(null);
+  const [moveTarget, setMoveTarget] = useState<CloudProblemSet | null>(null);
+  const [movePath, setMovePath] = useState<SharedFolderPart[]>([]);
+  const [moveError, setMoveError] = useState('');
+  const moveLock = useRef(false);
   const [addIds, setAddIds] = useState<string[]>([]);
   const [addReview, setAddReview] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<{ sets: CloudProblemSet[]; title: string } | null>(null);
@@ -545,13 +551,38 @@ export function CommunityScreen({
     }
   };
 
-  const openAdd = (visibility: 'public' | 'group') => {
+
+  const moveFolders = [...new Map(publishedSets.filter((set) => set.ownerId === session?.user.id && set.visibility === moveTarget?.visibility).flatMap((set) => (set.folderPath ?? []).map((_, i) => {
+    const path = set.folderPath!.slice(0, i + 1);
+    return [JSON.stringify(path.map((part) => part.id)), path] as const;
+  }))).values()];
+  const openMove = async (set: CloudProblemSet) => {
+    if (!session || set.ownerId !== session.user.id || busy) return;
+    setMoveTarget(set); setMovePath(set.folderPath ?? []); setMoveError(''); setBusy(true);
+    try { setPublishedSets(await listMyPublishedSets()); }
+    catch (reason) { setMoveError(getErrorMessage(reason)); }
+    finally { setBusy(false); }
+  };
+  const confirmMove = async () => {
+    if (!moveTarget || !session || moveTarget.ownerId !== session.user.id || moveLock.current) return;
+    moveLock.current = true; setBusy(true); setMoveError('');
+    try {
+      await movePublishedSetFolder(moveTarget.id, movePath);
+      const changed = (items: CloudProblemSet[]) => items.map((set) => set.id === moveTarget.id ? { ...set, folderPath: movePath, updatedAt: new Date().toISOString() } : set);
+      setPublicSets(changed); setGroupSets(changed); setPublishedSets(changed);
+      setDirectSet((set) => set?.id === moveTarget.id ? { ...set, folderPath: movePath } : set);
+      setMoveTarget(null); setAuthMessage('公開先のフォルダを移動しました。');
+    } catch (reason) { setMoveError(getErrorMessage(reason)); }
+    finally { moveLock.current = false; setBusy(false); }
+  };
+
+  const openAdd = (visibility: 'public' | 'group', folderPath?: SharedFolderPart[]) => {
     if (!requireLogin()) return;
     setShareLocalSetId('');
     setAddIds([]);
     setAddReview(false);
     setAddResults({});
-    setAddTarget({ visibility, ...(visibility === 'group' ? { groupId: selectedGroupId } : {}), name: visibility === 'public' ? '全体公開（見つける）' : selectedGroup?.name ?? 'このグループ' });
+    setAddTarget({ visibility, folderPath, ...(visibility === 'group' ? { groupId: selectedGroupId } : {}), name: visibility === 'public' ? '全体公開（見つける）' : selectedGroup?.name ?? 'このグループ' });
   };
 
   const submitAdd = async () => {
@@ -565,7 +596,7 @@ export function CommunityScreen({
       const authorName = await getCloudDisplayName().catch(() => '');
       for (const set of addSets) {
         try {
-          const result = await publishLocalProblemSet({ data, setId: set.id, includeFolder: true, publicationInfo: detailsFor(set.id), visibility: target.visibility, groupIds: target.groupId ? [target.groupId] : [], authorName: authorName || 'Quiz Make ユーザー' });
+          const result = await publishLocalProblemSet({ data, setId: set.id, includeFolder: true, folderPath: target.folderPath, publicationInfo: detailsFor(set.id), visibility: target.visibility, groupIds: target.groupId ? [target.groupId] : [], authorName: authorName || 'Quiz Make ユーザー' });
           // A remote success must never be undone merely because local storage failed.
           try { await onPublished(set.id, result); results[set.id] = '公開済み'; }
           catch { results[set.id] = '公開済み（端末の状態保存に失敗）'; }
@@ -641,7 +672,7 @@ export function CommunityScreen({
                     </div>
                     {busy && groupFolders.length === 0 ? <div className="community-loading" role="status">読み込み中…</div> : null}
                     <div hidden={groupDetailTab !== 'sets'} className="community-group-folder-list" aria-label="グループのフォルダ">
-                      <SharedLibrary key={groupSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={groupSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'groups')} onRemove={requestRemove} />
+                      <SharedLibrary key={groupSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={groupSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'groups')} onRemove={requestRemove} onMove={(set) => void openMove(set)} onAdd={(path) => openAdd('group', path)} />
                       {!busy && groupFolders.length === 0 ? <EmptyState title="問題セットはまだありません" /> : null}
                     </div>
                     {groupMembers.length > 0 ? (
@@ -747,7 +778,7 @@ export function CommunityScreen({
                     <div className="community-search__input"><SearchIcon size={19} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="公開問題セットを検索" /></div>
                     <select value={sort} onChange={(event) => setSort(event.target.value as 'new' | 'popular')} aria-label="並び順"><option value="new">新着順</option><option value="popular">人気順</option></select>
                   </div>
-                  <div className="community-discovery-tools"><span>{!cloudConfigured ? '未接続' : publicLoading ? '検索中…' : error ? '取得できませんでした' : `${visiblePublicSets.length}件`}</span>
+                  <div className="community-discovery-tools"><span>{!cloudConfigured ? '未接続' : publicLoading ? '検索中…' : error ? '取得できませんでした' : `${visiblePublicSets.length}セット`}</span>
                   <details className="community-discovery-filter"><summary>絞り込み{subjectFilter !== 'all' || difficultyFilter !== 'all' ? ` ${Number(subjectFilter !== 'all') + Number(difficultyFilter !== 'all')}` : ''}</summary>
                   <div className="community-filters" aria-label="絞り込み">
                     <label>科目<select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">すべて</option>{subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
@@ -755,9 +786,9 @@ export function CommunityScreen({
                   </div>
                   </details>
                   </div>
-                  <div className="community-section__heading"><h2>みんなの問題セット</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
+                  <div className="community-section__heading"><h2>公開ライブラリ</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
                   {publicLoading ? <div className="community-notice" role="status">公開問題セットを読み込み中…</div> : null}
-                  {!publicLoading && !error ? <SharedLibrary key={visiblePublicSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={visiblePublicSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'discover')} onRemove={requestRemove} loadFolder={listPublicFolderSets} /> : null}
+                  {!publicLoading && !error ? <SharedLibrary key={visiblePublicSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={visiblePublicSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'discover')} onRemove={requestRemove} loadFolder={listPublicFolderSets} onMove={(set) => void openMove(set)} onAdd={(path) => openAdd('public', path)} /> : null}
                   {cloudConfigured && visiblePublicSets.length === 0 && !publicLoading && !error ? <EmptyState title="条件に合うセットはありません" /> : null}
                 </>
               )}
@@ -769,6 +800,18 @@ export function CommunityScreen({
 
         </main>
 
+
+        {moveTarget ? <CommunityModal ariaLabel="公開先のフォルダを移動" busy={busy} onClose={() => setMoveTarget(null)}>
+          <h2>フォルダを移動</h2><p>{moveTarget.title}</p>
+          <div className="community-copy-folders" role="radiogroup" aria-label="公開フォルダ">
+            {[[], ...moveFolders].map((path) => <label className="community-copy-folder" key={JSON.stringify(path)}>
+              <input type="radio" name="published-destination" checked={JSON.stringify(movePath) === JSON.stringify(path)} disabled={busy} onChange={() => setMovePath(path)} />
+              <span>{path.length ? path.map((part) => part.name).join(' / ') : 'フォルダの外'}</span>
+            </label>)}
+          </div>
+          {moveError ? <p role="alert">{moveError}</p> : null}
+          <div className="community-sheet__actions"><button disabled={busy} onClick={() => setMoveTarget(null)}>キャンセル</button><button className="community-primary" disabled={busy} onClick={() => void confirmMove()}>ここに移動</button></div>
+        </CommunityModal> : null}
         {removeTarget ? <CommunityModal ariaLabel="公開を取り消す" busy={busy} onClose={() => setRemoveTarget(null)}>
           <h2>公開を取り消しますか？</h2><p>{removeTarget.title} · {removeTarget.sets.length}セット</p>
           <p>公開先と共有リンクから削除します。ホームの元データと、他の人が取り込んだコピーは残ります。</p>
@@ -792,7 +835,7 @@ export function CommunityScreen({
         {addTarget ? (
           <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)}>
             <h2>{Object.keys(addResults).length ? busy ? '公開中…' : '公開結果' : addReview ? '公開しますか？' : '公開する問題を選択'}</h2>
-            <p>公開先：{addTarget.visibility === 'public' ? '全体' : addTarget.name}</p>
+            <p>公開先：{addTarget.visibility === 'public' ? '全体' : addTarget.name}{addTarget.folderPath ? ` / ${addTarget.folderPath.map((part) => part.name).join(' / ')}` : ''}</p>
             <div hidden={addReview}><PublishPicker data={data} selected={addIds} onChange={setAddIds} /></div>
             {!addReview ? <p aria-live="polite">{addSets.length}セットを選択</p> : null}
             {addReview ? <>
