@@ -1,0 +1,11 @@
+.welcome-guide { width: min(420px, calc(100vw - 40px)); max-height: calc(100dvh - 48px); overflow-y: auto; box-sizing: border-box; border: 1px solid #e4e8ef; border-radius: 18px; padding: 24px; background: white; color: #172033; }
+.welcome-guide::backdrop { background: rgb(23 32 51 / 35%); }
+.welcome-guide header { display: flex; gap: 12px; align-items: center; }
+.welcome-guide h2 { flex: 1; font-size: 20px; margin: 0; }
+.welcome-guide header button { border: 0; background: transparent; font-size: 28px; min-width: 44px; min-height: 44px; color: #526176; }
+.welcome-guide section { padding: 20px 0; border-bottom: 1px solid #e4e8ef; }
+.welcome-guide h3 { margin: 0 0 8px; font-size: 17px; }
+.welcome-guide p { font-size: 14px; line-height: 1.65; color: #526176; margin: 8px 0 14px; }
+.welcome-guide__install, .welcome-guide__later { width: 100%; min-height: 48px; border-radius: 10px; font: inherit; padding: 10px; }
+.welcome-guide__install { border: 1px solid #2859a6; color: #2859a6; background: white; }
+.welcome-guide__later { margin-top: 20px; border: 0; background: #f3f4f5; color: #526176; }

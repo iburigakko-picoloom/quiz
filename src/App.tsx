@@ -24,6 +24,7 @@ import { saveBackupPayload } from './utils/backupRepository';
 import type { CreateProblemSetSubmission, LegacyImportTarget } from './screens/CreateProblemSetScreen';
 import { lineLinkReturn } from './utils/lineAuthReturn';
 import { AutoSyncController } from './components/AutoSyncController';
+import { WelcomeGuide } from './components/WelcomeGuide';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { PrimaryBottomNav, type PrimaryNavItem } from './components/PrimaryBottomNav';
 import { StorageRecoveryPanel } from './components/StorageRecoveryPanel';
@@ -1532,6 +1533,7 @@ export default function App() {
   return (
     <>
       <AutoSyncController protectedWorkReason={protectedWorkReason} />
+      <WelcomeGuide active={screen.name === 'home' && !waitingWorker && !storageError} />
       <div key={getScreenKey(screen)} className={`quiz-screen-transition quiz-screen-transition--${transitionDirection}`}>
         <Suspense fallback={(
           <div className="quiz-app-loading" role="status" aria-live="polite">
