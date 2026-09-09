@@ -205,6 +205,13 @@
 .community-screen .community-filters select { border-radius: 6px; border-color: #CBD3DF; color: var(--ui-text); }
 .community-screen .community-search__input > svg { width: 24px; height: 24px; margin-left: 10px; color: var(--ui-accent); }
 .community-screen .community-search input { padding-inline: 8px; font-size: 16px; }
+.community-screen .community-search__input input,
+.community-screen .community-search__input input:focus,
+.community-screen .community-search__input input:focus-visible { border: 0; outline: none !important; box-shadow: none; border-radius: 0; min-width: 0; }
+.publication-details { display: grid; gap: 12px; margin-top: 12px; }
+.community-sheet .publication-details textarea { min-height: 76px; }
+.community-publication-preview { display: grid; gap: 20px; }
+.community-publication-preview > section { min-width: 0; overflow-wrap: anywhere; padding-bottom: 16px; border-bottom: 1px solid #e2e8f0; }
 .community-screen .community-search select { padding-inline: 8px; font-size: 13px; }
 .community-discovery-tools { position: relative; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--ui-text-muted); font-size: 13px; }
 .community-discovery-filter { margin-left: auto; }

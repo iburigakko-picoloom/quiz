@@ -248,10 +248,14 @@ export async function publishLocalProblemSet(params: {
   visibility: Exclude<ProblemSetVisibility, 'private'>;
   groupIds?: string[];
   authorName: string;
+  publicationInfo?: { audience: string; description: string };
 }): Promise<CloudPublishResult> {
   const client = requireCloudClient();
   const problemSet = params.data.problemSets.find((item) => item.id === params.setId);
   if (!problemSet) throw new Error('共有する問題セットが見つかりません。');
+  const audience = (params.publicationInfo?.audience ?? problemSet.audience ?? '').trim();
+  const description = (params.publicationInfo?.description ?? problemSet.description ?? '').trim();
+  if (!audience || !description || description.length > 300) throw new Error('対策・用途と300文字以内の説明を入力してください。');
   const questions = params.data.questions.filter((item) => item.setId === params.setId);
   if (questions.length === 0) throw new Error('問題がないセットは共有できません。');
 
@@ -259,9 +263,9 @@ export async function publishLocalProblemSet(params: {
     p_set: {
       local_set_id: problemSet.id,
       title: problemSet.title,
-      description: problemSet.description ?? '',
+      description,
       subject: problemSet.subject ?? '',
-      audience: problemSet.audience ?? '',
+      audience,
       difficulty: problemSet.difficulty ?? 'basic',
       creation_method: problemSet.creationMethod ?? 'manual',
       source: problemSet.source ?? '',

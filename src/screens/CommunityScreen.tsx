@@ -7,6 +7,7 @@ import { Layout } from '../components/Layout';
 import { ChevronRightIcon, DocumentOutlineIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
 import { buildGroupProblemSetFolders } from '../utils/groupDataView';
 import { PublishPicker } from '../components/PublishPicker';
+import { PublicationDetails, type PublicationInfo } from '../components/PublicationDetails';
 import { writeClipboardText } from '../utils/nativePlatform';
 import {
   buildShareUrl,
@@ -101,6 +102,13 @@ export function CommunityScreen({
   const [addTarget, setAddTarget] = useState<{ visibility: 'public' | 'group'; groupId?: string; name: string } | null>(null);
   const [addIds, setAddIds] = useState<string[]>([]);
   const [addReview, setAddReview] = useState(false);
+  const [publicationInfo, setPublicationInfo] = useState<Record<string, PublicationInfo>>({});
+  const detailsFor = (id: string): PublicationInfo => publicationInfo[id] ?? {
+    audience: data.problemSets.find((set) => set.id === id)?.audience ?? '',
+    description: data.problemSets.find((set) => set.id === id)?.description ?? '',
+  };
+  const detailsValid = (id: string) => Boolean(detailsFor(id).audience.trim() && detailsFor(id).description.trim() && detailsFor(id).description.length <= 300);
+  const renderPublicationDetails = (id: string) => <PublicationDetails value={detailsFor(id)} disabled={busy} onChange={(value) => setPublicationInfo((current) => ({ ...current, [id]: value }))} />;
   const [addResults, setAddResults] = useState<Record<string, string>>({});
   const addBusyRef = useRef(false);
   const addSets = useMemo(() => {
@@ -294,7 +302,7 @@ export function CommunityScreen({
   };
 
   const submitShare = async () => {
-    if (!shareLocalSetId || !session) return;
+    if (!shareLocalSetId || !session || !detailsValid(shareLocalSetId)) return;
     if (shareVisibility === 'group' && shareGroupIds.length === 0) {
       setError('共有先のグループを1つ以上選んでください。');
       return;
@@ -306,6 +314,7 @@ export function CommunityScreen({
       const result = await publishLocalProblemSet({
         data,
         setId: shareLocalSetId,
+        publicationInfo: detailsFor(shareLocalSetId),
         visibility: shareVisibility,
         groupIds: shareGroupIds,
         authorName: profileName || session.user.user_metadata.display_name || session.user.email?.split('@')[0] || 'Quiz Make ユーザー',
@@ -493,7 +502,7 @@ export function CommunityScreen({
   };
 
   const submitAdd = async () => {
-    if (!session || !addTarget || !addSets.length || addBusyRef.current) return;
+    if (!session || !addTarget || !addSets.length || addBusyRef.current || !addSets.every((set) => detailsValid(set.id))) return;
     const target = addTarget;
     if (target.visibility === 'group' && !target.groupId) return;
     addBusyRef.current = true;
@@ -503,7 +512,7 @@ export function CommunityScreen({
       const authorName = await getCloudDisplayName().catch(() => '');
       for (const set of addSets) {
         try {
-          const result = await publishLocalProblemSet({ data, setId: set.id, visibility: target.visibility, groupIds: target.groupId ? [target.groupId] : [], authorName: authorName || 'Quiz Make ユーザー' });
+          const result = await publishLocalProblemSet({ data, setId: set.id, publicationInfo: detailsFor(set.id), visibility: target.visibility, groupIds: target.groupId ? [target.groupId] : [], authorName: authorName || 'Quiz Make ユーザー' });
           // A remote success must never be undone merely because local storage failed.
           try { await onPublished(set.id, result); results[set.id] = '公開済み'; }
           catch { results[set.id] = '公開済み（端末の状態保存に失敗）'; }
@@ -727,13 +736,13 @@ export function CommunityScreen({
             <div hidden={addReview}><PublishPicker data={data} selected={addIds} onChange={setAddIds} /></div>
             {!addReview ? <p aria-live="polite">{addSets.length}セットを選択</p> : null}
             {addReview ? <>
-              <ul className="community-add-preview">{addSets.map((set) => <li key={set.id}><strong>{set.title}</strong><span>{addResults[set.id] ?? `${data.questions.filter((question) => question.setId === set.id).length}問`}</span></li>)}</ul>
+              <div className="community-publication-preview">{addSets.map((set) => <section key={set.id}><strong>{set.title}</strong>{Object.keys(addResults).length ? <p>{addResults[set.id] ?? '公開待ち'}</p> : renderPublicationDetails(set.id)}</section>)}</div>
             </> : null}
             {!Object.keys(addResults).length ? <>
               {addReview ? <p>{addTarget.visibility === 'public' ? '誰でも閲覧・コピーできます。' : 'メンバーが閲覧・コピーできます。'}{addSets.some((set) => set.cloudSetId) ? '共有中のセットは公開先が変わります。' : ''}</p> : null}
               <details><summary>公開について</summary><p>学習履歴は公開しません。フォルダ内の問題はセット単位で公開されます。</p></details>
             </> : null}
-            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '戻る' : 'キャンセル'}</button>{!Object.keys(addResults).length ? <button type="button" className="community-primary" disabled={busy || !addSets.length} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? '次へ' : '公開する'}</button> : null}</div>
+            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '戻る' : 'キャンセル'}</button>{!Object.keys(addResults).length ? <button type="button" className="community-primary" disabled={busy || !addSets.length || (addReview && !addSets.every((set) => detailsValid(set.id)))} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? '次へ' : '公開する'}</button> : null}</div>
           </CommunityModal>
         ) : null}
         {loginOpen ? (
@@ -752,8 +761,8 @@ export function CommunityScreen({
                 <>
                   <label>公開範囲<select value={shareVisibility} onChange={(event) => setShareVisibility(event.target.value as Exclude<ProblemSetVisibility, 'private'>)}><option value="link">リンクを知っている人</option><option value="public">全体に公開</option><option value="group">グループだけ</option></select></label>
                   {shareVisibility === 'group' ? <fieldset><legend>共有先</legend>{groups.map((group) => <label key={group.id} className="community-check"><input type="checkbox" checked={shareGroupIds.includes(group.id)} onChange={(event) => setShareGroupIds((values) => event.target.checked ? [...values, group.id] : values.filter((id) => id !== group.id))} />{group.name}</label>)}</fieldset> : null}
-                  <p className="community-sheet__hint">共有時点のコピーを公開します。端末内の元データや学習履歴は公開されません。</p>
-                  <div className="community-sheet__actions"><button type="button" onClick={() => setShareLocalSetId('')}>キャンセル</button><button type="button" className="community-primary" disabled={busy} onClick={() => void submitShare()}>{busy ? '共有中…' : '共有する'}</button></div>
+                  {renderPublicationDetails(shareLocalSetId)}
+                  <div className="community-sheet__actions"><button type="button" onClick={() => setShareLocalSetId('')}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !detailsValid(shareLocalSetId)} onClick={() => void submitShare()}>{busy ? '共有中…' : '共有する'}</button></div>
                 </>
               ) : (
                 <>
@@ -861,12 +870,13 @@ function CommunityModal({ ariaLabel, busy = false, onClose, children }: {
 function ProblemSetCards({ sets, busy, onCopy, onPractice, onDetail, onReport, detailed = false }: { sets: CloudProblemSet[]; busy: boolean; onCopy: (set: CloudProblemSet) => void; onPractice: (set: CloudProblemSet) => void; onDetail?: (set: CloudProblemSet) => void; onReport: (set: CloudProblemSet) => void; detailed?: boolean }) {
   if (!detailed && onDetail) return <div className="community-discovery-list">{sets.map((set) => <button key={set.id} className="community-discovery-row" disabled={busy} onClick={() => onDetail(set)}>
     <span className="library-icon"><DocumentOutlineIcon /></span>
-    <span className="library-row__body"><strong>{set.title}</strong><span>{[set.subject, `${set.questionCount}問`].filter(Boolean).join(' · ')}</span></span>
+    <span className="library-row__body"><strong>{set.title}</strong><span>{[set.audience, set.subject, `${set.questionCount}問`].filter(Boolean).join(' · ')}</span></span>
     <ChevronRightIcon size={22} />
   </button>)}</div>;
   return <div className="community-public-list">{sets.map((set) => (
     <article key={set.id} className="community-public-card">
       <div className="community-public-card__top"><div><span>{set.subject || '未分類'}</span><h3>{set.title}</h3></div><small>更新 {formatDate(set.updatedAt)}</small></div>
+      {set.audience ? <p>{set.audience}</p> : null}
       {set.description ? <p>{set.description}</p> : null}
       <div className="community-public-card__meta"><span>{set.questionCount}問</span><span>{difficultyLabel(set.difficulty)}</span><span>追加 {set.addCount}</span><span>作成：{set.authorName}</span></div>
       {detailed && set.questions ? <details><summary>問題の内容を確認</summary>{set.questions.slice(0, 5).map((question, index) => <div className="community-question-preview" key={`${index}_${question.question}`}><strong>{index + 1}. {question.question}</strong><span>{question.choices.join(' / ')}</span></div>)}</details> : null}
