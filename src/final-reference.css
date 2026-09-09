@@ -1,5 +1,13 @@
 /* App styles derived from the 2026-09-07 reference, not its demo phone shell. */
 :root { --ui-page: #FFFFFF; --ui-surface: #FFFFFF; --ui-text: #172033; --ui-text-muted: #667085; --ui-border: #E4E8EF; --ui-accent: #2859A6; --ui-accent-soft: #EEF4FC; }
+.app-layout__scroll, main.create-set, main.create-set .create-set__flow { background: #fff; }
+.create-set .create-set__steps button[aria-current="step"] { color: #2859a6; border-bottom-color: #2859a6; }
+.create-set .create-set__ai-copy { color: #2859a6; background: #fff; border-color: #cdd2d8; }
+.create-set .create-set__ai-copy:disabled { color: #737980; background: #f5f5f5; border-color: #dedede; opacity: 1; }
+.create-set .create-set__ai-method h2 > span { color: #4f5965; background: #f2f2f2; }
+.create-set .create-set__ai-copy:not(:disabled):active { background: #f2f2f2; }
+.create-set .create-set__field input, .create-set .create-set__field textarea, .create-set .create-set__field select, .create-set .create-set__paste { background: #fff; border-color: #cdd2d8; }
+.create-set .create-set__steps button:focus-visible, .create-set .create-set__ai-copy:focus-visible { outline-color: #2859a6; }
 .quiz-home .quiz-home__header, .quiz-folder .quiz-folder__header, .quiz-detail .quiz-detail__header, .quiz-problems .quiz-problems__header, .quiz-notes .quiz-notes__header { height: calc(64px + var(--safe-top, 0px)); min-height: calc(64px + var(--safe-top, 0px)); flex-basis: calc(64px + var(--safe-top, 0px)); border-bottom: 1px solid var(--ui-border); background: white; }
 .quiz-home .quiz-home__header, .quiz-folder .quiz-folder__header { padding-inline: 10px; }
 .quiz-home .quiz-home__title, .quiz-folder .quiz-folder__title, .quiz-detail .quiz-detail__title, .quiz-problems .quiz-problems__title { font-size: 16px; font-weight: 700; }
