@@ -85,6 +85,9 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
   const [creationRequest, setCreationRequest] = useState('');
   const [aiStep, setAiStep] = useState<1 | 2>(1);
   const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>('simple');
+  const [choiceCount, setChoiceCount] = useState<4 | 5>(4);
+  const [questionCount, setQuestionCount] = useState('20');
+  const [allowMultiple, setAllowMultiple] = useState(false);
   const jsonFileRef = useRef<HTMLInputElement>(null);
   const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
   const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
@@ -366,11 +369,16 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
   }, [copySetId]);
 
   const copyPromptTemplate = async (kind: 'simple' | 'material' | 'past-exam') => {
+    const count = Number(questionCount);
+    if (!Number.isInteger(count) || count < 1 || count > 2000) {
+      setError('問題数は1〜2000の整数で入力してください。');
+      return;
+    }
     try {
       const template = kind === 'simple' ? buildSimpleCreationPrompt(creationRequest) : kind === 'material'
         ? CHATGPT_MATERIAL_TEMPLATE_PROMPT
         : CHATGPT_PAST_EXAM_TEMPLATE_PROMPT;
-      await writeClipboardText(template);
+      await writeClipboardText(`${template}\n\n【今回の作成条件：上記の既定値・例より優先】\n問題数：${count}問。各問のchoicesは必ず${choiceCount}個（${choiceCount}択）。追加の誤答候補はchoicesとは別に管理してください。\n${allowMultiple ? '複数回答の問題を含めても構いません。複数回答ではanswerIndexesを使い、正解は2個以上かつ選択肢数未満にし、問題文に「すべて選べ」と明示してください。単一回答も使用できます。' : '全問を単一回答にしてください。正解は必ず1個で、answerIndexを使用してください。複数回答問題は作らないでください。'}\n資料に根拠が足りない場合は捏造して問題数を埋めないでください。`);
       setCopiedTemplate(kind);
       setError('');
       if (copiedTemplateTimerRef.current !== null) window.clearTimeout(copiedTemplateTimerRef.current);
@@ -431,6 +439,11 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
               <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '説明から作る'], ['material', '資料から作る'], ['past-exam', '過去問から作る']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => setAiMethod(method)}>{label}</button>)}<span className="create-set__method-indicator" aria-hidden="true" style={{ transform: `translateX(calc(${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 100}% + ${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 6}px))` }} /></nav>
+              <div className="create-set__generation-options">
+                <fieldset><legend>選択肢数</legend><div>{([4, 5] as const).map((count) => <button type="button" key={count} aria-pressed={choiceCount === count} onClick={() => setChoiceCount(count)}>{count}択</button>)}</div></fieldset>
+                <label>問題数<input type="number" min={1} max={2000} step={1} inputMode="numeric" value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /></label>
+                <label className="create-set__multiple-option"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} />複数回答を許可</label>
+              </div>
               <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>
                 <h2><span>1</span>説明から作る</h2>
                 <label className="create-set__field"><span>作りたい問題集の説明</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
