@@ -12,6 +12,8 @@ interface ConfirmDialogProps {
   fullPage?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  alternateLabel?: string;
+  onAlternate?: () => void;
 }
 
 export function ConfirmDialog({
@@ -24,6 +26,8 @@ export function ConfirmDialog({
   fullPage = false,
   onConfirm,
   onCancel,
+  alternateLabel,
+  onAlternate,
 }: ConfirmDialogProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -98,6 +102,7 @@ export function ConfirmDialog({
         <h2 id={titleId} className="confirm-dialog__title">{title}</h2>
         <p id={messageId} className="confirm-dialog__message">{message}</p>
         <div className="confirm-dialog__actions">
+          {alternateLabel && onAlternate ? <button type="button" className="confirm-dialog__button" style={{ gridColumn: '1 / -1', background: '#2563eb', color: '#fff', lineHeight: 1.5 }} onClick={onAlternate} disabled={busy}>{alternateLabel}</button> : null}
           <button ref={cancelButtonRef} type="button" className="confirm-dialog__button confirm-dialog__button--cancel" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </button>

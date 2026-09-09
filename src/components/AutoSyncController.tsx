@@ -21,9 +21,10 @@ const LOCAL_CHANGE_RETRY_MS = 750;
 
 interface AutoSyncControllerProps {
   protectedWorkReason: ProtectedWorkReason | null;
+  onOpenSync: () => void;
 }
 
-export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerProps) {
+export function AutoSyncController({ protectedWorkReason, onOpenSync }: AutoSyncControllerProps) {
   const uploadRunningRef = useRef(false);
   const remoteCheckRunningRef = useRef(false);
   const lastRemoteCheckAtRef = useRef(0);
@@ -263,13 +264,28 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
         setLastSyncState({ lastRemoteUpdatedAt: meta.value.updatedAt });
         const remoteHasChanged = meta.value.updatedAt !== lastState.lastSyncAt;
         if (!remoteHasChanged) return;
+        // A different timestamp does not mean the cloud contains newer learning data.
+        const remote = await downloadSyncData(settings.syncId);
+        if (!remote.ok || !remote.value) return;
+        const currentSettings = getAutoSyncSettings();
+        if (!currentSettings.enabled || currentSettings.syncId !== settings.syncId) return;
+        const localHash = computePayloadHash(await exportQuizMakeData());
+        if (localHash === computePayloadHash(remote.value.payload)) {
+          setLastSyncStateForConnection(settings.syncId, {
+            lastSyncAt: remote.value.updatedAt,
+            lastRemoteUpdatedAt: remote.value.updatedAt,
+            lastUploadHash: localHash,
+            status: '端末とクラウドは同じ内容です', error: '',
+          });
+          setPendingRemoteImport(null);
+          return;
+        }
         const promptKey = `${settings.syncId}:${meta.value.updatedAt}`;
         if (promptedRemoteUpdatedAtRef.current === promptKey) return;
 
         promptedRemoteUpdatedAtRef.current = promptKey;
-        setLastSyncState({ status: 'クラウドに新しいデータがあります', error: '' });
-        const localHash = computePayloadHash(await exportQuizMakeData());
-        setPendingRemoteImport({ syncId: settings.syncId, updatedAt: meta.value.updatedAt, localHash });
+        setLastSyncState({ status: '端末とクラウドに異なる内容があります', error: '' });
+        setPendingRemoteImport({ syncId: settings.syncId, updatedAt: remote.value.updatedAt, localHash });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'クラウド確認に失敗しました。';
         console.warn('Auto sync remote check failed.', error);
@@ -318,8 +334,11 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
     <ConfirmDialog
       fullPage
       open={pendingRemoteImport !== null && protectedWorkReason === null}
-      title={'クラウドに新しいデータがあります'}
-      message={'残す：クラウド\n上書き：この端末\n\n復元用バックアップを作成・読み戻し確認してから上書きします。'}
+      title={'同期する内容を選んでください'}
+      message={'端末を更新した場合は「端末 → クラウドに同期」へ進んでください。上書き前にバックアップします。'}
+      alternateLabel="端末 → クラウドに同期"
+      onAlternate={() => { cancelRemoteImport(); onOpenSync(); }}
+      cancelLabel="あとで"
       confirmLabel={remoteImportBusy ? '読み込み中…' : 'バックアップして端末を上書き'}
       busy={remoteImportBusy}
       onCancel={cancelRemoteImport}

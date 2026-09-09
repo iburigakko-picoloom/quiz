@@ -68,8 +68,8 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
       </div>
       <button className="sync-button sync-button--primary qm-sync-main" disabled={disabled || loading} onClick={() => void syncNormally()}>同期する</button>
       {!same ? <div className="sync-transfer-actions">
-        <button className="sync-button sync-button--primary" disabled={disabled || loading} onClick={() => setPending(value)}>端末を優先</button>
-        {remote ? <button className="sync-button sync-button--secondary" disabled={disabled || loading} onClick={() => void onDownload()}>クラウドを優先</button> : null}
+        <button className="sync-button sync-button--primary" disabled={disabled || loading} onClick={() => setPending(value)}>端末 → クラウドに同期</button>
+        {remote ? <button className="sync-button sync-button--secondary" disabled={disabled || loading} onClick={() => void onDownload()}>クラウド → 端末に読み込む</button> : null}
       </div> : null}
     </> : null}
     <ConfirmDialog fullPage open={Boolean(pending)} title="端末の内容でクラウドを置き換えますか？" message={pending ? `残す内容：端末の${summarizeSyncPayload(pending.local).questionCount}問\n上書きする側：クラウド${pending.remote ? `（${new Date(pending.remote.updatedAt).toLocaleString()}）` : '（未登録）'}\n\n両方の復元用バックアップを作成・読み戻し確認してから実行します。` : ''} confirmLabel={loading ? '処理中…' : 'バックアップしてクラウドを置き換える'} busy={loading} onCancel={() => setPending(null)} onConfirm={() => void confirm()} />

@@ -7,6 +7,13 @@ if (!source) throw new Error('Pass the original photo path.');
 const output = path.resolve(__dirname, '../src/assets/companion');
 mkdirSync(output, { recursive: true });
 (async () => {
+  for (const [name, left, top, width, height] of [
+    ['tilt', 8, 538, 270, 294],
+    ['sit', 571, 550, 185, 272],
+    ['look', 809, 334, 213, 214],
+  ]) {
+    await sharp(source).extract({ left, top, width, height }).resize({ height: 320 }).webp({ quality: 92 }).toFile(path.join(output, `${name}.webp`));
+  }
   await sharp(source).extract({ left: 8, top: 8, width: 274, height: 340 }).resize({ height: 400 }).webp({ quality: 92 }).toFile(path.join(output, 'hello.webp'));
   await sharp(source).extract({ left: 548, top: 314, width: 245, height: 238 }).resize({ height: 320 }).webp({ quality: 92 }).toFile(path.join(output, 'praise.webp'));
 })();
