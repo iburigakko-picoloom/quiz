@@ -1,0 +1,7 @@
+.study-companion { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: min(100%, 330px); margin: 16px 16px 12px auto; padding: 6px; flex-shrink: 0; animation: companion-appear 260ms ease-out; }
+.study-companion img { width: 88px; height: auto; flex-shrink: 0; user-select: none; }
+.study-companion__bubble { position: relative; margin: 0; padding: 10px 12px; max-width: 210px; border: 1px solid #dbe5f2; border-radius: 16px 16px 4px 16px; background: #fff; color: #2859a6; font-size: 14px; line-height: 1.6; }
+.study-companion--home { margin-top: auto; margin-bottom: calc(var(--primary-nav-height, 64px) + var(--safe-bottom, 0px) + 12px); max-width: calc(100% - 32px); }
+.study-companion--result { margin: 12px 0 16px auto; }
+@keyframes companion-appear { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .study-companion { animation: none; } }

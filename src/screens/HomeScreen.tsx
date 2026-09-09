@@ -13,6 +13,7 @@ import {
 } from '../components/UiIcons';
 import { buildAppDataView } from '../utils/appDataView';
 import './HomeScreen.css';
+import { StudyCompanion } from '../components/StudyCompanion';
 
 interface HomeScreenProps {
   data: AppData;
@@ -81,6 +82,8 @@ export function HomeScreen({
             );
           })}
         </section>
+
+        <StudyCompanion scene="home" />
 
         {createOpen ? (
           <CreateFolderDialog
