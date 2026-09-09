@@ -37,6 +37,8 @@ export { onNativeAuthResult };
 export type { NativeAuthResultEvent, NativeAuthReturnTarget };
 
 export interface CloudQuestion {
+  distractors?: string[];
+  shuffleChoices?: boolean;
   question: string;
   choices: string[];
   answerIndexes: number[];
@@ -252,9 +254,6 @@ export async function publishLocalProblemSet(params: {
   if (!problemSet) throw new Error('共有する問題セットが見つかりません。');
   const questions = params.data.questions.filter((item) => item.setId === params.setId);
   if (questions.length === 0) throw new Error('問題がないセットは共有できません。');
-  if (questions.some((question) => question.distractors?.length || question.shuffleChoices)) {
-    throw new Error('ランダム選択肢付きの問題は、現在は端末内の学習・同期・バックアップに対応しています。公開共有にはまだ対応していません。');
-  }
 
   const { data, error } = await client.rpc('publish_problem_set', {
     p_set: {
@@ -274,6 +273,8 @@ export async function publishLocalProblemSet(params: {
       position,
       question: question.question,
       choices: question.choices,
+      distractors: question.distractors ?? [],
+      shuffle_choices: question.shuffleChoices ?? null,
       answer_indexes: question.answerIndexes?.length ? question.answerIndexes : [question.answerIndex],
       answer_text: question.answerText,
       explanation: question.explanation,
@@ -461,6 +462,8 @@ function mapProblemSetJson(value: Record<string, unknown>): CloudProblemSet {
       return {
         question: String(row.question ?? ''),
         choices: Array.isArray(row.choices) ? row.choices.map(String) : [],
+        distractors: Array.isArray(row.distractors) ? row.distractors.filter((text): text is string => typeof text === 'string') : undefined,
+        shuffleChoices: typeof row.shuffle_choices === 'boolean' ? row.shuffle_choices : undefined,
         answerIndexes: Array.isArray(answerIndexes)
           ? answerIndexes.map(Number)
           : [],

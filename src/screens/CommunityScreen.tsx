@@ -509,7 +509,7 @@ export function CommunityScreen({
           catch { results[set.id] = '公開済み（端末の状態保存に失敗）'; }
         } catch (reason) {
           const message = getErrorMessage(reason);
-          results[set.id] = message.includes('ランダム選択肢付き') ? '公開未対応：ランダム選択肢' : `公開失敗：${message}`;
+          results[set.id] = `公開失敗：${message}`;
         }
         setAddResults({ ...results });
       }
