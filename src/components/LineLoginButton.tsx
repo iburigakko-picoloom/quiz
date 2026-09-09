@@ -23,7 +23,7 @@ export function LineLoginButton({ link = false, userId }: { link?: boolean; user
         setStatus(linked ? 'linked' : 'unlinked');
         if (linked) setError('');
         if (returnPending.current) {
-          if (lineLinkReturn?.userId !== userId) setError('連携を開始したアカウントと異なります。元のアカウントを確認してください。');
+          if (lineLinkReturn?.userId && lineLinkReturn.userId !== userId) setError('連携を開始したアカウントと異なります。元のアカウントを確認してください。');
           else if (!linked) setError(lineLinkReturn?.error || 'LINEから戻りましたが、連携完了を確認できませんでした。再確認しても変わらない場合は、認証設定の確認が必要です。');
           returnPending.current = false;
           clearLineLinkAttempt();

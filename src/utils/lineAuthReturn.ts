@@ -2,7 +2,7 @@ const KEY = 'quiz-make-line-link-attempt';
 const MAX_AGE = 20 * 60 * 1000;
 
 export function lineAuthErrorMessage(code: string): string {
-  if (code === 'identity_already_exists') return 'このLINEは別のアカウントに連携されています。自動統合は行いません。';
+  if (code === 'identity_already_exists') return 'このLINEは同じ認証サービス内の別のアカウントに連携済みです。現在のアカウントへ連携するには、連携先の確認が必要です。アカウントや問題データは削除しないでください。';
   if (code === 'access_denied') return 'LINEでの認証が許可されなかったため、連携できませんでした。';
   if (code === 'manual_linking_disabled') return 'LINE連携が認証サービス側で無効になっています。';
   if (code === 'provider_email_needs_verification' || code === 'email_not_confirmed') return '認証サービス側でメールアドレスの確認が必要なため、連携できませんでした。';
@@ -24,13 +24,18 @@ export function readLineLinkAttempt(): { userId: string; startedAt: number } | n
   } catch { return null; }
 }
 
+export function parseLineLinkReturn(href: string, attempt: { userId: string; startedAt: number } | null) {
+  const url = new URL(href);
+  const hash = new URLSearchParams(url.hash.slice(1));
+  const code = hash.get('error_code') || url.searchParams.get('error_code') || hash.get('error') || url.searchParams.get('error');
+  // Android/PWA callbacks may open a different tab without the original sessionStorage.
+  // A linking conflict is an error, never evidence of account ownership or success.
+  if (!attempt && code !== 'identity_already_exists') return null;
+  return { userId: attempt?.userId, error: code ? lineAuthErrorMessage(code) : '' };
+}
+
 // Capture before Supabase initializes and consumes the callback URL. Never retain tokens or raw error descriptions.
 export const lineLinkReturn = (() => {
   if (typeof window === 'undefined') return null;
-  const attempt = readLineLinkAttempt();
-  if (!attempt) return null;
-  const url = new URL(window.location.href);
-  const hash = new URLSearchParams(url.hash.slice(1));
-  const code = hash.get('error_code') || url.searchParams.get('error_code') || hash.get('error') || url.searchParams.get('error');
-  return { userId: attempt.userId, error: code ? lineAuthErrorMessage(code) : '' };
+  return parseLineLinkReturn(window.location.href, readLineLinkAttempt());
 })();
