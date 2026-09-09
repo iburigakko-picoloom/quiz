@@ -375,7 +375,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
 
   const copyPromptTemplate = async (kind: 'simple' | 'material' | 'past-exam') => {
     const count = Number(questionCount);
-    if (!Number.isInteger(count) || count < 1 || count > 2000) {
+    if (kind !== 'past-exam' && (!Number.isInteger(count) || count < 1 || count > 2000)) {
       setError('問題数は1〜2000の整数で入力してください。');
       return;
     }
@@ -383,7 +383,9 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
       const template = kind === 'simple' ? buildSimpleCreationPrompt(creationRequest, { choiceCount, questionCount: count, allowMultiple }) : kind === 'material'
         ? CHATGPT_MATERIAL_TEMPLATE_PROMPT
         : CHATGPT_PAST_EXAM_TEMPLATE_PROMPT;
-      await writeClipboardText(applyCreationConditions(template, { choiceCount, questionCount: count, allowMultiple }));
+      await writeClipboardText(kind === 'past-exam'
+        ? `${template}\n\n【今回の条件】\n問題数と選択肢数は指定しません。資料にある問題と選択肢を尊重し、数合わせの追加・削除はしないでください。\n${allowMultiple ? '複数回答の問題も取り込み、answerIndexesで正解を表してください。' : '単一回答の問題のみ取り込んでください。複数回答問題を単一回答へ改変しないでください。'}`
+        : applyCreationConditions(template, { choiceCount, questionCount: count, allowMultiple }));
       setCopiedTemplate(kind);
       setError('');
       if (copiedTemplateTimerRef.current !== null) window.clearTimeout(copiedTemplateTimerRef.current);
@@ -444,9 +446,11 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
               <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '自分で作る'], ['material', '資料から作る'], ['past-exam', '過去問から作る']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => setAiMethod(method)}>{label}</button>)}<span className="create-set__method-indicator" aria-hidden="true" style={{ transform: `translateX(calc(${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 100}% + ${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 6}px))` }} /></nav>
-              <div className="create-set__generation-options">
-                <fieldset><legend>選択肢数</legend><div>{([4, 5] as const).map((count) => <button type="button" key={count} aria-pressed={choiceCount === count} onClick={() => setChoiceCount(count)}>{count}択</button>)}</div></fieldset>
+              <div className={`create-set__generation-options${aiMethod === 'past-exam' ? ' create-set__generation-options--past' : ''}`}>
+                {aiMethod !== 'past-exam' ? <>
+                <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{ transform: `translateX(${choiceCount === 5 ? 100 : 0}%)` }} />{([4, 5] as const).map((count) => <button type="button" key={count} aria-pressed={choiceCount === count} onClick={() => setChoiceCount(count)}>{count}択</button>)}</div></fieldset>
                 <label>問題数<input type="number" min={1} max={2000} step={1} inputMode="numeric" value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /></label>
+                </> : null}
                 <label className="create-set__multiple-option"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} />複数回答を許可</label>
               </div>
               <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>
@@ -800,7 +804,7 @@ function PdfPromptFlow({ pdfLabel, copied, onCopy, onNext }: { pdfLabel: string;
     <span className="create-set__flow-arrow" aria-hidden="true">↓</span>
     <div className="create-set__flow-ai"><CopyIcon size={22} /><strong>生成AIに貼り付け</strong></div>
     <span className="create-set__flow-arrow" aria-hidden="true">↓</span>
-    <button type="button" className="create-set__primary create-set__flow-next" onClick={onNext}><span>STEP 2</span><strong>できたJSONを取り込む</strong><ChevronRightIcon size={18} /></button>
+    <button type="button" className="create-set__primary create-set__flow-next" onClick={onNext} aria-label="STEP 2へ"><strong>STEP 2</strong><ChevronRightIcon size={18} /></button>
   </div>;
 }
 
