@@ -507,7 +507,10 @@ export function CommunityScreen({
           // A remote success must never be undone merely because local storage failed.
           try { await onPublished(set.id, result); results[set.id] = '公開済み'; }
           catch { results[set.id] = '公開済み（端末の状態保存に失敗）'; }
-        } catch (reason) { results[set.id] = `追加できませんでした：${getErrorMessage(reason)}`; }
+        } catch (reason) {
+          const message = getErrorMessage(reason);
+          results[set.id] = message.includes('ランダム選択肢付き') ? '公開未対応：ランダム選択肢' : `公開失敗：${message}`;
+        }
         setAddResults({ ...results });
       }
       try {
@@ -719,16 +722,18 @@ export function CommunityScreen({
 
         {addTarget ? (
           <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)}>
-            <h2>{addReview ? '公開内容を確認' : addTarget.visibility === 'public' ? '全体に公開' : 'グループに公開'}</h2>
-            <p>公開先：{addTarget.name}</p>
+            <h2>{Object.keys(addResults).length ? busy ? '公開中…' : '公開結果' : addReview ? '公開しますか？' : '公開する問題を選択'}</h2>
+            <p>公開先：{addTarget.visibility === 'public' ? '全体' : addTarget.name}</p>
             <div hidden={addReview}><PublishPicker data={data} selected={addIds} onChange={setAddIds} /></div>
-            <p aria-live="polite">{addSets.length}セットを選択</p>
+            {!addReview ? <p aria-live="polite">{addSets.length}セットを選択</p> : null}
             {addReview ? <>
               <ul className="community-add-preview">{addSets.map((set) => <li key={set.id}><strong>{set.title}</strong><span>{addResults[set.id] ?? `${data.questions.filter((question) => question.setId === set.id).length}問`}</span></li>)}</ul>
             </> : null}
-            <p className="community-sheet__hint">{addTarget.visibility === 'public' ? '全ユーザーが閲覧・コピーできます。' : 'このグループのメンバーが閲覧・コピーできます。'}既に共有中のセットは公開先が変更されます。学習履歴は公開しません。</p>
-            <p className="community-sheet__hint">フォルダを選ぶと中のセットをまとめて公開します。公開先ではセット単位で表示されます。</p>
-            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '選び直す' : 'キャンセル'}</button><button type="button" className="community-primary" disabled={busy || !addSets.length || Object.keys(addResults).length > 0} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? '選択内容を確認' : addTarget.visibility === 'public' ? `${addSets.length}セットを全体公開` : `${addSets.length}セットをグループに公開`}</button></div>
+            {!Object.keys(addResults).length ? <>
+              {addReview ? <p>{addTarget.visibility === 'public' ? '誰でも閲覧・コピーできます。' : 'メンバーが閲覧・コピーできます。'}{addSets.some((set) => set.cloudSetId) ? '共有中のセットは公開先が変わります。' : ''}</p> : null}
+              <details><summary>公開について</summary><p>学習履歴は公開しません。フォルダ内の問題はセット単位で公開されます。</p></details>
+            </> : null}
+            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '戻る' : 'キャンセル'}</button>{!Object.keys(addResults).length ? <button type="button" className="community-primary" disabled={busy || !addSets.length} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? '次へ' : '公開する'}</button> : null}</div>
           </CommunityModal>
         ) : null}
         {loginOpen ? (
