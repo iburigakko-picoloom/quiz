@@ -628,7 +628,7 @@ export function CommunityScreen({
 
   return (
     <Layout>
-      <div className="community-screen">
+      <div className={`community-screen${!directSet && ((tab === 'discover' && !isGroupDetail) || (isGroupDetail && groupDetailTab === 'sets')) ? ' community-screen--library-scroll' : ''}`}>
         <header className="community-screen__header">
           {isPrimaryRoot ? <span className="community-screen__header-spacer" aria-hidden="true" /> : <BackButton onClick={handleHeaderBack} label="戻る" />}
           <div><h1>{headerTitle}</h1></div>
@@ -672,7 +672,7 @@ export function CommunityScreen({
                       <button role="tab" aria-selected={groupDetailTab === 'members'} onClick={() => setGroupDetailTab('members')}>メンバー {groupMembers.length}</button>
                     </div>
                     {busy && groupFolders.length === 0 ? <div className="community-loading" role="status">読み込み中…</div> : null}
-                    <div hidden={groupDetailTab !== 'sets'} className="community-group-folder-list" aria-label="グループのフォルダ">
+                    <div hidden={groupDetailTab !== 'sets'} className="community-group-folder-list community-library-scroll" aria-label="グループのフォルダ" tabIndex={0}>
                       <SharedLibrary key={groupSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={groupSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'groups')} onRemove={requestRemove} onMove={(set) => void openMove(set)} onAdd={(path) => openAdd('group', path)} />
                       {!busy && groupFolders.length === 0 ? <EmptyState title="問題セットはまだありません" /> : null}
                     </div>
@@ -781,8 +781,10 @@ export function CommunityScreen({
                   </div>
                   <div className="community-section__heading"><h2>公開ライブラリ</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
                   {publicLoading ? <div className="community-notice" role="status">公開問題セットを読み込み中…</div> : null}
+                  <div className="community-library-scroll" aria-label="公開ライブラリ" tabIndex={0}>
                   {!publicLoading && !error ? <SharedLibrary key={visiblePublicSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={visiblePublicSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'discover')} onRemove={requestRemove} loadFolder={listPublicFolderSets} onMove={(set) => void openMove(set)} onAdd={(path) => openAdd('public', path)} /> : null}
                   {cloudConfigured && visiblePublicSets.length === 0 && !publicLoading && !error ? <EmptyState title="条件に合うセットはありません" /> : null}
+                  </div>
                 </>
               )}
             </section>
