@@ -22,7 +22,7 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onGenerate, on
   useEffect(()=>{onDirtyChange(failed||busy||Boolean(paste));return()=>onDirtyChange(false);},[failed,busy,paste,onDirtyChange]);
   const change=(fn:(items:WeaknessNote[])=>WeaknessNote[])=>{try{setNotes(changeWeaknessNotes(fn));setFailed(false);setError('');return true;}catch{setFailed(true);setError('保存できません。入力内容を控えて再保存してください。');return false;}};
   const update=(next:WeaknessNote)=>{if(!change(items=>items.map(n=>n.id===next.id?next:n)))setNotes(items=>items.map(n=>n.id===next.id?next:n));};
-  const go=(next:typeof view)=>{if(busy||failed)return;if(paste&&next!=='import'&&!window.confirm('取り込み前の回答を閉じますか？'))return;if(next!=='import'){setPaste('');setBatch(null);}setMessage('');setError('');setHistory(items=>next==='list'?[]:[...items,view]);setView(next);};
+  const go=(next:typeof view)=>{if(busy||failed)return;if(paste&&next!=='import'&&!window.confirm('取り込み前の回答を閉じますか？'))return;if(next!=='import'){setPaste('');setBatch(null);}setMessage('');setError('');setHistory(items=>next==='list'?[]:items.includes(next)?items.slice(0,items.lastIndexOf(next)):[...items,view]);setView(next);};
   useEffect(()=>{onBackRef.current=()=>{
     if(busy||failed)return true;
     if(view==='list')return false;
