@@ -1,6 +1,7 @@
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
 import { beginLineLinkAttempt, clearLineLinkAttempt } from './lineAuthReturn';
 import { getLineAvatarUrl } from './lineAvatar';
+import { lineWebLoginQuery } from './linePwaLogin';
 import { localFolderPath, type SharedFolderPart } from './sharedFolders';
 import type { AppData, ProblemSetVisibility } from '../types';
 import {
@@ -138,7 +139,7 @@ export async function linkLineIdentity(): Promise<boolean> {
   if (userData.user.identities?.some((identity) => identity.provider === lineAuthProvider)) return true;
   const { data, error } = await client.auth.linkIdentity({
     provider: lineAuthProvider,
-    options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile', skipBrowserRedirect: true },
+    options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile', queryParams: lineWebLoginQuery(), skipBrowserRedirect: true },
   });
   if (error) {
     if (error.code === 'manual_linking_disabled') throw new Error('LINE連携は管理者側の有効化待ちです。現在のログイン状態はそのままです。');
@@ -157,7 +158,7 @@ export async function signInWithLine(): Promise<void> {
   const client = requireCloudClient();
   const { error } = await client.auth.signInWithOAuth({
     provider: lineAuthProvider,
-    options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile' },
+    options: { redirectTo: getCloudAuthRedirectUrl(), scopes: 'openid profile', queryParams: lineWebLoginQuery() },
   });
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
