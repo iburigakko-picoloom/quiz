@@ -34,11 +34,11 @@ test('problem-set creation uses a direct, concise JSON entry', () => {
   assert.match(createSource, /CHATGPT_MATERIAL_TEMPLATE_PROMPT/);
   assert.match(createSource, /CHATGPT_PAST_EXAM_TEMPLATE_PROMPT/);
   assert.match(createSource, /writeClipboardText/);
-  assert.match(createSource, /STEP 1/);
-  assert.match(createSource, /STEP 2/);
+  assert.match(createSource, /<span>1<\/span>問題を作る/);
+  assert.match(createSource, /<span>2<\/span>JSONを取り込む/);
   assert.match(createSource, /aiStep === 1/);
   assert.match(createSource, /aiStep === 2/);
-  assert.match(createSource, /依頼文を作成・コピー/);
+  assert.match(createSource, /依頼文をコピー/);
   assert.match(createSource, /PdfPromptFlow pdfLabel="資料PDF"/);
   assert.match(createSource, /PdfPromptFlow pdfLabel="過去問PDF"/);
   assert.match(createSource, /プロンプトをコピー/);

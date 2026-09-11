@@ -398,7 +398,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
   return (
     <Layout>
       <main className={`create-set${view === 'methods' ? ' create-set--chooser' : ''}`}>
-        <header className={`create-set__header${view === 'methods' && !onBack ? ' create-set__header--root' : ''}`}>
+        <header className={`create-set__header${view === 'methods' && !onBack ? ' create-set__header--root' : ''}${view === 'notes' ? ' create-set__header--notes' : ''}`}>
           {view === 'methods' ? (
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
@@ -410,6 +410,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
           <div>
             <h1>{editingProblemSet ? '問題セットを編集' : getViewTitle(view, sourceSetId)}</h1>
           </div>
+          {view === 'notes' ? <button type="submit" form="creation-note-add" className="create-set__add-note" aria-label="メモを追加">＋</button> : null}
         </header>
 
         {view === 'methods' ? <MethodChooser onSelect={startMethod} /> : null}
@@ -440,8 +441,9 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
           <div className="create-set__flow">
             {view === 'chatgpt' ? (
               <nav className="create-set__steps" aria-label="生成AIで作る手順">
-                <button type="button" aria-current={aiStep === 1 ? 'step' : undefined} onClick={() => setAiStep(1)}><span>STEP 1</span>問題を作る</button>
-                <button type="button" aria-current={aiStep === 2 ? 'step' : undefined} onClick={() => setAiStep(2)}><span>STEP 2</span>JSONを取り込む</button>
+                <button type="button" aria-current={aiStep === 1 ? 'step' : undefined} onClick={() => setAiStep(1)}><span>1</span>問題を作る</button>
+                <i aria-hidden="true" />
+                <button type="button" aria-current={aiStep === 2 ? 'step' : undefined} onClick={() => setAiStep(2)}><span>2</span>JSONを取り込む</button>
               </nav>
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
@@ -449,19 +451,16 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
               {aiMethod !== 'past-exam' ? <div className="create-set__generation-options">
                 <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{ transform: `translateX(${choiceCount === 5 ? 100 : 0}%)` }} />{([4, 5] as const).map((count) => <button type="button" key={count} aria-pressed={choiceCount === count} onClick={() => setChoiceCount(count)}>{count}択</button>)}</div></fieldset>
                 <label>問題数<input type="number" min={1} max={2000} step={1} inputMode="numeric" value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /></label>
-                <label className="create-set__multiple-option"><span>複数回答の許可</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} /></span></label>
+                <label className="create-set__multiple-option"><span>複数回答</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} /></span></label>
               </div> : null}
               <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>
-                <h2><span>1</span>自分で作る</h2>
-                <label className="create-set__field"><span>作りたい問題集の説明</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
-                <button type="button" className="create-set__ai-copy" disabled={!creationRequest.trim()} onClick={() => void copyPromptTemplate('simple')}><CopyIcon size={18} />{copiedTemplate === 'simple' ? 'コピーしました' : '依頼文を作成・コピー'}</button>
+                <label className="create-set__field"><span>作りたい問題集</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
+                <button type="button" className="create-set__ai-copy" disabled={!creationRequest.trim()} onClick={() => void copyPromptTemplate('simple')}><CopyIcon size={18} />{copiedTemplate === 'simple' ? 'コピーしました' : '依頼文をコピー'}</button>
               </article>
               <article className="create-set__ai-method" hidden={aiMethod !== 'material'}>
-                <h2><span>2</span>資料から作る</h2>
                 <PdfPromptFlow pdfLabel="資料PDF" copied={copiedTemplate === 'material'} onCopy={() => void copyPromptTemplate('material')} onNext={() => setAiStep(2)} />
               </article>
               <article className="create-set__ai-method" hidden={aiMethod !== 'past-exam'}>
-                <h2><span>3</span>過去問から作る</h2>
                 <PdfPromptFlow pdfLabel="過去問PDF" copied={copiedTemplate === 'past-exam'} onCopy={() => void copyPromptTemplate('past-exam')} onNext={() => setAiStep(2)} />
               </article>
               {aiMethod === 'simple' ? <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button> : null}
@@ -682,7 +681,7 @@ function MethodChooser({ onSelect }: { onSelect: (view: CreationView) => void })
     { view: 'chatgpt', title: '生成AIで作る', icon: <CopyIcon /> },
     { view: 'notes', title: '苦手メモ', icon: <StudyIcon /> },
   ];
-  return <section className="create-set__methods" aria-label="作成方法">{methods.map((method) => <button key={method.view} type="button" className="create-set__method" onClick={() => onSelect(method.view)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}
+  return <section className="create-set__methods" aria-label="作成方法"><h2>何から始める？</h2>{methods.map((method) => <button key={method.view} type="button" className="create-set__method" onClick={() => onSelect(method.view)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}
   </section>;
 }
 
@@ -822,7 +821,7 @@ function getMetaError(meta: SetMeta) {
 }
 
 function getViewTitle(view: CreationView, sourceSetId?: string) {
-  if (view === 'methods') return '問題セットを作る';
+  if (view === 'methods') return '作成';
   if (view === 'manual') return sourceSetId ? 'コピーを編集' : '問題を編集';
   if (view === 'bulk') return 'CSVを確認';
   if (view === 'chatgpt') return '生成AIで作る';

@@ -41,6 +41,7 @@ export function CreationNotes({ onGenerate, onDirtyChange }: { onGenerate: () =>
     finally { setBusy(false); }
   };
   return <section className="create-set__notes" aria-label="苦手メモ">
+    <form id="creation-note-add" onSubmit={(event) => { event.preventDefault(); if (loaded.error) return; const note = { id: crypto.randomUUID(), title: '', body: '' }; if (save([note, ...notes])) setSelectedId(note.id); }} />
     {error ? <div role="alert">{error}{!loaded.error ? <button type="button" onClick={() => save(notes)}>再保存</button> : null}</div> : null}
     {loaded.error ? null : selected ? <>
       <div className="create-set__notes-toolbar"><button type="button" onClick={() => { if (save(notes)) setSelectedId(null); }}>メモ一覧</button><button type="button" onClick={() => { if (window.confirm('このメモを削除しますか？') && save(notes.filter((note) => note.id !== selected.id))) setSelectedId(null); }}>削除</button></div>
@@ -48,8 +49,9 @@ export function CreationNotes({ onGenerate, onDirtyChange }: { onGenerate: () =>
       <label>本文<textarea className="create-set__note-body" aria-label="メモの本文" value={selected.body} onChange={(event) => save(notes.map((note) => note.id === selected.id ? { ...note, body: event.target.value } : note))} /></label>
       <div className="create-set__note-footer"><button className="create-set__primary" type="button" disabled={!selected.body.trim() || busy} onClick={() => void generate()}>{busy ? 'コピー中…' : '生成AIで問題化'}</button></div>
     </> : <>
-      <div className="create-set__notes-toolbar"><span>この端末に自動保存</span><button type="button" onClick={() => { const note = { id: crypto.randomUUID(), title: '', body: '' }; if (save([note, ...notes])) setSelectedId(note.id); }}>＋ メモを追加</button></div>
+      <div className="create-set__notes-toolbar"><span>メモ</span></div>
       {notes.length === 0 ? <p>メモはありません</p> : notes.map((note) => <button className="create-set__note-row" type="button" key={note.id} onClick={() => setSelectedId(note.id)}><strong>{note.title.trim() || '無題のメモ'}</strong><span>{note.body.split('\n')[0]}</span></button>)}
+      <button type="submit" form="creation-note-add" className="create-set__note-add-row">＋ メモを追加</button>
     </>}
   </section>;
 }

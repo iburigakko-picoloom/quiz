@@ -1,4 +1,28 @@
 /* App styles derived from the 2026-09-07 reference, not its demo phone shell. */
+/* Approved creation mock A: quiet lists and a compact two-step workflow. */
+.create-set .create-set__header--notes { grid-template-columns: 48px minmax(0, 1fr) 44px; }
+.create-set .create-set__add-note { width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: #305da3; font-size: 28px; }
+.create-set .create-set__flow { width: min(calc(100% - 40px), 600px); }
+.create-set .create-set__steps { display: flex; align-items: center; gap: 10px; border: 0; margin: 0 0 14px; padding: 6px 0; }
+.create-set .create-set__steps button { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 44px; padding: 0; border: 0; font-size: 12px; font-weight: 600; }
+.create-set .create-set__steps button span { font-size: 12px; letter-spacing: 0; }
+.create-set .create-set__steps i { flex: 1; height: 1px; background: #dce2ea; }
+.create-set .create-set__generation-options { padding: 22px 0 12px; gap: 8px; }
+.create-set .create-set__ai-method { border: 0; padding: 16px 0 14px; }
+.create-set .create-set__ai-method > .create-set__ai-copy { width: 100%; min-height: 48px; font-size: 15px; font-weight: 600; }
+.create-set .create-set__ai-method .create-set__field > span { font-size: 14px; font-weight: 600; }
+.create-set .create-set__ai-method .create-set__field textarea { min-height: 112px; padding: 12px; border-radius: 9px; font-size: 16px; }
+.create-set .create-set__ai-methods .create-set__primary { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; border-radius: 10px; background: #305da3; font-size: 15px; }
+.create-set .create-set__pdf-flow { gap: 4px; padding: 0; }
+.create-set .create-set__pdf-material { border: 1px dashed #cbd4df; border-radius: 10px; }
+.create-set .create-set__pdf-inputs .create-set__ai-copy { font-size: 13px; text-wrap: balance; }
+.create-set .create-set__flow-arrow { line-height: 26px; height: 26px; }
+.create-set .create-set__flow-ai { padding: 10px 0; font-size: 14px; }
+.create-set .create-set__notes { padding-top: 16px; }
+.create-set .create-set__notes .create-set__note-row { width: 100%; min-width: 0; min-height: 82px; margin: 0; padding: 18px 0; border: 0; border-bottom: 1px solid #e1e5eb; border-radius: 0; text-align: left; background: white; }
+.create-set .create-set__note-row strong { font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.create-set .create-set__note-row span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: #647183; }
+.create-set .create-set__note-add-row { width: 100%; min-height: 48px; margin-top: 20px; border: 1px solid #d6dfe9; border-radius: 10px; color: #305da3; background: white; font: inherit; font-size: 15px; }
 :root { --ui-page: #FFFFFF; --ui-surface: #FFFFFF; --ui-text: #172033; --ui-text-muted: #667085; --ui-border: #E4E8EF; --ui-accent: #2859A6; --ui-accent-soft: #EEF4FC; }
 .community-screen .community-discovery-tools { margin: 10px 0 16px; min-height: 36px; }
 .community-screen .community-discovery-filter > summary { min-height: 36px; padding: 6px 12px; background: white; border: 1px solid #e4e8ef; font-size: 13px; }
@@ -57,14 +81,15 @@
 .create-set .create-set__header { min-height: calc(64px + var(--safe-top, 0px)); padding-block: var(--safe-top, 0px) 0; background: white; }
 .create-set .create-set__header h1 { font-size: 16px; font-weight: 700; }
 .create-set .create-set__method { min-height: 62px; grid-template-columns: 40px minmax(0, 1fr) 20px; gap: 12px; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; padding: 10px 2px; }
-.create-set.create-set--chooser .create-set__methods { width: min(calc(100% - 40px), 600px); gap: 20px; padding-block: clamp(28px, 9dvh, 90px) 28px; }
-.create-set.create-set--chooser .create-set__methods .create-set__method { min-height: clamp(132px, 21dvh, 180px); grid-template-columns: 64px minmax(0, 1fr) 24px; gap: 18px; padding: 24px; border: 1px solid #e0e6ee; border-radius: 18px; background: white; transition: border-color 160ms ease, transform 160ms ease; }
-.create-set.create-set--chooser .create-set__method strong { font-size: 20px; line-height: 1.5; }
-.create-set.create-set--chooser .create-set__method .create-set__method-icon { width: 64px; height: 64px; border-radius: 16px; background: transparent; }
-.create-set.create-set--chooser .create-set__method .create-set__method-icon svg { width: 44px; height: 44px; }
+.create-set.create-set--chooser .create-set__methods { width: min(calc(100% - 40px), 600px); gap: 0; padding-block: 28px; }
+.create-set.create-set--chooser .create-set__methods h2 { margin: 0 0 20px; font-size: 23px; }
+.create-set.create-set--chooser .create-set__methods .create-set__method { min-height: 100px; grid-template-columns: 48px minmax(0, 1fr) 20px; gap: 16px; padding: 18px 0; border: 0; border-bottom: 1px solid #e1e5eb; border-radius: 0; background: white; transition: background-color 160ms ease, transform 160ms ease; }
+.create-set.create-set--chooser .create-set__method strong { font-size: 18px; line-height: 1.5; }
+.create-set.create-set--chooser .create-set__method .create-set__method-icon { width: 48px; height: 48px; border-radius: 12px; background: #edf3fb; color: #305da3; }
+.create-set.create-set--chooser .create-set__method .create-set__method-icon svg { width: 28px; height: 28px; }
 .create-set.create-set--chooser .create-set__method:active { transform: scale(.985); border-color: #2859a6; }
 .create-set.create-set--chooser .create-set__method:focus-visible { outline: 2px solid #2859a6; outline-offset: 4px; }
-@media (max-width: 360px) { .create-set.create-set--chooser .create-set__methods .create-set__method { padding: 18px; gap: 12px; grid-template-columns: 48px minmax(0, 1fr) 20px; } .create-set.create-set--chooser .create-set__method .create-set__method-icon { width: 48px; height: 48px; } .create-set.create-set--chooser .create-set__method strong { font-size: 18px; } }
+@media (max-width: 360px) { .create-set.create-set--chooser .create-set__methods .create-set__method { gap: 12px; } }
 @media (prefers-reduced-motion: reduce) { .create-set.create-set--chooser .create-set__methods .create-set__method { transition: none; transform: none; } }
 .create-set .create-set__panel { padding: 0; border: 0; }
 .create-set .create-set__field > span { font-size: 12px; }
