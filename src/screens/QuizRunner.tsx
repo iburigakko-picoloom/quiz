@@ -10,7 +10,7 @@ import { Layout } from '../components/Layout';
 import { MissingResourceState } from '../components/MissingResourceState';
 import { getAnswerIndexes, getAnswerText, getChoiceLabel, getChoiceText, getProgress, getVirtualLevel, makeResult } from '../utils/quiz';
 import { resolveQuestionDetailedExplanation } from '../utils/questionView';
-import { readClipboardText } from '../utils/nativePlatform';
+import { WeaknessDetail } from '../components/WeaknessDetail';
 import { getAnswerFeedback, playAnswerFeedback, prepareAnswerAudio } from '../utils/answerFeedback';
 import { randomizeQuestionChoices } from '../utils/choiceRandomization';
 
@@ -71,12 +71,15 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   const [noteTransitionError, setNoteTransitionError] = useState('');
   const noteDrawerRef = useRef<CategoryNoteDrawerHandle>(null);
   const noteTransitionRef = useRef(false);
+  const detailBlockedRef = useRef(false);
+  const onDetailDirtyChange = useCallback((dirty: boolean) => { detailBlockedRef.current = dirty; }, []);
   const quizRunnerMountedRef = useRef(true);
   const noteFeatureAvailable = ENABLE_TABLET_NOTES && !readOnly && Boolean(setId);
   const noteFeatureEnabled = noteFeatureAvailable && isTabletLandscape;
   const noteAreaOpen = noteFeatureEnabled && noteOpen;
 
   const requestNoteTransition = useCallback(async (proceed: () => void) => {
+    if (detailBlockedRef.current) { setNoteTransitionError('疑問メモを保存できていません。再保存してから移動してください。'); return false; }
     if (noteTransitionRef.current) return false;
     if (!noteOpen || !noteDrawerRef.current) {
       setNoteTransitionError('');
@@ -450,6 +453,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             onHide={() => setAnswerSheetState('hidden')}
             onToggleAmbiguous={handleAmbiguous}
             onSaveDetailedExplanation={(value) => onSaveDetailedExplanation(currentQuestion.id, value)}
+            onDetailDirtyChange={onDetailDirtyChange}
             onRetryAnswerSave={answerRetryRef.current ? handleRetryAnswerSave : undefined}
             onNext={handleNext}
           />
@@ -639,6 +643,7 @@ function AnswerPanel({
   onHide,
   onToggleAmbiguous,
   onSaveDetailedExplanation,
+  onDetailDirtyChange,
   onRetryAnswerSave,
   onNext,
 }: {
@@ -659,23 +664,25 @@ function AnswerPanel({
   onHide: () => void;
   onToggleAmbiguous: () => Promise<boolean>;
   onSaveDetailedExplanation: (value: string) => Promise<void>;
+  onDetailDirtyChange: (dirty: boolean) => void;
   onRetryAnswerSave?: () => void;
   onNext: () => void;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const [panelPage, setPanelPage] = useState<'answer' | 'detail'>('answer');
-  const [detailText, setDetailText] = useState(detailedExplanation);
-  const [savedDetailText, setSavedDetailText] = useState(detailedExplanation);
-  const [isEditingDetail, setIsEditingDetail] = useState(false);
-  const [detailMessage, setDetailMessage] = useState('');
-  const [detailMessageTone, setDetailMessageTone] = useState<'neutral' | 'success' | 'error'>('neutral');
+
+
+
+
+
   const [isSavingDetail, setIsSavingDetail] = useState(false);
+  const handleDetailDirtyChange = useCallback((dirty: boolean) => { setIsSavingDetail(dirty); onDetailDirtyChange(dirty); }, [onDetailDirtyChange]);
   const [isSavingAmbiguous, setIsSavingAmbiguous] = useState(false);
   const sheetRef = useRef<HTMLElement | null>(null);
   const detailOpenRef = useRef<HTMLButtonElement | null>(null);
   const detailBackRef = useRef<HTMLButtonElement | null>(null);
-  const detailEditRef = useRef<HTMLButtonElement | null>(null);
-  const detailInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+
   const detailPageRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
   const dragOffsetRef = useRef(0);
@@ -690,39 +697,13 @@ function AnswerPanel({
   const detailSwipeStartRef = useRef<{ x: number; y: number; id: number; width: number; axis: 'x' | 'y' | null } | null>(null);
   const suppressSwipeClickRef = useRef(false);
   const wasDragGestureRef = useRef(false);
-  const activeQuestionIdRef = useRef(questionId);
-  const committedDetailRef = useRef<string | null>(null);
+
+
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => sheetRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [questionId]);
-
-  useEffect(() => {
-    if (activeQuestionIdRef.current !== questionId) {
-      activeQuestionIdRef.current = questionId;
-      setDetailText(detailedExplanation);
-      setSavedDetailText(detailedExplanation);
-      setIsEditingDetail(false);
-      setDetailMessage('');
-      setDetailMessageTone('neutral');
-      setIsSavingDetail(false);
-      committedDetailRef.current = null;
-      return;
-    }
-
-    if (committedDetailRef.current !== null) {
-      if (detailedExplanation === committedDetailRef.current) committedDetailRef.current = null;
-      else return;
-    }
-
-    if (!isEditingDetail && detailText === savedDetailText && detailedExplanation !== savedDetailText) {
-      setDetailText(detailedExplanation);
-      setSavedDetailText(detailedExplanation);
-      setDetailMessage('');
-      setDetailMessageTone('neutral');
-    }
-  }, [questionId, detailedExplanation, detailText, isEditingDetail, savedDetailText]);
 
   useEffect(() => {
     setPanelPage('answer');
@@ -890,7 +871,7 @@ function AnswerPanel({
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
     suppressSwipeClickRef.current = false;
     const target = event.target;
-    if (target instanceof Element && target.closest('input, textarea:not(.answer-sheet__detail-input), select, [contenteditable="true"], pre, table')) return;
+    if (target instanceof Element && target.closest('input, textarea:not(.answer-sheet__detail-input), select, [contenteditable="true"], pre, table, [data-no-page-swipe]')) return;
     detailSwipeStartRef.current = { x: event.clientX, y: event.clientY, id: event.pointerId, width: detailRailRef.current?.clientWidth || 1, axis: null };
   };
 
@@ -946,59 +927,6 @@ function AnswerPanel({
     settleDetailSwipe();
   };
 
-  const handleClipboardRead = async () => {
-    try {
-      const value = await readClipboardText();
-      if (!value.trim()) {
-        setDetailMessage('\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u304c\u7a7a\u3067\u3059\u3002\u5165\u529b\u4e2d\u306e\u5185\u5bb9\u306f\u305d\u306e\u307e\u307e\u3067\u3059');
-        setDetailMessageTone('error');
-        return;
-      }
-      if (
-        detailText.trim()
-        && value !== detailText
-        && !window.confirm('\u5165\u529b\u4e2d\u306e\u8a73\u7d30\u89e3\u8aac\u3092\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u306e\u5185\u5bb9\u3067\u7f6e\u304d\u63db\u3048\u307e\u3059\u304b\uff1f')
-      ) {
-        setDetailMessage('\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u304b\u3089\u306e\u7f6e\u304d\u63db\u3048\u3092\u30ad\u30e3\u30f3\u30bb\u30eb\u3057\u307e\u3057\u305f');
-        setDetailMessageTone('neutral');
-        return;
-      }
-      setDetailText(value);
-      setDetailMessage('\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u304b\u3089\u8aad\u307f\u8fbc\u307f\u307e\u3057\u305f');
-      setDetailMessageTone('success');
-    } catch {
-      setDetailMessage('\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f');
-      setDetailMessageTone('error');
-    }
-  };
-
-  const handleSaveDetail = async () => {
-    if (isSavingDetail || detailText === savedDetailText) return;
-    const nextValue = detailText.trim() ? detailText : '';
-    setIsSavingDetail(true);
-    setDetailMessage(nextValue ? '\u8a73\u7d30\u89e3\u8aac\u3092\u4fdd\u5b58\u4e2d\u3067\u3059\u2026' : '\u8a73\u7d30\u89e3\u8aac\u3092\u524a\u9664\u4e2d\u3067\u3059\u2026');
-    setDetailMessageTone('neutral');
-    try {
-      await onSaveDetailedExplanation(nextValue);
-      committedDetailRef.current = nextValue;
-      setDetailText(nextValue);
-      setSavedDetailText(nextValue);
-      setIsEditingDetail(false);
-      setDetailMessage(nextValue ? '\u8a73\u7d30\u89e3\u8aac\u3092\u4fdd\u5b58\u3057\u307e\u3057\u305f' : '\u8a73\u7d30\u89e3\u8aac\u3092\u524a\u9664\u3057\u307e\u3057\u305f');
-      setDetailMessageTone('success');
-      if (detailPageRef.current) detailPageRef.current.scrollTop = 0;
-      requestAnimationFrame(() => {
-        if (nextValue) detailEditRef.current?.focus();
-        else detailBackRef.current?.focus();
-      });
-    } catch {
-      setDetailMessage('\u4fdd\u5b58\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u901a\u4fe1\u3084\u7a7a\u304d\u5bb9\u91cf\u3092\u78ba\u8a8d\u3057\u3066\u3001\u3082\u3046\u4e00\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044');
-      setDetailMessageTone('error');
-    } finally {
-      setIsSavingDetail(false);
-    }
-  };
-
   const handleToggleAmbiguous = async () => {
     if (isSavingAmbiguous) return;
     setIsSavingAmbiguous(true);
@@ -1009,38 +937,12 @@ function AnswerPanel({
     }
   };
 
-  const handleCancelDetailEdit = () => {
-    if (isSavingDetail) return;
-    setDetailText(savedDetailText);
-    setIsEditingDetail(false);
-    setDetailMessage('');
-    setDetailMessageTone('neutral');
-    requestAnimationFrame(() => {
-      if (savedDetailText.trim()) detailEditRef.current?.focus();
-      else detailInputRef.current?.focus();
-    });
-  };
-
-  const hasUnsavedDetail = detailText !== savedDetailText;
-
-  useEffect(() => {
-    if (!hasUnsavedDetail) return;
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedDetail]);
-
-  const confirmDiscardDetail = () => (
-    !hasUnsavedDetail
-    || window.confirm('\u8a73\u7d30\u89e3\u8aac\u306e\u5909\u66f4\u304c\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002\u5909\u66f4\u3092\u7834\u68c4\u3057\u3066\u79fb\u52d5\u3057\u307e\u3059\u304b\uff1f')
-  );
+  const hasUnsavedDetail = isSavingDetail;
+  const confirmDiscardDetail = () => !isSavingDetail;
 
   const handleLeaveDetailPage = () => {
     if (isSavingDetail || !confirmDiscardDetail()) return;
-    if (hasUnsavedDetail) handleCancelDetailEdit();
+
     setPanelPage('answer');
     requestAnimationFrame(() => detailOpenRef.current?.focus());
   };
@@ -1073,9 +975,9 @@ function AnswerPanel({
     },
   };
 
-  const hasSavedDetail = savedDetailText.trim().length > 0;
+
   const detailEditingDisabled = readOnly || answerSaveState !== 'saved';
-  const canSaveDetail = !detailEditingDisabled && hasUnsavedDetail && (detailText.trim().length > 0 || hasSavedDetail) && !isSavingDetail;
+
 
   const answerPage = (
     <div
@@ -1097,7 +999,7 @@ function AnswerPanel({
             className={'answer-sheet__detail-open' + (hasUnsavedDetail ? ' answer-sheet__detail-open--unsaved' : '')}
             onClick={openDetailPage}
           >
-            詳細解答 <span aria-hidden="true">›</span>
+            解説・メモ <span aria-hidden="true">›</span>
           </button>
         )}
       </div>
@@ -1115,75 +1017,9 @@ function AnswerPanel({
         <button ref={detailBackRef} type="button" className="answer-sheet__detail-back" onClick={handleLeaveDetailPage} disabled={isSavingDetail}>
           {'\u2039'} {'\u89e3\u7b54\u306b\u623b\u308b'}
         </button>
-        <h2>詳細解答</h2>
-        {hasSavedDetail && !isEditingDetail && !detailEditingDisabled ? (
-          <button
-            type="button"
-            className="answer-sheet__detail-edit"
-            ref={detailEditRef}
-             onClick={() => {
-               setIsEditingDetail(true);
-               setDetailMessage('');
-               setDetailMessageTone('neutral');
-               if (detailPageRef.current) detailPageRef.current.scrollTop = 0;
-               requestAnimationFrame(() => detailInputRef.current?.focus());
-            }}
-          >
-            {'\u7de8\u96c6'}
-          </button>
-        ) : <span className="answer-sheet__detail-heading-spacer" aria-hidden="true" />}
+        <h2>解説・メモ</h2>
       </div>
-      {detailMessage ? (
-        <p
-          className={'answer-sheet__detail-message answer-sheet__detail-message--' + detailMessageTone}
-          role={detailMessageTone === 'error' ? 'alert' : 'status'}
-          aria-live={detailMessageTone === 'error' ? 'assertive' : 'polite'}
-        >
-          {detailMessage}
-        </p>
-      ) : null}
-      {(hasSavedDetail && !isEditingDetail) || detailEditingDisabled ? (
-        <div className="answer-sheet__detail-reading">
-          {hasSavedDetail
-            ? <ExplanationContent text={savedDetailText} className="answer-sheet__explanation-text" />
-            : <p className="answer-sheet__detail-empty">{'詳細解説は登録されていません'}</p>}
-        </div>
-      ) : (
-        <div className="answer-sheet__detail-editor" aria-busy={isSavingDetail} data-no-page-swipe>
-          {(
-            <button type="button" className="answer-sheet__clipboard-button" onClick={() => void handleClipboardRead()} disabled={isSavingDetail}>
-              クリップボードから貼り付け
-            </button>
-          )}
-           <textarea
-            ref={detailInputRef}
-            className="answer-sheet__detail-input"
-            value={detailText}
-            onChange={(event) => {
-              setDetailText(event.target.value);
-              setDetailMessage('');
-              setDetailMessageTone('neutral');
-            }}
-            aria-label={'\u8a73\u7d30\u89e3\u8aac'}
-             disabled={isSavingDetail}
-           />
-          <button
-            type="button"
-            className={'answer-sheet__detail-save' + (!detailText.trim() && hasSavedDetail ? ' answer-sheet__detail-save--delete' : '')}
-            onClick={() => void handleSaveDetail()}
-            disabled={!canSaveDetail}
-          >
-            {isSavingDetail
-              ? '\u4fdd\u5b58\u4e2d\u2026'
-              : (!detailText.trim() && hasSavedDetail ? '\u8a73\u7d30\u89e3\u8aac\u3092\u524a\u9664' : '\u8a73\u7d30\u89e3\u8aac\u3092\u4fdd\u5b58')}
-          </button>
-          {(hasSavedDetail || hasUnsavedDetail) ? (
-            <button type="button" className="answer-sheet__detail-cancel" onClick={handleCancelDetailEdit} disabled={isSavingDetail}>
-              {hasSavedDetail ? '\u5909\u66f4\u3092\u53d6\u308a\u6d88\u3059' : '\u5165\u529b\u3092\u30af\u30ea\u30a2'}
-            </button>
-          ) : null}
-        </div>
-      )}
+      <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} onSave={onSaveDetailedExplanation} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} />
     </div>
   );
 

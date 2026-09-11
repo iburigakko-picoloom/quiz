@@ -21,9 +21,9 @@ test('creation entry contains AI and notes, with copy moved to set actions', () 
 });
 
 test('notes persist edits, guard save failures and copy before opening import', () => {
-  assert.match(notes, /localStorage\.getItem\(STORAGE_KEY\)/);
-  assert.match(notes, /localStorage\.setItem\(STORAGE_KEY, JSON\.stringify\(next\)\)/);
-  assert.match(notes, /onDirtyChange\(true\)/);
+  assert.match(notes, /readWeaknessNotes/);
+  assert.match(notes, /changeWeaknessNotes/);
+  assert.match(notes, /onDirtyChange\(failed\|\|busy/);
   assert.match(notes, /window\.confirm/);
   assert.ok(notes.indexOf('await writeClipboardText') < notes.indexOf('onGenerate();'));
   assert.match(notes, /生成AIで問題化/);

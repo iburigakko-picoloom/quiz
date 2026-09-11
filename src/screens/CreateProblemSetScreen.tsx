@@ -7,6 +7,7 @@ import { Layout } from '../components/Layout';
 import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, AiCreationIcon, WeaknessMemoIcon } from '../components/UiIcons';
 import { getDraftAnswerIndexes, parseBulkQuestionText, getDraftIssues, type BulkQuestionDraft } from '../utils/bulkQuestionParser';
 import { CreationNotes } from './CreationNotes';
+import type { ExplanationBatch } from '../utils/weaknessNotes';
 import {
   CHATGPT_MATERIAL_TEMPLATE_PROMPT,
   CHATGPT_PAST_EXAM_TEMPLATE_PROMPT,
@@ -47,6 +48,8 @@ export interface LegacyImportTarget {
 
 interface CreateProblemSetScreenProps {
   data: AppData;
+  onApplyExplanations: (batch: ExplanationBatch) => Promise<void>;
+  onSaveDetail: (questionId: string, body: string) => Promise<void>;
   onSave: (submission: CreateProblemSetSubmission) => Promise<string | null>;
   onOpenLegacyImport: (target: LegacyImportTarget) => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -69,7 +72,7 @@ interface SetMeta {
   source: string;
 }
 
-export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
+export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
   const editingProblemSet = data.problemSets.find((problemSet) => problemSet.id === editSetId);
   const initialDraftsRef = useRef<BulkQuestionDraft[]>(createDraftsFromProblemSet(data, editingProblemSet));
   const [view, setView] = useState<CreationView>(editingProblemSet ? 'manual' : 'methods');
@@ -415,7 +418,7 @@ export function CreateProblemSetScreen({ data, onSave, onOpenLegacyImport, onDir
 
         {view === 'methods' ? <MethodChooser onSelect={startMethod} /> : null}
         <div className="create-set__flow" hidden={view !== 'notes'}>
-          <CreationNotes onDirtyChange={setNotesDirty} onGenerate={() => { setNotePromptCopied(true); setAiStep(2); goTo('chatgpt'); activeMethodRef.current = 'chatgpt'; }} />
+          <CreationNotes data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onGenerate={() => { setNotePromptCopied(true); setAiStep(2); goTo('chatgpt'); activeMethodRef.current = 'chatgpt'; }} />
         </div>
 
         {view === 'manual' ? (

@@ -17,7 +17,7 @@ export function QuestionDetailScreen({ data, questionId, onBack, onEdit, onDetai
     <h2>{question.question}</h2>
     <ol className="question-detail-choices">{question.choices.map((choice, index) => <li key={index} className={answers.includes(index) ? 'is-correct' : ''}>{choice}{answers.includes(index) ? <span> ✓ 正解</span> : null}</li>)}</ol>
     <section className="question-detail-markdown"><h2>正解と解説</h2><ReactMarkdown remarkPlugins={[remarkGfm]}>{question.explanation}</ReactMarkdown></section>
-    <section className="question-detail-markdown"><h2>詳細解答</h2>{detail ? <button className="qm-detail-preview" onClick={() => onDetail(false)}><span>{detail}</span><span aria-hidden="true">›</span></button> : <button onClick={() => onDetail(true)}>＋ 詳細解答を追加</button>}</section>
+    <section className="question-detail-markdown"><h2>解説・メモ</h2><button className="qm-detail-preview" onClick={() => onDetail(false)}><span>{detail ? '詳しい解説を読む・追加の疑問' : '詳しく知りたいことをメモ'}</span><span aria-hidden="true">›</span></button></section>
     <button className="library-row" onClick={() => onNote(question.setId, question.category || '未分類')}>分類ノートへ <span aria-hidden="true">›</span></button>
   </main></Layout>;
 }

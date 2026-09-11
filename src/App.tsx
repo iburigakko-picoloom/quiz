@@ -11,6 +11,7 @@ import {
 import { HomeScreen } from './screens/HomeScreen';
 import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
+import { applyQuestionExplanations } from './utils/weaknessNotes';
 import { QuestionEditScreen } from './screens/QuestionEditScreen';
 import { DetailedAnswerScreen } from './screens/DetailedAnswerScreen';
 import { NoteOverviewScreen } from './screens/NoteOverviewScreen';
@@ -1272,6 +1273,11 @@ export default function App() {
       <Suspense fallback={<div className="quiz-app-loading">作成画面を読み込み中...</div>}>
         <CreateProblemSetScreen
           data={data}
+          onSaveDetail={handleSaveDetailedExplanation}
+          onApplyExplanations={async batch => {
+            const next = applyQuestionExplanations(dataRef.current, batch);
+            if (batch.replies.some(r => r.targetId.startsWith('question:')) && !await persistThenCommitData(next)) throw new Error('解説を保存できませんでした。回答を残しています。');
+          }}
           onSave={(submission) => screen.editSetId
             ? handleUpdateProblemSet(screen.editSetId, submission)
             : handleCreateProblemSet(submission)}
@@ -1316,7 +1322,7 @@ export default function App() {
         const latest = dataRef.current.questions.find((item) => item.id === original.id);
         if (!latest || JSON.stringify(latest) !== JSON.stringify(original)) return '問題が別の操作で更新されました。入力内容を控えて開き直してください。';
         await handleSaveDetailedExplanation(original.id, body);
-        finishEdit(); return null;
+        return null;
       }} />;
   } else if (screen.name === 'community' || screen.name === 'search') {
     const communityScreen: Extract<AppScreen, { name: 'community' }> = screen.name === 'search' ? { name: 'community', tab: 'discover' } : screen;
