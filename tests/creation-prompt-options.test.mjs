@@ -19,3 +19,17 @@ test('copied prompts include each combination of selected conditions', () => {
     }
   }
 });
+
+test('question totals are guidance, while explanations teach reasoning without a hard length cap', () => {
+  const simple = buildSimpleCreationPrompt('古文単語');
+  const conditions = applyCreationConditions(simple, { choiceCount: 4, questionCount: 20, allowMultiple: false });
+  assert.ok(conditions.includes('厳密に一致させる必要はありません'));
+  assert.ok(conditions.includes('数合わせの重複・水増し'));
+  for (const prompt of [simple, CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
+    assert.ok(prompt.includes('300〜600字程度'));
+    assert.ok(prompt.includes('文字数の上限にはしない'));
+    assert.ok(prompt.includes('途中式'));
+    assert.ok(prompt.includes('後半の解説を省略しない'));
+    assert.ok(!prompt.includes('120〜240字'));
+  }
+});
