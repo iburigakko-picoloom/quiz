@@ -9,7 +9,8 @@ test('creation entry contains AI and notes, with copy moved to set actions', () 
   const chooser = create.slice(create.indexOf('function MethodChooser'), create.indexOf('function SetMetaFields'));
   assert.match(chooser, /生成AIで作る/);
   assert.match(chooser, /苦手メモ/);
-  assert.match(chooser, /icon: <StudyIcon/);
+  assert.match(chooser, /icon: <WeaknessMemoIcon/);
+  assert.match(chooser, /icon: <AiCreationIcon/);
   assert.doesNotMatch(chooser, /既存問題セット|CSV|ファイルを読み込む/);
   assert.match(read('../src/screens/ProblemSetDetailScreen.tsx'), /onClick=\{onCopy\}>問題セットをコピー/);
   assert.match(create, /JSONファイルを選ぶ/);

@@ -4,7 +4,7 @@ import type { AppData, Difficulty, ProblemSet, ProblemSetCreationMethod } from '
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
-import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, StudyIcon } from '../components/UiIcons';
+import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, AiCreationIcon, WeaknessMemoIcon } from '../components/UiIcons';
 import { getDraftAnswerIndexes, parseBulkQuestionText, getDraftIssues, type BulkQuestionDraft } from '../utils/bulkQuestionParser';
 import { CreationNotes } from './CreationNotes';
 import {
@@ -678,8 +678,8 @@ function PendingQuestionSaveDialog({
 
 function MethodChooser({ onSelect }: { onSelect: (view: CreationView) => void }) {
   const methods: Array<{ view: CreationView; title: string; icon: React.ReactNode }> = [
-    { view: 'chatgpt', title: '生成AIで作る', icon: <CopyIcon /> },
-    { view: 'notes', title: '苦手メモ', icon: <StudyIcon /> },
+    { view: 'chatgpt', title: '生成AIで作る', icon: <AiCreationIcon /> },
+    { view: 'notes', title: '苦手メモ', icon: <WeaknessMemoIcon /> },
   ];
   return <section className="create-set__methods" aria-label="作成方法"><h2>何から始める？</h2>{methods.map((method) => <button key={method.view} type="button" className="create-set__method" onClick={() => onSelect(method.view)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}
   </section>;

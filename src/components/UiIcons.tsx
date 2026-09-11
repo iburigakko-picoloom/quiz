@@ -59,6 +59,34 @@ export function ProblemSetIcon({ size = 34, ...props }: IconProps) {
   </svg>;
 }
 
+export function AiCreationIcon({ size = 40, ...props }: IconProps) {
+  const id = useId();
+  return <svg {...iconProps(size, props)} viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
+    <defs><linearGradient id={`${id}-ai`} x2="1" y2=".7"><stop stopColor="#6665cf" /><stop offset="1" stopColor="#71c3f3" /></linearGradient></defs>
+    <rect x="9" y="14" width="36" height="40" rx="7" fill={`url(#${id}-ai)`} transform="rotate(-7 27 34)" />
+    <rect x="15" y="20" width="34" height="36" rx="6" fill="#f7faff" stroke="#c6dcf5" strokeWidth="1" />
+    <path d="M23 34h17M23 41h13M23 48h8" stroke="#91b8e8" strokeWidth="3" strokeLinecap="round" />
+    <path d="M47 5c1.6 9 4 11.4 13 13-9 1.6-11.4 4-13 13-1.6-9-4-11.4-13-13C43 16.4 45.4 14 47 5Z" fill={`url(#${id}-ai)`} stroke="white" strokeWidth="1.5" />
+    <path d="m10 5 1.5 4.5L16 11l-4.5 1.5L10 17l-1.5-4.5L4 11l4.5-1.5Z" fill="#87c9f2" />
+  </svg>;
+}
+
+export function WeaknessMemoIcon({ size = 40, ...props }: IconProps) {
+  const id = useId();
+  return <svg {...iconProps(size, props)} viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
+    <defs><linearGradient id={`${id}-memo`} x2="1" y2=".5"><stop stopColor="#6665cf" /><stop offset="1" stopColor="#73c5f3" /></linearGradient></defs>
+    <rect x="9" y="8" width="43" height="49" rx="7" fill={`url(#${id}-memo)`} />
+    <path d="M19 9h26a5 5 0 0 1 5 5v36H19Z" fill="#fbfcff" />
+    <path d="M19 50h30v4H19a2 2 0 0 1 0-4Z" fill="#d6e5f6" />
+    <path d="M34 9h10v19l-5-4-5 4Z" fill="#719fe5" />
+    <path d="M25 35h17M25 41h12" stroke="#b0caeb" strokeWidth="2.5" strokeLinecap="round" />
+    <path d="M17 10v44" stroke="#9398df" strokeWidth="1.5" />
+    <circle cx="50" cy="49" r="10" fill="white" />
+    <circle cx="50" cy="49" r="8" fill={`url(#${id}-memo)`} />
+    <path d="m46 49 2.5 2.5 5-5" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>;
+}
+
 export function DocumentOutlineIcon({ size = 34, ...props }: IconProps) {
   return (
     <svg {...iconProps(size, props)} aria-hidden={props['aria-hidden'] ?? true}>

@@ -85,8 +85,8 @@
 .create-set.create-set--chooser .create-set__methods h2 { margin: 0 0 20px; font-size: 23px; }
 .create-set.create-set--chooser .create-set__methods .create-set__method { min-height: 100px; grid-template-columns: 48px minmax(0, 1fr) 20px; gap: 16px; padding: 18px 0; border: 0; border-bottom: 1px solid #e1e5eb; border-radius: 0; background: white; transition: background-color 160ms ease, transform 160ms ease; }
 .create-set.create-set--chooser .create-set__method strong { font-size: 18px; line-height: 1.5; }
-.create-set.create-set--chooser .create-set__method .create-set__method-icon { width: 48px; height: 48px; border-radius: 12px; background: #edf3fb; color: #305da3; }
-.create-set.create-set--chooser .create-set__method .create-set__method-icon svg { width: 28px; height: 28px; }
+.create-set.create-set--chooser .create-set__method .create-set__method-icon { width: 48px; height: 48px; background: transparent; color: #305da3; }
+.create-set.create-set--chooser .create-set__method .create-set__method-icon svg { width: 42px; height: 42px; }
 .create-set.create-set--chooser .create-set__method:active { transform: scale(.985); border-color: #2859a6; }
 .create-set.create-set--chooser .create-set__method:focus-visible { outline: 2px solid #2859a6; outline-offset: 4px; }
 @media (max-width: 360px) { .create-set.create-set--chooser .create-set__methods .create-set__method { gap: 12px; } }
