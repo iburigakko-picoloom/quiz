@@ -27,8 +27,8 @@ test('home and folder navigation use compact blue icons while retaining learning
     assert.match(primaryNavSource, new RegExp(icon));
   }
 
-  assert.match(folderSource, /DocumentOutlineIcon/);
-  assert.match(folderSource, /DocumentOutlineIcon size=\{18\}/);
+  assert.match(folderSource, /ProblemSetIcon/);
+  assert.match(folderSource, /ProblemSetIcon size=\{18\}/);
   assert.match(folderSource, /\{questionCount\}問/);
   assert.match(folderSource, /復習 \{reviewCount\}/);
   assert.match(folderSource, /正答率 \{correctRate\}%/);

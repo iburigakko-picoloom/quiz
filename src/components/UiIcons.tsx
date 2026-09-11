@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react';
+import { useId, type SVGProps } from 'react';
 
 type IconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
@@ -21,15 +21,42 @@ function iconProps(size: IconProps['size'], props: SVGProps<SVGSVGElement>) {
 }
 
 export function FolderOutlineIcon({ size = 42, ...props }: IconProps) {
+  const id = useId();
   return (
-    <svg {...iconProps(size, props)} aria-hidden={props['aria-hidden'] ?? true}>
-      <path d="M3.25 8.1V6.75a2 2 0 0 1 2-2h4.1l1.8 2h7.6a2 2 0 0 1 2 2v1.05" fill="currentColor" opacity="0.18" stroke="none" />
-      <path d="M3.25 8.1V6.75a2 2 0 0 1 2-2h4.1l1.8 2h7.6a2 2 0 0 1 2 2v1.05" />
-      <path d="M3.25 8.5h17.5v8.25a2 2 0 0 1-2 2H5.25a2 2 0 0 1-2-2z" fill="currentColor" opacity="0.1" />
-      <path d="M3.25 8.5h17.5v8.25a2 2 0 0 1-2 2H5.25a2 2 0 0 1-2-2z" />
-      <path d="M6.5 15h4.25" opacity="0.48" />
+    <svg {...iconProps(size, props)} viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
+      <defs>
+        <linearGradient id={`${id}-back`} x2="0.7" y2="1"><stop stopColor="#81d0f5" /><stop offset="1" stopColor="#519be9" /></linearGradient>
+        <linearGradient id={`${id}-front`} x2="1" y2="0.3"><stop stopColor="#6564cf" /><stop offset="1" stopColor="#6bbaf2" /></linearGradient>
+      </defs>
+      <path d="M5 17a5 5 0 0 1 5-5h15a5 5 0 0 1 5 5v1h24a5 5 0 0 1 5 5v27H5Z" fill={`url(#${id}-back)`} />
+      <path d="m9 25 45-3 1 24-46 2Z" fill="#e7dfd1" />
+      <path d="m12 28 42-7 3 27-45 3Z" fill="#fff" />
+      <path d="M5 32a5 5 0 0 1 5-5h44a5 5 0 0 1 5 5v19a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5Z" fill={`url(#${id}-front)`} />
+      <path d="M10 28h44" stroke="#a3d6fc" strokeWidth=".8" opacity=".45" />
     </svg>
   );
+}
+
+/** Proposal 1: stacked quiz cards; kept distinct from PDF/file icons. */
+export function ProblemSetIcon({ size = 34, ...props }: IconProps) {
+  const id = useId();
+  return <svg {...iconProps(size, props)} viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
+    <defs>
+      <linearGradient id={`${id}-stack`} x2=".6" y2="1"><stop stopColor="#78cbf5" /><stop offset="1" stopColor="#6674d6" /></linearGradient>
+      <linearGradient id={`${id}-paper`} x2=".9" y2="1"><stop stopColor="#fff" /><stop offset="1" stopColor="#f0f5ff" /></linearGradient>
+      <linearGradient id={`${id}-ink`} x2="1" y2="1"><stop stopColor="#487adf" /><stop offset="1" stopColor="#6758c8" /></linearGradient>
+    </defs>
+    <rect x="10" y="14" width="45" height="39" rx="5" transform="rotate(-5 32 33)" fill={`url(#${id}-stack)`} />
+    <rect x="9" y="18" width="46" height="37" rx="5" fill="#90c9f5" />
+    <g transform="rotate(7 29 35)">
+      <rect x="5" y="19" width="47" height="35" rx="4" fill="#4460aa" opacity=".12" />
+      <rect x="4" y="17" width="47" height="35" rx="4" fill={`url(#${id}-paper)`} stroke="#e5edf8" strokeWidth=".7" />
+      <path d="M14 29c0-7 12-8 12-1 0 4-6 4-6 8" fill="none" stroke={`url(#${id}-ink)`} strokeWidth="4" strokeLinecap="round" />
+      <circle cx="20" cy="43" r="2.3" fill="#6263d0" />
+      <path d="M32 28h12M32 34h10M32 40h8" stroke="#c0d5f5" strokeWidth="2.4" strokeLinecap="round" />
+    </g>
+    <path d="m54 8 1-4m3 8 3-2m-1 7h3" stroke="#70a7ed" strokeWidth="2" strokeLinecap="round" />
+  </svg>;
 }
 
 export function DocumentOutlineIcon({ size = 34, ...props }: IconProps) {

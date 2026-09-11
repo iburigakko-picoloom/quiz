@@ -1,4 +1,5 @@
 import type { Folder } from '../types';
+import { FolderOutlineIcon } from './UiIcons';
 import { formatDisplayDate } from '../utils/date';
 
 interface FolderCardProps {
@@ -17,7 +18,7 @@ export function FolderCard({ folder, setCount, questionCount, reviewCount, corre
     <div className="rounded-2xl bg-[#2A2A2A] p-3">
       <button type="button" onClick={onOpen} className="block h-[88px] w-full text-left active:scale-[0.99]" disabled={editMode}>
         <div className="flex h-full items-center gap-3">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#1F1F1F] text-2xl">📁</div>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center"><FolderOutlineIcon /></div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
               <h3 className="truncate text-base font-bold text-white">{folder.name}</h3>

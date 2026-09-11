@@ -5,7 +5,7 @@ import type { AppData, ProblemSetVisibility } from '../types';
 import { BackButton } from '../components/BackButton';
 import { PublicationMenu } from '../components/PublicationMenu';
 import { Layout } from '../components/Layout';
-import { ChevronRightIcon, DocumentOutlineIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
+import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
 import { buildGroupProblemSetFolders } from '../utils/groupDataView';
 import { PublishPicker } from '../components/PublishPicker';
 import { PublicationDetails, publicationPurposes, type PublicationInfo } from '../components/PublicationDetails';
@@ -714,7 +714,7 @@ export function CommunityScreen({
                   return (
                     <article key={set.id} className="community-set-card">
                       <button type="button" className="community-set-card__main" onClick={() => onOpenLocalSet(set.id)}>
-                        <span className="community-set-card__icon" aria-hidden="true"><DocumentOutlineIcon size={23} /></span>
+                        <span className="community-set-card__icon" aria-hidden="true"><ProblemSetIcon size={23} /></span>
                         <span><strong>{set.title}</strong><small>{count}問{set.subject ? ` · ${set.subject}` : ''}</small></span>
                       </button>
                       <div className="community-set-card__actions">
@@ -727,7 +727,7 @@ export function CommunityScreen({
                 {orphanedPublishedSets.map((published) => (
                   <article key={published.id} className="community-set-card community-set-card--cloud-only">
                     <div className="community-set-card__main">
-                      <span className="community-set-card__icon" aria-hidden="true"><DocumentOutlineIcon size={23} /></span>
+                      <span className="community-set-card__icon" aria-hidden="true"><ProblemSetIcon size={23} /></span>
                       <span><strong>{published.title}</strong><small>{published.questionCount}問 · クラウドにのみ残っています</small></span>
                     </div>
                     <div className="community-set-card__actions">
@@ -984,7 +984,7 @@ function CommunityModal({ ariaLabel, busy = false, onClose, children, sidePanel 
 
 function ProblemSetCards({ sets, busy, onCopy, onPractice, onDetail, onReport, detailed = false }: { sets: CloudProblemSet[]; busy: boolean; onCopy: (set: CloudProblemSet) => void; onPractice: (set: CloudProblemSet) => void; onDetail?: (set: CloudProblemSet) => void; onReport: (set: CloudProblemSet) => void; detailed?: boolean }) {
   if (!detailed && onDetail) return <div className="community-discovery-list">{sets.map((set) => <button key={set.id} className="community-discovery-row" disabled={busy} onClick={() => onDetail(set)}>
-    <span className="library-icon"><DocumentOutlineIcon /></span>
+    <span className="library-icon"><ProblemSetIcon /></span>
     <span className="library-row__body"><strong>{set.title}</strong><span>{[set.audience, set.subject, `${set.questionCount}問`].filter(Boolean).join(' · ')}</span></span>
     <ChevronRightIcon size={22} />
   </button>)}</div>;
@@ -1002,7 +1002,7 @@ function ProblemSetCards({ sets, busy, onCopy, onPractice, onDetail, onReport, d
 }
 
 function EmptyState({ title, body, action, onAction }: { title: string; body?: string; action?: string; onAction?: () => void }) {
-  return <div className="community-empty"><span aria-hidden="true"><DocumentOutlineIcon size={30} /></span><h3>{title}</h3>{body ? <p>{body}</p> : null}{action && onAction ? <button type="button" className="community-primary" onClick={onAction}>{action}</button> : null}</div>;
+  return <div className="community-empty"><span aria-hidden="true"><ProblemSetIcon size={30} /></span><h3>{title}</h3>{body ? <p>{body}</p> : null}{action && onAction ? <button type="button" className="community-primary" onClick={onAction}>{action}</button> : null}</div>;
 }
 
 function formatDate(value: string) {

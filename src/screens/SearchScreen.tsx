@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppData } from '../types';
 import { Layout } from '../components/Layout';
-import { DocumentOutlineIcon } from '../components/UiIcons';
+import { ProblemSetIcon } from '../components/UiIcons';
 import { searchLibrary } from '../utils/librarySearch';
 import { folderChoices } from '../utils/folderHierarchy';
 
@@ -50,7 +50,7 @@ export function SearchScreen({ data, onOpenSet, onOpenQuestion, onDiscover }: {
     </div>
     <div className="library-search-tools"><span>{count}件</span><button onClick={() => { setDraftFolder(folder); setDraftCategory(category); setFilterOpen(true); }}>絞り込み{filterCount ? ` ${filterCount}` : ''}</button></div>
     <section role="tabpanel">
-      {tab === 'sets' ? result.sets.map((set) => <button className="library-row" key={set.id} onClick={() => onOpenSet(set.id)}><span className="library-icon"><DocumentOutlineIcon size={18} /></span><span className="library-row__body"><strong>{set.title}</strong><span>{path(set.id)} · {data.questions.filter((q) => q.setId === set.id).length}問</span></span></button>)
+      {tab === 'sets' ? result.sets.map((set) => <button className="library-row" key={set.id} onClick={() => onOpenSet(set.id)}><span className="library-icon"><ProblemSetIcon size={18} /></span><span className="library-row__body"><strong>{set.title}</strong><span>{path(set.id)} · {data.questions.filter((q) => q.setId === set.id).length}問</span></span></button>)
         : result.questions.map(({ question, choiceOnly }) => <button className="library-row" key={question.id} onClick={() => onOpenQuestion(question.id)}><span className="library-row__body"><strong>{question.question}</strong><span>{path(question.setId)}{choiceOnly ? ' · 選択肢に一致' : ''}</span></span></button>)}
       {!count ? <p>一致する問題がありません</p> : null}
     </section>

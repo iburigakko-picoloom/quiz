@@ -1,6 +1,6 @@
 import type { QuizResult } from '../types';
 import { Layout } from '../components/Layout';
-import { DocumentOutlineIcon } from '../components/UiIcons';
+import { ProblemSetIcon } from '../components/UiIcons';
 import { StudyCompanion } from '../components/StudyCompanion';
 
 export function ResultScreen({ result, returnLabel, onReturn, onRetry, onRetryWrong, onOpenAnswers }: {
@@ -21,6 +21,6 @@ export function ResultScreen({ result, returnLabel, onReturn, onRetry, onRetryWr
     <StudyCompanion scene="result" answered={result.answered} correct={result.correct} />
     <button className="qm-primary" onClick={canRetryWrong ? onRetryWrong : onReturn}>{canRetryWrong ? `間違えた${result.wrong}問を解く` : returnText}</button>
     <button className="qm-secondary" onClick={canRetryWrong ? onReturn : onRetry}>{canRetryWrong ? returnText : 'もう一度解く'}</button>
-    {result.sessionAnswers?.length ? <button className="library-row" onClick={onOpenAnswers}><span className="library-icon"><DocumentOutlineIcon size={18} /></span><span className="library-row__body"><strong>今回の問題と解答</strong></span><span aria-hidden="true">›</span></button> : null}
+    {result.sessionAnswers?.length ? <button className="library-row" onClick={onOpenAnswers}><span className="library-icon"><ProblemSetIcon size={18} /></span><span className="library-row__body"><strong>今回の問題と解答</strong></span><span aria-hidden="true">›</span></button> : null}
   </main></Layout>;
 }

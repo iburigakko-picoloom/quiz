@@ -5,7 +5,7 @@ import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
 import { MissingResourceState } from '../components/MissingResourceState';
 import { LibraryItemActions } from '../components/LibraryItemActions';
-import { ChevronRightIcon, DocumentOutlineIcon, FolderOutlineIcon, PlusIcon } from '../components/UiIcons';
+import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, PlusIcon } from '../components/UiIcons';
 import { buildAppDataView, type ProblemSetOverview } from '../utils/appDataView';
 import { addFolder } from '../utils/quiz';
 import './FolderScreen.css';
@@ -48,7 +48,7 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
   const sets = view.problemSetsByFolderId.get(parentId) ?? [];
   const renderSet = ({ problemSet, questionCount, correctRate, reviewCount }: ProblemSetOverview) => <div className="library-row-with-actions" key={problemSet.id}>
     <button type="button" className="library-row" onClick={() => onOpenProblemSet(problemSet.id)}>
-      <span className="library-icon"><DocumentOutlineIcon size={18} /></span>
+      <span className="library-icon"><ProblemSetIcon size={18} /></span>
       <span className="library-row__body"><strong>{problemSet.title}</strong><span>{questionCount}問 · 正答率 {correctRate}% {reviewCount > 0 ? <em>復習 {reviewCount}</em> : null}</span></span>
       <ChevronRightIcon size={18} />
     </button>

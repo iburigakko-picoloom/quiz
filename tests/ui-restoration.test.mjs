@@ -67,7 +67,12 @@ test('management icons use soft fills and one shared blue currentColor system', 
     assert.match(iconSource, new RegExp(`export function ${icon}`));
   }
   assert.match(iconSource, /fill="currentColor"/);
-  assert.doesNotMatch(iconSource, /#(?:[a-f\d]{3}|[a-f\d]{6})/i);
+  // Approved proposal 1 uses gradients only for folder and quiz-card artwork.
+  const utilityIcons = iconSource.slice(iconSource.indexOf('export function DocumentOutlineIcon'));
+  assert.doesNotMatch(utilityIcons, /#(?:[a-f\d]{3}|[a-f\d]{6})/i);
+  assert.match(iconSource, /export function ProblemSetIcon/);
+  assert.match(iconSource, /const id = useId\(\)/);
+  assert.match(iconSource, /linearGradient/);
   for (const source of [globalCss, createCss, communityCss]) {
     assert.doesNotMatch(source, /#12bfc0|#149da1|#168e92|#39b9b3|rgba\(18,\s*191,\s*192/i);
   }

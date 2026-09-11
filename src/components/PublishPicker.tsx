@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import type { AppData } from '../types';
 import { folderSubtreeIds } from '../utils/folderHierarchy';
-import { ChevronRightIcon, FolderOutlineIcon, DocumentOutlineIcon } from './UiIcons';
+import { ChevronRightIcon, FolderOutlineIcon, ProblemSetIcon } from './UiIcons';
 import './PublishPicker.css';
 
 function Selection({ checked, partial = false, disabled, label, onChange }: { checked: boolean; partial?: boolean; disabled: boolean; label: string; onChange: () => void }) {
@@ -20,7 +20,7 @@ export function PublishPicker({ data, selected, onChange }: { data: AppData; sel
   };
   const renderSets = (folderId?: string) => data.problemSets.filter((set) => folderId ? set.folderId === folderId : !data.folders.some((folder) => folder.id === set.folderId)).map((set) => <div className="publish-picker__row" key={set.id}>
     <Selection checked={selected.includes(set.id)} disabled={false} label={`${set.title}を選択`} onChange={() => toggle([set.id])} />
-    <button type="button" className="publish-picker__item" onClick={() => toggle([set.id])}><DocumentOutlineIcon size={24} /><span>{set.title}<small>{data.questions.filter((q) => q.setId === set.id).length}問</small></span></button>
+    <button type="button" className="publish-picker__item" onClick={() => toggle([set.id])}><ProblemSetIcon size={24} /><span>{set.title}<small>{data.questions.filter((q) => q.setId === set.id).length}問</small></span></button>
   </div>);
   const renderFolders = (parentId?: string, ancestors: string[] = []): React.ReactNode => data.folders.filter((folder) => folder.parentFolderId === parentId && !ancestors.includes(folder.id)).map((folder) => {
     const descendants = folderSubtreeIds(data.folders, folder.id);

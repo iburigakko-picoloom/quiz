@@ -1,4 +1,5 @@
 import type { ProblemSet } from '../types';
+import { ProblemSetIcon } from './UiIcons';
 
 interface ProblemSetCardProps {
   problemSet: ProblemSet;
@@ -25,9 +26,7 @@ export function ProblemSetCard({
     <article className="quiz-folder__set-card">
       <button type="button" className="quiz-folder__set-main" disabled={editMode} onClick={onStartOrdered}>
         <span className="quiz-folder__set-icon" aria-hidden="true">
-          <span className="quiz-folder__set-icon-line" />
-          <span className="quiz-folder__set-icon-line" />
-          <span className="quiz-folder__set-icon-line" />
+          <ProblemSetIcon />
         </span>
         <span className="quiz-folder__set-body">
           <span className="quiz-folder__set-name">{problemSet.title}</span>

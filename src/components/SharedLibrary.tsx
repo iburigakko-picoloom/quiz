@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { CloudProblemSet } from '../utils/cloudService';
 import { sharedFolderTree, folderSets, type SharedFolderNode } from '../utils/sharedFolders';
-import { ChevronRightIcon, FolderOutlineIcon, DocumentOutlineIcon } from './UiIcons';
+import { ChevronRightIcon, FolderOutlineIcon, ProblemSetIcon } from './UiIcons';
 import './SharedLibrary.css';
 import { PublicationMenu } from './PublicationMenu';
 
@@ -26,7 +26,7 @@ export function SharedLibrary({ sets, userId, busy, onOpen, onRemove, loadFolder
     finally { setLoading(''); }
   };
   const renderSet = (set: CloudProblemSet) => <div className="shared-library__row" key={set.id}>
-    <button type="button" className="shared-library__open" disabled={busy} onClick={() => onOpen(set)}><DocumentOutlineIcon size={28} /><span><strong>{set.title}</strong><small>{[set.audience, `${set.questionCount}問`, set.ownerId === userId ? '自分の公開' : set.authorName].filter(Boolean).join(' · ')}</small></span><ChevronRightIcon size={18} /></button>
+    <button type="button" className="shared-library__open" disabled={busy} onClick={() => onOpen(set)}><ProblemSetIcon size={28} /><span><strong>{set.title}</strong><small>{[set.audience, `${set.questionCount}問`, set.ownerId === userId ? '自分の公開' : set.authorName].filter(Boolean).join(' · ')}</small></span><ChevronRightIcon size={18} /></button>
     {set.ownerId === userId ? <PublicationMenu title={set.title} busy={busy || !!loading} onMove={onMove ? () => onMove(set) : undefined} onRemove={() => onRemove([set], set.title)} /> : null}
   </div>;
   const renderFolder = (original: SharedFolderNode, depth = 0, parentPath: import('../utils/sharedFolders').SharedFolderPart[] = []): React.ReactNode => {
