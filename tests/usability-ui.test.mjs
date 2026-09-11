@@ -56,7 +56,9 @@ test('problem-set creation uses a direct, concise JSON entry', () => {
 test('discovery and group screens remove redundant copy explanations', () => {
   assert.doesNotMatch(communitySource, /追加すると自分用の独立したコピーになります/);
   assert.doesNotMatch(communitySource, /placeholder=/);
-  assert.match(communitySource, /グループ詳細/);
+  assert.match(communitySource, /selectedGroup\?\.name \?\? 'グループ'/);
+  assert.match(communitySource, /className="community-group-invite"/);
+  assert.match(communitySource, /className="community-group-publish"/);
   assert.match(communitySource, /community-group-folder-list/);
   assert.match(communitySource, /role="tablist" aria-label="グループの表示"/);
   assert.match(communitySource, /hidden=\{groupDetailTab !== 'members'\}/);

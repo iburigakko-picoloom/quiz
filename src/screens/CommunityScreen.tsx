@@ -619,7 +619,7 @@ export function CommunityScreen({
   const headerTitle = groupPage ? (groupPage === 'create' ? 'グループを作成' : '招待コードで参加') : isGroupSetDetail
     ? '問題セット'
     : isGroupDetail
-      ? 'グループ詳細'
+      ? selectedGroup?.name ?? 'グループ'
       : tab === 'groups'
         ? 'グループ'
         : tab === 'discover'
@@ -629,11 +629,11 @@ export function CommunityScreen({
 
   return (
     <Layout>
-      <div className={`community-screen${!directSet && ((tab === 'discover' && !isGroupDetail) || (isGroupDetail && groupDetailTab === 'sets')) ? ' community-screen--library-scroll' : ''}`}>
+      <div className={`community-screen${!directSet && ((tab === 'discover' && !isGroupDetail) || isGroupDetail) ? ' community-screen--library-scroll' : ''}${isGroupDetail && !isGroupSetDetail ? ' community-screen--group-library' : ''}`}>
         <header className="community-screen__header">
           {isPrimaryRoot ? <span className="community-screen__header-spacer" aria-hidden="true" /> : <BackButton onClick={handleHeaderBack} label="戻る" />}
           <div><h1>{headerTitle}</h1></div>
-          <span className="community-screen__header-spacer" aria-hidden="true" />
+          {isGroupDetail && !isGroupSetDetail && canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : <span className="community-screen__header-spacer" aria-hidden="true" />}
         </header>
 
         {!cloudConfigured ? <div className="community-notice community-notice--warning">共有機能の接続設定が未完了です。端末内の作成・学習機能はそのまま使えます。</div> : null}
@@ -659,11 +659,6 @@ export function CommunityScreen({
               </section>
             ) : (
               <section className="community-section community-group-detail">
-                <div className="community-section__heading">
-                  <h2>{selectedGroup?.name ?? 'グループ'}</h2>
-                  <button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('group')}>＋このグループに公開</button>
-                  {canManageSelectedGroup ? <button type="button" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}
-                </div>
                 {!session ? (
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
@@ -693,6 +688,7 @@ export function CommunityScreen({
                     ) : null}
                   </>
                 )}
+                <div className="community-group-publish"><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('group')}>＋ このグループに公開</button></div>
               </section>
             )
           ) : (
