@@ -244,6 +244,12 @@
 .quiz-home .quiz-home__folder-arrow { color: #53657D; }
 .quiz-home .quiz-home__folder-icon, .quiz-folder .library-row[aria-expanded] .library-icon { width: 46px; min-width: 46px; height: 46px; flex-basis: 46px; }
 .quiz-home .quiz-home__folder-icon svg, .quiz-folder .library-row[aria-expanded] .library-icon svg { width: 30px; height: 30px; }
+/* Keep the row geometry; enlarge only the approved artwork, without a tile. */
+.quiz-home .quiz-home__folder-icon,
+.library-icon:has(> svg[data-library-artwork]),
+.community-screen .community-set-card__icon:has(> svg[data-library-artwork]),
+.quiz-folder__set-icon:has(> svg[data-library-artwork]) { background: transparent; border: 0; box-shadow: none; }
+svg.quiz-ui-icon[data-library-artwork] { transform: scale(1.16); transform-origin: center; }
 .quiz-folder .library-row[aria-expanded] { min-height: 80px; padding-block: 16px; }
 .quiz-folder .library-row[aria-expanded] .library-row__body strong { font-size: 18px; }
 .shared-library__folder > .shared-library__row > .shared-library__open { min-height: 80px; padding-block: 16px; }

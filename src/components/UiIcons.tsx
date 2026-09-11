@@ -23,7 +23,7 @@ function iconProps(size: IconProps['size'], props: SVGProps<SVGSVGElement>) {
 export function FolderOutlineIcon({ size = 42, ...props }: IconProps) {
   const id = useId();
   return (
-    <svg {...iconProps(size, props)} viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
+    <svg {...iconProps(size, props)} data-library-artwork="folder" viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
       <defs>
         <linearGradient id={`${id}-back`} x2="0.7" y2="1"><stop stopColor="#81d0f5" /><stop offset="1" stopColor="#519be9" /></linearGradient>
         <linearGradient id={`${id}-front`} x2="1" y2="0.3"><stop stopColor="#6564cf" /><stop offset="1" stopColor="#6bbaf2" /></linearGradient>
@@ -40,7 +40,7 @@ export function FolderOutlineIcon({ size = 42, ...props }: IconProps) {
 /** Proposal 1: stacked quiz cards; kept distinct from PDF/file icons. */
 export function ProblemSetIcon({ size = 34, ...props }: IconProps) {
   const id = useId();
-  return <svg {...iconProps(size, props)} viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
+  return <svg {...iconProps(size, props)} data-library-artwork="set" viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
     <defs>
       <linearGradient id={`${id}-stack`} x2=".6" y2="1"><stop stopColor="#78cbf5" /><stop offset="1" stopColor="#6674d6" /></linearGradient>
       <linearGradient id={`${id}-paper`} x2=".9" y2="1"><stop stopColor="#fff" /><stop offset="1" stopColor="#f0f5ff" /></linearGradient>
