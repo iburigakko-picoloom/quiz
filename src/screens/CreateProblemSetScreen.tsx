@@ -95,6 +95,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
   const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
   const [notesDirty, setNotesDirty] = useState(false);
+  const notesBackRef = useRef<(()=>boolean)|null>(null);
   const [notePromptCopied, setNotePromptCopied] = useState(false);
   const initializedCopyRef = useRef<string | undefined>(undefined);
   const saveInFlightRef = useRef(false);
@@ -406,8 +407,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
             <BackButton
-              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => view === 'chatgpt' && aiStep === 2 ? setAiStep(1) : goTo('methods')}
-              label={editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : '作成方法へ戻る'}
+              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => { if(view === 'notes' && notesBackRef.current?.()) return; view === 'chatgpt' && aiStep === 2 ? setAiStep(1) : goTo('methods'); }}
+              label={view === 'notes' ? '戻る' : editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : '作成方法へ戻る'}
             />
           )}
           <div>
@@ -417,9 +418,9 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
         </header>
 
         {view === 'methods' ? <MethodChooser onSelect={startMethod} /> : null}
-        <div className="create-set__flow" hidden={view !== 'notes'}>
-          <CreationNotes data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onGenerate={() => { setNotePromptCopied(true); setAiStep(2); goTo('chatgpt'); activeMethodRef.current = 'chatgpt'; }} />
-        </div>
+        {view === 'notes' ? <div className="create-set__flow">
+          <CreationNotes onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onGenerate={() => { setNotePromptCopied(true); setAiStep(2); goTo('chatgpt'); activeMethodRef.current = 'chatgpt'; }} />
+        </div> : null}
 
         {view === 'manual' ? (
           <div className="create-set__flow">

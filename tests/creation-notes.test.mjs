@@ -27,6 +27,7 @@ test('notes persist edits, guard save failures and copy before opening import', 
   assert.match(notes, /window\.confirm/);
   assert.ok(notes.indexOf('await writeClipboardText') < notes.indexOf('onGenerate();'));
   assert.match(notes, /生成AIで問題化/);
-  assert.match(create, /hidden=\{view !== 'notes'\}/);
+  assert.match(create, /view === 'notes' \? <div/);
+  assert.match(create, /notesBackRef\.current\?\.\(\)/);
   assert.match(create, /setNotePromptCopied\(true\); setAiStep\(2\)/);
 });
