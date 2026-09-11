@@ -4,30 +4,21 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { changeWeaknessNotes, readWeaknessNotes } from '../utils/weaknessNotes';
 import './WeaknessNotes.css';
+import { extractExplanationMedia, normalizeExplanationMarkdown } from '../utils/explanationMarkdown';
+export { extractExplanationMedia } from '../utils/explanationMarkdown';
 
-export function extractExplanationMedia(text: string) {
-  const lines = text.split('\n'), media: string[] = [], body: string[] = [];
-  let fence = '';
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]; const mark = line.trim().match(/^(`{3,}|~{3,})/);
-    if (mark) { fence = fence ? '' : mark[1][0]; body.push(line); continue; }
-    if (!fence && /^\s*!\[[^\]]*\]\([^\n]+\)\s*$/.test(line)) { media.push(line); continue; }
-    if (!fence && line.includes('|') && /^\s*\|?\s*:?-{3,}:?\s*\|/.test(lines[i + 1] ?? '')) {
-      const table = [line, lines[++i]];
-      while (i + 1 < lines.length && lines[i + 1].trim() && lines[i + 1].includes('|')) table.push(lines[++i]);
-      media.push(table.join('\n')); continue;
-    }
-    body.push(line);
-  }
-  return { media, body: body.join('\n') };
-}
 const safeUrl = (url: string) => /^(https?:|mailto:|#)/i.test(url) || /^data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(url) ? url : '';
 function Markdown({ text }: { text: string }) {
   return <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={safeUrl} components={{
     a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>,
     img: ({ src, alt }) => src ? <img src={src} alt={alt ?? ''} loading="lazy" /> : <span>{alt}</span>,
     table: ({ children }) => <div className="weakness-table" data-no-page-swipe><table>{children}</table></div>,
-  }}>{text}</ReactMarkdown>;
+    strong: ({ children }) => <strong className="weakness-keyword">{children}</strong>,
+    pre: ({ children }) => <div className="weakness-code-block">{children}</div>,
+    code: ({ className, children }) => className === 'language-flow'
+      ? <div className="weakness-flow" aria-label="フローチャート">{String(children).trim().split('\n').filter(line => line.trim()).map((line, i) => <div className="weakness-flow-row" key={i}>{line.split(/\s*→\s*/).map((step, j) => <span className="weakness-flow-step" key={j}>{j > 0 ? <span aria-hidden="true">→ </span> : null}{step}</span>)}</div>)}</div>
+      : <code className={className}>{children}</code>,
+  }}>{normalizeExplanationMarkdown(text)}</ReactMarkdown>;
 }
 async function imageMarkdown(file: File) {
   if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 10_000_000) throw new Error('10MB以下のPNG・JPEG・WebP画像を選んでください。');
