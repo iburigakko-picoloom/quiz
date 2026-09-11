@@ -663,7 +663,7 @@ export function CommunityScreen({
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
-                    <div className="qm-group-tabs" role="tablist" aria-label="グループの表示">
+                    <div className="qm-group-tabs" data-active-tab={groupDetailTab} role="tablist" aria-label="グループの表示">
                       <button role="tab" aria-selected={groupDetailTab === 'sets'} onClick={() => setGroupDetailTab('sets')}>問題セット {groupSets.length}</button>
                       <button role="tab" aria-selected={groupDetailTab === 'members'} onClick={() => setGroupDetailTab('members')}>メンバー {groupMembers.length}</button>
                     </div>
