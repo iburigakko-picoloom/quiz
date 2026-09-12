@@ -4,6 +4,7 @@ import { readClipboardText, writeClipboardText } from '../utils/nativePlatform';
 import { changeWeaknessNotes, detailBody, explanationPrompt, finishExplanationBatch, makeExplanationRequest, NOTES_EVENT, readExplanationBatch, readWeaknessNotes, rememberExplanationRequest, type ExplanationBatch, type WeaknessNote } from '../utils/weaknessNotes';
 import { ExplanationReader, WeaknessDetail } from '../components/WeaknessDetail';
 import { ChevronRightIcon, ProblemSetIcon } from '../components/UiIcons';
+import { removeOrphanWeaknessNotes } from '../utils/weaknessNotes';
 
 export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDirtyChange, onBackRef, onCreateQuestions }: {
   purpose: 'questions'|'answer';
@@ -15,6 +16,8 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   const [notes,setNotes]=useState<WeaknessNote[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
   const [view,setView]=useState<'list'|'set'|'question'|'prompt'|'import'>('list');
   const [history,setHistory]=useState<(typeof view)[]>([]);
+  const [direction,setDirection]=useState<'forward'|'back'>('forward');
+  useEffect(()=>{try{removeOrphanWeaknessNotes(data.questions.map(q=>q.id));}catch{setError('不要なメモを整理できませんでした。データは残しています。');}},[]);
   const [setId,setSetId]=useState(''),[selectedId,setSelectedId]=useState(''),[selected,setSelected]=useState<string[]>([]),[showAll,setShowAll]=useState(false);
   const [tables,setTables]=useState(true),[images,setImages]=useState(false),[examples,setExamples]=useState(true);
   const [paste,setPaste]=useState(''),[batch,setBatch]=useState<ExplanationBatch|null>(null),[stage,setStage]=useState<'paste'|'review'>('paste'),[failed,setFailed]=useState(false);
@@ -23,10 +26,11 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   useEffect(()=>{onDirtyChange(failed||busy||Boolean(paste));return()=>onDirtyChange(false);},[failed,busy,paste,onDirtyChange]);
   const change=(fn:(items:WeaknessNote[])=>WeaknessNote[])=>{try{setNotes(changeWeaknessNotes(fn));setFailed(false);setError('');return true;}catch{setFailed(true);setError('保存できません。入力内容を控えて再保存してください。');return false;}};
   const update=(next:WeaknessNote)=>{if(!change(items=>items.map(n=>n.id===next.id?next:n)))setNotes(items=>items.map(n=>n.id===next.id?next:n));};
-  const go=(next:typeof view)=>{if(busy||failed)return;if(paste&&next!=='import'&&!window.confirm('取り込み前の回答を閉じますか？'))return;if(next!=='import'){setPaste('');setBatch(null);}setMessage('');setError('');setHistory(items=>next==='list'?[]:items.includes(next)?items.slice(0,items.lastIndexOf(next)):[...items,view]);setView(next);};
+  const go=(next:typeof view)=>{if(busy||failed)return;if(paste&&next!=='import'&&!window.confirm('取り込み前の回答を閉じますか？'))return;if(next!=='import'){setPaste('');setBatch(null);}setDirection(next==='list'||history.includes(next)?'back':'forward');setMessage('');setError('');setHistory(items=>next==='list'?[]:items.includes(next)?items.slice(0,items.lastIndexOf(next)):[...items,view]);setView(next);};
   useEffect(()=>{onBackRef.current=()=>{
     if(busy||failed)return true;
     if(view==='list')return false;
+    setDirection('back');
     if(view==='import'&&stage==='review'){setStage('paste');return true;}
     if(paste&&!window.confirm('取り込み前の回答を閉じますか？'))return true;
     setPaste('');setBatch(null);setMessage('');setError('');
@@ -47,14 +51,13 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   const inSet=notes.filter(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===setId)&&n.body.trim());
   const title=view==='set'?data.problemSets.find(s=>s.id===setId)?.title:view==='prompt'?'AIへの依頼':view==='import'?'回答を取り込む':view==='question'?'解説・メモ':null;
   const chooseAll=(id:string)=>{setSetId(id);const ns=notes.filter(n=>n.questionId&&n.body.trim()&&!n.draft&&n.resolvedBody!==n.body&&data.questions.some(q=>q.id===n.questionId&&q.setId===id));setSelected(ns.map(n=>n.id));go('set');};
-  return <section className={`weakness-workspace${view==='list'?' weakness-workspace--list':''}`} aria-label="苦手メモ">
+  return <section key={view} className={`weakness-workspace weakness-workspace--${direction}${view==='list'?' weakness-workspace--list':''}`} aria-label="苦手メモ">
     {title?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}
     {error?<div role="alert" className="weakness-error">{error}{failed&&note?<button type="button" onClick={()=>update(note)}>再保存</button>:null}</div>:null}
     {message?<p className="weakness-status" role="status">{message}</p>:null}
     {view==='list'?<>
         {data.problemSets.filter(s=>notes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===s.id))).map(s=>{const ns=notes.filter(n=>data.questions.some(q=>q.id===n.questionId&&q.setId===s.id));return <button type="button" key={s.id} className="weakness-row" onClick={()=>chooseAll(s.id)}><ProblemSetIcon size={32}/><span><strong>{s.title}</strong><small>未解説 {ns.filter(n=>n.body.trim()&&n.resolvedBody!==n.body).length} · 解説あり {ns.filter(n=>n.resolvedBody===n.body&&n.body.trim()).length}</small></span><ChevronRightIcon/></button>;})}
         {!notes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-muted">学習中に残した疑問がここにまとまります。</p>:null}
-        {notes.some(n=>n.questionId&&!data.questions.some(q=>q.id===n.questionId))?<details><summary>元の問題がないメモ</summary>{notes.filter(n=>n.questionId&&!data.questions.some(q=>q.id===n.questionId)).map(n=><p key={n.id}>{n.body}</p>)}</details>:null}
       {purpose==='answer'?<div className="weakness-import-dock"><button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button></div>:null}
     </>:null}
     {view==='set'?<>
@@ -71,6 +74,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
       <details><summary>選んだメモ　{selected.length}件</summary>{notes.filter(n=>selected.includes(n.id)).map(n=><p key={n.id}>{n.body}</p>)}</details>
       <p className="weakness-muted">生成された画像は、回答の取り込み後に添付できます。</p>
       <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={busy} onClick={()=>void copy()}>{busy?'コピー中…':'依頼文をコピー'}</button></div>
+      <button type="button" className="weakness-import-card" disabled={busy} onClick={()=>{setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button>
     </>:null}
     {view==='import'?<>
       <div className="weakness-tabs"><button type="button" aria-pressed={stage==='paste'} disabled={busy} onClick={()=>setStage('paste')}>貼り付け</button><button type="button" aria-pressed={stage==='review'} disabled={!batch||busy} onClick={()=>setStage('review')}>確認</button></div>

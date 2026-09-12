@@ -1,9 +1,21 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { getScreenKey } from '../src/utils/navigation.ts';
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const create = read('../src/screens/CreateProblemSetScreen.tsx');
 const notes = read('../src/screens/CreationNotes.tsx');
+test('direct AI creation and the creation menu have separate navigation identities',()=>{
+  assert.notEqual(getScreenKey({name:'createProblemSet'}),getScreenKey({name:'createProblemSet',backScreen:{name:'home'}}));
+});
+test('memo navigation animates both ways and removes the orphan section',()=>{
+  assert.doesNotMatch(notes,/元の問題がないメモ/);
+  assert.match(notes,/removeOrphanWeaknessNotes\(data.questions.map/);
+  assert.match(notes,/setDirection\('back'\)/);
+  assert.match(notes,/key=\{view\}/);
+  const prompt=notes.slice(notes.indexOf("{view==='prompt'?<>"),notes.indexOf("{view==='import'?<>"));
+  assert.match(prompt,/AIの回答を取り込む/);
+});
 
 test('creation entry contains AI and notes, with copy moved to set actions', () => {
   const chooser = create.slice(create.indexOf('function MethodChooser'), create.indexOf('function SetMetaFields'));

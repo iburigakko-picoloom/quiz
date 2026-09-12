@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { removeOrphanWeaknessNotes } from '../src/utils/weaknessNotes.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseNotes, makeExplanationRequest, explanationPrompt, rememberExplanationRequest, readExplanationBatch, applyQuestionExplanations, finishExplanationBatch, readWeaknessNotes, changeWeaknessNotes, NOTES_KEY } from '../src/utils/weaknessNotes.ts';
@@ -8,6 +9,15 @@ globalThis.window = new EventTarget();
 const q={id:'q1',setId:'s1',question:'Choose',choices:['A','B','C','D'],answerIndex:0,explanation:'通常解説は残す',detailedExplanation:'旧解説',detailedAnswer:{body:'保存済み解説',imageIds:['legacy-image'],updatedAt:'old'},updatedAt:'old'};
 const data={version:1,folders:[],problemSets:[{id:'s1',title:'問題セット'}],questions:[q],progress:[{questionId:'q1',correctCount:5}],answerLogs:[{id:'log'}]};
 const memo={id:'m1',title:'疑問',body:'なぜA？',questionId:'q1'};
+test('orphan cleanup keeps existing questions and legacy notes, with a recovery copy',()=>{
+  storage.clear();
+  const orphan={...memo,id:'gone',questionId:'deleted'};
+  const legacy={id:'legacy',title:'旧メモ',body:'残す'};
+  storage.set(NOTES_KEY,JSON.stringify([memo,orphan,legacy]));
+  assert.deepEqual(removeOrphanWeaknessNotes(['q1']),[memo,legacy]);
+  assert.deepEqual(JSON.parse(storage.get(`${NOTES_KEY}-removed-orphans`)),[orphan]);
+  assert.deepEqual(removeOrphanWeaknessNotes(['q1']),[memo,legacy]);
+});
 function setup(){storage.clear();storage.set(NOTES_KEY,JSON.stringify([memo]));const request=makeExplanationRequest([memo],data);rememberExplanationRequest(request);const text=JSON.stringify({version:1,requestId:request.id,explanations:[{targetId:'question:q1',body:'追加の解説'}]});return {request,text,batch:readExplanationBatch(text)};}
 test('legacy free notes survive and malformed notes fail closed',()=>{assert.deepEqual(parseNotes(JSON.stringify([{id:'old',title:'元のメモ',body:'本文'}])),[{id:'old',title:'元のメモ',body:'本文'}]);assert.throws(()=>parseNotes('{}'));assert.throws(()=>parseNotes('[{"id":1}]'));});
 test('question updates append without changing answers, ordinary explanation, images or progress',()=>{const {batch}=setup();const next=applyQuestionExplanations(data,batch);assert.equal(next.questions[0].explanation,q.explanation);assert.deepEqual(next.questions[0].choices,q.choices);assert.deepEqual(next.questions[0].detailedAnswer.imageIds,['legacy-image']);assert.ok(next.questions[0].detailedAnswer.body.startsWith('保存済み解説'));assert.ok(next.questions[0].detailedAnswer.body.includes('追加の解説'));assert.deepEqual(next.progress,data.progress);assert.deepEqual(next.answerLogs,data.answerLogs);assert.equal(applyQuestionExplanations(next,batch).questions[0].detailedAnswer.body,next.questions[0].detailedAnswer.body);});

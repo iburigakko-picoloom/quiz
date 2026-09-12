@@ -18,6 +18,17 @@ export function parseNotes(raw: string | null): WeaknessNote[] {
   return value;
 }
 export function readWeaknessNotes() { return parseNotes(localStorage.getItem(NOTES_KEY)); }
+export function removeOrphanWeaknessNotes(questionIds: string[]) {
+  const ids = new Set(questionIds);
+  const notes = readWeaknessNotes();
+  const removed = notes.filter(note => note.questionId && !ids.has(note.questionId));
+  if (!removed.length) return notes;
+  // Keep a recovery copy before removing only notes whose source question is gone.
+  const recoveryKey = `${NOTES_KEY}-removed-orphans`;
+  const previous = parseNotes(localStorage.getItem(recoveryKey));
+  localStorage.setItem(recoveryKey, JSON.stringify([...previous.filter(n => !removed.some(r => r.id === n.id)), ...removed]));
+  return changeWeaknessNotes(items => items.filter(note => !removed.some(r => r.id === note.id && r.questionId === note.questionId && r.body === note.body)));
+}
 export function changeWeaknessNotes(change: (notes: WeaknessNote[]) => WeaknessNote[]) {
   // Always re-read: another tab may have saved notes since this screen opened.
   const next = change(readWeaknessNotes());
