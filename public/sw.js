@@ -38,6 +38,11 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  const shareUrl = new URL(request.url);
+  if (request.method === 'POST' && shareUrl.origin === BASE_URL.origin && shareUrl.pathname === `${BASE_PATH}share-image`) {
+    event.respondWith(receiveSharedImage(request));
+    return;
+  }
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
@@ -54,6 +59,34 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(staleWhileRevalidate(event));
   }
 });
+
+// Separate from app-shell caches: an app update must not discard pending images.
+async function receiveSharedImage(request) {
+  const destination = new URL(BASE_URL);
+  try {
+    const form = await request.formData();
+    const files = form.getAll('image').filter(value => typeof value !== 'string');
+    if (files.length !== 1) throw new Error(files.length ? 'count' : 'missing');
+    const file = files[0];
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error('type');
+    if (!file.size || file.size > 10_000_000) throw new Error('size');
+    const cache = await caches.open('quiz-make-shared-images-v1');
+    const keys = await cache.keys();
+    for (const key of keys) {
+      const response = await cache.match(key);
+      if (Date.now() - Number(response?.headers.get('x-quiz-created')) > 86_400_000) await cache.delete(key);
+    }
+    if ((await cache.keys()).length >= 5) throw new Error('full');
+    const id = crypto.randomUUID();
+    await cache.put(new URL(`_shared-image/${id}`, BASE_URL).href, new Response(file, {
+      headers: { 'Content-Type': file.type, 'x-quiz-created': String(Date.now()) },
+    }));
+    destination.searchParams.set('sharedImage', id);
+  } catch (error) {
+    destination.searchParams.set('sharedImageError', ['count','missing','type','size','full'].includes(error.message) ? error.message : 'storage');
+  }
+  return Response.redirect(destination.href, 303);
+}
 
 async function precacheAppShell() {
   try {

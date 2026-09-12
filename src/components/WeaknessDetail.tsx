@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { changeWeaknessNotes, readWeaknessNotes } from '../utils/weaknessNotes';
 import './WeaknessNotes.css';
+import { imageMarkdown } from '../utils/imageAttachment';
+import { rememberImageTarget } from '../utils/sharedImage';
 import { extractExplanationMedia, normalizeExplanationMarkdown } from '../utils/explanationMarkdown';
 export { extractExplanationMedia } from '../utils/explanationMarkdown';
 
@@ -19,24 +21,6 @@ function Markdown({ text }: { text: string }) {
       ? <div className="weakness-flow" aria-label="フローチャート">{String(children).trim().split('\n').filter(line => line.trim()).map((line, i) => <div className="weakness-flow-row" key={i}>{line.split(/\s*→\s*/).map((step, j) => <span className="weakness-flow-step" key={j}>{j > 0 ? <span aria-hidden="true">→ </span> : null}{step}</span>)}</div>)}</div>
       : <code className={className}>{children}</code>,
   }}>{normalizeExplanationMarkdown(text)}</ReactMarkdown>;
-}
-async function imageMarkdown(file: File) {
-  if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 10_000_000) throw new Error('10MB以下のPNG・JPEG・WebP画像を選んでください。');
-  const url = URL.createObjectURL(file);
-  try {
-    const img = new Image(); img.src = url; await img.decode();
-    if (img.naturalWidth * img.naturalHeight > 40_000_000) throw new Error('画像を縮小してから選んでください。');
-    const canvas = document.createElement('canvas');
-    for (const max of [1200, 900, 650]) {
-      const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-      const context = canvas.getContext('2d'); if (!context) throw new Error('画像を読み込めません。');
-      context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const data = canvas.toDataURL('image/jpeg', .75);
-      if (data.length < 180_000) return `![添付画像](${data})`;
-    }
-    throw new Error('画像が大きすぎます。必要な範囲を切り抜いて再度添付してください。');
-  } finally { URL.revokeObjectURL(url); }
 }
 export function ExplanationReader({ text, onSave, disabled = false }: { text: string; onSave?: (body: string) => Promise<void>; disabled?: boolean }) {
   const { media, body } = extractExplanationMedia(text);
@@ -55,6 +39,18 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
     finally { lock.current = false; setBusy(false); }
   };
   const matching = media.map((value, i) => ({value, i})).filter(x => tab === 'image' ? x.value.startsWith('![') : !x.value.startsWith('!['));
+  const pasteImage = async () => {
+    if (!onSave || disabled || lock.current) return;
+    try {
+      if (!navigator.clipboard?.read) throw new Error('画像を写真に保存して「画像を追加」から選んでください。');
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const type = item.types.find(t=>/^image\/(png|jpeg|webp)$/.test(t));
+        if (type) { await attach(new File([await item.getType(type)], 'clipboard-image', {type})); return; }
+      }
+      throw new Error('画像をコピーしてから押してください。リンクでは追加できません。');
+    } catch (e) { setError(e instanceof Error && e.name !== 'NotAllowedError' ? e.message : '貼り付けを許可するか、写真に保存して「画像を追加」から選んでください。'); }
+  };
   const remove = async () => {
     if (!onSave || disabled || lock.current || !window.confirm('詳細解説と添付画像を削除しますか？通常の解説と苦手メモは残ります。')) return;
     lock.current = true; setBusy(true); setError('');
@@ -67,6 +63,7 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
     {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className="weakness-media-card" key={i}><button type="button" className="weakness-text" onClick={() => { setTab(m.startsWith('![') ? 'image' : 'table'); setActive(i); }} aria-label={`${m.startsWith('![') ? '画像' : '表'}${i+1}を拡大`}>{m.startsWith('![') ? '画像' : '表'}を拡大 ↗</button><Markdown text={m} /></section>)}</div> : null}
     {body.trim() ? <div className="weakness-markdown"><Markdown text={body} /></div> : null}
     {onSave && !disabled ? <button type="button" className="weakness-text" data-no-page-swipe disabled={busy} onClick={() => input.current?.click()}>{busy ? '保存中…' : '＋ 画像を追加'}</button> : null}
+    {onSave && !disabled ? <button type="button" className="weakness-text weakness-image-paste" data-no-page-swipe disabled={busy} onClick={()=>void pasteImage()}>画像を貼り付け</button> : null}
     {active === null ? <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void attach(f);}}/> : null}
     {error ? <p role="alert" className="weakness-error">{error}</p> : null}
     {active !== null ? createPortal(<dialog ref={dialog} className="weakness-media-dialog" onCancel={e => { if (busy) e.preventDefault(); else setActive(null); }}>
@@ -80,10 +77,16 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
   </div>;
 }
 
-export function WeaknessDetail({ questionId, text, onSave, disabled = false, onDirtyChange }: { questionId: string; text: string; onSave: (body:string)=>Promise<void>; disabled?:boolean; onDirtyChange?:(dirty:boolean)=>void }) {
+export function WeaknessDetail({ questionId, text, onSave, disabled = false, onDirtyChange, active = true }: { questionId: string; text: string; onSave: (body:string)=>Promise<void>; disabled?:boolean; onDirtyChange?:(dirty:boolean)=>void; active?:boolean }) {
   const [body, setBody] = useState(''), [memoId, setMemoId] = useState(''), [error, setError] = useState(''), [message,setMessage]=useState('');
   const [adding,setAdding]=useState(!text.trim());
   const failed = useRef(false);
+  useEffect(()=>{
+    if (!active || disabled) return;
+    const remember=()=>{if(document.visibilityState==='visible')rememberImageTarget(questionId);};
+    remember(); document.addEventListener('visibilitychange',remember);
+    return()=>document.removeEventListener('visibilitychange',remember);
+  },[questionId,active,disabled]);
   useEffect(()=>{
     try { const draft=readWeaknessNotes().find(n=>n.questionId===questionId&&n.draft);setBody(draft?.body??'');setMemoId(draft?.id??crypto.randomUUID());if(draft)setAdding(true); }
     catch {setError('メモを読み込めません。再読み込みしてください。');}

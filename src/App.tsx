@@ -9,6 +9,8 @@ import {
   waitForPendingAppDataSaves,
 } from './storage';
 import { HomeScreen } from './screens/HomeScreen';
+import { SharedImageReceiver } from './components/SharedImageReceiver';
+import { appendSharedImage } from './utils/sharedImage';
 import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
@@ -77,6 +79,7 @@ type PendingBackupImport =
 export default function App() {
   const [data, setData] = useState<AppData>(() => createEmptyAppData());
   const [storageReady, setStorageReady] = useState(false);
+  const [receivingSharedImage,setReceivingSharedImage] = useState(()=>new URL(location.href).searchParams.has('sharedImage')||new URL(location.href).searchParams.has('sharedImageError'));
   const [storageLoadError, setStorageLoadError] = useState('');
   const [storageLoadAttempt, setStorageLoadAttempt] = useState(0);
   const dataRef = useRef(data);
@@ -148,7 +151,7 @@ export default function App() {
     createDraftDirtyRef.current = createDraftDirty;
   }, [createDraftDirty]);
 
-  const protectedWorkReason = getSyncProtectedWorkReason(
+  const protectedWorkReason = receivingSharedImage ? 'import' : getSyncProtectedWorkReason(
     screen,
     createDraftDirty,
     pendingBackupImport !== null || backupImportBusy,
@@ -1540,7 +1543,11 @@ export default function App() {
   return (
     <>
       <AutoSyncController protectedWorkReason={protectedWorkReason} />
-      <WelcomeGuide active={screen.name === 'home' && !waitingWorker && !storageError} />
+      <SharedImageReceiver data={data} onClose={()=>setReceivingSharedImage(false)} onOpenQuestion={questionId=>navigate({name:'detailedAnswer',questionId,backScreen:screenRef.current})} onSave={async (questionId,originalQuestion,image,shareId)=>{
+        const next=appendSharedImage(dataRef.current,questionId,originalQuestion,image,shareId);
+        if(!await persistThenCommitData(next))throw new Error('画像を保存できませんでした。再読み込みして追加し直してください。');
+      }}/>
+      <WelcomeGuide active={screen.name === 'home' && !waitingWorker && !storageError && !receivingSharedImage} />
       <div key={getScreenKey(screen)} className={`quiz-screen-transition quiz-screen-transition--${transitionDirection}`}>
         <Suspense fallback={(
           <div className="quiz-app-loading" role="status" aria-live="polite">

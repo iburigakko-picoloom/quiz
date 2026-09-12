@@ -31,6 +31,8 @@ function createWorkerHarness(fetchHandler = async () => new Response('ok')) {
     return new URL(value, origin).href;
   };
   const cache = {
+    async keys() { return [...entries.keys()].map(url=>new Request(url)); },
+    async delete(input) { return entries.delete(keyOf(input)); },
     async match(input) {
       return entries.get(keyOf(input))?.clone();
     },
@@ -43,12 +45,13 @@ function createWorkerHarness(fetchHandler = async () => new Response('ok')) {
     Request,
     Response,
     Set,
+    crypto: globalThis.crypto,
     caches: {
       async open() {
         return cache;
       },
       async keys() {
-        return ['quiz-make-cache-old', 'quiz-make-cache-build-1', 'another-app-cache'];
+        return ['quiz-make-cache-old', 'quiz-make-cache-build-1', 'another-app-cache', 'quiz-make-shared-images-v1'];
       },
       async delete(name) {
         deletedCaches.push(name);
@@ -78,7 +81,7 @@ function createWorkerHarness(fetchHandler = async () => new Response('ok')) {
   });
 
   vm.runInContext(
-    `${workerSource}\nglobalThis.__workerTest = { networkFirst, staleWhileRevalidate, extractBuildAssetUrls, parsePrecacheManifest };`,
+    `${workerSource}\nglobalThis.__workerTest = { networkFirst, staleWhileRevalidate, extractBuildAssetUrls, parsePrecacheManifest, receiveSharedImage };`,
     context,
   );
 
@@ -107,6 +110,33 @@ test('activation removes only obsolete Quiz make cache generations', async () =>
 
   assert.deepEqual(harness.deletedCaches, ['quiz-make-cache-old']);
   assert.equal(harness.claimed, true);
+});
+
+test('image share POST is persisted locally and redirects to confirmation, not a server', async () => {
+  const h=createWorkerHarness();
+  const form=new FormData();form.append('image',new Blob(['image-bytes'],{type:'image/png'}),'test.png');
+  let result;
+  h.handlers.get('fetch')({request:new Request(`${scope}share-image`,{method:'POST',body:form}),respondWith:p=>{result=p;}});
+  const response=await result;
+  assert.equal(response.status,303);
+  const id=new URL(response.headers.get('location')).searchParams.get('sharedImage');
+  assert.match(id,/^[a-f0-9-]{36}$/);
+  assert.equal(await h.entries.get(`${scope}_shared-image/${id}`).text(),'image-bytes');
+  assert.deepEqual(h.networkRequests,[]);
+  const manifest=JSON.parse(readFileSync(new URL('../public/manifest.webmanifest',import.meta.url),'utf8'));
+  assert.equal(manifest.share_target.action,'/quiz/share-image');
+  assert.equal(manifest.share_target.method,'POST');
+});
+
+test('share target rejects links, multiple files and unsupported types without fetching URLs',async()=>{
+  for(const [kind,expected] of [['url','missing'],['multiple','count'],['svg','type'],['large','size']]){
+    const h=createWorkerHarness();const form=new FormData();
+    if(kind==='url')form.append('text','https://example.com/image');
+    else {form.append('image',new Blob([kind==='large'?new Uint8Array(10_000_001):'image'],{type:kind==='svg'?'image/svg+xml':'image/png'}),'image');if(kind==='multiple')form.append('image',new Blob(['b'],{type:'image/png'}),'b.png');}
+    const response=await h.api.receiveSharedImage(new Request(`${scope}share-image`,{method:'POST',body:form}));
+    assert.equal(new URL(response.headers.get('location')).searchParams.get('sharedImageError'),expected);
+    assert.equal(h.entries.size,0);assert.deepEqual(h.networkRequests,[]);
+  }
 });
 
 test('navigation falls back to the cached app shell on an HTTP 5xx response', async () => {

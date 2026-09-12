@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { appendSharedImage, readImageTarget, rememberImageTarget } from '../src/utils/sharedImage.ts';
+import { extractExplanationMedia } from '../src/utils/explanationMarkdown.ts';
+const id='12345678-1234-1234-1234-123456789abc';
+const image='![添付画像](data:image/jpeg;base64,YQ==)';
+const question={id:'q',setId:'s',question:'問題',choices:['a','b','c','d'],answerIndex:0,explanation:'通常',detailedAnswer:{body:'既存',imageIds:['old'],updatedAt:'old'}};
+const data={questions:[question],progress:[{correctCount:2}],answerLogs:[{}]};
+test('shared image appends once without changing normal explanations or progress',()=>{
+  const next=appendSharedImage(data,'q','問題',image,id);
+  assert.equal(next.questions[0].explanation,'通常');
+  assert.deepEqual(next.questions[0].detailedAnswer.imageIds,['old']);
+  assert.deepEqual(next.progress,data.progress);
+  assert.deepEqual(next.answerLogs,data.answerLogs);
+  assert.equal(appendSharedImage(next,'q','問題',image,id),next);
+  const display=extractExplanationMedia(next.questions[0].detailedAnswer.body);
+  assert.equal(display.media.length,1);
+  assert.ok(display.body.includes('既存'));
+  assert.ok(!display.body.includes('qm-image'));
+  assert.throws(()=>appendSharedImage(data,'missing','問題',image,id));
+  assert.throws(()=>appendSharedImage(data,'q','変更済み',image,id));
+  assert.throws(()=>appendSharedImage(data,'q','問題','https://example.com/image',id));
+  assert.throws(()=>appendSharedImage({...data,questions:[{...question,detailedAnswer:{body:'a'.repeat(250000)}}]},'q','問題',image,id));
+});
+test('remembered targets expire and malformed storage never picks an arbitrary question',()=>{
+  let raw='';globalThis.localStorage={setItem:(_k,v)=>{raw=v;},getItem:()=>raw};
+  rememberImageTarget('q');assert.equal(readImageTarget(),'q');
+  raw=JSON.stringify({questionId:'q',updatedAt:Date.now()-31*60_000});assert.equal(readImageTarget(),'');
+  raw='invalid';assert.equal(readImageTarget(),'');
+});

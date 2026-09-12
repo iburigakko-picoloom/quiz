@@ -1019,7 +1019,7 @@ function AnswerPanel({
         </button>
         <h2>解説・メモ</h2>
       </div>
-      <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} onSave={onSaveDetailedExplanation} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} />
+      <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} onSave={onSaveDetailedExplanation} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} active={panelPage === 'detail' && state !== 'hidden'} />
     </div>
   );
 

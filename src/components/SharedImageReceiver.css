@@ -1,0 +1,13 @@
+.shared-image-dialog{box-sizing:border-box;width:min(520px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflow:auto;border:0;border-radius:20px;padding:22px;background:#fff;color:#202d3b}
+.shared-image-dialog::backdrop{background:#192a4259}
+.shared-image-dialog h2{font-size:21px;margin:0 0 18px}
+.shared-image-preview{display:block;max-width:100%;max-height:35dvh;object-fit:contain;margin:0 auto 20px}
+.shared-image-dialog label{display:grid;gap:8px;font-size:14px}
+.shared-image-dialog select{min-width:0;width:100%;padding:12px;font:inherit;font-size:16px;border:1px solid #d3d9e2;border-radius:9px;background:#fff;color:inherit}
+.shared-image-question{overflow-wrap:anywhere;font-size:14px;max-height:100px;overflow:auto}
+.shared-image-error{color:#a33333;font-size:14px}
+.shared-image-actions{display:flex;gap:10px;margin-top:20px}
+.shared-image-actions button{flex:1;min-height:46px;padding:10px;border:1px solid #d3d9e2;border-radius:10px;background:white;color:#305da3;font:inherit}
+.shared-image-actions .shared-image-save{background:#305da3;color:white;border-color:#305da3}
+.shared-image-actions button:disabled{opacity:.5}
+.weakness-image-paste{margin-left:20px}
