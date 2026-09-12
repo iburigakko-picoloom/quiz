@@ -1,0 +1,11 @@
+.note-explanation-list{display:grid;gap:28px;min-width:0;padding-bottom:28px}
+.note-explanation-item{min-width:0;border-bottom:1px solid #e2e6ec;padding:0 0 28px;color:#202d3b}
+.note-explanation-item__header{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#305da3;font-size:14px;font-weight:600}
+.note-explanation-item__header button{min-height:44px;border:0;border-radius:8px;padding:8px 10px;background:transparent;color:#305da3;font:inherit;font-size:13px}
+.note-explanation-item__header button:focus-visible{outline:2px solid #305da3;outline-offset:2px}
+.note-explanation-item h3{margin:4px 0 18px;font-size:16px;line-height:1.7;overflow-wrap:anywhere;white-space:pre-wrap}
+.note-explanation-item h4{margin:0 0 8px;font-size:12px;font-weight:600;color:#677587}
+.note-explanation-item__memos{margin-bottom:20px;padding-left:12px;border-left:3px solid #d2dceb}
+.note-explanation-item__memos p{margin:8px 0;font-size:15px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+.note-explanation-item__answer{min-width:0}
+.note-explanation-item .weakness-markdown>:first-child{margin-top:0}
