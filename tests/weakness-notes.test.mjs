@@ -18,6 +18,15 @@ test('free memo explanations append and remain idempotent',()=>{storage.clear();
 test('prompt conditions and problem identifiers are preserved',()=>{const {request}=setup();const p=explanationPrompt(request,{tables:true,images:true,examples:true});assert.ok(p.includes(request.id));assert.ok(p.includes('question:q1'));assert.ok(p.includes('なぜA？'));assert.ok(p.includes('通常解説は残す'));assert.ok(p.includes('Markdownの表'));assert.ok(p.includes('捏造しない'));});
 test('normal answer markup and swipe rail remain separate from the new detail component',()=>{const s=readFileSync(new URL('../src/screens/QuizRunner.tsx',import.meta.url),'utf8');assert.match(s,/<ExplanationContent text=\{explanation\}/);assert.match(s,/<WeaknessDetail key=\{questionId\}/);assert.match(s,/handleDetailPointerMove/);assert.match(s,/handleNextWithDraftCheck/);assert.doesNotMatch(s,/handleClipboardRead|handleSaveDetail =/);});
 
+test('empty details retain a direct image picker without enabling read-only edits',()=>{
+  const source=readFileSync(new URL('../src/components/WeaknessDetail.tsx',import.meta.url),'utf8');
+  assert.match(source, /<ExplanationReader text=\{text\} onSave=\{onSave\} disabled=\{disabled\}\/>/);
+  assert.doesNotMatch(source, /text\.trim\(\)\?<ExplanationReader/);
+  assert.match(source, /if \(!onSave \|\| disabled \|\| lock.current\) return/);
+  assert.match(source, /data-no-page-swipe disabled=\{busy\} onClick=\{\(\) => input.current\?\.click\(\)\}/);
+  assert.match(source, /active === null \? <input ref=\{input\}/);
+});
+
 test('one-shot explanation template imports with exact IDs and respects visual options',()=>{
   const {request}=setup();
   for(const enabled of [true,false]){

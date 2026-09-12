@@ -45,7 +45,7 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
   const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null), lock = useRef(false);
   useEffect(() => { if (active !== null) dialog.current?.showModal(); }, [active]);
   const attach = async (file: File) => {
-    if (!onSave || lock.current) return;
+    if (!onSave || disabled || lock.current) return;
     lock.current = true; setBusy(true); setError('');
     try {
       const image = await imageMarkdown(file); const next = `${text}\n\n${image}`;
@@ -66,7 +66,8 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
     {onSave && !disabled && text.trim() ? <details className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></details> : null}
     {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className="weakness-media-card" key={i}><button type="button" className="weakness-text" onClick={() => { setTab(m.startsWith('![') ? 'image' : 'table'); setActive(i); }} aria-label={`${m.startsWith('![') ? '画像' : '表'}${i+1}を拡大`}>{m.startsWith('![') ? '画像' : '表'}を拡大 ↗</button><Markdown text={m} /></section>)}</div> : null}
     {body.trim() ? <div className="weakness-markdown"><Markdown text={body} /></div> : null}
-    {onSave && !disabled ? <button type="button" className="weakness-text" disabled={busy} onClick={() => { setTab('image'); setActive(0); }}>画像・表を表示／画像を追加</button> : null}
+    {onSave && !disabled ? <button type="button" className="weakness-text" data-no-page-swipe disabled={busy} onClick={() => input.current?.click()}>{busy ? '保存中…' : '＋ 画像を追加'}</button> : null}
+    {active === null ? <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void attach(f);}}/> : null}
     {error ? <p role="alert" className="weakness-error">{error}</p> : null}
     {active !== null ? createPortal(<dialog ref={dialog} className="weakness-media-dialog" onCancel={e => { if (busy) e.preventDefault(); else setActive(null); }}>
       <header><button type="button" disabled={busy} onClick={() => setActive(null)}>閉じる</button><h2>比較表・画像</h2></header>
@@ -97,7 +98,7 @@ export function WeaknessDetail({ questionId, text, onSave, disabled = false, onD
   };
   const save=()=>{if(!body.trim()||!memoId)return;if(persist(body,false)){setBody('');setMemoId(crypto.randomUUID());setMessage('苦手メモに保存しました');if(text.trim())setAdding(false);}};
   return <section className="weakness-detail">
-    {text.trim()?<ExplanationReader text={text} onSave={onSave} disabled={disabled}/>:null}
+    <ExplanationReader text={text} onSave={onSave} disabled={disabled}/>
     {disabled ? (!text.trim()?<p className="weakness-muted">自分の問題にコピーすると疑問を保存できます。</p>:null) : <>
       {!adding&&text.trim()?<button type="button" className="weakness-button" onClick={()=>setAdding(true)}>＋ 追加で質問・メモ</button>:<div className="weakness-composer">
         <label htmlFor={`memo-${questionId}`}>詳しく知りたいこと</label>
