@@ -11,7 +11,7 @@
 .weakness-primary{background:#305da3;color:white;border-color:#305da3}
 .weakness-button:disabled,.weakness-primary:disabled{opacity:.5;cursor:default}
 .weakness-text{border:0;background:transparent;color:#305da3;min-height:44px;padding:8px 0;font:inherit;font-size:13px;cursor:pointer}
-.weakness-muted{color:#677587;font-size:12px}.weakness-error{color:#a33333;font-size:13px}.weakness-error button{margin-left:12px}
+.weakness-muted{color:#677587;font-size:12px}.weakness-error{color:#d72d40;font-size:13px}.weakness-error button{margin-left:12px}
 .weakness-composer{margin-top:18px}.weakness-composer>label{display:block;font-size:13px;margin-bottom:9px}
 .weakness-compose-row{display:flex;gap:10px;align-items:flex-end}
 .weakness-detail .weakness-compose-row textarea{min-height:88px;height:110px;max-height:220px;flex:1;width:0;padding:12px;border:1px solid #c9d2de;border-radius:10px;font:inherit;font-size:16px;line-height:1.6;resize:vertical;background:white;color:#202d3b;touch-action:pan-y}
@@ -27,16 +27,17 @@
 .weakness-row{display:flex;align-items:center;gap:12px;width:100%;border:0;border-bottom:1px solid #e2e6ec;padding:18px 0;text-align:left;background:white;color:#202d3b;font:inherit}.weakness-row>span{flex:1;min-width:0}.weakness-row strong{display:block;font-size:16px;overflow-wrap:anywhere}.weakness-row small{display:block;color:#677587;font-size:12px;margin-top:5px}.weakness-row svg{flex-shrink:0;color:#305da3}
 .weakness-workspace h2{font-size:18px;margin:0 0 16px}.weakness-workspace h3{font-size:16px}.weakness-workspace textarea{width:100%;min-height:155px;border:1px solid #c9d2de;border-radius:10px;background:white;color:#202d3b;padding:12px;font:inherit;font-size:16px;resize:vertical}.weakness-workspace input[type=checkbox]{width:20px;height:20px;accent-color:#305da3;flex-shrink:0}.weakness-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px}.weakness-toolbar h2{margin:0}.weakness-actions{display:grid;gap:10px;margin:22px 0}.weakness-selection{border-left:2px solid #b4c9e6;padding:4px 0 4px 14px;margin:22px 0}.weakness-selection label{display:flex;gap:10px;align-items:center}.weakness-selection p{margin:8px 0}.weakness-selection button{font-size:12px}.weakness-workspace details{padding:14px 0;border-bottom:1px solid #e2e6ec}.weakness-workspace summary{cursor:pointer;font-size:14px}.weakness-workspace .weakness-title{width:100%;border:0;border-bottom:1px solid #e2e6ec;padding:12px 0;font:inherit;font-size:20px;background:white;color:#202d3b}.weakness-workspace .weakness-free-body{border:0;min-height:260px;padding:14px 0}.weakness-workspace .weakness-status{font-size:12px;color:#305da3;padding:10px 0}.weakness-step{display:flex;gap:10px;align-items:center;font-size:12px;color:#305da3;margin-bottom:22px}.weakness-step:after{content:'';height:1px;background:#dce3ed;flex:1}
 @media(prefers-reduced-motion:no-preference){.weakness-tabs button,.weakness-button,.weakness-primary{transition:background-color .2s,color .2s}.weakness-button:active,.weakness-primary:active{filter:brightness(.96)}}
-.weakness-keyword{color:#b42332;font-weight:700}
+.weakness-keyword{color:#d72d40;font-weight:700}
 .weakness-image-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin:20px 0}
 .weakness-image-actions>.weakness-button{width:auto;min-width:130px;max-width:100%;padding:11px 16px}
+.weakness-reader .weakness-image-actions>button.weakness-button{border:1px solid #aebed2;border-radius:10px;background:#fff;min-height:46px;padding:11px 16px;color:#305da3}
 .weakness-purpose-tabs{display:grid;grid-template-columns:1fr 1fr;position:relative;border-bottom:1px solid #dce3ed;margin:0 0 22px}
 .weakness-purpose-tabs:after{content:'';position:absolute;bottom:-1px;left:0;width:50%;height:2px;background:#305da3;transform:translateX(0);transition:transform .24s ease;pointer-events:none}
 .weakness-purpose-tabs[data-purpose=answer]:after{transform:translateX(100%)}
 .weakness-purpose-tabs button{min-height:52px;border:0;border-radius:0;background:#fff;font:inherit;color:#637184;padding:12px 8px}
 .weakness-purpose-tabs button[aria-pressed=true]{color:#305da3;font-weight:700}
 @media(prefers-reduced-motion:reduce){.weakness-purpose-tabs:after{transition:none}}
-.weakness-reader-menu{margin:0 0 8px;text-align:right}.weakness-reader-menu summary{display:inline-block;cursor:pointer;list-style:none;min-width:44px;min-height:36px;color:#526174;font-size:22px}.weakness-reader-menu summary::-webkit-details-marker{display:none}.weakness-reader-menu button{display:block;margin-left:auto;border:0;background:#fff;color:#b42332;padding:10px;font:inherit}
+.weakness-reader-menu{margin:0 0 8px;text-align:right}.weakness-reader-menu summary{display:inline-block;cursor:pointer;list-style:none;min-width:44px;min-height:36px;color:#526174;font-size:22px}.weakness-reader-menu summary::-webkit-details-marker{display:none}.weakness-reader-menu button{display:block;margin-left:auto;border:0;background:#fff;color:#d72d40;padding:10px;font:inherit}
 .weakness-reader .weakness-table td,.weakness-reader .weakness-table th{min-width:110px}
 .weakness-workspace--list{padding-bottom:calc(108px + var(--primary-nav-height,64px) + var(--safe-bottom,0px))}
 .weakness-import-dock{position:fixed;z-index:7;bottom:calc(var(--primary-nav-height,64px) + var(--safe-bottom,0px));left:50%;transform:translateX(-50%);width:min(calc(100% - 24px),760px);padding:12px 0;background:#fff}

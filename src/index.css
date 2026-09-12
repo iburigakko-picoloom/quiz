@@ -680,7 +680,7 @@ button:disabled {
 }
 
 .quiz-runner__answer-message {
-  color: var(--ui-danger, #c43f57);
+  color: var(--ui-danger, #d72d40);
 }
 
 .quiz-runner__answer-action-grid {
@@ -1804,7 +1804,7 @@ button:disabled {
 }
 
 .answer-sheet__markdown strong {
-  color: #b42332;
+  color: #d72d40;
   font-weight: 700;
 }
 
@@ -1960,7 +1960,7 @@ button:disabled {
   --ui-accent: #1769ff;
   --ui-accent-dark: #1553c8;
   --ui-accent-soft: #eef4ff;
-  --ui-danger: #c43f57;
+  --ui-danger: #d72d40;
   --ui-danger-soft: #fff0f3;
   --ui-shadow: 0 12px 32px rgba(41, 63, 91, 0.09);
   --ui-shadow-soft: 0 4px 16px rgba(41, 63, 91, 0.07);
