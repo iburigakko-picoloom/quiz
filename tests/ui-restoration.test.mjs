@@ -10,6 +10,17 @@ const iconSource = readSource('../src/components/UiIcons.tsx');
 const createCss = readSource('../src/screens/CreateProblemSetScreen.css');
 const communityCss = readSource('../src/screens/CommunityScreen.css');
 
+test('answer and detail page navigation exposes opposite directions at the top',()=>{
+  const answer=quizSource.slice(quizSource.indexOf('const answerPage ='),quizSource.indexOf('const detailPage ='));
+  assert.ok(answer.indexOf('answer-sheet__page-navigation')<answer.indexOf('answer-sheet__answer-box'));
+  assert.match(answer,/aria-label="右側の解説・メモへ"/);
+  assert.match(quizSource,/aria-label="左側の解答に戻る"/);
+  assert.equal((quizSource.match(/ref=\{detailOpenRef\}/g)||[]).length,1);
+  const css=readSource('../src/final-reference.css');
+  assert.match(css,/\.answer-sheet__page-navigation \{ position: sticky; top: 0/);
+  assert.match(css,/justify-content: space-between/);
+});
+
 test('the historical answer sheet and screen transitions remain intact', () => {
   assert.match(globalCss, /\.quiz-screen-transition--forward/);
   assert.match(globalCss, /@keyframes quizScreenForwardIn/);

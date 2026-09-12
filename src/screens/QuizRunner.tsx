@@ -985,6 +985,12 @@ function AnswerPanel({
       aria-hidden={panelPage !== 'answer'}
       inert={panelPage !== 'answer'}
     >
+      <div className="answer-sheet__page-navigation">
+        <h2>解答</h2>
+        <button ref={detailOpenRef} type="button" className={'answer-sheet__detail-open' + (hasUnsavedDetail ? ' answer-sheet__detail-open--unsaved' : '')} onClick={openDetailPage} aria-label="右側の解説・メモへ">
+          <span>解説・メモ</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6" /></svg>
+        </button>
+      </div>
       <div className="answer-sheet__answer-box">
         <p className="answer-sheet__label">{'\u6b63\u89e3'}</p>
         <p className="answer-sheet__answer-text">{answer}</p>
@@ -992,16 +998,6 @@ function AnswerPanel({
       <div className="answer-sheet__explanation-block">
         <p className="answer-sheet__label">{'\u89e3\u8aac'}</p>
         <ExplanationContent text={explanation} className="answer-sheet__explanation-text" />
-        {(
-          <button
-            ref={detailOpenRef}
-            type="button"
-            className={'answer-sheet__detail-open' + (hasUnsavedDetail ? ' answer-sheet__detail-open--unsaved' : '')}
-            onClick={openDetailPage}
-          >
-            解説・メモ <span aria-hidden="true">›</span>
-          </button>
-        )}
       </div>
     </div>
   );
@@ -1013,9 +1009,9 @@ function AnswerPanel({
       aria-hidden={panelPage !== 'detail'}
       inert={panelPage !== 'detail'}
     >
-      <div className="answer-sheet__detail-heading">
-        <button ref={detailBackRef} type="button" className="answer-sheet__detail-back" onClick={handleLeaveDetailPage} disabled={isSavingDetail}>
-          {'\u2039'} {'\u89e3\u7b54\u306b\u623b\u308b'}
+      <div className="answer-sheet__detail-heading answer-sheet__page-navigation">
+        <button ref={detailBackRef} type="button" className="answer-sheet__detail-back" onClick={handleLeaveDetailPage} disabled={isSavingDetail} aria-label="左側の解答に戻る">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5m6-6-6 6 6 6" /></svg><span>解答に戻る</span>
         </button>
         <h2>解説・メモ</h2>
       </div>
