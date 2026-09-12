@@ -39,7 +39,7 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onGenerate, on
   const inSet=notes.filter(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===setId)&&n.body.trim());
   const title=view==='set'?data.problemSets.find(s=>s.id===setId)?.title:view==='prompt'?'AIへの依頼':view==='import'?'回答を取り込む':view==='question'?'解説・メモ':view==='edit'?'メモ':null;
   const chooseAll=(id:string)=>{setSetId(id);const ns=notes.filter(n=>n.questionId&&n.body.trim()&&!n.draft&&n.resolvedBody!==n.body&&data.questions.some(q=>q.id===n.questionId&&q.setId===id));setSelected(ns.map(n=>n.id));go('set');};
-  return <section className="weakness-workspace" aria-label="苦手メモ">
+  return <section className={`weakness-workspace${view==='list'?' weakness-workspace--list':''}`} aria-label="苦手メモ">
     <form id="creation-note-add" onSubmit={e=>{e.preventDefault();add();}}/>
     {title&&view!=='edit'?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}
     {error?<div role="alert" className="weakness-error">{error}{failed&&note?<button type="button" onClick={()=>update(note)}>再保存</button>:null}</div>:null}
@@ -51,7 +51,7 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onGenerate, on
         {!notes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-muted">学習中に残した疑問がここにまとまります。</p>:null}
         {notes.some(n=>n.questionId&&!data.questions.some(q=>q.id===n.questionId))?<details><summary>元の問題がないメモ</summary>{notes.filter(n=>n.questionId&&!data.questions.some(q=>q.id===n.questionId)).map(n=><p key={n.id}>{n.body}</p>)}</details>:null}
       </>:<>{notes.filter(n=>!n.questionId).map(n=><button type="button" className="weakness-row" key={n.id} onClick={()=>{setSelectedId(n.id);setEditTab('memo');go('edit');}}><WeaknessMemoIcon size={30}/><span><strong>{n.title.trim()||'無題のメモ'}</strong><small>{n.body.split('\n')[0]}</small></span><ChevronRightIcon/></button>)}<div className="weakness-actions"><button type="button" className="weakness-button" onClick={add}>＋ メモを追加</button></div></>}
-      <button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button>
+      <div className="weakness-import-dock"><button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button></div>
     </>:null}
     {view==='set'?<>
       <div className="weakness-step">① メモを選ぶ　→　② AIに依頼</div>
