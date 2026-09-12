@@ -25,9 +25,9 @@ test('notes persist edits, guard save failures and copy before opening import', 
   assert.match(notes, /changeWeaknessNotes/);
   assert.match(notes, /onDirtyChange\(failed\|\|busy/);
   assert.match(notes, /window\.confirm/);
-  assert.ok(notes.indexOf('await writeClipboardText') < notes.indexOf('onGenerate();'));
-  assert.match(notes, /生成AIで問題化/);
+  assert.match(notes, /await writeClipboardText/);
+  assert.doesNotMatch(notes, /自由メモ|生成AIで問題化|creation-note-add/);
   assert.match(create, /view === 'notes' \? <div/);
   assert.match(create, /notesBackRef\.current\?\.\(\)/);
-  assert.match(create, /setNotePromptCopied\(true\); setAiStep\(2\)/);
+  assert.doesNotMatch(create, /creation-note-add/);
 });

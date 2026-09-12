@@ -96,7 +96,6 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
   const [notesDirty, setNotesDirty] = useState(false);
   const notesBackRef = useRef<(()=>boolean)|null>(null);
-  const [notePromptCopied, setNotePromptCopied] = useState(false);
   const initializedCopyRef = useRef<string | undefined>(undefined);
   const saveInFlightRef = useRef(false);
   const initialMetaRef = useRef(meta);
@@ -163,7 +162,6 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     setPasteText('');
     setCreationRequest('');
     setAiStep(1);
-    setNotePromptCopied(false);
     setSourceSetId(undefined);
     setError('');
     setView(next);
@@ -414,12 +412,11 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
           <div>
             <h1>{editingProblemSet ? '問題セットを編集' : getViewTitle(view, sourceSetId)}</h1>
           </div>
-          {view === 'notes' ? <button type="submit" form="creation-note-add" className="create-set__add-note" aria-label="メモを追加">＋</button> : null}
         </header>
 
         {view === 'methods' ? <MethodChooser onSelect={startMethod} /> : null}
         {view === 'notes' ? <div className="create-set__flow">
-          <CreationNotes onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onGenerate={() => { setNotePromptCopied(true); setAiStep(2); goTo('chatgpt'); activeMethodRef.current = 'chatgpt'; }} />
+          <CreationNotes onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} />
         </div> : null}
 
         {view === 'manual' ? (
@@ -470,7 +467,6 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               {aiMethod === 'simple' ? <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button> : null}
             </section> : null}
             {view !== 'chatgpt' || aiStep === 2 ? <>
-            {notePromptCopied ? <p className="create-set__notice" role="status">依頼文をコピーしました</p> : null}
             <SetMetaFields data={data} value={meta} onChange={setMeta} />
             <section className="create-set__panel">
               <h2>{view === 'chatgpt' ? '作成されたJSONを貼り付ける' : '複数の問題'}</h2>
