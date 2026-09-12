@@ -449,6 +449,14 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
+export async function deleteCloudGroup(groupId: string): Promise<void> {
+  if (!groupId) throw new Error('グループを選択してください。');
+  const client = requireCloudClient();
+  const { data, error } = await client.from('quiz_groups').delete().eq('id', groupId).select('id');
+  if (error) throw new Error(toFriendlyCloudError(error.message));
+  if (!data?.length) throw new Error('削除できませんでした。所有者の権限とグループの状態を確認してください。');
+}
+
 export function buildShareUrl(setId: string, shareToken: string): string {
   const url = new URL(import.meta.env.BASE_URL, window.location.origin);
   url.searchParams.set('sharedSet', setId);

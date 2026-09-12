@@ -16,6 +16,8 @@
 .community-screen textarea { font: inherit; }
 
 .community-screen button { cursor: pointer; }
+.community-group-header-actions { display: flex; align-items: center; gap: 0; }
+.community-group-danger { width: 100%; min-height: 48px; padding: 12px; border: 0; border-radius: 8px; background: #fff; color: #b42332; font: inherit; text-align: left; }
 
 .community-screen__header {
   position: sticky;

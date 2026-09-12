@@ -17,6 +17,7 @@ import {
   buildShareUrl,
   cloudConfigured,
   createCloudGroup,
+  deleteCloudGroup,
   createGroupInvite,
   getCloudDisplayName,
   getCloudSession,
@@ -93,6 +94,7 @@ export function CommunityScreen({
   const [publishedSets, setPublishedSets] = useState<CloudProblemSet[]>([]);
   const [groups, setGroups] = useState<CloudGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId ?? '');
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [groupSets, setGroupSets] = useState<CloudProblemSet[]>([]);
   const [groupMembers, setGroupMembers] = useState<CloudGroupMember[]>([]);
   const [groupDetailTab, setGroupDetailTab] = useState<'sets' | 'members'>('sets');
@@ -465,7 +467,8 @@ export function CommunityScreen({
   };
 
   const removeGroupMember = async (member: CloudGroupMember) => {
-    if (!selectedGroupId) return;
+    if (!selectedGroupId || busy) return;
+    if (!window.confirm(member.userId === session?.user.id ? 'グループから退出しますか？ホームに取り込んだ問題は残ります。再参加には招待が必要です。' : `${member.displayName}をグループから外しますか？`)) return;
     setBusy(true);
     setError('');
     try {
@@ -485,6 +488,18 @@ export function CommunityScreen({
     } finally {
       setBusy(false);
     }
+  };
+
+  const deleteSelectedGroup = async () => {
+    if (!selectedGroup || selectedGroup.role !== 'owner' || busy) return;
+    if (!window.confirm(`「${selectedGroup.name}」を削除しますか？全メンバーが利用できなくなり、招待とグループ内の共有が解除されます。ホームの問題や他の公開先は残ります。この操作は元に戻せません。`)) return;
+    setBusy(true); setError('');
+    try {
+      await deleteCloudGroup(selectedGroup.id);
+      setGroupMenuOpen(false); setSelectedGroupId(''); setGroupMembers([]); setGroupSets([]);
+      await refreshGroups(); onBack();
+    } catch (reason) { setError(getErrorMessage(reason)); }
+    finally { setBusy(false); }
   };
 
   const copyInvite = async (groupId: string) => {
@@ -633,7 +648,7 @@ export function CommunityScreen({
         <header className="community-screen__header">
           {isPrimaryRoot ? <span className="community-screen__header-spacer" aria-hidden="true" /> : <BackButton onClick={handleHeaderBack} label="戻る" />}
           <div><h1>{headerTitle}</h1></div>
-          {isGroupDetail && !isGroupSetDetail && canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : <span className="community-screen__header-spacer" aria-hidden="true" />}
+          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={()=>setGroupMenuOpen(true)}>…</button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
         </header>
 
         {!cloudConfigured ? <div className="community-notice community-notice--warning">共有機能の接続設定が未完了です。端末内の作成・学習機能はそのまま使えます。</div> : null}
@@ -678,8 +693,8 @@ export function CommunityScreen({
                           {[...groupMembers].sort((a,b) => ({owner:0,admin:1,member:2}[a.role] - {owner:0,admin:1,member:2}[b.role])).map((member) => (
                             <div key={member.userId}>
                               <span><strong>{member.displayName}</strong><small>{roleLabel(member.role)}</small></span>
-                              {member.role !== 'owner' && (canManageSelectedGroup || member.userId === session.user.id) ? (
-                                <button type="button" disabled={busy} onClick={() => void removeGroupMember(member)}>{member.userId === session.user.id ? '退出' : '削除'}</button>
+                              {member.role !== 'owner' && member.userId !== session.user.id && canManageSelectedGroup ? (
+                                <button type="button" disabled={busy} onClick={() => void removeGroupMember(member)}>メンバーから外す</button>
                               ) : null}
                             </div>
                           ))}
@@ -819,6 +834,11 @@ export function CommunityScreen({
           <p>公開先と共有リンクから削除します。ホームの元データと、他の人が取り込んだコピーは残ります。</p>
           {removeError ? <p role="alert">{removeError}</p> : null}
           <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setRemoveTarget(null)}>キャンセル</button><button type="button" className="community-danger" disabled={busy} onClick={() => void confirmRemove()}>{busy ? '取り消し中…' : '公開を取り消す'}</button></div>
+        </CommunityModal> : null}
+        {groupMenuOpen && selectedGroup ? <CommunityModal ariaLabel="グループの管理" busy={busy} onClose={()=>setGroupMenuOpen(false)}>
+          <h2>{selectedGroup.name}</h2>
+          {error ? <p role="alert" className="community-notice--error">{error}</p> : null}
+          {selectedGroup.role === 'owner' ? <button type="button" className="community-group-danger" disabled={busy} onClick={()=>void deleteSelectedGroup()}>グループを削除</button> : <button type="button" className="community-group-danger" disabled={busy || !groupMembers.some(m=>m.userId===session?.user.id)} onClick={()=>{const member=groupMembers.find(m=>m.userId===session?.user.id);if(member)void removeGroupMember(member);}}>グループから退出</button>}
         </CommunityModal> : null}
         {copyTarget ? <CommunityModal ariaLabel="取り込み先を選択" busy={busy} onClose={() => setCopyTarget(null)}>
           <h2>取り込み先を選択</h2>
