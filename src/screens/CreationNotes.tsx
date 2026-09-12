@@ -16,6 +16,7 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onDirtyChange,
   const [history,setHistory]=useState<(typeof view)[]>([]);
   const [setId,setSetId]=useState(''),[selectedId,setSelectedId]=useState(''),[selected,setSelected]=useState<string[]>([]),[showAll,setShowAll]=useState(false);
   const [tables,setTables]=useState(true),[images,setImages]=useState(false),[examples,setExamples]=useState(true);
+  const [purpose,setPurpose]=useState<'questions'|'answer'>('answer');
   const [paste,setPaste]=useState(''),[batch,setBatch]=useState<ExplanationBatch|null>(null),[stage,setStage]=useState<'paste'|'review'>('paste'),[failed,setFailed]=useState(false);
   const note=notes.find(n=>n.id===selectedId),question=data.questions.find(q=>q.id===note?.questionId);
   useEffect(()=>{const load=()=>{try{setNotes(readWeaknessNotes());}catch{setError('メモを読み込めません。再読み込みしてください。');}};load();window.addEventListener(NOTES_EVENT,load);window.addEventListener('storage',load);return()=>{window.removeEventListener(NOTES_EVENT,load);window.removeEventListener('storage',load);};},[]);
@@ -57,11 +58,15 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onDirtyChange,
       <div className="weakness-import-dock"><button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button></div>
     </>:null}
     {view==='set'?<>
-      <div className="weakness-step">① メモを選ぶ　→　② AIに依頼</div>
+      <div className="weakness-purpose-tabs" data-purpose={purpose} role="group" aria-label="メモの使い方">
+        <button type="button" aria-pressed={purpose==='questions'} disabled={busy||failed} onClick={()=>setPurpose('questions')}>問題作成</button>
+        <button type="button" aria-pressed={purpose==='answer'} disabled={busy||failed} onClick={()=>setPurpose('answer')}>AI解答</button>
+      </div>
+      <div className="weakness-step">① メモを選ぶ　→　② {purpose==='questions'?'問題を作る':'AIに解答を依頼'}</div>
       <label className="weakness-muted"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> 解説済みも表示</label>
       {inSet.filter(n=>showAll||n.resolvedBody!==n.body).map(n=>{const q=data.questions.find(q=>q.id===n.questionId)!;return <div className="weakness-selection" key={n.id}><label><input type="checkbox" checked={selected.includes(n.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,n.id]:ids.filter(id=>id!==n.id))}/><span>{q.question.length>60?q.question.slice(0,60)+'…':q.question}</span></label><p>{n.body}</p><button type="button" className="weakness-text" onClick={()=>{setSelectedId(n.id);go('question');}}>{detailBody(q).trim()?'解説を読む・追加の疑問':'メモを開く'}</button>{n.draft?<span className="weakness-muted"> 下書き</span>:null}</div>;})}
       {!inSet.length?<p>メモはありません</p>:null}
-      <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={!selected.length||busy||failed} onClick={()=>go('prompt')}>{selected.length}件をAIに解説してもらう</button><button type="button" className="weakness-button" disabled={!selected.length||busy||failed} onClick={createQuestions}>選んだメモから問題を作る</button></div>
+      <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={!selected.length||busy||failed} onClick={()=>purpose==='questions'?createQuestions():go('prompt')}>{purpose==='questions'?'選んだメモから問題を作る':`${selected.length}件をAIに解答してもらう`}</button></div>
     </>:null}
     {view==='question'&&question?<><WeaknessDetail key={question.id} questionId={question.id} text={detailBody(question)} onSave={body=>onSaveDetail(question.id,body)} onDirtyChange={setFailed}/>{note?<details><summary>選んだ疑問を編集</summary><textarea aria-label="保存した疑問" value={note.body} onChange={e=>update({...note,body:e.target.value})}/><button type="button" className="weakness-text" onClick={()=>{if(window.confirm('この疑問を削除しますか？')&&change(items=>items.filter(n=>n.id!==note.id)))go('set');}}>この疑問を削除</button></details>:null}</>:null}
     {view==='prompt'?<>
