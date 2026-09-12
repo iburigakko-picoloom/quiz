@@ -1804,7 +1804,8 @@ button:disabled {
 }
 
 .answer-sheet__markdown strong {
-  font-weight: 900;
+  color: #2f559a;
+  font-weight: 700;
 }
 
 .answer-sheet__markdown hr {

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { applyCreationConditions, buildSimpleCreationPrompt } from '../src/utils/simpleCreationPrompt.ts';
 import { CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT, validateImportJson } from '../src/utils/importValidator.ts';
 
@@ -44,6 +45,23 @@ test('memo practice has its own source section and keeps question output format'
   assert.ok(prompt.includes('メモの誤解を正解として採用しない'));
   assert.ok(prompt.includes('問題作成用のquestions形式'));
   assert.ok(!buildSimpleCreationPrompt('普通の問題').includes('【苦手メモからの問題化】'));
+});
+
+test('ordinary explanation emphasis is blue and survives JSON import', () => {
+  for (const prompt of [buildSimpleCreationPrompt('古文単語'), CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
+    assert.ok(prompt.includes('1問あたり1〜3箇所だけ**太字**'));
+    assert.ok(prompt.includes('青い太字'));
+    assert.ok(prompt.includes('HTMLや色指定タグは使わない'));
+    const sample = JSON.parse(prompt.split('\n').find(line => line.startsWith('{')));
+    sample.questions[0].explanation = '**重要語**を覚える。';
+    const result = validateImportJson(JSON.stringify(sample));
+    assert.equal(result.ok, true);
+    assert.equal(result.value.questions[0].explanation, '**重要語**を覚える。');
+  }
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
+  assert.match(css, /\.answer-sheet__markdown strong\s*\{\s*color: #2f559a;\s*font-weight: 700;/);
+  const detailCss = readFileSync(new URL('../src/components/WeaknessNotes.css', import.meta.url), 'utf8');
+  assert.match(detailCss, /\.weakness-keyword\{color:#b42332/);
 });
 
 test('question totals are guidance, while explanations teach reasoning without a hard length cap', () => {
