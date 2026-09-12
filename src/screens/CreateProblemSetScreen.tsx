@@ -387,7 +387,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
       const template = kind === 'simple' ? buildSimpleCreationPrompt(creationRequest, { choiceCount, questionCount: count, allowMultiple }, memoContext) : kind === 'material'
         ? CHATGPT_MATERIAL_TEMPLATE_PROMPT
         : CHATGPT_PAST_EXAM_TEMPLATE_PROMPT;
-      await writeClipboardText(kind === 'past-exam'
+      await writeClipboardText(kind !== 'material'
         ? template
         : applyCreationConditions(template, { choiceCount, questionCount: count, allowMultiple }));
       setCopiedTemplate(kind);

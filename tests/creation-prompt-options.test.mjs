@@ -11,12 +11,27 @@ test('copied prompts include each combination of selected conditions', () => {
     assert.ok(simple.includes('古文単語を作って'));
     const example = JSON.parse(simple.split('\n').find((line) => line.startsWith('{')));
     assert.equal(example.questions[0].choices.length, choiceCount);
-    assert.ok(simple.includes(`${questionCount}問・${choiceCount}択`));
-    for (const template of [simple, CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
-      const prompt = applyCreationConditions(template, options);
+    for (const prompt of [simple, applyCreationConditions(CHATGPT_MATERIAL_TEMPLATE_PROMPT, options)]) {
       assert.ok(prompt.includes(`問題数：${questionCount}問`));
       assert.ok(prompt.includes(`必ず${choiceCount}個`));
-      assert.ok(prompt.includes(allowMultiple ? '複数回答の問題を含めても構いません' : '複数回答問題は作らないでください'));
+      assert.ok(prompt.includes(allowMultiple ? '複数回答を実際に含めてください' : '複数回答問題は作らないでください'));
+      assert.equal(prompt.split('【今回の作成条件】').length - 1, 1);
+      const sample = JSON.parse(prompt.split('\n').find(line => line.startsWith('{')));
+      const question = sample.questions[0];
+      assert.equal(question.choices.length, choiceCount);
+      assert.ok(question.explanation.includes('**'));
+      if (allowMultiple) {
+        assert.deepEqual(question.answerIndexes, [0, 1]);
+        assert.equal(question.answerIndex, undefined);
+        assert.ok(question.question.includes('すべて選べ'));
+      } else {
+        assert.equal(question.answerIndex, 0);
+        assert.equal(question.answerIndexes, undefined);
+      }
+      const imported = validateImportJson(JSON.stringify(sample));
+      assert.equal(imported.ok, true);
+      assert.deepEqual(imported.value.questions[0].answerIndexes, allowMultiple ? [0, 1] : [0]);
+      assert.equal(imported.value.questions[0].explanation, question.explanation);
     }
   }
 });
@@ -66,7 +81,7 @@ test('ordinary explanation emphasis is blue and survives JSON import', () => {
 
 test('question totals are guidance, while explanations teach reasoning without a hard length cap', () => {
   const simple = buildSimpleCreationPrompt('古文単語');
-  const conditions = applyCreationConditions(simple, { choiceCount: 4, questionCount: 20, allowMultiple: false });
+  const conditions = simple;
   assert.ok(conditions.includes('厳密に一致させる必要はありません'));
   assert.ok(conditions.includes('数合わせの重複・水増し'));
   for (const prompt of [simple, CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
@@ -75,5 +90,17 @@ test('question totals are guidance, while explanations teach reasoning without a
     assert.ok(prompt.includes('途中式'));
     assert.ok(prompt.includes('後半の解説を省略しない'));
     assert.ok(!prompt.includes('120〜240字'));
+  }
+});
+
+test('copy routing applies conditions once and preserves the past-exam original format', () => {
+  const screen = readFileSync(new URL('../src/screens/CreateProblemSetScreen.tsx', import.meta.url), 'utf8');
+  assert.match(screen, /writeClipboardText\(kind !== 'material'\s*\? template\s*: applyCreationConditions/);
+  const simple = buildSimpleCreationPrompt('古文単語');
+  assert.ok(simple.length < 1800);
+  assert.ok(simple.indexOf('【通常解説の強調】') < simple.indexOf('【学習者の依頼】'));
+  for (const prompt of [CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
+    const sample = JSON.parse(prompt.split('\n').find(line => line.startsWith('{')));
+    assert.ok(sample.questions[0].explanation.includes('**'));
   }
 });
