@@ -17,7 +17,15 @@ VITE_SUPABASE_ANON_KEY=PUBLIC_ANON_KEY
 
 ## Android / Google Play
 
-提出環境にはJDK 17とAndroid SDK 36が必要です（現在のAndroid Gradle Plugin 8.13構成）。
+このプロジェクトはJava 21・Android SDK 36を使用します。Android Studio 2025.2.1以降に付属するJDKを使用できます。JDK 17では生成済みのJava 21設定をコンパイルできません。
+
+### PCにAndroid環境がない場合
+
+GitHubのActionsで **Build Android test APK → Run workflow** を実行します。成功後、Artifactsから `QuizMake-Android-test-*` をダウンロードし、ZIP内の `app-debug.apk` をAndroid端末に入れて確認できます。Web公開で使用している既存の公開クライアント設定を引き継ぎ、秘密鍵の混入・設定漏れはビルド前に止めます。
+
+これは実機確認用のデバッグ版で、ストア提出用ではありません。実行ごとにデバッグ署名が変わる場合があるため、継続利用・配布には固定の署名鍵が必要です。既存ネイティブ版を削除して入れ直す前に必ずデータを書き出してください。PWAの端末内データも自動では移行しません。元のPWAを消さず、バックアップまたは同期で移行して確認してください。
+
+APKの生成成功は、LINEログイン・同期・画像共有の実機動作を保証しません。特にネイティブの共有受け取りはWebのShare Targetと別実装のため、提出前に確認・追加実装が必要です。
 
 1. Android Studioで `android` フォルダを開く
 2. 実機またはエミュレーターでデバッグ版を確認
@@ -28,7 +36,7 @@ VITE_SUPABASE_ANON_KEY=PUBLIC_ANON_KEY
 
 ## iOS / App Store
 
-2026年8月時点の提出には、Xcode 26以降とiOS 26 SDK以降が必要です。
+2026年9月確認：提出にはXcode 26以降とiOS 26 SDK以降が必要です。Windows単体では署名済みIPAを作れません。
 
 1. Macへリポジトリを取得し、共通準備を実行
 2. `npm run mobile:ios` でXcodeを開く

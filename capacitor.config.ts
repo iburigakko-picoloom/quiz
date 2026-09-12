@@ -4,7 +4,7 @@ const config: CapacitorConfig = {
   appId: 'io.github.manatocookietwitterlang.quizmake',
   appName: 'QuizMake',
   webDir: 'dist',
-  backgroundColor: '#f1f7fa',
+  backgroundColor: '#ffffff',
   loggingBehavior: 'debug',
   zoomEnabled: false,
   ios: {

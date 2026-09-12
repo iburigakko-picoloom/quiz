@@ -1,0 +1,53 @@
+name: Build Android test APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-debug
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify client configuration
+        run: node scripts/check-native-client-env.mjs
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      - name: Test
+        run: npm test
+      - name: Build and sync native assets
+        run: npm run mobile:sync
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_LINE_AUTH_PROVIDER: ${{ vars.VITE_LINE_AUTH_PROVIDER }}
+      - name: Install required Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Build test APK (not for store submission)
+        working-directory: android
+        run: bash ./gradlew assembleDebug --no-daemon
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuizMake-Android-test-${{ github.run_number }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

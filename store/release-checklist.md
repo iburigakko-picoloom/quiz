@@ -23,7 +23,9 @@
 ## 現在の公開ブロッカー
 
 - App Store Connect / Play Consoleの開発者登録、本人確認、契約・支払い情報
-- iOSはMac・Xcode 26以降・iOS 26 SDK以降で署名とArchive、AndroidはAndroid Studio・JDK 17・Android SDK 36で署名付きAABを生成する
+- iOSはMac・Xcode 26以降・iOS 26 SDK以降で署名とArchive、AndroidはAndroid Studio・Java 21・Android SDK 36で署名付きAABを生成する
+- AndroidテストAPKはGitHub Actionsから生成可能。ストア署名・実機検証は別途必要
+- PWAからの既存データ移行、LINEログインのアプリ復帰、ネイティブ共有受け取りを実機確認する
 - Magic Linkを本番利用する前に、独自SMTPを設定して実メール送受信を確認する
 
 ## 本人による外部手続き
