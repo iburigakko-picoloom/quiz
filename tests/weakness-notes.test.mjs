@@ -17,3 +17,21 @@ test('later memo edits stay unresolved after importing the old request',()=>{con
 test('free memo explanations append and remain idempotent',()=>{storage.clear();const n={id:'free',title:'メモ',body:'疑問',explanation:'以前の解説'};storage.set(NOTES_KEY,JSON.stringify([n]));const request=makeExplanationRequest([n],data);rememberExplanationRequest(request);const batch=readExplanationBatch(JSON.stringify({version:1,requestId:request.id,explanations:[{targetId:'memo:free',body:'新しい説明'}]}));finishExplanationBatch(batch);const saved=readWeaknessNotes()[0];assert.ok(saved.explanation.startsWith('以前の解説'));finishExplanationBatch(batch);assert.deepEqual(readWeaknessNotes()[0],saved);});
 test('prompt conditions and problem identifiers are preserved',()=>{const {request}=setup();const p=explanationPrompt(request,{tables:true,images:true,examples:true});assert.ok(p.includes(request.id));assert.ok(p.includes('question:q1'));assert.ok(p.includes('なぜA？'));assert.ok(p.includes('通常解説は残す'));assert.ok(p.includes('Markdownの表'));assert.ok(p.includes('捏造しない'));});
 test('normal answer markup and swipe rail remain separate from the new detail component',()=>{const s=readFileSync(new URL('../src/screens/QuizRunner.tsx',import.meta.url),'utf8');assert.match(s,/<ExplanationContent text=\{explanation\}/);assert.match(s,/<WeaknessDetail key=\{questionId\}/);assert.match(s,/handleDetailPointerMove/);assert.match(s,/handleNextWithDraftCheck/);assert.doesNotMatch(s,/handleClipboardRead|handleSaveDetail =/);});
+
+test('one-shot explanation template imports with exact IDs and respects visual options',()=>{
+  const {request}=setup();
+  for(const enabled of [true,false]){
+    const prompt=explanationPrompt(request,{tables:enabled,images:enabled,examples:enabled});
+    assert.ok(prompt.includes('原則1回の回答で完成したJSON'));
+    assert.ok(prompt.includes('今回の疑問だけに簡潔に'));
+    assert.ok(prompt.includes(enabled?'Markdownの表':'表は不要'));
+    assert.ok(prompt.includes(enabled?'JSONを省略しない':'画像は不要'));
+    const example=prompt.split('\n').find(line=>line.startsWith('{"version"'));
+    const batch=readExplanationBatch(example);
+    assert.equal(batch.request.id,request.id);
+    assert.deepEqual(batch.replies.map(r=>r.targetId),request.targets.map(t=>t.targetId));
+    const reply=JSON.parse(example);
+    reply.explanations[0].body='**重要語**\n\n|A|B|\n|---|---|\n|値|値|\n\n```flow\n条件 → 結果\n```';
+    assert.equal(readExplanationBatch(JSON.stringify(reply)).replies[0].body,reply.explanations[0].body);
+  }
+});

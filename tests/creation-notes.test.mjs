@@ -33,5 +33,6 @@ test('notes persist edits, guard save failures and copy before opening import', 
   assert.match(notes, /選んだメモから問題を作る/);
   assert.match(notes, /makeExplanationRequest\(picked,data\)/);
   assert.match(create, /memoContext/);
-  assert.match(create, /メモの誤解を正解として採用しない/);
+  assert.match(create, /buildSimpleCreationPrompt\(creationRequest, \{ choiceCount, questionCount: count, allowMultiple \}, memoContext\)/);
+  assert.match(read('../src/utils/simpleCreationPrompt.ts'), /メモの誤解を正解として採用しない/);
 });

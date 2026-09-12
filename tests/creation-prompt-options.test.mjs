@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyCreationConditions, buildSimpleCreationPrompt } from '../src/utils/simpleCreationPrompt.ts';
-import { CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT } from '../src/utils/importValidator.ts';
+import { CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT, validateImportJson } from '../src/utils/importValidator.ts';
 
 test('copied prompts include each combination of selected conditions', () => {
   for (const choiceCount of [4, 5]) for (const questionCount of [1, 35, 2000]) for (const allowMultiple of [false, true]) {
@@ -18,6 +18,32 @@ test('copied prompts include each combination of selected conditions', () => {
       assert.ok(prompt.includes(allowMultiple ? '複数回答の問題を含めても構いません' : '複数回答問題は作らないでください'));
     }
   }
+});
+
+test('all creation modes request a complete first reply and valid import examples', () => {
+  for (const prompt of [buildSimpleCreationPrompt('古文単語'), CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
+    assert.ok(prompt.includes('原則1回の回答で完成したJSON'));
+    assert.ok(prompt.includes('JSON本体を1個だけ'));
+    assert.ok(prompt.includes('未収録'));
+    const example = prompt.split('\n').find(line => line.startsWith('{'));
+    assert.equal(validateImportJson(example).ok, true);
+  }
+  const past = CHATGPT_PAST_EXAM_TEMPLATE_PROMPT;
+  assert.ok(past.includes('長さや文体をそろえるための書き換え、追加誤答の生成はしない'));
+  assert.ok(past.includes('単一回答への変換はしない'));
+  assert.ok(past.includes('shuffleChoicesをfalse'));
+  assert.ok(!past.includes('確認できるまで出力を完了しない'));
+  assert.ok(!CHATGPT_MATERIAL_TEMPLATE_PROMPT.includes('病態・機序 → 検査・診断'));
+});
+
+test('memo practice has its own source section and keeps question output format', () => {
+  const context = JSON.stringify([{疑問:['AとBの違い'],元の問題:'元問題'}]);
+  const prompt = buildSimpleCreationPrompt('復習問題', {choiceCount:5,questionCount:12,allowMultiple:true}, context);
+  assert.ok(prompt.includes(context));
+  assert.ok(prompt.includes('条件・具体例を変えて'));
+  assert.ok(prompt.includes('メモの誤解を正解として採用しない'));
+  assert.ok(prompt.includes('問題作成用のquestions形式'));
+  assert.ok(!buildSimpleCreationPrompt('普通の問題').includes('【苦手メモからの問題化】'));
 });
 
 test('question totals are guidance, while explanations teach reasoning without a hard length cap', () => {
