@@ -19,6 +19,7 @@ test('creation entry contains AI and notes, with copy moved to set actions', () 
   assert.match(read('../src/App.tsx'), /startWithAi=\{Boolean\(createBackScreen\) && !screen.editSetId && !screen.copySetId\}/);
   assert.match(chooser, /icon: <WeaknessMemoIcon/);
   assert.match(chooser, /icon: <AiCreationIcon/);
+  assert.match(chooser, /purpose:'answer'.*icon: <MemoExplanationIcon/);
   assert.doesNotMatch(chooser, /既存問題セット|CSV|ファイルを読み込む/);
   assert.match(read('../src/screens/ProblemSetDetailScreen.tsx'), /onClick=\{onCopy\}>問題セットをコピー/);
   assert.match(create, /JSONファイルを選ぶ/);

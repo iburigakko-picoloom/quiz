@@ -4,7 +4,7 @@ import type { AppData, Difficulty, ProblemSet, ProblemSetCreationMethod } from '
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
-import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, AiCreationIcon, WeaknessMemoIcon } from '../components/UiIcons';
+import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, AiCreationIcon, WeaknessMemoIcon, MemoExplanationIcon } from '../components/UiIcons';
 import { getDraftAnswerIndexes, parseBulkQuestionText, getDraftIssues, type BulkQuestionDraft } from '../utils/bulkQuestionParser';
 import { CreationNotes } from './CreationNotes';
 import type { ExplanationBatch } from '../utils/weaknessNotes';
@@ -688,7 +688,7 @@ function MethodChooser({ onSelect }: { onSelect: (view: CreationView, purpose?: 
       {view:'notes',purpose:'questions',title:'メモから作る',icon: <WeaknessMemoIcon />},
     ]},
     {title:'解説を作成',methods:[
-      {view:'notes',purpose:'answer',title:'メモから詳細解説を作る',icon: <WeaknessMemoIcon />},
+      {view:'notes',purpose:'answer',title:'メモから詳細解説を作る',icon: <MemoExplanationIcon />},
     ]},
   ];
   return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">{groups.map(group=><section className="create-set__purpose-group" key={group.title}><h2>{group.title}</h2>{group.methods.map((method) => <button key={method.title} type="button" className="create-set__method" onClick={() => onSelect(method.view,method.purpose)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}</section>)}

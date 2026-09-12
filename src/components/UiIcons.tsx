@@ -59,44 +59,49 @@ export function ProblemSetIcon({ size = 34, ...props }: IconProps) {
   </svg>;
 }
 
-/** A quiz card and a sparkling wand: generating questions, not copying files. */
+/** Filled quiz cards, without decorative sparkles or a wand. */
 export function AiCreationIcon({ size = 40, ...props }: IconProps) {
   const id = useId();
   return <svg {...iconProps(size, props)} data-creation-artwork="ai-quiz" viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
-    <defs><linearGradient id={`${id}-ai`} x2=".8" y2="1"><stop stopColor="#75baf0" /><stop offset="1" stopColor="#416bc1" /></linearGradient></defs>
-    <rect x="7" y="12" width="37" height="44" rx="7" fill={`url(#${id}-ai)`} />
-    <rect x="10" y="15" width="31" height="38" rx="5" fill="#fff" />
-    <path d="M19 27c0-7 13-7 13 0 0 4-6.5 4-6.5 9" fill="none" stroke="#426fc0" strokeWidth="3.5" strokeLinecap="round" />
-    <circle cx="25.5" cy="42" r="1.9" fill="#426fc0" />
-    <path d="M18 48h15" stroke="#c8d9ef" strokeWidth="2.5" strokeLinecap="round" />
-    <g transform="rotate(35 44 38)">
-      <rect x="40" y="24" width="8" height="31" rx="3.5" fill={`url(#${id}-ai)`} stroke="#fff" strokeWidth="1.5" />
-      <path d="M41 32h6" stroke="#d5e9fa" strokeWidth="2" />
-      <rect x="41.5" y="26" width="5" height="5" rx="1.5" fill="#e4f2ff" />
-    </g>
-    <path d="m48 5 2.5 7.5L58 15l-7.5 2.5L48 25l-2.5-7.5L38 15l7.5-2.5Z" fill={`url(#${id}-ai)`} stroke="#fff" strokeWidth="1.3" />
-    <path d="m59 26 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" fill="#75baf0" />
+    <defs><linearGradient id={`${id}-cards`} x2=".8" y2="1"><stop stopColor="#79c7f2"/><stop offset="1" stopColor="#536bca"/></linearGradient></defs>
+    <rect x="15" y="7" width="43" height="43" rx="7" fill="#b7ddf7" transform="rotate(7 36 28)"/>
+    <rect x="10" y="12" width="43" height="43" rx="7" fill={`url(#${id}-cards)`}/>
+    <rect x="4" y="19" width="43" height="39" rx="6" fill="#f6faff" stroke="#91b6e4" strokeWidth="1.5"/>
+    <path d="M15 32c0-7 13-7 13 0 0 5-7 5-7 10" fill="none" stroke="#466bb7" strokeWidth="4" strokeLinecap="round"/>
+    <circle cx="21" cy="49" r="2.1" fill="#466bb7"/>
+    <path d="M34 31h6M34 38h6M34 45h4" stroke="#a9c7e8" strokeWidth="3" strokeLinecap="round"/>
   </svg>;
 }
 
-/** An open question in a spiral memo, with a pencil for capturing doubts. */
+/** A memo notebook with a quiz card in front. */
 export function WeaknessMemoIcon({ size = 40, ...props }: IconProps) {
   const id = useId();
   return <svg {...iconProps(size, props)} data-creation-artwork="question-memo" viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
-    <defs><linearGradient id={`${id}-memo`} x2=".8" y2="1"><stop stopColor="#75baf0" /><stop offset="1" stopColor="#416bc1" /></linearGradient></defs>
-    <rect x="9" y="9" width="39" height="48" rx="6" fill={`url(#${id}-memo)`} />
-    <rect x="15" y="12" width="30" height="42" rx="3.5" fill="#fff" />
-    <path d="M7 19h8M7 30h8M7 41h8" stroke="#3f6097" strokeWidth="3" strokeLinecap="round" />
-    <path d="M23 24c0-6 11-6 11 0 0 3.5-5.5 3.5-5.5 7" fill="none" stroke="#426fc0" strokeWidth="3" strokeLinecap="round" />
-    <circle cx="28.5" cy="36" r="1.7" fill="#426fc0" />
-    <path d="M22 43h14M22 48h10" stroke="#c8d9ef" strokeWidth="2.5" strokeLinecap="round" />
-    <g transform="rotate(32 48 38)">
-      <path d="M44 25h8v25l-4 7-4-7Z" fill={`url(#${id}-memo)`} stroke="#fff" strokeWidth="1.3" />
-      <path d="M44 50h8l-4 7Z" fill="#d9c4a0" />
-      <path d="m46 54 2 3 2-3Z" fill="#3f536e" />
-      <path d="M44 25v-4a4 4 0 0 1 8 0v4Z" fill="#98b8e3" />
-      <path d="M45 27h6M48 30v17" stroke="#d9ebfa" strokeWidth="1.5" strokeLinecap="round" />
-    </g>
+    <defs><linearGradient id={`${id}-memo`} x2=".8" y2="1"><stop stopColor="#79c7f2"/><stop offset="1" stopColor="#536bca"/></linearGradient></defs>
+    <rect x="7" y="6" width="36" height="49" rx="6" fill={`url(#${id}-memo)`}/>
+    <path d="M15 9h23a2 2 0 0 1 2 2v40H15Z" fill="#eff7ff"/>
+    <path d="M5 17h9M5 29h9M5 41h9" stroke="#466bb7" strokeWidth="3" strokeLinecap="round"/>
+    <path d="M21 18h12M21 25h9" stroke="#aac6e8" strokeWidth="3" strokeLinecap="round"/>
+    <rect x="25" y="31" width="34" height="29" rx="5" fill="#3f5f9f" opacity=".12"/>
+    <rect x="23" y="28" width="35" height="29" rx="5" fill="#fff" stroke="#91b6e4" strokeWidth="1.5"/>
+    <path d="M32 38c0-5 9-5 9 0 0 3-4.5 3-4.5 7" fill="none" stroke="#466bb7" strokeWidth="3" strokeLinecap="round"/>
+    <circle cx="36.5" cy="50" r="1.6" fill="#466bb7"/>
+    <path d="M47 38h5M47 44h5" stroke="#a9c7e8" strokeWidth="2.5" strokeLinecap="round"/>
+  </svg>;
+}
+
+/** An open reference book and a speech bubble for detailed explanations. */
+export function MemoExplanationIcon({ size = 40, ...props }: IconProps) {
+  const id = useId();
+  return <svg {...iconProps(size, props)} data-creation-artwork="memo-explanation" viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
+    <defs><linearGradient id={`${id}-book`} x2=".8" y2="1"><stop stopColor="#79c7f2"/><stop offset="1" stopColor="#536bca"/></linearGradient></defs>
+    <path d="M4 24q14-5 27 2 14-7 28-2v32q-15-4-28 2-13-6-27-2Z" fill={`url(#${id}-book)`}/>
+    <path d="M7 20q12-3 24 3v30q-12-6-24-3Z" fill="#f8fbff"/>
+    <path d="M31 23q12-6 25-3v30q-13-3-25 3Z" fill="#e5f0fc"/>
+    <path d="M31 24v29" stroke="#91b6e4" strokeWidth="1.5"/>
+    <path d="m13 32 11 2m-11 5 11 2m14-7 11-2m-11 9 11-2" stroke="#a0bfe4" strokeWidth="2.5" strokeLinecap="round"/>
+    <path d="M35 5h20a6 6 0 0 1 6 6v10a6 6 0 0 1-6 6H43l-8 6v-7a6 6 0 0 1-6-6v-9a6 6 0 0 1 6-6Z" fill={`url(#${id}-book)`} stroke="#fff" strokeWidth="1.5"/>
+    <path d="M37 13h15M37 19h10" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"/>
   </svg>;
 }
 
