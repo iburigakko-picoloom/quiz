@@ -1418,6 +1418,7 @@ export default function App() {
     );
   } else if (screen.name === 'noteList') {
     content = <NoteOverviewScreen data={data} setId={screen.setId}
+      onOpenDetail={(questionId) => navigate({ name: 'detailedAnswer', questionId, backScreen: screen })}
       onBack={() => goBackTo({ name: 'problemSetDetail', setId: screen.setId })}
       onOpen={(category) => navigate({ name: 'noteDetail', setId: screen.setId, category })} />;
   } else if (screen.name === 'noteDetail') {
