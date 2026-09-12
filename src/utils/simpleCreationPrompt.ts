@@ -4,7 +4,7 @@ export function applyCreationConditions(template: string, options: CreationPromp
   if (![4, 5].includes(options.choiceCount) || !Number.isInteger(options.questionCount) || options.questionCount < 1 || options.questionCount > 2000) throw new Error('invalid creation conditions');
   // The final example follows all request/memo context; never rewrite reference data.
   const examples = [...template.matchAll(/^\{"setTitle":.*\}$/gm)];
-  const exampleMatch = examples.at(-1);
+  const exampleMatch = examples[examples.length - 1];
   const withExample = !exampleMatch ? template : (() => {
     const line = exampleMatch[0];
     const example = JSON.parse(line);
