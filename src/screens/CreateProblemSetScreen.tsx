@@ -472,7 +472,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             {view !== 'chatgpt' || aiStep === 2 ? <>
             <SetMetaFields data={data} value={meta} onChange={setMeta} />
             <section className="create-set__panel">
-              <h2>{view === 'chatgpt' ? '作成されたJSONを貼り付ける' : '複数の問題'}</h2>
+              <h2>{view === 'chatgpt' ? 'JSONを取り込む' : '複数の問題'}</h2>
               <input ref={jsonFileRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importJsonFile(file); }} />
               <button type="button" className="create-set__ai-copy" disabled={busy} onClick={() => jsonFileRef.current?.click()}><DocumentOutlineIcon size={18} />{busy ? '読み込み中…' : 'JSONファイルを選ぶ'}</button>
               <textarea className="create-set__paste" value={pasteText} onChange={(event) => setPasteText(event.target.value)} aria-label={view === 'chatgpt' ? '問題セットJSON' : '問題の貼り付け欄'} />

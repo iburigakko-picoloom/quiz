@@ -37,6 +37,11 @@ test('one-shot explanation template imports with exact IDs and respects visual o
     assert.ok(prompt.includes(enabled?'JSONを省略しない':'画像は不要'));
     const example=prompt.split('\n').find(line=>line.startsWith('{"version"'));
     const batch=readExplanationBatch(example);
+    const fence=String.fromCharCode(96).repeat(3);
+    assert.ok(prompt.includes(fence+'json\n'+example+'\n'+fence));
+    assert.deepEqual(readExplanationBatch(fence+'json\n'+example+'\n'+fence).replies,batch.replies);
+    assert.ok(prompt.includes('jsonコードブロック1個'));
+    assert.ok(!prompt.includes('Markdownコードフェンス、コメント'));
     assert.equal(batch.request.id,request.id);
     assert.deepEqual(batch.replies.map(r=>r.targetId),request.targets.map(t=>t.targetId));
     assert.ok(prompt.includes('コピーするJSONにも記号が必要'));

@@ -38,8 +38,12 @@ test('copied prompts include each combination of selected conditions', () => {
 
 test('all creation modes request a complete first reply and valid import examples', () => {
   for (const prompt of [buildSimpleCreationPrompt('古文単語'), CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
-    assert.ok(prompt.includes('原則1回の回答で完成したJSON'));
-    assert.ok(prompt.includes('JSON本体を1個だけ'));
+    assert.ok(prompt.includes('原則1回の回答で完成したJSONファイル'));
+    assert.ok(prompt.includes('ファイル内はJSON本体を1個だけ'));
+    assert.ok(prompt.includes('quiz-make.json'));
+    assert.ok(prompt.includes('JSON全文や作成コードは表示しません'));
+    assert.ok(prompt.includes('架空の添付やリンクは作らない'));
+    assert.ok(!prompt.includes('JSONを直接返してください'));
     assert.ok(prompt.includes('未収録'));
     const example = prompt.split('\n').find(line => line.startsWith('{'));
     assert.equal(validateImportJson(example).ok, true);
@@ -97,7 +101,7 @@ test('copy routing applies conditions once and preserves the past-exam original 
   const screen = readFileSync(new URL('../src/screens/CreateProblemSetScreen.tsx', import.meta.url), 'utf8');
   assert.match(screen, /writeClipboardText\(kind !== 'material'\s*\? template\s*: applyCreationConditions/);
   const simple = buildSimpleCreationPrompt('古文単語');
-  assert.ok(simple.length < 1800);
+  assert.ok(simple.length < 2200);
   assert.ok(simple.indexOf('【通常解説の強調】') < simple.indexOf('【学習者の依頼】'));
   for (const prompt of [CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
     const sample = JSON.parse(prompt.split('\n').find(line => line.startsWith('{')));
