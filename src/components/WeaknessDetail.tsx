@@ -57,7 +57,7 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
   };
   return <div className="weakness-reader">
     {onSave && !disabled && text.trim() ? <details className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></details> : null}
-    {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className="weakness-media-card" key={i}><Markdown text={m} /></section>)}</div> : null}
+    {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className={`weakness-media-card${m.startsWith('![') ? ' weakness-media-card--image' : ''}`} key={i}><Markdown text={m} /></section>)}</div> : null}
     {body.trim() ? <div className="weakness-markdown"><Markdown text={body} /></div> : null}
     {onSave && !disabled ? <div className="weakness-image-actions">
       <button type="button" className="weakness-button" data-no-page-swipe disabled={busy} onClick={() => input.current?.click()}>{busy ? '保存中…' : '画像を追加'}</button>

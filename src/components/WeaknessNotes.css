@@ -19,6 +19,9 @@
 .weakness-media{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;touch-action:pan-x pan-y;margin-bottom:20px;padding:2px 0 8px}
 .weakness-media-card{flex:0 0 100%;max-width:100%;min-width:0;box-sizing:border-box;align-self:flex-start;scroll-snap-align:start;border:1px solid #e2e6ec;border-radius:12px;background:white;padding:12px;color:#202d3b;text-align:left;font:inherit}
 .weakness-media-card img{display:block;max-width:100%;max-height:190px;object-fit:contain;margin:auto}
+.weakness-media-card--image{padding:0;overflow:hidden}
+.weakness-media-card--image>p{margin:0}
+.weakness-media-card--image .weakness-pinch-image img{width:100%;height:auto;max-height:none;margin:0}
 .weakness-pinch-image{display:block;overflow:hidden;position:relative;touch-action:pan-x pan-y;user-select:none;-webkit-user-select:none}
 .weakness-pinch-image img{display:block;max-width:100%;margin:auto;transform-origin:center;will-change:transform}
 .weakness-pinch-image:focus-visible{outline:2px solid #305da3;outline-offset:2px}
