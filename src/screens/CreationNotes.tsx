@@ -51,14 +51,14 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onGenerate, on
         {!notes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-muted">学習中に残した疑問がここにまとまります。</p>:null}
         {notes.some(n=>n.questionId&&!data.questions.some(q=>q.id===n.questionId))?<details><summary>元の問題がないメモ</summary>{notes.filter(n=>n.questionId&&!data.questions.some(q=>q.id===n.questionId)).map(n=><p key={n.id}>{n.body}</p>)}</details>:null}
       </>:<>{notes.filter(n=>!n.questionId).map(n=><button type="button" className="weakness-row" key={n.id} onClick={()=>{setSelectedId(n.id);setEditTab('memo');go('edit');}}><WeaknessMemoIcon size={30}/><span><strong>{n.title.trim()||'無題のメモ'}</strong><small>{n.body.split('\n')[0]}</small></span><ChevronRightIcon/></button>)}<div className="weakness-actions"><button type="button" className="weakness-button" onClick={add}>＋ メモを追加</button></div></>}
-      <button type="button" className="weakness-text" onClick={()=>{setStage('paste');go('import');}}>AIの回答を取り込む</button>
+      <button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button>
     </>:null}
     {view==='set'?<>
       <div className="weakness-step">① メモを選ぶ　→　② AIに依頼</div>
       <label className="weakness-muted"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> 解説済みも表示</label>
       {inSet.filter(n=>showAll||n.resolvedBody!==n.body).map(n=>{const q=data.questions.find(q=>q.id===n.questionId)!;return <div className="weakness-selection" key={n.id}><label><input type="checkbox" checked={selected.includes(n.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,n.id]:ids.filter(id=>id!==n.id))}/><span>{q.question.length>60?q.question.slice(0,60)+'…':q.question}</span></label><p>{n.body}</p><button type="button" className="weakness-text" onClick={()=>{setSelectedId(n.id);go('question');}}>{detailBody(q).trim()?'解説を読む・追加の疑問':'メモを開く'}</button>{n.draft?<span className="weakness-muted"> 下書き</span>:null}</div>;})}
       {!inSet.length?<p>メモはありません</p>:null}
-      <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={!selected.length} onClick={()=>go('prompt')}>{selected.length}件をAIに解説してもらう</button><button type="button" className="weakness-button" onClick={()=>{setStage('paste');go('import');}}>AIの回答を取り込む</button></div>
+      <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={!selected.length} onClick={()=>go('prompt')}>{selected.length}件をAIに解説してもらう</button></div>
     </>:null}
     {view==='question'&&question?<><WeaknessDetail key={question.id} questionId={question.id} text={detailBody(question)} onSave={body=>onSaveDetail(question.id,body)} onDirtyChange={setFailed}/>{note?<details><summary>選んだ疑問を編集</summary><textarea aria-label="保存した疑問" value={note.body} onChange={e=>update({...note,body:e.target.value})}/><button type="button" className="weakness-text" onClick={()=>{if(window.confirm('この疑問を削除しますか？')&&change(items=>items.filter(n=>n.id!==note.id)))go('set');}}>この疑問を削除</button></details>:null}</>:null}
     {view==='edit'&&note?<>
@@ -72,7 +72,7 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onGenerate, on
       {([['比較表',tables,setTables],['図・画像の依頼',images,setImages],['具体例',examples,setExamples]] as const).map(([label,value,set])=><label className="weakness-row" key={label}><span>{label}</span><input type="checkbox" checked={value} onChange={e=>set(e.target.checked)}/></label>)}
       <details><summary>選んだメモ　{selected.length}件</summary>{notes.filter(n=>selected.includes(n.id)).map(n=><p key={n.id}>{n.body}</p>)}</details>
       <p className="weakness-muted">生成された画像は、回答の取り込み後に添付できます。</p>
-      <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={busy} onClick={()=>void copy()}>{busy?'コピー中…':'依頼文をコピー'}</button><button type="button" className="weakness-button" disabled={busy} onClick={()=>{setStage('paste');go('import');}}>回答の取り込みへ</button></div>
+      <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={busy} onClick={()=>void copy()}>{busy?'コピー中…':'依頼文をコピー'}</button></div>
     </>:null}
     {view==='import'?<>
       <div className="weakness-tabs"><button type="button" aria-pressed={stage==='paste'} disabled={busy} onClick={()=>setStage('paste')}>貼り付け</button><button type="button" aria-pressed={stage==='review'} disabled={!batch||busy} onClick={()=>setStage('review')}>確認</button></div>
