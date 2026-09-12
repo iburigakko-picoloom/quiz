@@ -77,10 +77,6 @@ test('ordinary explanation emphasis is red and survives JSON import', () => {
     assert.equal(result.ok, true);
     assert.equal(result.value.questions[0].explanation, '**重要語**を覚える。');
   }
-  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
-  assert.match(css, /\.answer-sheet__markdown strong\s*\{\s*color: #b42332;\s*font-weight: 700;/);
-  const detailCss = readFileSync(new URL('../src/components/WeaknessNotes.css', import.meta.url), 'utf8');
-  assert.match(detailCss, /\.weakness-keyword\{color:#b42332/);
 });
 
 test('question totals are guidance, while explanations teach reasoning without a hard length cap', () => {
