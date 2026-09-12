@@ -39,6 +39,14 @@ test('one-shot explanation template imports with exact IDs and respects visual o
     const batch=readExplanationBatch(example);
     assert.equal(batch.request.id,request.id);
     assert.deepEqual(batch.replies.map(r=>r.targetId),request.targets.map(t=>t.targetId));
+    assert.ok(prompt.includes('コピーするJSONにも記号が必要'));
+    assert.ok(prompt.includes('各bodyの**強調記号**'));
+    for(const answer of batch.replies){
+      assert.match(answer.body,/\*\*[^*]+\*\*/);
+      const saved=applyQuestionExplanations(data,batch);
+      assert.ok(saved.questions[0].detailedAnswer.body.includes(answer.body));
+      assert.equal(saved.questions[0].explanation,q.explanation);
+    }
     const reply=JSON.parse(example);
     reply.explanations[0].body='**重要語**\n\n|A|B|\n|---|---|\n|値|値|\n\n```flow\n条件 → 結果\n```';
     assert.equal(readExplanationBatch(JSON.stringify(reply)).replies[0].body,reply.explanations[0].body);
