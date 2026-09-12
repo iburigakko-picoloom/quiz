@@ -35,7 +35,7 @@ export function buildSimpleCreationPrompt(request: string, options: CreationProm
 原則1回の回答で完成したJSONを直接返してください。予告・方針案・サンプルだけ・許可の確認は不要です。主題が不明で作れない場合だけ確認してください。
 
 【通常解説の強調】
-explanationの重要語・判断条件を1問あたり1〜3箇所だけ**太字**で囲んでください。Quiz Makeでは青い太字になります。JSON文字列の中に**を残してください。HTMLや色指定タグは使わないでください。question・choices・distractorsは強調しません。
+explanationの重要語・判断条件を1問あたり1〜3箇所だけ**太字**で囲んでください。Quiz Makeでは赤い太字になります。JSON文字列の中に**を残してください。HTMLや色指定タグは使わないでください。question・choices・distractorsは強調しません。
 
 【学習者の依頼】
 ${JSON.stringify(request.trim())}
