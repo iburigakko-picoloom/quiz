@@ -60,10 +60,12 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
   };
   return <div className="weakness-reader">
     {onSave && !disabled && text.trim() ? <details className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></details> : null}
-    {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className="weakness-media-card" key={i}><button type="button" className="weakness-text" onClick={() => { setTab(m.startsWith('![') ? 'image' : 'table'); setActive(i); }} aria-label={`${m.startsWith('![') ? '画像' : '表'}${i+1}を拡大`}>{m.startsWith('![') ? '画像' : '表'}を拡大 ↗</button><Markdown text={m} /></section>)}</div> : null}
+    {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className="weakness-media-card" key={i}>{m.startsWith('![') ? <button type="button" className="weakness-text" onClick={() => { setTab('image'); setActive(i); }} aria-label={`画像${i+1}を拡大`}>画像を拡大 ↗</button> : null}<Markdown text={m} /></section>)}</div> : null}
     {body.trim() ? <div className="weakness-markdown"><Markdown text={body} /></div> : null}
-    {onSave && !disabled ? <button type="button" className="weakness-text" data-no-page-swipe disabled={busy} onClick={() => input.current?.click()}>{busy ? '保存中…' : '＋ 画像を追加'}</button> : null}
-    {onSave && !disabled ? <button type="button" className="weakness-text weakness-image-paste" data-no-page-swipe disabled={busy} onClick={()=>void pasteImage()}>画像を貼り付け</button> : null}
+    {onSave && !disabled ? <div className="weakness-image-actions">
+      <button type="button" className="weakness-button" data-no-page-swipe disabled={busy} onClick={() => input.current?.click()}>{busy ? '保存中…' : '画像を追加'}</button>
+      <button type="button" className="weakness-button" data-no-page-swipe disabled={busy} onClick={()=>void pasteImage()}>画像を貼り付け</button>
+    </div> : null}
     {active === null ? <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void attach(f);}}/> : null}
     {error ? <p role="alert" className="weakness-error">{error}</p> : null}
     {active !== null ? createPortal(<dialog ref={dialog} className="weakness-media-dialog" onCancel={e => { if (busy) e.preventDefault(); else setActive(null); }}>

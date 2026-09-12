@@ -10,4 +10,3 @@
 .shared-image-actions button{flex:1;min-height:46px;padding:10px;border:1px solid #d3d9e2;border-radius:10px;background:white;color:#305da3;font:inherit}
 .shared-image-actions .shared-image-save{background:#305da3;color:white;border-color:#305da3}
 .shared-image-actions button:disabled{opacity:.5}
-.weakness-image-paste{margin-left:20px}
