@@ -358,7 +358,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
         <main key={currentQuestion.id} className="quiz-runner__main quiz-runner__question-stage flex min-h-0 flex-1 flex-col">
           <section className="quiz-runner__question-panel flex h-[clamp(104px,17dvh,132px)] shrink-0 items-center justify-center overflow-hidden px-5 py-3 text-center">
             <div className="min-h-0 w-full">
-              <div className="quiz-question-kicker">QUESTION {currentIndex + 1}</div>
+              <div className="quiz-question-kicker" aria-hidden="true">QUESTION {registeredQuestionNumber}</div>
               {currentQuestion.category ? (
                 <div className="quiz-runner__question-category mb-1 truncate text-xs font-semibold">{currentQuestion.category}</div>
               ) : null}

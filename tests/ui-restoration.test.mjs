@@ -10,6 +10,14 @@ const iconSource = readSource('../src/components/UiIcons.tsx');
 const createCss = readSource('../src/screens/CreateProblemSetScreen.css');
 const communityCss = readSource('../src/screens/CommunityScreen.css');
 
+test('visible question numbers use the full set order, not the current session position',()=>{
+  assert.match(quizSource,/QUESTION \{registeredQuestionNumber\}/);
+  assert.doesNotMatch(quizSource,/QUESTION \{currentIndex \+ 1\}/);
+  assert.match(quizSource,/data\.questions\.filter\(\(question\) => question\.setId === currentQuestion\.setId\)/);
+  assert.match(quizSource,/sameSetQuestions\.findIndex\(\(question\) => question\.id === currentQuestion\.id\)/);
+  assert.match(quizSource,/<QuizHeader title=\{title\} current=\{currentIndex \+ 1\} total=\{questions.length\}/);
+});
+
 test('answer and detail page navigation exposes opposite directions at the top',()=>{
   const answer=quizSource.slice(quizSource.indexOf('const answerPage ='),quizSource.indexOf('const detailPage ='));
   assert.ok(answer.indexOf('answer-sheet__page-navigation')<answer.indexOf('answer-sheet__answer-box'));
