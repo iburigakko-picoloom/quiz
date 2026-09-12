@@ -39,6 +39,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_LINE_AUTH_PROVIDER: ${{ vars.VITE_LINE_AUTH_PROVIDER }}
+      - uses: android-actions/setup-android@v3
       - name: Install required Android SDK
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Build test APK (not for store submission)

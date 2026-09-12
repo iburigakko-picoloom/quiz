@@ -26,6 +26,7 @@
 - iOSはMac・Xcode 26以降・iOS 26 SDK以降で署名とArchive、AndroidはAndroid Studio・Java 21・Android SDK 36で署名付きAABを生成する
 - AndroidテストAPKはGitHub Actionsから生成可能。ストア署名・実機検証は別途必要
 - PWAからの既存データ移行、LINEログインのアプリ復帰、ネイティブ共有受け取りを実機確認する
+- 現在ネイティブ版のLINEログイン・連携はコードで無効化されている。外部ブラウザでの認証と安全なアプリ復帰を実装するまでは、LINE対応済みと表示・申告しない
 - Magic Linkを本番利用する前に、独自SMTPを設定して実メール送受信を確認する
 
 ## 本人による外部手続き
