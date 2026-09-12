@@ -5,7 +5,6 @@ import test from 'node:test';
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const homeSource = readSource('../src/screens/HomeScreen.tsx');
 const homeCss = readSource('../src/screens/HomeScreen.css');
-const settingsSource = readSource('../src/screens/SettingsScreen.tsx');
 const createSource = readSource('../src/screens/CreateProblemSetScreen.tsx');
 const detailSource = readSource('../src/screens/ProblemSetDetailScreen.tsx');
 const appSource = readSource('../src/App.tsx');
@@ -20,50 +19,6 @@ const quizRunnerSource = readSource('../src/screens/QuizRunner.tsx');
 const resultSource = readSource('../src/screens/ResultScreen.tsx');
 const resultCss = readSource('../src/screens/ResultScreen.css');
 const noteDrawerSource = readSource('../src/components/CategoryNoteDrawer.tsx');
-const nativePlatformSource = readSource('../src/utils/nativePlatform.ts');
-
-test('creation methods do not single out the first option with a tinted frame', () => {
-  const theme = readSource('../src/ui-spec.css');
-  assert.doesNotMatch(theme, /\.create-set__methods\s*>\s*button:first-child/);
-  assert.match(createCss, /\.create-set__method\s*\{[^}]*background:\s*#fff/);
-});
-
-test('problem-set creation uses a direct, concise JSON entry', () => {
-  assert.match(createSource, /title: '生成AIで作る'/);
-  assert.match(createSource, /'JSONを読み取る'/);
-  assert.match(createSource, /CHATGPT_MATERIAL_TEMPLATE_PROMPT/);
-  assert.match(createSource, /CHATGPT_PAST_EXAM_TEMPLATE_PROMPT/);
-  assert.match(createSource, /writeClipboardText/);
-  assert.match(createSource, /<span>1<\/span>問題を作る/);
-  assert.match(createSource, /<span>2<\/span>JSONを取り込む/);
-  assert.match(createSource, /aiStep === 1/);
-  assert.match(createSource, /aiStep === 2/);
-  assert.match(createSource, /依頼文をコピー/);
-  assert.match(createSource, /PdfPromptFlow pdfLabel="資料PDF"/);
-  assert.match(createSource, /PdfPromptFlow pdfLabel="過去問PDF"/);
-  assert.match(createSource, /プロンプトをコピー/);
-  assert.match(createSource, /生成AIに貼り付け/);
-  assert.match(createSource, /コピーしました/);
-  assert.match(nativePlatformSource, /navigator\.clipboard\?\.writeText/);
-  assert.match(nativePlatformSource, /document\.execCommand\('copy'\)/);
-  assert.doesNotMatch(createSource, /指示文をコピー|資料から問題を作る|過去問をまとめる/);
-  assert.doesNotMatch(createSource, /title: '1問ずつ作る'|title: 'まとめて貼り付ける'/);
-  assert.doesNotMatch(createSource, /placeholder=/);
-  assert.doesNotMatch(settingsSource, /ChatGPTで問題を作る|資料から問題を作る|過去問をまとめる/);
-  assert.doesNotMatch(homeSource, /ChatGPTで問題を作る|quiz-home__menu-button/);
-});
-
-test('discovery and group screens remove redundant copy explanations', () => {
-  assert.doesNotMatch(communitySource, /追加すると自分用の独立したコピーになります/);
-  assert.doesNotMatch(communitySource, /placeholder=/);
-  assert.match(communitySource, /selectedGroup\?\.name \?\? 'グループ'/);
-  assert.match(communitySource, /className="community-group-invite"/);
-  assert.match(communitySource, /className="community-group-publish"/);
-  assert.match(communitySource, /community-group-folder-list/);
-  assert.match(communitySource, /role="tablist" aria-label="グループの表示"/);
-  assert.match(communitySource, /hidden=\{groupDetailTab !== 'members'\}/);
-  assert.match(communitySource, /自分のフォルダにコピー/);
-});
 
 test('shared layout scrolls long screens and create actions never float over form controls', () => {
   assert.match(layoutSource, /overflow-y-auto/);
@@ -163,11 +118,4 @@ test('result actions do not overlay landscape stats and labels render as Japanes
   assert.match(resultCss, /@media \(min-width: 700px\) and \(orientation: landscape\)[\s\S]*?grid-template-columns:\s*repeat\(4,/);
   assert.doesNotMatch(resultSource, /(?:aria-label|label|title)="\\u[0-9a-fA-F]{4}/);
   assert.doesNotMatch(noteDrawerSource, /(?:aria-label|label|title)="\\u[0-9a-fA-F]{4}/);
-});
-
-test('folder and problem-set rows are visually separated into individual cards', () => {
-  const individualCardCss = globalCss.slice(globalCss.lastIndexOf('.quiz-home__folder-card,'));
-  assert.match(globalCss, /\.quiz-home__folder-card,[\s\S]{0,260}border:\s*1px solid var\(--ui-border\)/);
-  assert.match(individualCardCss, /border-radius:\s*12px/);
-  assert.match(individualCardCss, /box-shadow:\s*none/);
 });

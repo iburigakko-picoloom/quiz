@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { getScreenKey } from '../src/utils/navigation.ts';
+
+test('direct AI creation and the creation menu have separate navigation identities',()=>{
+  assert.notEqual(getScreenKey({name:'createProblemSet'}),getScreenKey({name:'createProblemSet',backScreen:{name:'home'}}));
+});
 import {
   getBackNavigationSteps,
   getCreateProblemSetBackScreen,

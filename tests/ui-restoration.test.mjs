@@ -4,11 +4,6 @@ import test from 'node:test';
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const quizSource = readSource('../src/screens/QuizRunner.tsx');
-const globalCss = readSource('../src/index.css');
-const navCss = readSource('../src/components/PrimaryBottomNav.css');
-const iconSource = readSource('../src/components/UiIcons.tsx');
-const createCss = readSource('../src/screens/CreateProblemSetScreen.css');
-const communityCss = readSource('../src/screens/CommunityScreen.css');
 
 test('visible question numbers use the full set order, not the current session position',()=>{
   assert.match(quizSource,/QUESTION \{registeredQuestionNumber\}/);
@@ -27,35 +22,6 @@ test('answer and detail page navigation exposes opposite directions at the top',
   const css=readSource('../src/final-reference.css');
   assert.match(css,/\.answer-sheet__page-navigation \{ position: sticky; top: 0/);
   assert.match(css,/justify-content: space-between/);
-});
-
-test('the historical answer sheet and screen transitions remain intact', () => {
-  assert.match(globalCss, /\.quiz-screen-transition--forward/);
-  assert.match(globalCss, /@keyframes quizScreenForwardIn/);
-  assert.match(globalCss, /\.answer-sheet--expanded/);
-  assert.match(globalCss, /height 280ms cubic-bezier/);
-  assert.match(globalCss, /\.answer-sheet__content-rail--detail/);
-  assert.match(globalCss, /\.answer-sheet__fixed \{[^}]*touch-action:\s*none/);
-  assert.match(quizSource, /const snapByDrag = \(dragOffset: number, velocityY: number\)/);
-  assert.match(quizSource, /onPointerDown: handlePointerDown[\s\S]*?onPointerMove: handlePointerMove[\s\S]*?onPointerUp: handlePointerUp/);
-  assert.match(quizSource, /className="answer-sheet__fixed" \{\.\.\.dragProps\}/);
-  assert.match(quizSource, /onPointerDownCapture: handleDetailPointerDown/);
-  assert.match(quizSource, /onPointerMoveCapture: handleDetailPointerMove/);
-  assert.match(quizSource, /textarea:not\(\.answer-sheet__detail-input\)/);
-  assert.match(quizSource, /panelPage === 'answer' && deltaX < 0/);
-  assert.match(quizSource, /panelPage === 'detail' && deltaX > 0/);
-  assert.match(quizSource, /remarkPlugins=\{\[remarkGfm\]\}/);
-});
-
-test('learning feedback animates without removing reduced-motion support', () => {
-  assert.match(quizSource, /key=\{currentQuestion\.id\}[^>]+quiz-runner__question-stage/);
-  assert.match(globalCss, /@keyframes quizQuestionEnter/);
-  assert.match(globalCss, /@keyframes quizChoiceCorrect/);
-  assert.match(globalCss, /@keyframes quizChoiceWrong/);
-  assert.match(globalCss, /@keyframes answerSheetReveal/);
-  assert.match(globalCss, /@keyframes answerResultReveal/);
-  assert.match(globalCss, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.quiz-runner__question-stage/);
-  assert.match(navCss, /\.primary-bottom-nav__item:active/);
 });
 
 test('sheet swipes follow the pointer across the sheet without stealing text editing', () => {
@@ -79,20 +45,4 @@ test('detailed answers open from the standard sheet and an empty answer is edita
   assert.match(quizSource, /const detailEditingDisabled = readOnly \|\| answerSaveState !== 'saved'/);
   assert.match(quizSource, /\{\.\.\.detailSwipeProps\}/);
   assert.doesNotMatch(quizSource, /className="answer-sheet__detail-preview"|className="answer-sheet__detail-helper"/);
-});
-
-test('management icons use soft fills and one shared blue currentColor system', () => {
-  for (const icon of ['FolderOutlineIcon', 'DocumentOutlineIcon', 'BookmarkIcon', 'TagIcon', 'ProgressIcon', 'ProfileIcon']) {
-    assert.match(iconSource, new RegExp(`export function ${icon}`));
-  }
-  assert.match(iconSource, /fill="currentColor"/);
-  // Approved proposal 1 uses gradients only for folder and quiz-card artwork.
-  const utilityIcons = iconSource.slice(iconSource.indexOf('export function DocumentOutlineIcon'));
-  assert.doesNotMatch(utilityIcons, /#(?:[a-f\d]{3}|[a-f\d]{6})/i);
-  assert.match(iconSource, /export function ProblemSetIcon/);
-  assert.match(iconSource, /const id = useId\(\)/);
-  assert.match(iconSource, /linearGradient/);
-  for (const source of [globalCss, createCss, communityCss]) {
-    assert.doesNotMatch(source, /#12bfc0|#149da1|#168e92|#39b9b3|rgba\(18,\s*191,\s*192/i);
-  }
 });

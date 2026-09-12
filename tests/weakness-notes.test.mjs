@@ -34,7 +34,7 @@ test('empty details retain a direct image picker without enabling read-only edit
   assert.doesNotMatch(source, /text\.trim\(\)\?<ExplanationReader/);
   assert.match(source, /if \(!onSave \|\| disabled \|\| lock.current\) return/);
   assert.match(source, /data-no-page-swipe disabled=\{busy\} onClick=\{\(\) => input.current\?\.click\(\)\}/);
-  assert.match(source, /active === null \? <input ref=\{input\}/);
+  assert.match(source, /<input ref=\{input\} type="file"/);
 });
 
 test('one-shot explanation template imports with exact IDs and respects visual options',()=>{

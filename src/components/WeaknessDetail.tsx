@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { PinchImage } from './PinchImage';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { changeWeaknessNotes, readWeaknessNotes } from '../utils/weaknessNotes';
@@ -13,7 +13,7 @@ const safeUrl = (url: string) => /^(https?:|mailto:|#)/i.test(url) || /^data:ima
 function Markdown({ text }: { text: string }) {
   return <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={safeUrl} components={{
     a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>,
-    img: ({ src, alt }) => src ? <img src={src} alt={alt ?? ''} loading="lazy" /> : <span>{alt}</span>,
+    img: ({ src, alt }) => src ? <PinchImage src={src} alt={alt ?? ''} /> : <span>{alt}</span>,
     table: ({ children }) => <div className="weakness-table" data-no-page-swipe><table>{children}</table></div>,
     strong: ({ children }) => <strong className="weakness-keyword">{children}</strong>,
     pre: ({ children }) => <div className="weakness-code-block">{children}</div>,
@@ -24,10 +24,8 @@ function Markdown({ text }: { text: string }) {
 }
 export function ExplanationReader({ text, onSave, disabled = false }: { text: string; onSave?: (body: string) => Promise<void>; disabled?: boolean }) {
   const { media, body } = extractExplanationMedia(text);
-  const [active, setActive] = useState<number | null>(null), [tab, setTab] = useState<'table'|'image'>('table');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null), lock = useRef(false);
-  useEffect(() => { if (active !== null) dialog.current?.showModal(); }, [active]);
+  const input = useRef<HTMLInputElement>(null), lock = useRef(false);
   const attach = async (file: File) => {
     if (!onSave || disabled || lock.current) return;
     lock.current = true; setBusy(true); setError('');
@@ -38,7 +36,6 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
     } catch (e) { setError(e instanceof Error ? e.message : '画像を保存できませんでした。'); }
     finally { lock.current = false; setBusy(false); }
   };
-  const matching = media.map((value, i) => ({value, i})).filter(x => tab === 'image' ? x.value.startsWith('![') : !x.value.startsWith('!['));
   const pasteImage = async () => {
     if (!onSave || disabled || lock.current) return;
     try {
@@ -54,28 +51,20 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
   const remove = async () => {
     if (!onSave || disabled || lock.current || !window.confirm('詳細解説と添付画像を削除しますか？通常の解説と苦手メモは残ります。')) return;
     lock.current = true; setBusy(true); setError('');
-    try { await onSave(''); setActive(null); }
+    try { await onSave(''); }
     catch { setError('削除できませんでした。もう一度お試しください。'); }
     finally { lock.current = false; setBusy(false); }
   };
   return <div className="weakness-reader">
     {onSave && !disabled && text.trim() ? <details className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></details> : null}
-    {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className="weakness-media-card" key={i}>{m.startsWith('![') ? <button type="button" className="weakness-text" onClick={() => { setTab('image'); setActive(i); }} aria-label={`画像${i+1}を拡大`}>画像を拡大 ↗</button> : null}<Markdown text={m} /></section>)}</div> : null}
+    {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className="weakness-media-card" key={i}><Markdown text={m} /></section>)}</div> : null}
     {body.trim() ? <div className="weakness-markdown"><Markdown text={body} /></div> : null}
     {onSave && !disabled ? <div className="weakness-image-actions">
       <button type="button" className="weakness-button" data-no-page-swipe disabled={busy} onClick={() => input.current?.click()}>{busy ? '保存中…' : '画像を追加'}</button>
       <button type="button" className="weakness-button" data-no-page-swipe disabled={busy} onClick={()=>void pasteImage()}>画像を貼り付け</button>
     </div> : null}
-    {active === null ? <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void attach(f);}}/> : null}
+    <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void attach(f);}}/>
     {error ? <p role="alert" className="weakness-error">{error}</p> : null}
-    {active !== null ? createPortal(<dialog ref={dialog} className="weakness-media-dialog" onCancel={e => { if (busy) e.preventDefault(); else setActive(null); }}>
-      <header><button type="button" disabled={busy} onClick={() => setActive(null)}>閉じる</button><h2>比較表・画像</h2></header>
-      <div className="weakness-tabs"><button type="button" aria-pressed={tab==='table'} onClick={()=>setTab('table')}>比較表</button><button type="button" aria-pressed={tab==='image'} onClick={()=>setTab('image')}>画像</button></div>
-      <div className="weakness-expanded-media">{matching.length ? matching.map(m=><section key={m.i}><Markdown text={m.value}/></section>) : <p>まだありません</p>}</div>
-      {onSave && !disabled ? <button type="button" className="weakness-button" disabled={busy} onClick={()=>input.current?.click()}>{busy?'保存中…':'＋ 画像を添付'}</button> : null}
-      {error ? <p role="alert" className="weakness-error">{error}</p> : null}
-      <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void attach(f);}}/>
-    </dialog>, document.body) : null}
   </div>;
 }
 
