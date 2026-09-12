@@ -23,6 +23,7 @@ interface ProblemListScreenProps {
   setId: string;
   initialSortMode?: ProblemSortMode;
   onBack: () => void;
+  onOpenQuestion: (questionId: string, sortMode: ProblemSortMode) => void;
   onStartFromQuestion: (params: {
     questions: Question[];
     initialIndex: number;
@@ -33,7 +34,7 @@ interface ProblemListScreenProps {
   }) => void;
 }
 
-export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', onBack, onStartFromQuestion }: ProblemListScreenProps) {
+export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', onBack, onOpenQuestion, onStartFromQuestion }: ProblemListScreenProps) {
   const contentView = useMemo(() => buildAppDataView(data), [data]);
   const problemSet = contentView.problemSetById.get(setId);
   const questionOverviews = contentView.questionsBySetId.get(setId) ?? EMPTY_QUESTION_OVERVIEWS;
@@ -186,7 +187,8 @@ export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', on
                   index={number}
                   question={question}
                   progress={progress}
-                  onClick={() => startFrom(question.id)}
+                  onClick={() => onOpenQuestion(question.id, sortMode)}
+                  onStart={() => startFrom(question.id)}
                 />
               ))}
             </div>
@@ -202,16 +204,19 @@ function QuestionListCard({
   question,
   progress,
   onClick,
+  onStart,
 }: {
   index: number;
   question: Question;
   progress: QuestionProgress;
   onClick: () => void;
+  onStart: () => void;
 }) {
   const status = progress.answeredCount === 0 ? '未解答' : `${progress.correctCount}/${progress.answeredCount}`;
 
   return (
-    <button type="button" className="quiz-list__card" onClick={onClick}>
+    <article className="quiz-list__card">
+      <button type="button" className="quiz-list__card-content" onClick={onClick} aria-label={`Q${index}の詳細を開く`}>
       <div className="quiz-list__card-top">
         <span className="quiz-list__number">Q{index}</span>
         <span className="quiz-list__category">{normalizeProblemCategory(question.category)}</span>
@@ -224,6 +229,10 @@ function QuestionListCard({
         {progress.isReview && !progress.isGraduated ? <span className="quiz-list__badge quiz-list__badge--review">復習</span> : null}
         {progress.lastAnsweredAt ? <span className="quiz-list__last">最終 {formatDisplayDate(progress.lastAnsweredAt)}</span> : null}
       </div>
-    </button>
+      </button>
+      <div className="quiz-list__card-actions">
+        <button type="button" className="quiz-list__start-here" onClick={onStart} aria-label={`Q${index}から解く`}>ここから解く <span aria-hidden="true">›</span></button>
+      </div>
+    </article>
   );
 }

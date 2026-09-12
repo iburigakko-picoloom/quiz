@@ -249,6 +249,34 @@
   min-width: 0;
 }
 
+.quiz-list .quiz-list__card-content {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.quiz-list__card-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.quiz-list .quiz-list__start-here {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--ui-accent, #305da3);
+  font-size: 14px;
+  font-weight: 600;
+}
+.quiz-list__start-here:active { background: #f1f4f8; }
+.quiz-list__start-here:focus-visible,.quiz-list__card-content:focus-visible { outline: 2px solid #305da3; outline-offset: 2px; }
+
 .quiz-list__number {
   color: #1769ff;
   font-size: 13px;

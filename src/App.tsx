@@ -1413,10 +1413,14 @@ export default function App() {
         setId={screen.setId}
         initialSortMode={screen.sortMode}
         onBack={problemSet ? () => goBackTo({ name: 'problemSetDetail', setId: screen.setId }) : goHome}
-        onStartFromQuestion={({ questions, initialIndex, sortMode }) => navigate({
+        onOpenQuestion={(questionId, sortMode) => navigate({
           name: 'questionDetail',
-          questionId: questions[initialIndex].id,
+          questionId,
           backScreen: { name: 'problemList', setId: screen.setId, sortMode },
+        })}
+        onStartFromQuestion={({ questions, initialIndex, title, subtitle, setId, sortMode }) => handleStartQuizSession({
+          questions, initialIndex, title, subtitle, setId, mode: 'quiz',
+          backScreen: { name: 'problemList', setId, sortMode },
         })}
       />
     );

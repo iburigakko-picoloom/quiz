@@ -2303,7 +2303,7 @@ body,
 .quiz-list__sort,
 .quiz-list__sort button,
 .quiz-list button.quiz-list__chip,
-.quiz-list button.quiz-list__card,
+.quiz-list .quiz-list__card,
 .quiz-list__empty {
   border: 1px solid var(--ui-border);
   background: var(--ui-surface);
@@ -2350,7 +2350,7 @@ body,
   color: #a75a17;
 }
 
-.quiz-list button.quiz-list__card {
+.quiz-list .quiz-list__card {
   box-shadow: var(--ui-shadow-soft);
 }
 
