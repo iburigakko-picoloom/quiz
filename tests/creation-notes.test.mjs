@@ -30,4 +30,8 @@ test('notes persist edits, guard save failures and copy before opening import', 
   assert.match(create, /view === 'notes' \? <div/);
   assert.match(create, /notesBackRef\.current\?\.\(\)/);
   assert.doesNotMatch(create, /creation-note-add/);
+  assert.match(notes, /選んだメモから問題を作る/);
+  assert.match(notes, /makeExplanationRequest\(picked,data\)/);
+  assert.match(create, /memoContext/);
+  assert.match(create, /メモの誤解を正解として採用しない/);
 });
