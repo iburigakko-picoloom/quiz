@@ -132,6 +132,8 @@
 .answer-sheet .answer-sheet__answer-box { padding: 0 0 12px; border: 0; border-radius: 0; background: white; box-shadow: none; }
 .answer-sheet .answer-sheet__action, .answer-sheet .answer-sheet__hide-button { border-radius: 7px; }
 .quiz-runner .quiz-runner__answer-actions { gap: 8px; padding-inline: 16px; }
+.quiz-runner__answer-actions { position: relative; }
+.quiz-runner__choices-hint { position: absolute; left: 50%; bottom: calc(100% + 2px); transform: translateX(-50%); z-index: 1; padding: 4px 12px; border: 1px solid #ccd8e8; border-radius: 999px; background: #fff; color: #305da3; box-shadow: 0 2px 6px #17203312; font-size: 12px; line-height: 1.5; white-space: nowrap; pointer-events: none; }
 .quiz-feedback { position: fixed; left: 16px; right: 16px; top: calc(var(--safe-top, 0px) + 52px); height: 2px; z-index: 99999; pointer-events: none; background: var(--ui-success); animation: qm-feedback .54s ease-out both; }
 .quiz-feedback--relearned { background: linear-gradient(90deg, #FF5C64, #2859A6); animation-duration: .76s; }
 .answer-sheet__relearned { display: inline-block; pointer-events: none; padding: 2px 7px; margin-right: 6px; border: 1px solid var(--ui-danger-border); border-radius: 5px; color: var(--ui-danger); background: var(--ui-danger-soft); font-size: 11px; }

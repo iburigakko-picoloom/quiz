@@ -185,6 +185,21 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
     };
   }, [currentQuestion?.choices]);
 
+  const choicesScrollRef = useRef<HTMLElement | null>(null);
+  const [hasMoreChoices, setHasMoreChoices] = useState(false);
+  useEffect(() => {
+    const el = choicesScrollRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    const update = () => setHasMoreChoices(el.scrollHeight - el.clientHeight - el.scrollTop > 4);
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    Array.from(el.children).forEach(child => observer.observe(child));
+    el.addEventListener('scroll', update, { passive: true });
+    const frame = requestAnimationFrame(update);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); el.removeEventListener('scroll', update); };
+  }, [currentQuestion, answered]);
+
   const questionTextClass = useMemo(() => {
     const length = currentQuestion?.question.length ?? 0;
     if (length >= 180) return 'text-[16px]';
@@ -374,7 +389,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             </div>
           </section>
 
-          <section className={`quiz-runner__choices flex min-h-0 flex-1 flex-col justify-center gap-2.5 px-6 py-3${answered ? ' quiz-runner__choices--answered' : ''}`}>
+          <section ref={choicesScrollRef} className={`quiz-runner__choices flex min-h-0 flex-1 flex-col justify-center gap-2.5 px-6 py-3${answered ? ' quiz-runner__choices--answered' : ''}`}>
             {currentQuestion.choices.map((_, index) => (
               <QuizChoiceButton
                 key={`${currentQuestion.id}_${index}`}
@@ -397,6 +412,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             className={`quiz-runner__answer-actions shrink-0 px-5 pb-[max(14px,env(safe-area-inset-bottom))] ${answered ? 'quiz-runner__answer-actions--spacer' : ''}`}
             aria-hidden={answered}
           >
+            {!answered && hasMoreChoices ? <div className="quiz-runner__choices-hint" role="status">↓ 下に続きがあります</div> : null}
             {!answered && answerMessage ? (
               <p className="quiz-runner__answer-message mb-2 text-center text-sm font-bold">{answerMessage}</p>
             ) : null}
