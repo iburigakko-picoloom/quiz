@@ -54,6 +54,7 @@ interface CreateProblemSetScreenProps {
   onOpenLegacyImport: (target: LegacyImportTarget) => void;
   onDirtyChange?: (dirty: boolean) => void;
   initialFolderId?: string;
+  startWithAi?: boolean;
   editSetId?: string;
   copySetId?: string;
   onBack?: () => void;
@@ -72,10 +73,11 @@ interface SetMeta {
   source: string;
 }
 
-export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
+export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, startWithAi = false, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
   const editingProblemSet = data.problemSets.find((problemSet) => problemSet.id === editSetId);
   const initialDraftsRef = useRef<BulkQuestionDraft[]>(createDraftsFromProblemSet(data, editingProblemSet));
-  const [view, setView] = useState<CreationView>(editingProblemSet ? 'manual' : 'methods');
+  const [view, setView] = useState<CreationView>(editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods');
+  const [notesPurpose, setNotesPurpose] = useState<'questions'|'answer'>('answer');
   const [meta, setMeta] = useState<SetMeta>(() => createInitialMeta(data, initialFolderId, editingProblemSet));
   const [drafts, setDrafts] = useState<BulkQuestionDraft[]>(() => initialDraftsRef.current);
   const [questionEditor, setQuestionEditor] = useState<BulkQuestionDraft>(() => createBlankDraft('manual-editor'));
@@ -100,7 +102,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const initializedCopyRef = useRef<string | undefined>(undefined);
   const saveInFlightRef = useRef(false);
   const initialMetaRef = useRef(meta);
-  const activeMethodRef = useRef<CreationView | null>(editingProblemSet ? 'manual' : null);
+  const activeMethodRef = useRef<CreationView | null>(editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : null);
   const copiedTemplateTimerRef = useRef<number | null>(null);
 
   useEffect(() => () => {
@@ -407,18 +409,18 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
             <BackButton
-              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => { if(view === 'notes' && notesBackRef.current?.()) return; view === 'chatgpt' && aiStep === 2 ? setAiStep(1) : goTo('methods'); }}
-              label={view === 'notes' ? '戻る' : editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : '作成方法へ戻る'}
+              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => { if(view === 'notes' && notesBackRef.current?.()) return; if(view === 'chatgpt' && aiStep === 2) setAiStep(1); else if(startWithAi && onBack) onBack(); else goTo('methods'); }}
+              label={view === 'notes' ? '戻る' : editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : startWithAi ? '前の画面へ戻る' : '作成方法へ戻る'}
             />
           )}
           <div>
-            <h1>{editingProblemSet ? '問題セットを編集' : getViewTitle(view, sourceSetId)}</h1>
+            <h1>{editingProblemSet ? '問題セットを編集' : view === 'methods' ? '作成' : view === 'notes' ? notesPurpose === 'questions' ? 'メモから問題を作る' : 'メモから詳細解説を作る' : getViewTitle(view, sourceSetId)}</h1>
           </div>
         </header>
 
-        {view === 'methods' ? <MethodChooser onSelect={startMethod} /> : null}
+        {view === 'methods' ? <MethodChooser onSelect={(next, purpose='answer')=>{setNotesPurpose(purpose);startMethod(next);}} /> : null}
         {view === 'notes' ? <div className="create-set__flow">
-          <CreationNotes onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onCreateQuestions={context=>{if(creationRequest.trim()&&!window.confirm('作成中の依頼文を苦手メモの問題作成に切り替えますか？'))return;setMemoContext(context);setCreationRequest('苦手メモの疑問を復習する問題集');setAiMethod('simple');setAiStep(1);goTo('chatgpt');activeMethodRef.current='chatgpt';}} />
+          <CreationNotes purpose={notesPurpose} onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onCreateQuestions={context=>{if(creationRequest.trim()&&!window.confirm('作成中の依頼文を苦手メモの問題作成に切り替えますか？'))return;setMemoContext(context);setCreationRequest('苦手メモの疑問を復習する問題集');setAiMethod('simple');setAiStep(1);goTo('chatgpt');activeMethodRef.current='chatgpt';}} />
         </div> : null}
 
         {view === 'manual' ? (
@@ -679,12 +681,17 @@ function PendingQuestionSaveDialog({
   );
 }
 
-function MethodChooser({ onSelect }: { onSelect: (view: CreationView) => void }) {
-  const methods: Array<{ view: CreationView; title: string; icon: React.ReactNode }> = [
-    { view: 'chatgpt', title: '生成AIで作る', icon: <AiCreationIcon /> },
-    { view: 'notes', title: '苦手メモ', icon: <WeaknessMemoIcon /> },
+function MethodChooser({ onSelect }: { onSelect: (view: CreationView, purpose?: 'questions'|'answer') => void }) {
+  const groups: Array<{title:string;methods:Array<{view:CreationView;purpose?:'questions'|'answer';title:string;icon:React.ReactNode}>}> = [
+    {title:'問題を作成',methods:[
+      {view:'chatgpt',title: '生成AIで作る',icon: <AiCreationIcon />},
+      {view:'notes',purpose:'questions',title:'メモから作る',icon: <WeaknessMemoIcon />},
+    ]},
+    {title:'解説を作成',methods:[
+      {view:'notes',purpose:'answer',title:'メモから詳細解説を作る',icon: <WeaknessMemoIcon />},
+    ]},
   ];
-  return <section className="create-set__methods" aria-label="作成方法"><h2>何から始める？</h2>{methods.map((method) => <button key={method.view} type="button" className="create-set__method" onClick={() => onSelect(method.view)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}
+  return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">{groups.map(group=><section className="create-set__purpose-group" key={group.title}><h2>{group.title}</h2>{group.methods.map((method) => <button key={method.title} type="button" className="create-set__method" onClick={() => onSelect(method.view,method.purpose)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}</section>)}
   </section>;
 }
 

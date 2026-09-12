@@ -5,7 +5,8 @@ import { changeWeaknessNotes, detailBody, explanationPrompt, finishExplanationBa
 import { ExplanationReader, WeaknessDetail } from '../components/WeaknessDetail';
 import { ChevronRightIcon, ProblemSetIcon } from '../components/UiIcons';
 
-export function CreationNotes({ data, onApplyBatch, onSaveDetail, onDirtyChange, onBackRef, onCreateQuestions }: {
+export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDirtyChange, onBackRef, onCreateQuestions }: {
+  purpose: 'questions'|'answer';
   data: AppData; onApplyBatch: (batch: ExplanationBatch)=>Promise<void>; onSaveDetail:(questionId:string,body:string)=>Promise<void>;
   onDirtyChange:(dirty:boolean)=>void;
   onCreateQuestions:(context:string)=>void;
@@ -16,7 +17,6 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onDirtyChange,
   const [history,setHistory]=useState<(typeof view)[]>([]);
   const [setId,setSetId]=useState(''),[selectedId,setSelectedId]=useState(''),[selected,setSelected]=useState<string[]>([]),[showAll,setShowAll]=useState(false);
   const [tables,setTables]=useState(true),[images,setImages]=useState(false),[examples,setExamples]=useState(true);
-  const [purpose,setPurpose]=useState<'questions'|'answer'>('answer');
   const [paste,setPaste]=useState(''),[batch,setBatch]=useState<ExplanationBatch|null>(null),[stage,setStage]=useState<'paste'|'review'>('paste'),[failed,setFailed]=useState(false);
   const note=notes.find(n=>n.id===selectedId),question=data.questions.find(q=>q.id===note?.questionId);
   useEffect(()=>{const load=()=>{try{setNotes(readWeaknessNotes());}catch{setError('メモを読み込めません。再読み込みしてください。');}};load();window.addEventListener(NOTES_EVENT,load);window.addEventListener('storage',load);return()=>{window.removeEventListener(NOTES_EVENT,load);window.removeEventListener('storage',load);};},[]);
@@ -55,13 +55,9 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onDirtyChange,
         {data.problemSets.filter(s=>notes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===s.id))).map(s=>{const ns=notes.filter(n=>data.questions.some(q=>q.id===n.questionId&&q.setId===s.id));return <button type="button" key={s.id} className="weakness-row" onClick={()=>chooseAll(s.id)}><ProblemSetIcon size={32}/><span><strong>{s.title}</strong><small>未解説 {ns.filter(n=>n.body.trim()&&n.resolvedBody!==n.body).length} · 解説あり {ns.filter(n=>n.resolvedBody===n.body&&n.body.trim()).length}</small></span><ChevronRightIcon/></button>;})}
         {!notes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-muted">学習中に残した疑問がここにまとまります。</p>:null}
         {notes.some(n=>n.questionId&&!data.questions.some(q=>q.id===n.questionId))?<details><summary>元の問題がないメモ</summary>{notes.filter(n=>n.questionId&&!data.questions.some(q=>q.id===n.questionId)).map(n=><p key={n.id}>{n.body}</p>)}</details>:null}
-      <div className="weakness-import-dock"><button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button></div>
+      {purpose==='answer'?<div className="weakness-import-dock"><button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button></div>:null}
     </>:null}
     {view==='set'?<>
-      <div className="weakness-purpose-tabs" data-purpose={purpose} role="group" aria-label="メモの使い方">
-        <button type="button" aria-pressed={purpose==='questions'} disabled={busy||failed} onClick={()=>setPurpose('questions')}>問題作成</button>
-        <button type="button" aria-pressed={purpose==='answer'} disabled={busy||failed} onClick={()=>setPurpose('answer')}>AI解答</button>
-      </div>
       <div className="weakness-step">① メモを選ぶ　→　② {purpose==='questions'?'問題を作る':'AIに解答を依頼'}</div>
       <label className="weakness-muted"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> 解説済みも表示</label>
       {inSet.filter(n=>showAll||n.resolvedBody!==n.body).map(n=>{const q=data.questions.find(q=>q.id===n.questionId)!;return <div className="weakness-selection" key={n.id}><label><input type="checkbox" checked={selected.includes(n.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,n.id]:ids.filter(id=>id!==n.id))}/><span>{q.question.length>60?q.question.slice(0,60)+'…':q.question}</span></label><p>{n.body}</p><button type="button" className="weakness-text" onClick={()=>{setSelectedId(n.id);go('question');}}>{detailBody(q).trim()?'解説を読む・追加の疑問':'メモを開く'}</button>{n.draft?<span className="weakness-muted"> 下書き</span>:null}</div>;})}

@@ -1275,6 +1275,7 @@ export default function App() {
     content = (
       <Suspense fallback={<div className="quiz-app-loading">作成画面を読み込み中...</div>}>
         <CreateProblemSetScreen
+          startWithAi={Boolean(createBackScreen) && !screen.editSetId && !screen.copySetId}
           data={data}
           onSaveDetail={handleSaveDetailedExplanation}
           onApplyExplanations={async batch => {

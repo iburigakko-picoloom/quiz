@@ -88,6 +88,11 @@
 .create-set.create-set--chooser .create-set__method .create-set__method-icon { width: 48px; height: 48px; background: transparent; color: #305da3; }
 .create-set.create-set--chooser .create-set__method .create-set__method-icon svg { width: 42px; height: 42px; }
 .create-set.create-set--chooser .create-set__method:active { transform: scale(.985); border-color: #2859a6; }
+.create-set.create-set--chooser .create-set__purpose-groups { display:grid; gap:32px; align-content:start; padding:24px 0; }
+.create-set__purpose-group { display:grid; gap:12px; min-width:0; }
+.create-set.create-set--chooser .create-set__purpose-group h2 { display:block; margin:0 0 2px; color:#637184; font-size:13px; font-weight:600; }
+.create-set.create-set--chooser .create-set__purpose-group .create-set__method { min-height:100px; padding:18px 16px; margin:0; }
+.create-set.create-set--chooser .create-set__purpose-group .create-set__method strong { font-size:16px; line-height:1.5; }
 .create-set.create-set--chooser .create-set__method:focus-visible { outline: 2px solid #2859a6; outline-offset: 4px; }
 @media (max-width: 360px) { .create-set.create-set--chooser .create-set__methods .create-set__method { gap: 12px; } }
 @media (prefers-reduced-motion: reduce) { .create-set.create-set--chooser .create-set__methods .create-set__method { transition: none; transform: none; } }

@@ -8,7 +8,15 @@ const notes = read('../src/screens/CreationNotes.tsx');
 test('creation entry contains AI and notes, with copy moved to set actions', () => {
   const chooser = create.slice(create.indexOf('function MethodChooser'), create.indexOf('function SetMetaFields'));
   assert.match(chooser, /生成AIで作る/);
-  assert.match(chooser, /苦手メモ/);
+  assert.match(chooser, /問題を作成/);
+  assert.match(chooser, /解説を作成/);
+  assert.match(chooser, /メモから作る/);
+  assert.match(chooser, /メモから詳細解説を作る/);
+  assert.match(chooser, /purpose:'questions'/);
+  assert.match(chooser, /purpose:'answer'/);
+  assert.doesNotMatch(notes, /setPurpose|weakness-purpose-tabs/);
+  assert.match(create, /purpose=\{notesPurpose\}/);
+  assert.match(read('../src/App.tsx'), /startWithAi=\{Boolean\(createBackScreen\) && !screen.editSetId && !screen.copySetId\}/);
   assert.match(chooser, /icon: <WeaknessMemoIcon/);
   assert.match(chooser, /icon: <AiCreationIcon/);
   assert.doesNotMatch(chooser, /既存問題セット|CSV|ファイルを読み込む/);
