@@ -49,6 +49,7 @@ export function PinchImage({ src, alt }: { src: string; alt: string }) {
       scale = event.key === '0' || event.key === 'Escape' ? 1 : Math.max(1, Math.min(4, scale + (event.key === '-' ? -.5 : .5)));
       paint();
     };
+    paint();
     el.addEventListener('touchstart', start, { passive: false });
     el.addEventListener('touchmove', move, { passive: false });
     el.addEventListener('touchend', end);
