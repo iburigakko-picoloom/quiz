@@ -41,7 +41,7 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onGenerate, on
   const chooseAll=(id:string)=>{setSetId(id);const ns=notes.filter(n=>n.questionId&&n.body.trim()&&!n.draft&&n.resolvedBody!==n.body&&data.questions.some(q=>q.id===n.questionId&&q.setId===id));setSelected(ns.map(n=>n.id));go('set');};
   return <section className="weakness-workspace" aria-label="苦手メモ">
     <form id="creation-note-add" onSubmit={e=>{e.preventDefault();add();}}/>
-    {title?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}
+    {title&&view!=='edit'?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}
     {error?<div role="alert" className="weakness-error">{error}{failed&&note?<button type="button" onClick={()=>update(note)}>再保存</button>:null}</div>:null}
     {message?<p className="weakness-status" role="status">{message}</p>:null}
     {view==='list'?<>
@@ -62,7 +62,7 @@ export function CreationNotes({ data, onApplyBatch, onSaveDetail, onGenerate, on
     </>:null}
     {view==='question'&&question?<><WeaknessDetail key={question.id} questionId={question.id} text={detailBody(question)} onSave={body=>onSaveDetail(question.id,body)} onDirtyChange={setFailed}/>{note?<details><summary>選んだ疑問を編集</summary><textarea aria-label="保存した疑問" value={note.body} onChange={e=>update({...note,body:e.target.value})}/><button type="button" className="weakness-text" onClick={()=>{if(window.confirm('この疑問を削除しますか？')&&change(items=>items.filter(n=>n.id!==note.id)))go('set');}}>この疑問を削除</button></details>:null}</>:null}
     {view==='edit'&&note?<>
-      <div className="weakness-toolbar"><span className="weakness-muted">{failed?'未保存':'保存済み'}</span><button type="button" className="weakness-text" onClick={()=>{if(window.confirm('このメモを削除しますか？')&&change(items=>items.filter(n=>n.id!==note.id)))go('list');}}>削除</button></div>
+      <div className="weakness-toolbar weakness-editor-heading"><h2>メモ</h2><span className="weakness-muted">{failed?'未保存':'保存済み'}</span><button type="button" className="weakness-text" onClick={()=>{if(window.confirm('このメモを削除しますか？')&&change(items=>items.filter(n=>n.id!==note.id)))go('list');}}>削除</button></div>
       <div className="weakness-tabs"><button type="button" aria-pressed={editTab==='memo'} onClick={()=>setEditTab('memo')}>メモ</button><button type="button" aria-pressed={editTab==='explanation'} onClick={()=>setEditTab('explanation')}>解説</button></div>
       {editTab==='memo'?<><label className="weakness-field">タイトル<input className="weakness-title" aria-label="メモのタイトル" value={note.title} onChange={e=>update({...note,title:e.target.value})}/></label><label className="weakness-field">メモ<textarea className="weakness-free-body" aria-label="メモの本文" value={note.body} onChange={e=>update({...note,body:e.target.value})}/></label><button type="button" className="weakness-text" onClick={()=>setEditTab('explanation')}>＋ 画像を追加</button></>:<>{!note.explanation?<p className="weakness-muted">解説はまだありません。</p>:null}<ExplanationReader text={note.explanation??''} onSave={async body=>{if(!change(items=>items.map(n=>n.id===note.id?{...n,explanation:body}:n)))throw new Error('保存できませんでした。');}}/></>}
       <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={!note.body.trim()||busy||failed} onClick={()=>{setSelected([note.id]);go('prompt');}}>AIに解説してもらう</button><button type="button" className="weakness-button" disabled={!note.body.trim()||busy||failed} onClick={()=>void generate()}>生成AIで問題化</button></div>
