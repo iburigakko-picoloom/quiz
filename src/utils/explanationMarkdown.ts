@@ -1,6 +1,6 @@
 // Normalize AI responses for display only; keep the saved original intact.
 export function normalizeExplanationMarkdown(text: string) {
-  return text.replace(/\r\n?/g, '\n').replace(/```(?:markdown|md)\s*\n([\s\S]*?)\n```/gi, '$1');
+  return text.replace(/<!--\s*qm-reply:[\s\S]*?-->/g, '').replace(/\r\n?/g, '\n').replace(/```(?:markdown|md)\s*\n([\s\S]*?)\n```/gi, '$1');
 }
 
 export function extractExplanationMedia(text: string) {

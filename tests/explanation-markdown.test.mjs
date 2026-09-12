@@ -21,4 +21,9 @@ test('markdown wrappers display as content but flow blocks remain intact', () =>
 test('memo prompts ask for concise safe visual explanations', () => {
   const prompt = explanationPrompt({id:'test',targets:[]},{tables:true,images:false,examples:true});
   for (const phrase of ['150〜300字','赤い太字','言語名flow','JSONの外に表を書かない','HTMLや色指定タグは使わない']) assert.ok(prompt.includes(phrase));
+  assert.ok(prompt.includes('全選択肢の解説は自動で追加しない'));
+});
+
+test('internal reply markers are hidden without removing explanation text', () => {
+  assert.equal(normalizeExplanationMarkdown('以前の解説\n<!-- qm-reply:request:question%3Aid -->\n追加解説'), '以前の解説\n\n追加解説');
 });

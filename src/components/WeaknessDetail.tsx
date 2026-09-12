@@ -55,8 +55,16 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
     finally { lock.current = false; setBusy(false); }
   };
   const matching = media.map((value, i) => ({value, i})).filter(x => tab === 'image' ? x.value.startsWith('![') : !x.value.startsWith('!['));
+  const remove = async () => {
+    if (!onSave || disabled || lock.current || !window.confirm('詳細解説と添付画像を削除しますか？通常の解説と苦手メモは残ります。')) return;
+    lock.current = true; setBusy(true); setError('');
+    try { await onSave(''); setActive(null); }
+    catch { setError('削除できませんでした。もう一度お試しください。'); }
+    finally { lock.current = false; setBusy(false); }
+  };
   return <div className="weakness-reader">
-    {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <button type="button" className="weakness-media-card" key={i} onClick={() => { setTab(m.startsWith('![') ? 'image' : 'table'); setActive(i); }} aria-label={`${m.startsWith('![') ? '画像' : '表'}${i+1}を拡大`}><Markdown text={m} /></button>)}</div> : null}
+    {onSave && !disabled && text.trim() ? <details className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></details> : null}
+    {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className="weakness-media-card" key={i}><button type="button" className="weakness-text" onClick={() => { setTab(m.startsWith('![') ? 'image' : 'table'); setActive(i); }} aria-label={`${m.startsWith('![') ? '画像' : '表'}${i+1}を拡大`}>{m.startsWith('![') ? '画像' : '表'}を拡大 ↗</button><Markdown text={m} /></section>)}</div> : null}
     {body.trim() ? <div className="weakness-markdown"><Markdown text={body} /></div> : null}
     {onSave && !disabled ? <button type="button" className="weakness-text" disabled={busy} onClick={() => { setTab('image'); setActive(0); }}>画像・表を表示／画像を追加</button> : null}
     {error ? <p role="alert" className="weakness-error">{error}</p> : null}

@@ -282,7 +282,7 @@ export function updateQuestionDetailedExplanation(data: AppData, questionId: str
   const updatedAt = nowIso();
   return { ...data, questions: data.questions.map((question) => question.id === questionId ? {
     ...question, detailedExplanation, updatedAt,
-    detailedAnswer: { body: detailedExplanation, imageIds: question.detailedAnswer?.imageIds ?? [], updatedAt },
+    detailedAnswer: { body: detailedExplanation, imageIds: detailedExplanation.trim() ? question.detailedAnswer?.imageIds ?? [] : [], updatedAt },
   } : question) };
 }
 
