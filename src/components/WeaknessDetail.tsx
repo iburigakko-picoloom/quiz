@@ -72,6 +72,9 @@ export function WeaknessDetail({ questionId, text, onSave, disabled = false, onD
   const [body, setBody] = useState(''), [memoId, setMemoId] = useState(''), [error, setError] = useState(''), [message,setMessage]=useState('');
   const [adding,setAdding]=useState(!text.trim());
   const failed = useRef(false);
+  const writeSequence = useRef(0);
+  const saveLock = useRef(false);
+  const [savingMemo, setSavingMemo] = useState(false);
   useEffect(()=>{
     if (!active || disabled) return;
     const remember=()=>{if(document.visibilityState==='visible')rememberImageTarget(questionId);};
@@ -84,19 +87,21 @@ export function WeaknessDetail({ questionId, text, onSave, disabled = false, onD
   },[questionId]);
   useEffect(()=>()=>onDirtyChange?.(false),[onDirtyChange]);
   useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if(failed.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[]);
-  const persist=(value:string,draft:boolean)=>{
+  const persist=async(value:string,draft:boolean)=>{
+    const sequence = ++writeSequence.current;
     try {
-      changeWeaknessNotes(notes=>{const old=notes.find(n=>n.id===memoId);const next={...old,id:memoId,title:'問題への疑問',body:value,questionId,draft};return old?notes.map(n=>n.id===memoId?next:n):[next,...notes];});
-      failed.current=false;onDirtyChange?.(false);setError('');return true;
-    }catch{failed.current=true;onDirtyChange?.(true);setError('メモを保存できません。入力内容を残しています。');return false;}
+      failed.current=true;onDirtyChange?.(true);
+      await changeWeaknessNotes(notes=>{const old=notes.find(n=>n.id===memoId);const next={...old,id:memoId,title:'問題への疑問',body:value,questionId,draft};return old?notes.map(n=>n.id===memoId?next:n):[next,...notes];});
+      if(sequence===writeSequence.current){failed.current=false;onDirtyChange?.(false);setError('');}return true;
+    }catch{if(sequence===writeSequence.current){failed.current=true;onDirtyChange?.(true);setError('メモを保存できません。入力内容を残しています。');}return false;}
   };
-  const save=()=>{if(!body.trim()||!memoId)return;if(persist(body,false)){setBody('');setMemoId(crypto.randomUUID());setMessage('苦手メモに保存しました');if(text.trim())setAdding(false);}};
+  const save=async()=>{if(!body.trim()||!memoId||saveLock.current)return;saveLock.current=true;setSavingMemo(true);try{if(await persist(body,false)){setBody('');setMemoId(crypto.randomUUID());setMessage('苦手メモに保存しました');if(text.trim())setAdding(false);}}finally{saveLock.current=false;setSavingMemo(false);}};
   return <section className="weakness-detail">
     <ExplanationReader text={text} onSave={onSave} disabled={disabled}/>
     {disabled ? (!text.trim()?<p className="weakness-muted">自分の問題にコピーすると疑問を保存できます。</p>:null) : <>
       {!adding&&text.trim()?<button type="button" className="weakness-button" onClick={()=>setAdding(true)}>＋ 追加で質問・メモ</button>:<div className="weakness-composer">
         <label htmlFor={`memo-${questionId}`}>詳しく知りたいこと</label>
-        <div className="weakness-compose-row"><textarea id={`memo-${questionId}`} className="answer-sheet__detail-input" value={body} maxLength={4000} onChange={e=>{setBody(e.target.value);setMessage('');if(memoId)persist(e.target.value,true);}}/><button type="button" className="weakness-primary" onClick={save} disabled={!body.trim()||!memoId} aria-label="苦手メモに保存">↑</button></div>
+        <div className="weakness-compose-row"><textarea id={`memo-${questionId}`} className="answer-sheet__detail-input" value={body} disabled={savingMemo} maxLength={4000} onChange={e=>{setBody(e.target.value);setMessage('');if(memoId)void persist(e.target.value,true);}}/><button type="button" className="weakness-primary" onClick={save} disabled={savingMemo||!body.trim()||!memoId} aria-label="苦手メモに保存">↑</button></div>
       </div>}
     </>}
     {message?<p role="status" className="weakness-muted">{message}</p>:null}

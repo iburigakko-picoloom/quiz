@@ -1,12 +1,13 @@
 import type { AppData } from '../types';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
 import { StudyIcon } from '../components/UiIcons';
 import { buildProblemCategories, normalizeProblemCategory } from './ProblemSetDetailScreen';
 import { getQuestionsBySet } from '../utils/quiz';
 import { usePhoneLayout } from '../utils/usePhoneLayout';
-import { detailBody, NOTES_EVENT, readWeaknessNotes, type WeaknessNote } from '../utils/weaknessNotes';
+import { detailBody, NOTES_EVENT, readWeaknessNotes, unexplainedNotes, makeExplanationRequest, rememberExplanationRequest, explanationPrompt, type WeaknessNote } from '../utils/weaknessNotes';
+import { writeClipboardText } from '../utils/nativePlatform';
 import { normalizeExplanationMarkdown } from '../utils/explanationMarkdown';
 import { ExplanationReader } from '../components/WeaknessDetail';
 import './NoteOverviewScreen.css';
@@ -17,6 +18,10 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail }
   const phone = usePhoneLayout();
   const [notes, setNotes] = useState<WeaknessNote[]>([]);
   const [notesError, setNotesError] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copyMessage, setCopyMessage] = useState('');
+  const [copyError, setCopyError] = useState('');
+  const copyLock = useRef(false);
   useEffect(() => {
     const load = () => { try { setNotes(readWeaknessNotes()); setNotesError(false); } catch { setNotesError(true); } };
     load();
@@ -28,10 +33,27 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail }
   const categories = buildProblemCategories(questions).slice(1);
   if (!categories.length) categories.push(normalizeProblemCategory(undefined));
   const detailedQuestions = questions.filter(question => normalizeExplanationMarkdown(detailBody(question)).trim() || question.detailedAnswer?.imageIds.length);
+  const pending = unexplainedNotes(data, notes, setId);
+  const copyPending = async () => {
+    if (copyLock.current) return;
+    copyLock.current = true; setCopying(true); setCopyMessage(''); setCopyError('');
+    try {
+      const request = makeExplanationRequest(unexplainedNotes(data, readWeaknessNotes(), setId), data);
+      await rememberExplanationRequest(request);
+      await writeClipboardText(explanationPrompt(request, { tables: true, images: false, examples: false }));
+      setCopyMessage(`${request.targets.length}問分をコピーしました`);
+    } catch (error) { setCopyError(error instanceof Error ? error.message : 'コピーできませんでした。'); }
+    finally { copyLock.current = false; setCopying(false); }
+  };
   return <Layout><main className="library-page">
     <header className="library-page__header"><BackButton onClick={onBack} /><h1>{phone ? '詳細解説一覧' : 'ノート一覧'}</h1></header>
     {set ? <>
       <h2 className="note-overview-title">{set.title}</h2>
+      <div className="note-overview-copy">
+        <button type="button" disabled={copying || notesError || !pending.length} onClick={() => void copyPending()}>{copying ? 'コピー中…' : '未解説メモのプロンプトをコピー'}</button>
+        {copyMessage ? <p role="status">{copyMessage}</p> : null}
+        {copyError ? <p role="alert">{copyError}</p> : null}
+      </div>
       {phone ? <>
         {notesError ? <p role="alert">メモを読み込めませんでした。解説は下に表示しています。</p> : null}
         <div className="note-explanation-list">

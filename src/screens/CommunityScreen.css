@@ -292,3 +292,7 @@
 .community-conditions__footer button { width: 100%; min-height: 50px; border-radius: 10px; }
 @keyframes community-conditions-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @media (prefers-reduced-motion: reduce) { .community-sheet.community-conditions { animation: none; } }
+.community-group-edit{display:grid;gap:12px;margin:12px 0 24px}
+.community-group-edit label{display:grid;gap:8px;font-size:14px;color:#526273}
+.community-group-edit input{width:100%;min-width:0;box-sizing:border-box;min-height:48px}
+.community-group-edit button{min-height:44px;justify-self:end}

@@ -75,6 +75,7 @@ const coordination = await vite.ssrLoadModule('/src/utils/dataCoordination.ts');
 const storage = await vite.ssrLoadModule('/src/storage.ts');
 const notes = await vite.ssrLoadModule('/src/utils/noteStorage.ts');
 const sync = await vite.ssrLoadModule('/src/utils/syncService.ts');
+const weakness = await vite.ssrLoadModule('/src/utils/weaknessNotes.ts');
 sync.setSyncAccessTokenProviderForTests(async () => ({
   ok: true,
   accessToken: 'test-user-access-token',
@@ -111,6 +112,50 @@ function appDataWithFolder(name) {
     }],
   };
 }
+
+test('question memos and pending AI request IDs survive backup restore; old backups do not erase them', async () => {
+  resetStorage();
+  await storage.saveAppData(appDataWithFolder('memo-backup'));
+  const memo = { id: 'memo-1', title: '疑問', body: 'なぜ？', questionId: 'question-1' };
+  await weakness.changeWeaknessNotes(() => [memo]);
+  const request = { id: 'request-1', targets: [{ targetId: 'question:question-1', title: '問題', memoIds: ['memo-1'], memoBodies: ['なぜ？'] }] };
+  await weakness.rememberExplanationRequest(request);
+  const backup = await sync.exportQuizMakeData(timestamp);
+  assert.deepEqual(JSON.parse(backup.localStorage[weakness.NOTES_KEY]), [memo]);
+  assert.deepEqual(JSON.parse(backup.localStorage[weakness.REQUEST_KEY]), [request]);
+  const changedRevision = revision.getLocalDataRevision();
+  await weakness.changeWeaknessNotes(() => [{ ...memo, body: '編集中' }]);
+  assert.ok(revision.getLocalDataRevision() > changedRevision);
+  assert.notEqual(sync.computePayloadHash(backup), sync.computePayloadHash(await sync.exportQuizMakeData(timestamp)));
+  const expectedLocalHash = sync.computePayloadHash(await sync.exportQuizMakeData(timestamp));
+  assert.equal((await sync.importQuizMakeData(backup, { expectedLocalHash })).ok, true);
+  assert.deepEqual(weakness.readWeaknessNotes(), [memo]);
+  assert.equal(weakness.readExplanationBatch(JSON.stringify({ version: 1, requestId: 'request-1', explanations: [{ targetId: 'question:question-1', body: '回答' }] })).request.id, 'request-1');
+  const legacy = { ...backup, localStorage: { ...backup.localStorage } };
+  weakness.WEAKNESS_STORAGE_KEYS.forEach(key => delete legacy.localStorage[key]);
+  assert.equal((await sync.importQuizMakeData(legacy)).ok, true);
+  assert.deepEqual(weakness.readWeaknessNotes(), [memo]);
+  const malformed = { ...backup, localStorage: { ...backup.localStorage, [weakness.REQUEST_KEY]: '[{}]' } };
+  assert.equal((await sync.importQuizMakeData(malformed)).ok, false);
+  assert.deepEqual(weakness.readWeaknessNotes(), [memo]);
+  const empty = { ...backup, localStorage: { ...backup.localStorage, [weakness.NOTES_KEY]: '[]' } };
+  assert.equal((await sync.importQuizMakeData(empty)).ok, true);
+  assert.deepEqual(weakness.readWeaknessNotes(), []);
+});
+
+test('explicit local-data deletion also clears memos and request history but keeps saved backups', async () => {
+  resetStorage();
+  await storage.saveAppData(appDataWithFolder('delete-test'));
+  await weakness.changeWeaknessNotes(() => [{ id: 'memo', title: '疑問', body: '本文' }]);
+  await weakness.rememberExplanationRequest({ id: 'request', targets: [] });
+  localStorage.setItem(weakness.ORPHAN_NOTES_KEY, '[{"id":"old","title":"旧メモ","body":"内容"}]');
+  localStorage.setItem('quizMake:sync:saved-backup:retained', 'existing-backup');
+  const { persistLibraryDeletion } = await vite.ssrLoadModule('/src/utils/libraryDeletion.ts');
+  const result = await persistLibraryDeletion({ buildPlan: () => ({ nextData: storage.createEmptyAppData(), problemSetIds: [] }), deleteAllNotes: true });
+  assert.equal(result.ok, true);
+  weakness.WEAKNESS_STORAGE_KEYS.forEach(key => assert.equal(localStorage.getItem(key), '[]'));
+  assert.equal(localStorage.getItem('quizMake:sync:saved-backup:retained'), 'existing-backup');
+});
 
 test('sync connection changes report set/get failures and silent read-back mismatches', () => {
   resetStorage();

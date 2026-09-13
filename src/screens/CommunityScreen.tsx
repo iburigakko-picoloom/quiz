@@ -17,6 +17,7 @@ import {
   buildShareUrl,
   cloudConfigured,
   createCloudGroup,
+  renameCloudGroup,
   deleteCloudGroup,
   createGroupInvite,
   getCloudDisplayName,
@@ -95,6 +96,8 @@ export function CommunityScreen({
   const [groups, setGroups] = useState<CloudGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId ?? '');
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [groupNameDraft, setGroupNameDraft] = useState('');
+  const renameLock = useRef(false);
   const [groupSets, setGroupSets] = useState<CloudProblemSet[]>([]);
   const [groupMembers, setGroupMembers] = useState<CloudGroupMember[]>([]);
   const [groupDetailTab, setGroupDetailTab] = useState<'sets' | 'members'>('sets');
@@ -146,6 +149,16 @@ export function CommunityScreen({
   const isPrimaryRoot = !groupPage && !initialSetId && !initialGroupId && !shareToken && (initialTab === 'discover' || initialTab === 'groups');
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const canManageSelectedGroup = selectedGroup?.role === 'owner' || selectedGroup?.role === 'admin';
+  const saveGroupName = async () => {
+    if (!selectedGroup || selectedGroup.role !== 'owner' || busy || renameLock.current) return;
+    renameLock.current = true; setBusy(true); setError('');
+    try {
+      const name = await renameCloudGroup(selectedGroup.id, groupNameDraft, selectedGroup.name);
+      setGroups(items => items.map(group => group.id === selectedGroup.id ? { ...group, name } : group));
+      setGroupMenuOpen(false); setAuthMessage('グループ名を変更しました');
+    } catch (error) { setError(error instanceof Error ? error.message : '名前を変更できませんでした。'); }
+    finally { renameLock.current = false; setBusy(false); }
+  };
   const groupFolders = useMemo(() => buildGroupProblemSetFolders(groupSets), [groupSets]);
   const audienceOptions = useMemo(() => [...new Set([...publicationPurposes, ...publicSets.map((set) => set.audience).filter(Boolean)])], [publicSets]);
   const visiblePublicSets = useMemo(() => publicSets.filter((set) => (
@@ -648,7 +661,7 @@ export function CommunityScreen({
         <header className="community-screen__header">
           {isPrimaryRoot ? <span className="community-screen__header-spacer" aria-hidden="true" /> : <BackButton onClick={handleHeaderBack} label="戻る" />}
           <div><h1>{headerTitle}</h1></div>
-          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={()=>setGroupMenuOpen(true)}>…</button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
+          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={()=>{setGroupNameDraft(selectedGroup.name);setError('');setGroupMenuOpen(true);}}>…</button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
         </header>
 
         {!cloudConfigured ? <div className="community-notice community-notice--warning">共有機能の接続設定が未完了です。端末内の作成・学習機能はそのまま使えます。</div> : null}
@@ -838,6 +851,10 @@ export function CommunityScreen({
         {groupMenuOpen && selectedGroup ? <CommunityModal ariaLabel="グループの管理" busy={busy} onClose={()=>setGroupMenuOpen(false)}>
           <h2>{selectedGroup.name}</h2>
           {error ? <p role="alert" className="community-notice--error">{error}</p> : null}
+          {selectedGroup.role === 'owner' ? <form className="community-group-edit" onSubmit={event => { event.preventDefault(); void saveGroupName(); }}>
+            <label>グループ名<input value={groupNameDraft} maxLength={60} disabled={busy} onChange={event => setGroupNameDraft(event.target.value)} /></label>
+            <button type="submit" disabled={busy || !groupNameDraft.trim() || groupNameDraft.trim() === selectedGroup.name}>{busy ? '保存中…' : '名前を保存'}</button>
+          </form> : null}
           {selectedGroup.role === 'owner' ? <button type="button" className="community-group-danger" disabled={busy} onClick={()=>void deleteSelectedGroup()}>グループを削除</button> : <button type="button" className="community-group-danger" disabled={busy || !groupMembers.some(m=>m.userId===session?.user.id)} onClick={()=>{const member=groupMembers.find(m=>m.userId===session?.user.id);if(member)void removeGroupMember(member);}}>グループから退出</button>}
         </CommunityModal> : null}
         {copyTarget ? <CommunityModal ariaLabel="取り込み先を選択" busy={busy} onClose={() => setCopyTarget(null)}>

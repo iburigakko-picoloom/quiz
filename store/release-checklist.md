@@ -22,6 +22,8 @@
 
 ## 現在の公開ブロッカー
 
+- 共通Supabase Authのアカウント削除が他アプリにも波及し得る。専用基盤への分離またはアプリ単位削除の設計・検証が必要（詳細: `docs/product-readiness-2026-09-13.md`）
+- アプリ外の非公開削除依頼窓口、投稿管理・ブロック・規約、保存期間を確定し、プライバシーポリシーとストア申告を最終確認する
 - App Store Connect / Play Consoleの開発者登録、本人確認、契約・支払い情報
 - iOSはMac・Xcode 26以降・iOS 26 SDK以降で署名とArchive、AndroidはAndroid Studio・Java 21・Android SDK 36で署名付きAABを生成する
 - AndroidテストAPKはGitHub Actionsから生成可能。ストア署名・実機検証は別途必要

@@ -449,6 +449,17 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
+export async function renameCloudGroup(groupId: string, name: string, previousName: string): Promise<string> {
+  const nextName = name.trim();
+  if (!groupId || !nextName || nextName.length > 60) throw new Error('グループ名は1〜60文字で入力してください。');
+  const client = requireCloudClient();
+  const { data, error } = await client.from('quiz_groups').update({ name: nextName, updated_at: new Date().toISOString() })
+    .eq('id', groupId).eq('name', previousName).select('name');
+  if (error) throw new Error(toFriendlyCloudError(error.message));
+  if (data?.length !== 1 || typeof data[0].name !== 'string') throw new Error('名前が変更されたか、編集権限がありません。グループを開き直してください。');
+  return data[0].name;
+}
+
 export async function deleteCloudGroup(groupId: string): Promise<void> {
   if (!groupId) throw new Error('グループを選択してください。');
   const client = requireCloudClient();

@@ -41,6 +41,7 @@ import {
 } from './dataCoordination';
 import type { CloudAccessTokenResult } from './cloudService';
 import { saveBackupPayload } from './backupRepository';
+import { NOTES_KEY, REQUEST_KEY, WEAKNESS_STORAGE_KEYS, NOTES_EVENT, parseNotes, parseExplanationRequests } from './weaknessNotes';
 export type SyncPayload = {
   version: 1;
   updatedAt: string;
@@ -458,6 +459,9 @@ export function exportQuizMakeData(
         const value = localStorage.getItem(key);
         if (value !== null) localStorageData[key] = value;
       });
+      // Explicit empty arrays distinguish current exports from legacy backups
+      // that never included question memos or pending AI requests.
+      WEAKNESS_STORAGE_KEYS.forEach(key => { localStorageData[key] ??= '[]'; });
 
       localStorageData[APP_DATA_STORAGE_KEY] = await exportAppDataRaw({
         coordinationLockHeld: true,
@@ -572,6 +576,9 @@ async function importQuizMakeDataUnlocked(
       }
       if (isQuizMakeStorageKey(key)) nextLocalStorage[key] = value;
     });
+    WEAKNESS_STORAGE_KEYS.forEach(key => {
+      if (nextLocalStorage[key] === undefined && previousLocalStorage[key] !== undefined) nextLocalStorage[key] = previousLocalStorage[key];
+    });
 
     const appDataRaw = validation.value.localStorage[APP_DATA_STORAGE_KEY] as string;
     const importedAppData = await importAppDataRaw(appDataRaw, {
@@ -606,6 +613,7 @@ async function importQuizMakeDataUnlocked(
     }
 
     localStorage.removeItem(DATA_IMPORT_IN_PROGRESS_KEY);
+    window.dispatchEvent(new Event(NOTES_EVENT));
 
     const localStorageCount = Object.keys(validation.value.localStorage).filter((key) => !isCategoryNoteKey(key)).length;
     return { ok: true, value: localStorageCount + noteCount };
@@ -1004,7 +1012,9 @@ export function summarizeSyncPayload(payload: SyncPayload): SyncPayloadSummary {
     ...Object.keys(payload.localStorage).filter(isCategoryNoteKey),
     ...Object.keys(payload.indexedDbNotes ?? {}).filter(isCategoryNoteKey),
   ]);
-  const noteCount = noteKeys.size;
+  let memoCount = 0;
+  try { memoCount = parseNotes(payload.localStorage[NOTES_KEY] ?? null).filter(note => note.body.trim()).length; } catch { /* Validation reports malformed data. */ }
+  const noteCount = noteKeys.size + memoCount;
   const text = JSON.stringify({ localStorage: payload.localStorage, indexedDbNotes: payload.indexedDbNotes ?? {} });
   const byteSize = typeof TextEncoder !== 'undefined'
     ? new TextEncoder().encode(text).length
@@ -1040,6 +1050,14 @@ export function validateSyncPayload(value: unknown): SyncResult<SyncPayload> {
 
   const invalidKey = Object.keys(value.localStorage).find((key) => !isQuizMakeStorageKey(key));
   if (invalidKey) return { ok: false, error: 'Quiz make以外のキーが含まれています: ' + invalidKey };
+  try {
+    for (const key of WEAKNESS_STORAGE_KEYS) {
+      const raw = value.localStorage[key];
+      if (raw !== undefined) key === REQUEST_KEY ? parseExplanationRequests(raw) : parseNotes(raw);
+    }
+  } catch {
+    return { ok: false, code: 'invalid', error: 'メモまたはAIへの依頼履歴の形式が正しくありません。既存データは変更していません。' };
+  }
 
   const indexedDbNotesValue = value.indexedDbNotes;
   if (indexedDbNotesValue !== undefined && !isStringRecord(indexedDbNotesValue)) {
@@ -1730,9 +1748,8 @@ function collectCurrentQuizMakeLocalStorage(): Record<string, string> {
       const value = localStorage.getItem(key);
       if (value !== null) result[key] = value;
     }
-  } catch {
-    // Best effort snapshot only.
-  }
+  } catch { throw new Error('現在の保存データを読み取れないため、安全のため読み込みを中止しました。'); }
+  WEAKNESS_STORAGE_KEYS.forEach(key => { result[key] ??= '[]'; });
   return result;
 }
 
@@ -1817,6 +1834,7 @@ function replaceQuizMakeLocalStorage(next: Record<string, string>): void {
   }
 }
 function isQuizMakeStorageKey(key: string): boolean {
+  if (WEAKNESS_STORAGE_KEYS.some(item => item === key)) return true;
   if (key === APP_DATA_FALLBACK_META_KEY) return false;
   if (key === APP_DATA_EXPECTED_KEY) return false;
   if (key === APP_DATA_RECOVERY_REQUIRED_KEY) return false;

@@ -249,7 +249,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
         <ConfirmDialog
           open={clearConfirmOpen}
           title="端末の学習データを削除しますか？"
-          message="フォルダ、問題セット、問題、回答記録、復習Level、曖昧登録、カテゴリーノートをこの端末から削除します。クラウド上の同期データを守るため自動同期はOFFになります。同期接続とクラウド上のデータは削除されません。この操作は元に戻せません。"
+          message="フォルダ、問題、回答記録、復習状態、詳細解説、苦手メモ、AIへの依頼履歴、カテゴリーノートをこの端末から削除します。自動同期はOFFになります。クラウドデータと保存済みバックアップは残ります。バックアップも消す場合は別途削除してください。"
           confirmLabel={clearBusy ? '削除中…' : '学習データを削除'}
           busy={clearBusy}
           onCancel={() => setClearConfirmOpen(false)}
@@ -258,7 +258,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
         <ConfirmDialog
           open={deleteAccountConfirmOpen}
           title="ログインアカウントを削除しますか？"
-          message="公開した問題セット、グループ、端末間同期データなど、このアカウントに関連するクラウドデータを削除します。端末内の問題セット、回答履歴、復習状態は削除されません。"
+          message="公開した問題セット、グループ、同期データとログインアカウントを削除します。現在ログイン基盤を他アプリと共用しているため、同じアカウントで利用している他アプリのプロフィールや記録も削除される可能性があります。QuizMakeだけの削除を希望する場合はキャンセルしてください。端末内の問題セット、回答履歴、復習状態は削除されません。"
           confirmLabel={accountBusy ? '削除中…' : 'アカウントを削除'}
           busy={accountBusy}
           onCancel={() => setDeleteAccountConfirmOpen(false)}

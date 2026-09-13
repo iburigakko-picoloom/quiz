@@ -1,4 +1,6 @@
 import type { AppData, Question } from '../types';
+import { withCoordinatedDataMutation } from './dataCoordination';
+import { advanceLocalDataRevision } from './localDataRevision';
 
 export const NOTES_KEY = 'quiz-make-creation-notes-v1';
 export const NOTES_EVENT = 'quiz-make-weakness-notes-changed';
@@ -8,7 +10,16 @@ export interface ExplanationRequest { id: string; targets: ExplanationTarget[] }
 export interface ExplanationReply { targetId: string; body: string }
 export interface ExplanationBatch { request: ExplanationRequest; replies: ExplanationReply[] }
 export const REQUEST_KEY = 'quiz-make-explanation-requests-v1';
+export const ORPHAN_NOTES_KEY = `${NOTES_KEY}-removed-orphans`;
+export const WEAKNESS_STORAGE_KEYS = [NOTES_KEY, REQUEST_KEY, ORPHAN_NOTES_KEY] as const;
 export const detailBody = (q: Question) => q.detailedAnswer?.body ?? q.detailedExplanation ?? '';
+export function hasDetailedExplanation(q: Question): boolean {
+  return Boolean(detailBody(q).replace(/<!--[\s\S]*?-->/g, '').trim() || q.detailedAnswer?.imageIds.length);
+}
+export function unexplainedNotes(data: AppData, notes: WeaknessNote[], setId: string): WeaknessNote[] {
+  const ids = new Set(data.questions.filter(q => q.setId === setId && !hasDetailedExplanation(q)).map(q => q.id));
+  return notes.filter(n => n.questionId && ids.has(n.questionId) && !n.draft && n.body.trim());
+}
 
 export function parseNotes(raw: string | null): WeaknessNote[] {
   const value: unknown = JSON.parse(raw ?? '[]');
@@ -18,7 +29,9 @@ export function parseNotes(raw: string | null): WeaknessNote[] {
   return value;
 }
 export function readWeaknessNotes() { return parseNotes(localStorage.getItem(NOTES_KEY)); }
-export function removeOrphanWeaknessNotes(questionIds: string[]) {
+export async function removeOrphanWeaknessNotes(questionIds: string[]) {
+  return withCoordinatedDataMutation(['notes'], async () => {
+  assertWeaknessWritable();
   const ids = new Set(questionIds);
   const notes = readWeaknessNotes();
   const removed = notes.filter(note => note.questionId && !ids.has(note.questionId));
@@ -27,17 +40,30 @@ export function removeOrphanWeaknessNotes(questionIds: string[]) {
   const recoveryKey = `${NOTES_KEY}-removed-orphans`;
   const previous = parseNotes(localStorage.getItem(recoveryKey));
   localStorage.setItem(recoveryKey, JSON.stringify([...previous.filter(n => !removed.some(r => r.id === n.id)), ...removed]));
-  return changeWeaknessNotes(items => items.filter(note => !removed.some(r => r.id === note.id && r.questionId === note.questionId && r.body === note.body)));
+  return writeWeaknessNotes(notes.filter(note => !removed.some(r => r.id === note.id && r.questionId === note.questionId && r.body === note.body)));
+  });
 }
 export function changeWeaknessNotes(change: (notes: WeaknessNote[]) => WeaknessNote[]) {
+  return withCoordinatedDataMutation(['notes'], async () => {
+  assertWeaknessWritable();
   // Always re-read: another tab may have saved notes since this screen opened.
   const next = change(readWeaknessNotes());
-  localStorage.setItem(NOTES_KEY, JSON.stringify(next));
+  return writeWeaknessNotes(next);
+  });
+}
+function writeWeaknessNotes(next: WeaknessNote[]) {
+  const raw = JSON.stringify(next);
+  localStorage.setItem(NOTES_KEY, raw);
+  if (localStorage.getItem(NOTES_KEY) !== raw) throw new Error('メモの保存を確認できませんでした。');
+  advanceLocalDataRevision();
   window.dispatchEvent(new Event(NOTES_EVENT));
   return next;
 }
+function assertWeaknessWritable() {
+  if (localStorage.getItem('quizMake:sync:dataImportInProgress')) throw new Error('データの読み込み中です。完了してから再保存してください。');
+}
 export function makeExplanationRequest(notes: WeaknessNote[], data: AppData): ExplanationRequest {
-  if (!notes.length || notes.length > 50) throw new Error('1〜50件のメモを選んでください。');
+  if (!notes.length) throw new Error('回答させるメモがありません。');
   const targets = new Map<string, ExplanationTarget>();
   for (const note of notes) {
     if (!note.body.trim()) throw new Error('空のメモは選択できません。');
@@ -53,7 +79,9 @@ export function makeExplanationRequest(notes: WeaknessNote[], data: AppData): Ex
     }
     target.memoIds.push(note.id); target.memoBodies.push(note.body);
   }
-  return { id: crypto.randomUUID(), targets: [...targets.values()] };
+  const request = { id: crypto.randomUUID(), targets: [...targets.values()] };
+  if (JSON.stringify(request).length > 500_000) throw new Error('依頼文が大きすぎます。苦手メモで対象を分けてコピーしてください。');
+  return request;
 }
 export function explanationPrompt(request: ExplanationRequest, options: { tables: boolean; images: boolean; examples: boolean }) {
   const style = `今回の疑問だけに簡潔に答えてください。memoBodiesに書かれた学習上の質問・指定を最優先にし、問題全体の解き直しや全選択肢の解説は自動で追加しないでください。「各選択肢についてもっと詳しく」など明示された場合だけ各選択肢を説明してください。用語の違いだけを尋ねられたらその違いだけに答えてください。本文は150〜300字程度を目安に、結論1文＋理由2〜3点に絞り、既存解説を繰り返さないでください。詳しい説明を明示された場合は指定に合わせて必要な分量にしてください。正確さに必要な条件・例外は省略しないでください。重要語は1回答につき1〜3箇所を**太字**で囲んでください（アプリで赤い太字になります）。HTMLや色指定タグは使わないでください。
@@ -81,9 +109,26 @@ ${JSON.stringify({ version: 1, requestId: request.id, explanations: request.targ
 ${JSON.stringify(request.targets)}`;
 }
 export function rememberExplanationRequest(request: ExplanationRequest) {
-  const raw = JSON.parse(localStorage.getItem(REQUEST_KEY) ?? '[]');
-  if (!Array.isArray(raw)) throw new Error('依頼履歴を読み込めませんでした。');
-  localStorage.setItem(REQUEST_KEY, JSON.stringify([...raw.filter(r => r.id !== request.id), request]));
+  return withCoordinatedDataMutation(['notes'], async () => {
+  assertWeaknessWritable();
+  const raw = parseExplanationRequests(localStorage.getItem(REQUEST_KEY));
+  const next = JSON.stringify([...raw.filter(r => r.id !== request.id), request]);
+  localStorage.setItem(REQUEST_KEY, next);
+  if (localStorage.getItem(REQUEST_KEY) !== next) throw new Error('依頼履歴の保存を確認できませんでした。');
+  advanceLocalDataRevision();
+  window.dispatchEvent(new Event(NOTES_EVENT));
+  });
+}
+export function parseExplanationRequests(raw: string | null): ExplanationRequest[] {
+  const requests = JSON.parse(raw ?? '[]');
+  if (!Array.isArray(requests) || !requests.every(r => r && typeof r.id === 'string' && Array.isArray(r.targets) && r.targets.every((t: ExplanationTarget) =>
+    t && typeof t.targetId === 'string' && typeof t.title === 'string' && Array.isArray(t.memoIds) && t.memoIds.every(id => typeof id === 'string') &&
+    Array.isArray(t.memoBodies) && t.memoBodies.every(body => typeof body === 'string') && t.memoIds.length === t.memoBodies.length &&
+    (t.choices === undefined || (Array.isArray(t.choices) && t.choices.every(c => typeof c === 'string'))) &&
+    (t.answerIndexes === undefined || (Array.isArray(t.answerIndexes) && t.answerIndexes.every(Number.isInteger))) &&
+    ['question','explanation','previousExplanation'].every(k => t[k as keyof ExplanationTarget] === undefined || typeof t[k as keyof ExplanationTarget] === 'string')
+  ))) throw new Error('AIへの依頼履歴を読み込めませんでした。');
+  return requests;
 }
 export function readExplanationBatch(text: string): ExplanationBatch {
   if (text.length > 2_000_000) throw new Error('回答が大きすぎます。50件以下に分けてください。');
@@ -91,7 +136,7 @@ export function readExplanationBatch(text: string): ExplanationBatch {
   let value;
   try { value = JSON.parse(clean); } catch { throw new Error('JSONを読み取れません。AIのJSON部分をそのまま貼り付けてください。'); }
   if (value?.version !== 1 || typeof value.requestId !== 'string' || !Array.isArray(value.explanations) || !value.explanations.length) throw new Error('解説用の回答形式ではありません。');
-  const requests: ExplanationRequest[] = JSON.parse(localStorage.getItem(REQUEST_KEY) ?? '[]');
+  const requests = parseExplanationRequests(localStorage.getItem(REQUEST_KEY));
   const request = requests.find(r => r.id === value.requestId);
   if (!request) throw new Error('この端末の依頼に対応しない回答です。苦手メモから依頼文をコピーし直してください。');
   const seen = new Set<string>();
@@ -123,7 +168,7 @@ export function applyQuestionExplanations(data: AppData, batch: ExplanationBatch
   return { ...data, questions: data.questions.map(q => updates.has(q.id) ? { ...q, detailedExplanation: updates.get(q.id)!, detailedAnswer: { ...q.detailedAnswer, body: updates.get(q.id)!, imageIds: q.detailedAnswer?.imageIds ?? [], updatedAt: now }, updatedAt: now } : q) };
 }
 export function finishExplanationBatch(batch: ExplanationBatch) {
-  changeWeaknessNotes(notes => notes.map(n => {
+  return changeWeaknessNotes(notes => notes.map(n => {
     const reply = batch.replies.find(r => batch.request.targets.find(t => t.targetId === r.targetId)?.memoIds.includes(n.id));
     if (!reply) return n;
     const target = batch.request.targets.find(t => t.targetId === reply.targetId)!;

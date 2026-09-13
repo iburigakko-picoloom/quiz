@@ -6,6 +6,8 @@ import {
   waitForPendingCategoryNoteSaves,
 } from './noteStorage';
 import { withCoordinatedDataMutation } from './dataCoordination';
+import { WEAKNESS_STORAGE_KEYS, NOTES_EVENT } from './weaknessNotes';
+import { advanceLocalDataRevision } from './localDataRevision';
 
 export type LibraryDeletionFailure =
   | 'app-save-failed'
@@ -48,7 +50,16 @@ const defaultDependencies: LibraryDeletionDependencies = {
   saveAppData: (data) => saveAppDataAsync(data, { coordinationLockHeld: true }),
   deleteNotes: async (problemSetIds, deleteAll) => {
     if (deleteAll) {
-      await deleteAllCategoryNotes({ coordinationLockHeld: true });
+      const previous = WEAKNESS_STORAGE_KEYS.map(key => [key, localStorage.getItem(key)] as const);
+      try {
+        WEAKNESS_STORAGE_KEYS.forEach(key => localStorage.setItem(key, '[]'));
+        await deleteAllCategoryNotes({ coordinationLockHeld: true });
+      } catch (error) {
+        previous.forEach(([key, raw]) => raw === null ? localStorage.removeItem(key) : localStorage.setItem(key, raw));
+        throw error;
+      }
+      advanceLocalDataRevision();
+      window.dispatchEvent(new Event(NOTES_EVENT));
       return;
     }
     await deleteCategoryNotesForProblemSetIds(problemSetIds, { coordinationLockHeld: true });
