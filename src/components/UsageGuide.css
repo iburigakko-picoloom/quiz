@@ -34,9 +34,12 @@
 .usage-guide__contents>header button{min-width:44px;min-height:44px;font-size:26px;border-radius:10px}
 .usage-guide__contents nav{overflow-y:auto;overscroll-behavior:contain;min-height:0;padding:4px 20px 16px}
 .usage-guide__contents nav section{margin-top:22px}
-.usage-guide__contents h3{margin:0 0 8px;font-size:12px;color:#6b7684;font-weight:600}
+.usage-guide__contents h3{margin:0 0 8px;font-size:13px;color:#d72d40;font-weight:700}
 .usage-guide__contents nav button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:52px;padding:13px 4px;text-align:left;border-bottom:1px solid #edf0f3;font-size:15px;line-height:1.5}
 .usage-guide__contents nav button span{min-width:0;overflow-wrap:anywhere}
+.usage-guide__contents nav button .usage-guide__item-number{flex:0 0 28px;text-align:center;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;color:#697584}
+.usage-guide__contents nav button .usage-guide__item-label{flex:1}
+.usage-guide__contents nav button[aria-current=step] .usage-guide__item-number{color:#315d9c}
 .usage-guide__contents nav button small{flex:none;color:#768393;font-size:13px}
 .usage-guide__contents nav button[aria-current=step]{color:#315d9c;font-weight:700}
 .usage-guide__contents nav button[aria-current=step] small{color:#315d9c;font-size:11px}

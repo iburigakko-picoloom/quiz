@@ -87,7 +87,7 @@ export function UsageGuide({ onNavigate, onClose }: { onNavigate: (page: Primary
       <nav aria-label="ガイドの項目">{chapters.map(chapter => <section key={chapter.title}>
         <h3>{chapter.title}</h3>
         {chapter.items.map(([number, label]) => <button key={number} ref={number === index ? currentItem : undefined} type="button" aria-current={number === index ? 'step' : undefined} onClick={() => move(number)}>
-          <span>{label}</span><small>{number === index ? '表示中' : '›'}</small>
+          <span className="usage-guide__item-number" aria-hidden="true">{number + 1}</span><span className="usage-guide__item-label"><span className="sr-only">{number + 1}. </span>{label}</span><small>{number === index ? '表示中' : '›'}</small>
         </button>)}
       </section>)}</nav>
       <footer><button type="button" onClick={() => setContentsOpen(false)}>説明に戻る</button></footer>
