@@ -59,6 +59,16 @@
 .settings-row:active { background: #f6f8fc; }
 .settings-row__icon { display: grid; width: 30px; height: 38px; flex: 0 0 30px; place-items: center; color: #4167f5; }
 .settings-row__icon svg { width: 21px; height: 21px; }
+.settings-screen .settings-row .settings-row__icon:has(.settings-pictogram) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--ui-accent, #315d9c);
+}
+.settings-screen .settings-row .settings-row__icon .settings-pictogram {
+  width: 32px;
+  height: 32px;
+}
 .settings-row__text { display: grid; flex: 1; min-width: 0; gap: 3px; }
 .settings-row__text strong { font-size: 14px; line-height: 1.3; }
 .settings-row__text small { color: #718091; font-size: 11px; line-height: 1.35; }
