@@ -55,6 +55,7 @@ interface CreateProblemSetScreenProps {
   onDirtyChange?: (dirty: boolean) => void;
   initialFolderId?: string;
   startWithAi?: boolean;
+  startWithExplanationImport?: boolean;
   editSetId?: string;
   copySetId?: string;
   onBack?: () => void;
@@ -73,10 +74,10 @@ interface SetMeta {
   source: string;
 }
 
-export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, startWithAi = false, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
+export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, startWithAi = false, startWithExplanationImport = false, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
   const editingProblemSet = data.problemSets.find((problemSet) => problemSet.id === editSetId);
   const initialDraftsRef = useRef<BulkQuestionDraft[]>(createDraftsFromProblemSet(data, editingProblemSet));
-  const [view, setView] = useState<CreationView>(editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods');
+  const [view, setView] = useState<CreationView>(startWithExplanationImport ? 'notes' : editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods');
   const [notesPurpose, setNotesPurpose] = useState<'questions'|'answer'>('answer');
   const [meta, setMeta] = useState<SetMeta>(() => createInitialMeta(data, initialFolderId, editingProblemSet));
   const [drafts, setDrafts] = useState<BulkQuestionDraft[]>(() => initialDraftsRef.current);
@@ -409,18 +410,18 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
             <BackButton
-              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => { if(view === 'notes' && notesBackRef.current?.()) return; if(view === 'chatgpt' && aiStep === 2) setAiStep(1); else if(startWithAi && onBack) onBack(); else goTo('methods'); }}
+              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => { if(view === 'notes' && notesBackRef.current?.()) return; if(view === 'chatgpt' && aiStep === 2) setAiStep(1); else if((startWithAi || startWithExplanationImport) && onBack) onBack(); else goTo('methods'); }}
               label={view === 'notes' ? '戻る' : editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : startWithAi ? '前の画面へ戻る' : '作成方法へ戻る'}
             />
           )}
           <div>
-            <h1>{editingProblemSet ? '問題セットを編集' : view === 'methods' ? '作成' : view === 'notes' ? notesPurpose === 'questions' ? 'メモから問題を作る' : 'メモから詳細解説を作る' : getViewTitle(view, sourceSetId)}</h1>
+            <h1>{startWithExplanationImport ? 'AIの回答を取り込む' : editingProblemSet ? '問題セットを編集' : view === 'methods' ? '作成' : view === 'notes' ? notesPurpose === 'questions' ? 'メモから問題を作る' : 'メモから詳細解説を作る' : getViewTitle(view, sourceSetId)}</h1>
           </div>
         </header>
 
         {view === 'methods' ? <MethodChooser onSelect={(next, purpose='answer')=>{setNotesPurpose(purpose);startMethod(next);}} /> : null}
         {view === 'notes' ? <div className="create-set__flow">
-          <CreationNotes purpose={notesPurpose} onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onCreateQuestions={context=>{if(creationRequest.trim()&&!window.confirm('作成中の依頼文を苦手メモの問題作成に切り替えますか？'))return;setMemoContext(context);setCreationRequest('苦手メモの疑問を復習する問題集');setAiMethod('simple');setAiStep(1);goTo('chatgpt');activeMethodRef.current='chatgpt';}} />
+          <CreationNotes importOnly={startWithExplanationImport} purpose={notesPurpose} onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onCreateQuestions={context=>{if(creationRequest.trim()&&!window.confirm('作成中の依頼文を苦手メモの問題作成に切り替えますか？'))return;setMemoContext(context);setCreationRequest('苦手メモの疑問を復習する問題集');setAiMethod('simple');setAiStep(1);goTo('chatgpt');activeMethodRef.current='chatgpt';}} />
         </div> : null}
 
         {view === 'manual' ? (

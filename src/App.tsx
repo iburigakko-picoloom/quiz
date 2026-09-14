@@ -1278,6 +1278,7 @@ export default function App() {
       <Suspense fallback={<div className="quiz-app-loading">作成画面を読み込み中...</div>}>
         <CreateProblemSetScreen
           startWithAi={Boolean(createBackScreen) && !screen.editSetId && !screen.copySetId}
+          startWithExplanationImport={screen.importExplanations}
           data={data}
           onSaveDetail={handleSaveDetailedExplanation}
           onApplyExplanations={async batch => {
@@ -1428,6 +1429,7 @@ export default function App() {
     );
   } else if (screen.name === 'noteList') {
     content = <NoteOverviewScreen data={data} setId={screen.setId}
+      onImport={() => navigate({ name: 'createProblemSet', importExplanations: true, backScreen: screen })}
       onOpenDetail={(questionId) => navigate({ name: 'detailedAnswer', questionId, backScreen: screen })}
       onBack={() => goBackTo({ name: 'problemSetDetail', setId: screen.setId })}
       onOpen={(category) => navigate({ name: 'noteDetail', setId: screen.setId, category })} />;

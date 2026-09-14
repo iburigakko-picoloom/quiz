@@ -5,6 +5,10 @@ import { getScreenKey } from '../src/utils/navigation.ts';
 
 test('direct AI creation and the creation menu have separate navigation identities',()=>{
   assert.notEqual(getScreenKey({name:'createProblemSet'}),getScreenKey({name:'createProblemSet',backScreen:{name:'home'}}));
+  const backScreen = {name:'noteList',setId:'set-1'};
+  const importer = {name:'createProblemSet',importExplanations:true,backScreen};
+  assert.notEqual(getScreenKey(importer),getScreenKey({name:'createProblemSet',backScreen}));
+  assert.deepEqual(getCreateProblemSetBackScreen(importer),backScreen);
 });
 import {
   getBackNavigationSteps,

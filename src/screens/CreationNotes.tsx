@@ -6,7 +6,8 @@ import { ExplanationReader, WeaknessDetail } from '../components/WeaknessDetail'
 import { ChevronRightIcon, ProblemSetIcon } from '../components/UiIcons';
 
 
-export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDirtyChange, onBackRef, onCreateQuestions }: {
+export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDirtyChange, onBackRef, onCreateQuestions, importOnly = false }: {
+  importOnly?: boolean;
   purpose: 'questions'|'answer';
   data: AppData; onApplyBatch: (batch: ExplanationBatch)=>Promise<void>; onSaveDetail:(questionId:string,body:string)=>Promise<void>;
   onDirtyChange:(dirty:boolean)=>void;
@@ -15,7 +16,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
 }) {
   const pendingEdits = useRef(0);
   const [notes,setNotes]=useState<WeaknessNote[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
-  const [view,setView]=useState<'list'|'set'|'question'|'prompt'|'import'>('list');
+  const [view,setView]=useState<'list'|'set'|'question'|'prompt'|'import'>(importOnly ? 'import' : 'list');
   const [history,setHistory]=useState<(typeof view)[]>([]);
   const [direction,setDirection]=useState<'forward'|'back'>('forward');
   // Orphan memos stay hidden, but are retained: a restore may bring their questions back.
@@ -30,6 +31,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   const go=(next:typeof view)=>{if(busy||failed||pendingEdits.current)return;if(paste&&next!=='import'&&!window.confirm('取り込み前の回答を閉じますか？'))return;if(next!=='import'){setPaste('');setBatch(null);}setDirection(next==='list'||history.includes(next)?'back':'forward');setMessage('');setError('');setHistory(items=>next==='list'?[]:items.includes(next)?items.slice(0,items.lastIndexOf(next)):[...items,view]);setView(next);};
   useEffect(()=>{onBackRef.current=()=>{
     if(busy||failed||pendingEdits.current)return true;
+    if(importOnly&&view==='import'&&stage==='paste')return false;
     if(view==='list')return false;
     setDirection('back');
     if(view==='import'&&stage==='review'){setStage('paste');return true;}
@@ -48,12 +50,12 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
       onCreateQuestions(JSON.stringify(request.targets.map(t=>({疑問:t.memoBodies,元の問題:t.question,選択肢:t.choices,正解位置:t.answerIndexes,元の解説:t.explanation,詳細解説:t.previousExplanation})),null,2));
     }catch(e){setError(e instanceof Error?e.message:'メモを読み込めませんでした。');}
   };
-  const apply=async()=>{if(!batch||busy)return;setBusy(true);setError('');try{const verified=readExplanationBatch(paste);await onApplyBatch(verified);await finishExplanationBatch(verified);setPaste('');setBatch(null);setMessage(`${verified.replies.length}件を反映しました`);setHistory(setId?['list']:[]);setView(setId?'set':'list');}catch(e){setError(e instanceof Error?e.message:'保存できませんでした。回答を残しています。');}finally{setBusy(false);}};
+  const apply=async()=>{if(!batch||busy)return;setBusy(true);setError('');try{const verified=readExplanationBatch(paste);await onApplyBatch(verified);await finishExplanationBatch(verified);setPaste('');setBatch(null);setMessage(`${verified.replies.length}件を反映しました`);setHistory(setId?['list']:[]);setStage('paste');setView(importOnly?'import':setId?'set':'list');}catch(e){setError(e instanceof Error?e.message:'保存できませんでした。回答を残しています。');}finally{setBusy(false);}};
   const inSet=notes.filter(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===setId)&&n.body.trim());
   const title=view==='set'?data.problemSets.find(s=>s.id===setId)?.title:view==='prompt'?'AIへの依頼':view==='import'?'回答を取り込む':view==='question'?'解説・メモ':null;
   const chooseAll=(id:string)=>{setSetId(id);const ns=notes.filter(n=>n.questionId&&n.body.trim()&&!n.draft&&n.resolvedBody!==n.body&&data.questions.some(q=>q.id===n.questionId&&q.setId===id));setSelected(ns.map(n=>n.id));go('set');};
   return <section key={view} className={`weakness-workspace weakness-workspace--${direction}${view==='list'?' weakness-workspace--list':''}`} aria-label="苦手メモ">
-    {title?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}
+    {title&&!importOnly?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}
     {error?<div role="alert" className="weakness-error">{error}{failed&&note?<button type="button" onClick={()=>update(note)}>再保存</button>:null}</div>:null}
     {message?<p className="weakness-status" role="status">{message}</p>:null}
     {view==='list'?<>

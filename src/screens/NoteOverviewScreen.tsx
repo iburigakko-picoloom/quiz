@@ -12,8 +12,8 @@ import { normalizeExplanationMarkdown } from '../utils/explanationMarkdown';
 import { ExplanationReader } from '../components/WeaknessDetail';
 import './NoteOverviewScreen.css';
 
-export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail }: {
-  data: AppData; setId: string; onBack: () => void; onOpen: (category: string) => void; onOpenDetail: (questionId: string) => void;
+export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, onImport }: {
+  data: AppData; setId: string; onBack: () => void; onOpen: (category: string) => void; onOpenDetail: (questionId: string) => void; onImport: () => void;
 }) {
   const phone = usePhoneLayout();
   const [notes, setNotes] = useState<WeaknessNote[]>([]);
@@ -45,7 +45,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail }
     } catch (error) { setCopyError(error instanceof Error ? error.message : 'コピーできませんでした。'); }
     finally { copyLock.current = false; setCopying(false); }
   };
-  return <Layout><main className="library-page">
+  return <Layout><main className="library-page note-overview">
     <header className="library-page__header"><BackButton onClick={onBack} /><h1>{phone ? '詳細解説一覧' : 'ノート一覧'}</h1></header>
     {set ? <>
       <h2 className="note-overview-title">{set.title}</h2>
@@ -82,6 +82,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail }
         <span className="library-icon"><StudyIcon size={18} /></span>
         <span className="library-row__body"><strong>{category}</strong></span><span aria-hidden="true">›</span>
       </button>)}
+      <div className="note-overview-import"><button type="button" onClick={onImport}>AIの回答を取り込む<span aria-hidden="true">›</span></button></div>
     </> : <p>問題セットが見つかりません</p>}
   </main></Layout>;
 }
