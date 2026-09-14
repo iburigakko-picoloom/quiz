@@ -23,7 +23,27 @@
 .usage-guide__demo .weakness-compose-row textarea { min-height: 90px; }
 .usage-guide__spotlight { z-index: 1; }
 .usage-guide__card { z-index: 2; }
-.usage-guide__jump{width:100%;min-height:36px;margin:4px 0;border:1px solid #dce1e7;border-radius:8px;padding:6px;background:#fff;color:#526273;font-size:12px}
+.usage-guide__header-actions{display:flex;align-items:center;gap:4px}
+.usage-guide__card header .usage-guide__contents-open{font-size:14px;font-weight:600;padding:8px 12px}
+.usage-guide--contents[open]{display:grid;place-items:center;padding:calc(12px + var(--safe-top,0px)) 12px calc(12px + var(--safe-bottom,0px));box-sizing:border-box;background:rgb(15 25 40 / 24%)}
+.usage-guide__contents{display:flex;flex-direction:column;width:min(520px,100%);max-height:100%;min-height:0;background:#fff;border-radius:18px;overflow:hidden;animation:guide-contents-in 180ms ease-out}
+.usage-guide__contents>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px 12px;border-bottom:1px solid #e7e9ed}
+.usage-guide__contents>header span{font-size:12px;color:#697584}
+.usage-guide__contents h2{font-size:23px;margin:4px 0 0}
+.usage-guide__contents button{font:inherit;cursor:pointer;color:#253449;background:#fff;border:0}
+.usage-guide__contents>header button{min-width:44px;min-height:44px;font-size:26px;border-radius:10px}
+.usage-guide__contents nav{overflow-y:auto;overscroll-behavior:contain;min-height:0;padding:4px 20px 16px}
+.usage-guide__contents nav section{margin-top:22px}
+.usage-guide__contents h3{margin:0 0 8px;font-size:12px;color:#6b7684;font-weight:600}
+.usage-guide__contents nav button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:52px;padding:13px 4px;text-align:left;border-bottom:1px solid #edf0f3;font-size:15px;line-height:1.5}
+.usage-guide__contents nav button span{min-width:0;overflow-wrap:anywhere}
+.usage-guide__contents nav button small{flex:none;color:#768393;font-size:13px}
+.usage-guide__contents nav button[aria-current=step]{color:#315d9c;font-weight:700}
+.usage-guide__contents nav button[aria-current=step] small{color:#315d9c;font-size:11px}
+.usage-guide__contents>footer{padding:12px 20px;border-top:1px solid #e7e9ed}
+.usage-guide__contents>footer button{width:100%;min-height:46px;border-radius:10px;background:#f3f4f6;color:#315d9c;font-size:14px}
+@keyframes guide-contents-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.usage-guide__contents{animation:none}}
 .usage-guide .usage-guide__card h2:focus{outline:none!important;box-shadow:none!important}
 .usage-guide__source{display:inline-block;margin:0 0 12px;color:#526273;font-size:12px;text-decoration:underline}
 .usage-guide--example[open]{display:flex;flex-direction:column;gap:12px;padding:calc(12px + var(--safe-top,0px)) 12px calc(12px + var(--safe-bottom,0px));box-sizing:border-box;background:#f6f7f9}

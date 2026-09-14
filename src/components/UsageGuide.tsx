@@ -25,6 +25,13 @@ const steps: Step[] = [
   { page: 'groups', title: '仲間と問題を共有する', body: 'グループに参加・作成して、問題セットやフォルダを共有できます。共有機能にはログインが必要です。' },
   { page: 'settings', title: 'いつでも見直せます', body: 'この「使い方ガイド」は設定にあります。ログイン・同期・バックアップもここから行えます。' },
 ];
+const chapters = [
+  { title: '学習・問題作成', items: [[0, 'ホームから学習する'], [1, 'AIで問題を作る'], [14, 'メモから復習問題を作る']] },
+  { title: '疑問をメモする', items: [[2, '解説・メモを開く'], [3, '知りたいことを入力する'], [4, 'メモを保存する']] },
+  { title: '詳細解説を作る・取り込む', items: [[5, 'メモから解説を依頼する'], [6, '一覧から依頼文をコピー'], [7, 'ChatGPTに送る'], [8, 'JSONの回答をコピー'], [9, '回答を貼り付ける'], [10, '確認して問題に反映する']] },
+  { title: '画像の追加', items: [[11, 'ChatGPTに図を作ってもらう'], [12, '画像を追加・貼り付ける'], [13, '画像と解説を読み返す']] },
+  { title: '共有・設定', items: [[15, '公開された問題を探す'], [16, 'グループで共有する'], [17, '設定・同期・バックアップ']] },
+] as const;
 const noop = () => {};
 const saveNothing = async () => {};
 function MemoDemo({ stage }: { stage: Demo }) {
@@ -38,9 +45,11 @@ function MemoDemo({ stage }: { stage: Demo }) {
 }
 export function UsageGuide({ onNavigate, onClose }: { onNavigate: (page: PrimaryNavItem) => void; onClose: () => void }) {
   const [index, setIndex] = useState(0);
+  const [contentsOpen, setContentsOpen] = useState(false);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const currentItem = useRef<HTMLButtonElement>(null);
   const step = steps[index];
   useEffect(() => {
     const element = dialog.current;
@@ -48,6 +57,12 @@ export function UsageGuide({ onNavigate, onClose }: { onNavigate: (page: Primary
     return () => element?.close();
   }, []);
   useLayoutEffect(() => {
+    if (contentsOpen) {
+      setRect(null);
+      currentItem.current?.focus({ preventScroll: true });
+      currentItem.current?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     let frame = 0;
     let target: Element | null = null;
     const measure = () => {
@@ -63,20 +78,30 @@ export function UsageGuide({ onNavigate, onClose }: { onNavigate: (page: Primary
     // Follow lazy loading, sheet slides, scrolling and viewport changes only while open.
     measure(); heading.current?.focus();
     return () => cancelAnimationFrame(frame);
-  }, [step]);
-  const move = (next: number) => { onNavigate(steps[next].page); setRect(null); setIndex(next); };
+  }, [step, contentsOpen]);
+  const move = (next: number) => { onNavigate(steps[next].page); setRect(null); setIndex(next); setContentsOpen(false); };
   const cardAtTop = Boolean(step.target && rect && rect.top > window.innerHeight * .42);
-  return <dialog ref={dialog} className={`usage-guide${step.example ? ' usage-guide--example' : ''}`} aria-labelledby="usage-guide-title" onCancel={event => { event.preventDefault(); onClose(); }}>
+  return <dialog ref={dialog} className={`usage-guide${contentsOpen ? ' usage-guide--contents' : step.example ? ' usage-guide--example' : ''}`} aria-labelledby="usage-guide-title" onCancel={event => { event.preventDefault(); if (contentsOpen) setContentsOpen(false); else onClose(); }}>
+    {contentsOpen ? <section className="usage-guide__contents">
+      <header><div><span>使い方ガイド</span><h2 id="usage-guide-title">目次</h2></div><button type="button" onClick={() => setContentsOpen(false)} aria-label="目次を閉じて説明に戻る">×</button></header>
+      <nav aria-label="ガイドの項目">{chapters.map(chapter => <section key={chapter.title}>
+        <h3>{chapter.title}</h3>
+        {chapter.items.map(([number, label]) => <button key={number} ref={number === index ? currentItem : undefined} type="button" aria-current={number === index ? 'step' : undefined} onClick={() => move(number)}>
+          <span>{label}</span><small>{number === index ? '表示中' : '›'}</small>
+        </button>)}
+      </section>)}</nav>
+      <footer><button type="button" onClick={() => setContentsOpen(false)}>説明に戻る</button></footer>
+    </section> : <>
     {step.example && <UsageGuideExample key={step.example} stage={step.example} />}
     {step.demo && <MemoDemo stage={step.demo} />}
     {rect && <div className="usage-guide__spotlight" aria-hidden="true" style={{ left: rect.left - 3, top: rect.top - 3, width: rect.width + 6, height: rect.height + 6 }} />}
     <section className={`usage-guide__card${cardAtTop ? ' usage-guide__card--top' : ''}`}>
-      <header><span>{step.demo ? '練習画面' : '使い方ガイド'} · {index + 1} / {steps.length}</span><button type="button" onClick={onClose} aria-label="ガイドを閉じる">×</button></header>
-      <select className="usage-guide__jump" aria-label="説明する項目" value={index} onChange={event => move(Number(event.target.value))}>{steps.map((item, i) => <option key={i} value={i}>{i + 1}. {item.title}</option>)}</select>
+      <header><span>{step.demo ? '練習画面' : '使い方ガイド'} · {index + 1} / {steps.length}</span><div className="usage-guide__header-actions"><button type="button" className="usage-guide__contents-open" onClick={() => setContentsOpen(true)}>目次</button><button type="button" onClick={onClose} aria-label="ガイドを閉じる">×</button></div></header>
       <h2 ref={heading} tabIndex={-1} id="usage-guide-title">{step.title}</h2>
       <p>{step.body}</p>
       {step.example === 'chat-image' && <a className="usage-guide__source" href="https://learn.chatgpt.com/docs/image-generation" target="_blank" rel="noreferrer noopener">ChatGPTの画像機能：公式案内</a>}
       <footer><button type="button" onClick={() => move(index - 1)} disabled={index === 0}>戻る</button><button type="button" className="usage-guide__next" onClick={() => index === steps.length - 1 ? onClose() : move(index + 1)}>{index === steps.length - 1 ? '完了' : '次へ'}</button></footer>
     </section>
+    </>}
   </dialog>;
 }
