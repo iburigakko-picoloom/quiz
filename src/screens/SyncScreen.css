@@ -3,6 +3,53 @@
   box-sizing: border-box;
 }
 
+/* Everyday sync: one action first, connection tools only when requested. */
+.sync-screen.sync-screen--simple { background: #fff; }
+.sync-screen.sync-screen--simple .sync-screen__body { display: flex; flex-direction: column; width: 100%; max-width: 620px; gap: 0; padding: 18px 20px calc(var(--safe-bottom, 0px) + 28px); }
+.sync-screen.sync-screen--simple .sync-card--transfer { order: 0; padding: 0 0 24px; margin-bottom: 8px; border: 0; background: none; }
+.sync-screen.sync-screen--simple .sync-account-line { padding: 0 0 18px; margin-bottom: 20px; font-size: 12px; }
+.sync-screen.sync-screen--simple .sync-advanced { background: #fff; border: 0; border-top: 1px solid #e7e9ed; border-radius: 0; margin-bottom: 0; }
+.sync-screen.sync-screen--simple .sync-advanced > summary { min-height: 64px; padding: 16px 0; font-size: 15px; }
+.sync-screen.sync-screen--simple .sync-advanced__body { padding: 0 0 20px; }
+.sync-screen.sync-screen--simple .sync-advanced__section { padding: 18px 0; }
+.sync-screen.sync-screen--simple .sync-button { min-height: 48px; border-radius: 12px; font-size: 14px; }
+.sync-screen.sync-screen--simple .sync-button--primary { background: #315d9c; border-color: #315d9c; }
+.sync-screen.sync-screen--simple .sync-input { min-height: 48px; min-width: 0; font-size: 16px; border-radius: 10px; }
+.sync-screen.sync-screen--simple .sync-auto-row { padding-top: 20px; margin-top: 24px; }
+.sync-screen.sync-screen--simple .sync-auto-row strong { font-size: 14px; font-weight: 700; }
+.sync-screen.sync-screen--simple .sync-auto-row small { font-size: 12px; line-height: 1.6; }
+.sync-screen.sync-screen--simple .sync-toggle__button { min-height: 44px; min-width: 64px; }
+.sync-screen.sync-screen--simple .sync-toggle__button--active { background: #315d9c; border-color: #315d9c; }
+.sync-screen.sync-screen--simple .sync-last-state { background: none; padding: 12px 0 0; font-size: 12px; }
+.sync-screen.sync-screen--simple .sync-start-button { border-radius: 12px; padding: 18px 16px; }
+.sync-screen.sync-screen--simple .sync-start-button span { display: grid; gap: 5px; }
+.sync-screen.sync-screen--simple .sync-start-button small { font-size: 12px; font-weight: 400; }
+.sync-screen.sync-screen--simple .sync-pairing-code { background: #f5f6f8; margin-top: 14px; }
+.sync-screen.sync-screen--simple .sync-help { margin: 0 0 14px; color: #667386; font-size: 12px; line-height: 1.65; }
+.sync-screen.sync-screen--simple .sync-auth-gate { border: 0; padding: 12px 0 24px; }
+.sync-screen.sync-screen--simple .sync-auth-gate h2 { font-size: 20px; }
+.sync-screen.sync-screen--simple .sync-auth-gate__form > div { grid-template-columns: 1fr; }
+.sync-screen.sync-screen--simple .sync-auth-gate__form > label { font-size: 13px; margin-top: 18px; }
+.sync-screen.sync-screen--simple .sync-overview-status { text-align: center; padding: 8px 0 24px; }
+.sync-screen.sync-screen--simple .sync-overview-status h2 { font-size: 21px; line-height: 1.5; color: #172033; margin: 14px 0 8px; }
+.sync-screen.sync-screen--simple .sync-overview-status p { color: #667386; font-size: 14px; line-height: 1.65; max-width: 360px; margin: 0 auto; }
+.sync-screen.sync-screen--simple .sync-overview-symbol { display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: #f3f5f7; color: #315d9c; font-size: 28px; }
+.sync-screen.sync-screen--simple .sync-overview-status--conflict .sync-overview-symbol { color: #a76a18; background: #fff8e9; }
+.sync-screen.sync-screen--simple .sync-overview-main { width: 100%; min-height: 54px; font-size: 16px; }
+.sync-screen.sync-screen--simple .sync-overview-details { margin-top: 12px; }
+.sync-screen.sync-screen--simple .sync-overview-details > summary { padding: 14px 0; text-align: center; color: #5c6c80; font-size: 13px; cursor: pointer; }
+.sync-screen.sync-screen--simple .sync-overview-counts { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding: 18px 0; }
+.sync-screen.sync-screen--simple .sync-overview-counts > div { display: grid; gap: 5px; text-align: center; }
+.sync-screen.sync-screen--simple .sync-overview-counts span, .sync-screen.sync-screen--simple .sync-overview-counts small { color: #667386; font-size: 12px; }
+.sync-screen.sync-screen--simple .sync-overview-counts strong { font-size: 20px; }
+.sync-screen.sync-screen--simple .sync-overview-choices { display: grid; gap: 10px; }
+.sync-screen.sync-screen--simple .sync-overview-choices button { display: grid; gap: 3px; justify-content: center; padding: 12px; }
+.sync-screen.sync-screen--simple .sync-overview-choices small { font-size: 12px; font-weight: 400; }
+.sync-screen.sync-screen--simple .sync-overview-choices .sync-help { margin: 2px 0 0; text-align: center; }
+.sync-screen.sync-screen--simple .sync-overview-loading { min-height: 180px; display: grid; place-items: center; color: #667386; }
+.sync-screen.sync-screen--simple .sync-overview-error { padding: 12px; border-radius: 12px; background: #fff4f4; color: #b32743; font-size: 14px; overflow-wrap: anywhere; }
+.sync-screen.sync-screen--simple .sync-overview-error p { margin-bottom: 12px; }
+
 .sync-screen button,
 .sync-screen input {
   font: inherit;

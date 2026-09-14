@@ -10,7 +10,6 @@ test('startup conflict stays silent and never imports cloud data', () => {
 
 test('manual direction selection retains backups and concurrent-change checks', () => {
   const source = readFileSync(new URL('../src/components/SyncComparison.tsx', import.meta.url), 'utf8');
-  assert.match(source, /端末 → クラウドに同期/);
   assert.match(source, /saveBackupPayload\(local,'before-sync'\)/);
   assert.match(source, /saveBackupPayload\(remote.value.payload,'before-sync'\)/);
   assert.match(source, /remote.value\?\.updatedAt !== pending.remote\?\.updatedAt/);

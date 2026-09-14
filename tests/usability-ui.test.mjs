@@ -73,13 +73,8 @@ test('review starts only from its problem set and the global review route is gon
 });
 
 test('sync screen uses an eight-character pairing flow and keeps recovery details collapsed', () => {
-  assert.match(syncSource, /この端末で同期を始める/);
-  assert.match(syncSource, /別の端末を追加/);
-  assert.match(syncSource, /接続コードを表示/);
   const comparisonSource = readSource('../src/components/SyncComparison.tsx');
   assert.match(syncSource, /<SyncComparison/);
-  assert.match(comparisonSource, /端末 → クラウドに同期/);
-  assert.match(comparisonSource, /クラウド → 端末に読み込む/);
   assert.match(comparisonSource, /saveBackupPayload\(local,'before-sync'\)/);
   assert.match(comparisonSource, /remote.value\?\.updatedAt !== pending.remote\?\.updatedAt/);
   assert.match(syncSource, /<details className="sync-advanced">/);

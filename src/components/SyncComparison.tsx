@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
-import { computePayloadHash, downloadSyncData, exportQuizMakeData, getLastSyncState, getStoredSyncId, summarizeSyncPayload, type RemoteSyncRecord, type SyncPayload } from '../utils/syncService';
+import { computePayloadHash, downloadSyncData, exportQuizMakeData, getLastSyncState, getStoredSyncId, summarizeSyncPayload, type RemoteSyncRecord, type SyncPayload, type SyncPayloadSummary } from '../utils/syncService';
 import { saveBackupPayload } from '../utils/backupRepository';
 
 type Comparison = { local: SyncPayload; remote: RemoteSyncRecord | null; syncId: string };
@@ -57,21 +57,46 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
   };
   const local = value && summarizeSyncPayload(value.local);
   const remote = value?.remote && summarizeSyncPayload(value.remote.payload);
-  return <section className="qm-sync-comparison">
-    {loading ? <p role="status">同期状態を確認中…</p> : null}
-    {error ? <p className="qm-wrong" role="alert">{error}<button disabled={loading} onClick={() => setAttempt((n) => n+1)}>再試行</button></p> : null}
-    {value && local ? <>
-      <p className="qm-sync-banner">{same ? '端末とクラウドは同じ内容です' : '端末とクラウドの内容を確認してください'}</p>
-      <div className="qm-sync-columns">
-        <div><h2>この端末</h2><div className="qm-sync-count"><strong>{local.problemSetCount}セット・{local.questionCount}問</strong><span>{local.folderCount}フォルダ</span></div></div>
-        <div><h2>クラウド</h2><div className="qm-sync-count">{remote && value.remote ? <><strong>{remote.problemSetCount}セット・{remote.questionCount}問</strong><span>{new Date(value.remote.updatedAt).toLocaleString()}</span></> : '未登録'}</div></div>
-      </div>
-      <button className="sync-button sync-button--primary qm-sync-main" disabled={disabled || loading} onClick={() => void syncNormally()}>同期する</button>
-      {!same ? <div className="sync-transfer-actions">
-        <button className="sync-button sync-button--primary" disabled={disabled || loading} onClick={() => setPending(value)}>端末 → クラウドに同期</button>
-        {remote ? <button className="sync-button sync-button--secondary" disabled={disabled || loading} onClick={() => void onDownload()}>クラウド → 端末に読み込む</button> : null}
-      </div> : null}
-    </> : null}
+  const last = getLastSyncState();
+  const localChanged = Boolean(value && computePayloadHash(value.local) !== last.lastUploadHash);
+  const remoteChanged = Boolean(value?.remote && value.remote.updatedAt !== last.lastSyncAt);
+  const state: SyncViewState = same ? 'same' : localChanged && remoteChanged ? 'conflict' : remoteChanged ? 'cloud' : 'local';
+  return <section className="qm-sync-comparison" aria-label="同期の状態" aria-busy={loading || disabled}>
+    {!value && (loading || !error) ? <p className="sync-overview-loading" role="status">{disabled ? '同期処理中…' : '同期状態を確認中…'}</p> : null}
+    {error ? <div className="sync-overview-error" role="alert"><p>{error}</p><button className="sync-button sync-button--secondary" disabled={loading || disabled} onClick={() => setAttempt((n) => n+1)}>もう一度確認</button></div> : null}
+    {value && local ? <SyncComparisonView state={state} local={local} remote={remote || null} disabled={disabled || loading}
+      onSync={() => void syncNormally()} onUpload={() => setPending(value)} onDownload={() => void onDownload()} /> : null}
     <ConfirmDialog fullPage open={Boolean(pending)} title="端末の内容でクラウドを置き換えますか？" message={pending ? `残す内容：端末の${summarizeSyncPayload(pending.local).questionCount}問\n上書きする側：クラウド${pending.remote ? `（${new Date(pending.remote.updatedAt).toLocaleString()}）` : '（未登録）'}\n\n両方の復元用バックアップを作成・読み戻し確認してから実行します。` : ''} confirmLabel={loading ? '処理中…' : 'バックアップしてクラウドを置き換える'} busy={loading} onCancel={() => setPending(null)} onConfirm={() => void confirm()} />
   </section>;
+}
+
+export type SyncViewState = 'same' | 'local' | 'cloud' | 'conflict';
+/** Presentation only: this component cannot access or modify stored learning data. */
+export function SyncComparisonView({ state, local, remote, disabled, onSync, onUpload, onDownload }: {
+  state: SyncViewState; local: SyncPayloadSummary; remote: SyncPayloadSummary | null; disabled: boolean;
+  onSync: () => void; onUpload: () => void; onDownload: () => void;
+}) {
+  const conflict = state === 'conflict';
+  const title = state === 'same' ? '同期済み' : conflict ? 'どちらの内容を使いますか？' : state === 'cloud' ? 'クラウドに更新があります' : remote ? 'この端末の変更を保存できます' : '最初の同期をしましょう';
+  const detail = state === 'same' ? 'この端末とクラウドは同じ内容です。' : conflict ? '両方に変更があります。自動では上書きしません。' : state === 'cloud' ? '確認してから、この端末に取り込みます。' : 'この端末の問題・メモ・学習履歴をクラウドに保存します。';
+  const counts = <div className="sync-overview-counts">
+    <div><span>この端末</span><strong>{local.questionCount}問</strong><small>{local.problemSetCount}セット</small></div>
+    <span aria-hidden="true">⇄</span>
+    <div><span>クラウド</span><strong>{remote ? `${remote.questionCount}問` : '未保存'}</strong><small>{remote ? `${remote.problemSetCount}セット` : '初回保存前'}</small></div>
+  </div>;
+  const choices = <div className="sync-overview-choices">
+    <button type="button" className="sync-button sync-button--primary" disabled={disabled} onClick={onUpload}>この端末の内容を使う<small>クラウドへ保存</small></button>
+    {remote ? <button type="button" className="sync-button sync-button--secondary" disabled={disabled} onClick={onDownload}>クラウドの内容を使う<small>この端末へ取り込む</small></button> : null}
+    <p className="sync-help">置き換え前に確認します。別々の内容を結合する操作ではありません。</p>
+  </div>;
+  return <>
+    <div className={`sync-overview-status${conflict ? ' sync-overview-status--conflict' : ''}`}>
+      <span className="sync-overview-symbol" aria-hidden="true">{state === 'same' ? '✓' : conflict ? '!' : '⇄'}</span>
+      <h2>{title}</h2><p>{detail}</p>
+    </div>
+    {conflict ? <>{counts}{choices}</> : <>
+      <button type="button" className="sync-button sync-button--primary sync-overview-main" disabled={disabled} onClick={onSync}>{disabled ? '処理中…' : state === 'same' ? '更新を確認' : '今すぐ同期'}</button>
+      <details className="sync-overview-details"><summary>内容を確認{state !== 'same' ? '・手動で選ぶ' : ''}</summary>{counts}{state !== 'same' ? choices : null}</details>
+    </>}
+  </>;
 }
