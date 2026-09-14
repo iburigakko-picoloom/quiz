@@ -5,14 +5,15 @@ import { applyCreationConditions, buildSimpleCreationPrompt } from '../src/utils
 import { CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT, validateImportJson } from '../src/utils/importValidator.ts';
 
 test('copied prompts include each combination of selected conditions', () => {
-  for (const choiceCount of [4, 5]) for (const questionCount of [1, 35, 2000]) for (const allowMultiple of [false, true]) {
+  for (const choiceCount of [4, 5]) for (const questionCount of [undefined, 1, 35, 2000]) for (const allowMultiple of [false, true]) {
     const options = { choiceCount, questionCount, allowMultiple };
     const simple = buildSimpleCreationPrompt('古文単語を作って', options);
     assert.ok(simple.includes('古文単語を作って'));
     const example = JSON.parse(simple.split('\n').find((line) => line.startsWith('{')));
     assert.equal(example.questions[0].choices.length, choiceCount);
     for (const prompt of [simple, applyCreationConditions(CHATGPT_MATERIAL_TEMPLATE_PROMPT, options)]) {
-      assert.ok(prompt.includes(`問題数：${questionCount}問`));
+      if (questionCount === undefined) assert.ok(!prompt.includes('問題数：'));
+      else assert.ok(prompt.includes(`問題数：${questionCount}問`));
       assert.ok(prompt.includes(`必ず${choiceCount}個`));
       assert.ok(prompt.includes(allowMultiple ? '複数回答を実際に含めてください' : '複数回答問題は作らないでください'));
       assert.equal(prompt.split('【今回の作成条件】').length - 1, 1);

@@ -92,7 +92,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const [aiStep, setAiStep] = useState<1 | 2>(1);
   const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>('simple');
   const [choiceCount, setChoiceCount] = useState<4 | 5>(4);
-  const [questionCount, setQuestionCount] = useState('20');
+  const [questionCount, setQuestionCount] = useState('');
   const [allowMultiple, setAllowMultiple] = useState(false);
   const jsonFileRef = useRef<HTMLInputElement>(null);
   const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
@@ -380,9 +380,9 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   }, [copySetId]);
 
   const copyPromptTemplate = async (kind: 'simple' | 'material' | 'past-exam') => {
-    const count = Number(questionCount);
-    if (kind !== 'past-exam' && (!Number.isInteger(count) || count < 1 || count > 2000)) {
-      setError('問題数は1〜2000の整数で入力してください。');
+    const count = questionCount.trim() === '' ? undefined : Number(questionCount);
+    if (kind !== 'past-exam' && count !== undefined && (!Number.isInteger(count) || count < 1 || count > 2000)) {
+      setError('問題数は空欄にするか、1〜2000の整数で入力してください。');
       return;
     }
     try {
@@ -455,7 +455,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '自分で作る'], ['material', '資料から作る'], ['past-exam', '過去問から作る']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => setAiMethod(method)}>{label}</button>)}<span className="create-set__method-indicator" aria-hidden="true" style={{ transform: `translateX(calc(${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 100}% + ${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 6}px))` }} /></nav>
               {aiMethod !== 'past-exam' ? <div className="create-set__generation-options">
                 <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{ transform: `translateX(${choiceCount === 5 ? 100 : 0}%)` }} />{([4, 5] as const).map((count) => <button type="button" key={count} aria-pressed={choiceCount === count} onClick={() => setChoiceCount(count)}>{count}択</button>)}</div></fieldset>
-                <label>問題数の目安<input type="number" min={1} max={2000} step={1} inputMode="numeric" value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /></label>
+                <label>問題数（任意）<input type="number" min={1} max={2000} step={1} inputMode="numeric" placeholder="未指定" value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /></label>
                 <label className="create-set__multiple-option"><span>複数回答</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} /></span></label>
               </div> : null}
               <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>

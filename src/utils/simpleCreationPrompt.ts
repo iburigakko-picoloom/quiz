@@ -1,7 +1,7 @@
-export interface CreationPromptOptions { choiceCount: 4 | 5; questionCount: number; allowMultiple: boolean }
+export interface CreationPromptOptions { choiceCount: 4 | 5; questionCount?: number; allowMultiple: boolean }
 
 export function applyCreationConditions(template: string, options: CreationPromptOptions): string {
-  if (![4, 5].includes(options.choiceCount) || !Number.isInteger(options.questionCount) || options.questionCount < 1 || options.questionCount > 2000) throw new Error('invalid creation conditions');
+  if (![4, 5].includes(options.choiceCount) || (options.questionCount !== undefined && (!Number.isInteger(options.questionCount) || options.questionCount < 1 || options.questionCount > 2000))) throw new Error('invalid creation conditions');
   // The final example follows all request/memo context; never rewrite reference data.
   const examples = [...template.matchAll(/^\{"setTitle":.*\}$/gm)];
   const exampleMatch = examples[examples.length - 1];
@@ -22,8 +22,7 @@ export function applyCreationConditions(template: string, options: CreationPromp
     return template.slice(0, exampleMatch.index) + JSON.stringify(example) + template.slice(exampleMatch.index! + line.length);
   })();
   return `【今回の作成条件】
-問題数：${options.questionCount}問が目安。厳密に一致させる必要はありません。品質を優先し、数合わせの重複・水増しや重要事項の切り捨てを避けてください。
-選択肢：各問のchoicesは必ず${options.choiceCount}個。indexは0始まり。
+${options.questionCount === undefined ? '' : `問題数：${options.questionCount}問が目安。厳密に一致させる必要はありません。品質を優先し、数合わせの重複・水増しや重要事項の切り捨てを避けてください。\n`}選択肢：各問のchoicesは必ず${options.choiceCount}個。indexは0始まり。
 ${options.allowMultiple ? '複数回答：適した問題では複数回答を実際に含めてください。全問を単一回答にしないでください。ただし正解を無理に増やしたり捏造しないでください。複数回答はanswerIndexesを使い、正解は2個以上かつ選択肢数未満、問題文は「すべて選べ」。単一回答も混ぜてよく、その場合はanswerIndexだけを使います。両フィールドは併記しません。' : '複数回答：オフ。全問の正解は必ず1個でanswerIndexだけを使用。複数回答問題は作らないでください。'}
 
 ${withExample}`;
