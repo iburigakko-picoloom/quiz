@@ -1,6 +1,7 @@
 /** Settings-only pictograms: consistent strokes, no decorative tile. */
-export function SettingsIcon({ kind }: { kind: 'companion' | 'sound' | 'sync' | 'backup' | 'transfer' | 'privacy' }) {
+export function SettingsIcon({ kind }: { kind: 'companion' | 'sound' | 'sync' | 'backup' | 'transfer' | 'privacy' | 'guide' }) {
   return <svg className="settings-pictogram" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    {kind === 'guide' && <><path d="M12 5C9 3 5 3 3 4v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-2-1-6-1-9 1v15" /><path d="M6 8h3m-3 4h3m6-4h3m-3 4h3" /></>}
     {kind === 'companion' && <>
       <ellipse cx="5.5" cy="9" rx="2" ry="2.7" transform="rotate(-25 5.5 9)" />
       <ellipse cx="10" cy="5.7" rx="1.8" ry="2.6" />

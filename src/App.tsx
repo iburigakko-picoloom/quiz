@@ -28,6 +28,7 @@ import type { CreateProblemSetSubmission, LegacyImportTarget } from './screens/C
 import { lineLinkReturn } from './utils/lineAuthReturn';
 import { AutoSyncController } from './components/AutoSyncController';
 import { WelcomeGuide } from './components/WelcomeGuide';
+import { UsageGuide } from './components/UsageGuide';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { PrimaryBottomNav, type PrimaryNavItem } from './components/PrimaryBottomNav';
 import { StorageRecoveryPanel } from './components/StorageRecoveryPanel';
@@ -86,6 +87,7 @@ export default function App() {
   const durableDataRef = useRef(data);
   const [screen, setScreen] = useState<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
   const [transitionDirection, setTransitionDirection] = useState<'forward' | 'back' | 'replace'>('replace');
+  const [guideReturn, setGuideReturn] = useState<'home' | 'settings' | null>(null);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [pendingExitTarget, setPendingExitTarget] = useState<AppScreen | null>(null);
   const [pendingExitReason, setPendingExitReason] = useState<'quiz' | 'create' | null>(null);
@@ -1526,6 +1528,7 @@ export default function App() {
         onClearAll={handleClearAll}
         onOpenSync={() => navigate({ name: 'sync' })}
         onOpenPrivacy={() => navigate({ name: 'privacy' })}
+        onOpenGuide={() => { setGuideReturn('settings'); navigatePrimary('home'); }}
       />
     );
   } else if (screen.name === 'sync') {
@@ -1552,7 +1555,8 @@ export default function App() {
         const next=appendSharedImage(dataRef.current,questionId,originalQuestion,image,shareId);
         if(!await persistThenCommitData(next))throw new Error('画像を保存できませんでした。再読み込みして追加し直してください。');
       }}/>
-      <WelcomeGuide active={screen.name === 'home' && !waitingWorker && !storageError && !receivingSharedImage} />
+      <WelcomeGuide active={!guideReturn && screen.name === 'home' && !waitingWorker && !storageError && !receivingSharedImage} onStartGuide={() => { setGuideReturn('home'); navigatePrimary('home'); }} />
+      {guideReturn && <UsageGuide onNavigate={navigatePrimary} onClose={() => { navigatePrimary(guideReturn); setGuideReturn(null); }} />}
       <div key={getScreenKey(screen)} className={`quiz-screen-transition quiz-screen-transition--${transitionDirection}`}>
         <Suspense fallback={(
           <div className="quiz-app-loading" role="status" aria-live="polite">

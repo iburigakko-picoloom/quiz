@@ -8,7 +8,7 @@ const SEEN_KEY = 'quiz-make-welcome-v1';
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 const installed = () => window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone) || isNativeAuthPlatform();
 
-export function WelcomeGuide({ active }: { active: boolean }) {
+export function WelcomeGuide({ active, onStartGuide }: { active: boolean; onStartGuide: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [seen, setSeen] = useState(() => { try { return localStorage.getItem(SEEN_KEY) === 'done'; } catch { return true; } });
   const [ready, setReady] = useState(false);
@@ -28,11 +28,12 @@ export function WelcomeGuide({ active }: { active: boolean }) {
     window.addEventListener('appinstalled', onInstalled);
     return () => { alive = false; unsubscribe(); window.removeEventListener('beforeinstallprompt', onPrompt); window.removeEventListener('appinstalled', onInstalled); };
   }, []);
-  const show = active && ready && !seen && !isNativeAuthPlatform() && ((!signedIn && lineLoginAvailable) || !isInstalled);
+  const show = active && ready && !seen;
   useEffect(() => { if (show) { if (!dialog.current?.open) dialog.current?.showModal(); } else dialog.current?.close(); }, [show]);
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   return <dialog ref={dialog} className="welcome-guide" onCancel={dismiss}>
     <header><h2>Quiz Makeへようこそ</h2><button type="button" aria-label="案内を閉じる" onClick={dismiss}>×</button></header>
+    <section><h3>実際の画面で使い方を見る</h3><p>問題の作成から、メモを使った詳しい解説まで案内します。</p><button type="button" className="welcome-guide__install" onClick={() => { dismiss(); dialog.current?.close(); onStartGuide(); }}>使い方ガイドを始める</button></section>
     {!signedIn && lineLoginAvailable ? <section><h3>LINEでログイン</h3><p>共有や同期を使う方におすすめです。</p><LineLoginButton /></section> : null}
     {!isInstalled ? <section><h3>ホーム画面に追加</h3><p>アイコンからすぐに開けます。</p><button type="button" className="welcome-guide__install" disabled={installBusy} onClick={async () => {
       if (!installEvent) { setShowSteps(true); return; }

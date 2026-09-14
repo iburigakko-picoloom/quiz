@@ -35,9 +35,10 @@ interface SettingsScreenProps {
   onClearAll: () => Promise<boolean>;
   onOpenSync: () => void;
   onOpenPrivacy: () => void;
+  onOpenGuide: () => void;
 }
 
-export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBackup, onClearAll, onOpenSync, onOpenPrivacy }: SettingsScreenProps) {
+export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBackup, onClearAll, onOpenSync, onOpenPrivacy, onOpenGuide }: SettingsScreenProps) {
   const [sound, setSound] = useState(isAnswerSoundEnabled);
   const [companion, setCompanion] = useState(isStudyCompanionEnabled);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -226,6 +227,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
           {!page ? <>
           <section className="settings-section" aria-labelledby="settings-info-title">
             <div className="settings-section__heading"><h2 id="settings-info-title">アプリ情報</h2></div>
+            <SettingsRow icon={<SettingsIcon kind="guide" />} title="使い方ガイド" arrow onClick={onOpenGuide} />
             <SettingsRow icon={<SettingsIcon kind="privacy" />} title="プライバシーポリシー" arrow onClick={onOpenPrivacy} />
           </section>
           </> : null}
