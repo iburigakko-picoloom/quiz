@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PrimaryNavItem } from './PrimaryBottomNav';
 import './UsageGuide.css';
+import { UsageGuideExample, type GuideExample } from './UsageGuideExamples';
 const AnswerPanel = lazy(() => import('../screens/QuizRunner').then(module => ({ default: module.AnswerPanel })));
 type Demo = 'answer' | 'memo' | 'save';
-type Step = { page: PrimaryNavItem; title: string; body: string; target?: string; demo?: Demo };
+type Step = { page: PrimaryNavItem; title: string; body: string; target?: string; demo?: Demo; example?: GuideExample };
 const steps: Step[] = [
   { page: 'home', title: 'ここから学習を始める', body: 'フォルダを開き、問題セットを選んで解きます。問題やフォルダは「＋」から追加できます。' },
   { page: 'create', target: '[data-guide="create-ai"]', title: 'AIで問題を作る', body: 'ここで依頼文をコピーしてChatGPTなどに送ります。できたJSONファイルはステップ2で取り込みます。' },
@@ -11,7 +12,14 @@ const steps: Step[] = [
   { page: 'home', demo: 'memo', target: '.usage-guide__demo .weakness-composer', title: '知りたいことだけ、ひとこと', body: '「なぜ？」「この言葉の意味は？」などをここに入力します。「図でも知りたい」「表で比較して」も書けます。' },
   { page: 'home', demo: 'save', target: '.usage-guide__demo .weakness-compose-row button', title: 'この矢印でメモを保存', body: '右の「↑」を押すと、この問題に紐づいたメモになります。まだAIの解説は作られません。続いて作成画面へ進みます。' },
   { page: 'create', target: '[data-guide="create-explanation"]', title: 'ためた疑問を、詳しい解説に', body: 'ここで問題セットを選びます。メモがあり、まだ詳細解説がない問題の依頼文をまとめてコピーできます。' },
-  { page: 'create', target: '[data-guide="create-explanation"]', title: 'AIの回答は元の問題に戻る', body: '依頼文をChatGPTなどに送り、回答を「AIの回答を取り込む」へ貼り付けます。対応する問題の「解説・メモ」で読めるようになります。' },
+  { page: 'create', example: 'overview', title: '一覧から、未解説の疑問をまとめて依頼', body: '問題セットの「詳細解説一覧」でも、上のボタンからコピーできます。対象はメモがあり、詳細解説がまだない問題です。コピーした端末で回答を取り込んでください。' },
+  { page: 'create', example: 'chat-prompt', title: 'ChatGPTに依頼文を貼り付けて送る', body: 'ChatGPTを開き、入力欄を長押しして貼り付け、送信します。問題との紐付け情報も含むので、依頼文は削らずそのまま送ってください。個人情報や共有できない資料を含めないでください。' },
+  { page: 'create', example: 'chat-reply', title: '回答は「JSONの枠」からコピー', body: '回答が完成したら、jsonと書かれた枠のコピーを使います。文章だけを選ぶと、強調記号が抜けることがあります。枠がなければ「指定のJSONをコードブロックで返して」と依頼します。' },
+  { page: 'create', example: 'import-paste', title: 'Quiz Makeへ戻り、回答を貼り付け', body: '詳細解説一覧の下、または作成画面の「AIの回答を取り込む」を開きます。「クリップボードから貼り付け」→「読み取る」。許可されないときは回答欄を長押しして貼り付けてください。' },
+  { page: 'create', example: 'import-review', title: '対象と内容を見てから反映', body: '問題名と解説を確認して「確認して○件を反映」を押します。元の問題へ自動で紐付き、既存の解説・画像は残して追記します。対応しない回答と出たら、この端末で依頼文をコピーし直してください。' },
+  { page: 'create', example: 'chat-image', title: '図も欲しいときは、ChatGPTに追加で依頼', body: '例えば「この仕組みを矢印の図にして」と頼みます。画像ができたら開いて、端末に保存・ダウンロードしてください。画像はJSONの取り込みだけでは添付されません。' },
+  { page: 'home', example: 'images', title: '画像は対象の問題の「解説・メモ」へ', body: '「画像を追加」から保存した画像を選ぶ方法が確実です。「画像を貼り付け」は画像そのものをコピーできる端末で使えます。リンクや共有URLでは貼れません。できない場合は保存して追加してください。' },
+  { page: 'home', example: 'read', title: '解説と図を、一緒に読み返せます', body: '追加した画像や表は解説の上部に表示されます。複数ある場合は横にスクロール、画像は2本指で広げたり縮めたりできます。AIの内容は教材とも照らし合わせましょう。' },
   { page: 'create', target: '[data-guide="create-memo"]', title: 'メモから復習問題も作れる', body: '疑問を新しい問題にしたいときはこちら。詳しい説明を読むための「メモから詳細解説を作る」と使い分けます。' },
   { page: 'discover', title: '公開された問題を探す', body: '検索や「条件」で問題を探せます。そのまま解くことも、自分のフォルダへ取り込むこともできます。' },
   { page: 'groups', title: '仲間と問題を共有する', body: 'グループに参加・作成して、問題セットやフォルダを共有できます。共有機能にはログインが必要です。' },
@@ -43,7 +51,7 @@ export function UsageGuide({ onNavigate, onClose }: { onNavigate: (page: Primary
     let frame = 0;
     let target: Element | null = null;
     const measure = () => {
-      const next = document.querySelector(step.target ?? `[data-destination="${step.page}"]`);
+      const next = document.querySelector(step.example ? '.usage-guide__example [data-example-target]' : step.target ?? `[data-destination="${step.page}"]`);
       if (next !== target) {
         target = next;
         target?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
@@ -58,13 +66,16 @@ export function UsageGuide({ onNavigate, onClose }: { onNavigate: (page: Primary
   }, [step]);
   const move = (next: number) => { onNavigate(steps[next].page); setRect(null); setIndex(next); };
   const cardAtTop = Boolean(step.target && rect && rect.top > window.innerHeight * .42);
-  return <dialog ref={dialog} className="usage-guide" aria-labelledby="usage-guide-title" onCancel={event => { event.preventDefault(); onClose(); }}>
+  return <dialog ref={dialog} className={`usage-guide${step.example ? ' usage-guide--example' : ''}`} aria-labelledby="usage-guide-title" onCancel={event => { event.preventDefault(); onClose(); }}>
+    {step.example && <UsageGuideExample key={step.example} stage={step.example} />}
     {step.demo && <MemoDemo stage={step.demo} />}
     {rect && <div className="usage-guide__spotlight" aria-hidden="true" style={{ left: rect.left - 3, top: rect.top - 3, width: rect.width + 6, height: rect.height + 6 }} />}
     <section className={`usage-guide__card${cardAtTop ? ' usage-guide__card--top' : ''}`}>
       <header><span>{step.demo ? '練習画面' : '使い方ガイド'} · {index + 1} / {steps.length}</span><button type="button" onClick={onClose} aria-label="ガイドを閉じる">×</button></header>
+      <select className="usage-guide__jump" aria-label="説明する項目" value={index} onChange={event => move(Number(event.target.value))}>{steps.map((item, i) => <option key={i} value={i}>{i + 1}. {item.title}</option>)}</select>
       <h2 ref={heading} tabIndex={-1} id="usage-guide-title">{step.title}</h2>
       <p>{step.body}</p>
+      {step.example === 'chat-image' && <a className="usage-guide__source" href="https://learn.chatgpt.com/docs/image-generation" target="_blank" rel="noreferrer noopener">ChatGPTの画像機能：公式案内</a>}
       <footer><button type="button" onClick={() => move(index - 1)} disabled={index === 0}>戻る</button><button type="button" className="usage-guide__next" onClick={() => index === steps.length - 1 ? onClose() : move(index + 1)}>{index === steps.length - 1 ? '完了' : '次へ'}</button></footer>
     </section>
   </dialog>;

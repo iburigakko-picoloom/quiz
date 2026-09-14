@@ -23,3 +23,31 @@
 .usage-guide__demo .weakness-compose-row textarea { min-height: 90px; }
 .usage-guide__spotlight { z-index: 1; }
 .usage-guide__card { z-index: 2; }
+.usage-guide__jump{width:100%;min-height:36px;margin:4px 0;border:1px solid #dce1e7;border-radius:8px;padding:6px;background:#fff;color:#526273;font-size:12px}
+.usage-guide .usage-guide__card h2:focus{outline:none!important;box-shadow:none!important}
+.usage-guide__source{display:inline-block;margin:0 0 12px;color:#526273;font-size:12px;text-decoration:underline}
+.usage-guide--example[open]{display:flex;flex-direction:column;gap:12px;padding:calc(12px + var(--safe-top,0px)) 12px calc(12px + var(--safe-bottom,0px));box-sizing:border-box;background:#f6f7f9}
+.usage-guide__example{flex:1;min-height:0;overflow:auto;width:min(440px,100%);box-sizing:border-box;margin:0 auto;padding:18px;border:1px solid #e4e8ee;border-radius:16px;background:#fff;font-size:14px;line-height:1.6}
+.usage-guide--example .usage-guide__card{position:relative;flex:none;left:auto;top:auto;bottom:auto;transform:none;width:min(440px,100%);max-height:46%;margin:0 auto;padding:14px 18px}
+.usage-guide--example .usage-guide__card h2{font-size:18px}
+.usage-guide--example .usage-guide__card p{font-size:14px;margin-bottom:12px;line-height:1.65}
+.usage-guide--example .usage-guide__card footer{position:sticky;bottom:-14px;padding:8px 0;background:#fff}
+.guide-example__app{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #e4e8ee;padding-bottom:12px}
+.guide-example__app span,.guide-example__notice,.guide-example__diagram figcaption{font-size:11px;color:#6b7582}
+.guide-example__action{display:flex;justify-content:center;align-items:center;min-height:46px;width:100%;padding:10px;border:1px solid #b8c6d8;border-radius:10px;background:#fff;color:#305da3;font:inherit;font-weight:600;box-sizing:border-box}
+.guide-example__action--primary{background:#315d9c;color:#fff}
+.guide-example__memo{margin:16px 0;padding:12px;border-left:3px solid #d7dfe9;background:#fafafa}
+.guide-example__memo p{margin:6px 0}
+.guide-example__bubble{margin:18px 0 18px 20px;padding:14px;background:#f0f0f0;border-radius:18px}
+.guide-example__compose{margin-top:24px;border:1px solid #d8dadd;border-radius:20px;padding:14px;color:#30343b}
+.guide-example__compose p{margin:0 0 14px;font-size:13px}
+.guide-example__compose b{float:right;background:#242424;color:#fff;border-radius:50%;padding:0 9px}
+.guide-example__code{border:1px solid #d8dadd;border-radius:12px;overflow:hidden;margin:16px 0;background:#f7f7f8}
+.guide-example__code header{display:flex;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #ddd}
+.guide-example__code button{border:0;background:transparent;font:inherit;color:#253449;padding:6px 12px}
+.guide-example__code pre,.guide-example__input{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.5;padding:12px;margin:0}
+.guide-example__input{margin:12px 0;border:1px solid #d8dadd;border-radius:10px;max-height:150px;overflow:auto}
+.guide-example__tabs{display:flex;justify-content:space-around;padding:12px;margin-bottom:16px;border-bottom:1px solid #ddd;color:#305da3}
+.guide-example__diagram{margin:16px 0;border:1px solid #e0e5eb;border-radius:12px;padding:12px}
+.guide-example__diagram svg{display:block;width:100%;height:auto}
+.guide-example__image-menu{padding:12px;border:1px solid #d8dadd;border-radius:10px;text-align:center}
