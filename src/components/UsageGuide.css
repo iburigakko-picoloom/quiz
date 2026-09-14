@@ -10,3 +10,16 @@
 .usage-guide__card footer { display: flex; justify-content: space-between; gap: 12px; }
 .usage-guide__card .usage-guide__next { background: #315d9c; color: white; min-width: 100px; }
 .usage-guide__card button:disabled { opacity: .35; }
+.usage-guide__card--top { top: calc(var(--safe-top, 0px) + 12px); bottom: auto; }
+.usage-guide__demo { position: absolute; inset: 0; background: #fff; pointer-events: none; z-index: 0; }
+.usage-guide__demo-heading { padding: 24px; text-align: center; font-weight: 700; }
+.usage-guide__demo-question { padding: 28px; font-size: 20px; }
+.usage-guide__demo .answer-sheet { position: absolute; top: 32%; bottom: 12px; height: auto; max-height: none; left: 12px; right: 12px; width: auto; max-width: none; margin: 0; transform: none; }
+.usage-guide__demo .answer-sheet__drag-capture { display: none; }
+.usage-guide__demo .answer-sheet__fixed { padding-top: 4px; padding-bottom: 8px; }
+.usage-guide__demo .answer-sheet__result { font-size: 24px; }
+.usage-guide__demo .answer-sheet__actions { display: none; }
+.usage-guide__demo .weakness-composer { margin-top: 12px; }
+.usage-guide__demo .weakness-compose-row textarea { min-height: 90px; }
+.usage-guide__spotlight { z-index: 1; }
+.usage-guide__card { z-index: 2; }

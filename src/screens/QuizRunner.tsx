@@ -641,7 +641,8 @@ function splitTextByPhrases(text: string, phrases: string[]) {
   return parts;
 }
 
-function AnswerPanel({
+export function AnswerPanel({
+  guidePage,
   questionId,
   isCorrect,
   relearned,
@@ -663,6 +664,7 @@ function AnswerPanel({
   onRetryAnswerSave,
   onNext,
 }: {
+  guidePage?: 'answer' | 'memo' | 'save';
   questionId: string;
   isCorrect: boolean;
   relearned: boolean;
@@ -724,6 +726,9 @@ function AnswerPanel({
   useEffect(() => {
     setPanelPage('answer');
   }, [questionId]);
+  useEffect(() => {
+    if (guidePage) setPanelPage(guidePage === 'answer' ? 'answer' : 'detail');
+  }, [guidePage]);
 
   const getBaseSheetHeight = (targetState: AnswerSheetState) => {
     if (targetState === 'hidden') return 64;
@@ -1031,7 +1036,7 @@ function AnswerPanel({
         </button>
         <h2>解説・メモ</h2>
       </div>
-      <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} onSave={onSaveDetailedExplanation} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} active={panelPage === 'detail' && state !== 'hidden'} />
+      <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} onSave={onSaveDetailedExplanation} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} active={panelPage === 'detail' && state !== 'hidden'} guideExample={guidePage ? 'なぜ月の形は毎日変わって見えるの？ 図でも知りたい。' : undefined} />
     </div>
   );
 

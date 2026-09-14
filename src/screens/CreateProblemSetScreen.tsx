@@ -691,7 +691,7 @@ function MethodChooser({ onSelect }: { onSelect: (view: CreationView, purpose?: 
       {view:'notes',purpose:'answer',title:'メモから詳細解説を作る',icon: <MemoExplanationIcon />},
     ]},
   ];
-  return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">{groups.map(group=><section className="create-set__purpose-group" key={group.title}><h2>{group.title}</h2>{group.methods.map((method) => <button key={method.title} type="button" className="create-set__method" onClick={() => onSelect(method.view,method.purpose)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}</section>)}
+  return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">{groups.map(group=><section className="create-set__purpose-group" key={group.title}><h2>{group.title}</h2>{group.methods.map((method) => <button key={method.title} data-guide={method.view === 'chatgpt' ? 'create-ai' : method.purpose === 'answer' ? 'create-explanation' : 'create-memo'} type="button" className="create-set__method" onClick={() => onSelect(method.view,method.purpose)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}</section>)}
   </section>;
 }
 

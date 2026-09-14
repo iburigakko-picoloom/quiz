@@ -42,7 +42,9 @@ test('normal answer markup and swipe rail remain separate from the new detail co
 
 test('empty details retain a direct image picker without enabling read-only edits',async()=>{
   const source=readFileSync(new URL('../src/components/WeaknessDetail.tsx',import.meta.url),'utf8');
-  assert.match(source, /<ExplanationReader text=\{text\} onSave=\{onSave\} disabled=\{disabled\}\/>/);
+  assert.match(source, /<ExplanationReader text=\{text\} onSave=\{onSave\} disabled=\{disabled \|\| guideExample !== undefined\}\/>/);
+  assert.match(source, /if \(guideExample !== undefined\) return true/);
+  assert.match(source, /if \(!active \|\| disabled \|\| guideExample !== undefined\) return/);
   assert.doesNotMatch(source, /text\.trim\(\)\?<ExplanationReader/);
   assert.match(source, /if \(!onSave \|\| disabled \|\| lock.current\) return/);
   assert.match(source, /data-no-page-swipe disabled=\{busy\} onClick=\{\(\) => input.current\?\.click\(\)\}/);

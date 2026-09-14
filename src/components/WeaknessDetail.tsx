@@ -68,7 +68,7 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
   </div>;
 }
 
-export function WeaknessDetail({ questionId, text, onSave, disabled = false, onDirtyChange, active = true }: { questionId: string; text: string; onSave: (body:string)=>Promise<void>; disabled?:boolean; onDirtyChange?:(dirty:boolean)=>void; active?:boolean }) {
+export function WeaknessDetail({ questionId, text, onSave, disabled = false, onDirtyChange, active = true, guideExample }: { questionId: string; text: string; onSave: (body:string)=>Promise<void>; disabled?:boolean; onDirtyChange?:(dirty:boolean)=>void; active?:boolean; guideExample?: string }) {
   const [body, setBody] = useState(''), [memoId, setMemoId] = useState(''), [error, setError] = useState(''), [message,setMessage]=useState('');
   const [adding,setAdding]=useState(!text.trim());
   const failed = useRef(false);
@@ -76,18 +76,20 @@ export function WeaknessDetail({ questionId, text, onSave, disabled = false, onD
   const saveLock = useRef(false);
   const [savingMemo, setSavingMemo] = useState(false);
   useEffect(()=>{
-    if (!active || disabled) return;
+    if (!active || disabled || guideExample !== undefined) return;
     const remember=()=>{if(document.visibilityState==='visible')rememberImageTarget(questionId);};
     remember(); document.addEventListener('visibilitychange',remember);
     return()=>document.removeEventListener('visibilitychange',remember);
-  },[questionId,active,disabled]);
+  },[questionId,active,disabled,guideExample]);
   useEffect(()=>{
+    if (guideExample !== undefined) { setBody(guideExample); setMemoId('guide-only'); return; }
     try { const draft=readWeaknessNotes().find(n=>n.questionId===questionId&&n.draft);setBody(draft?.body??'');setMemoId(draft?.id??crypto.randomUUID());if(draft)setAdding(true); }
     catch {setError('メモを読み込めません。再読み込みしてください。');}
-  },[questionId]);
+  },[questionId,guideExample]);
   useEffect(()=>()=>onDirtyChange?.(false),[onDirtyChange]);
   useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if(failed.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[]);
   const persist=async(value:string,draft:boolean)=>{
+    if (guideExample !== undefined) return true;
     const sequence = ++writeSequence.current;
     try {
       failed.current=true;onDirtyChange?.(true);
@@ -97,7 +99,7 @@ export function WeaknessDetail({ questionId, text, onSave, disabled = false, onD
   };
   const save=async()=>{if(!body.trim()||!memoId||saveLock.current)return;saveLock.current=true;setSavingMemo(true);try{if(await persist(body,false)){setBody('');setMemoId(crypto.randomUUID());setMessage('苦手メモに保存しました');if(text.trim())setAdding(false);}}finally{saveLock.current=false;setSavingMemo(false);}};
   return <section className="weakness-detail">
-    <ExplanationReader text={text} onSave={onSave} disabled={disabled}/>
+    <ExplanationReader text={text} onSave={onSave} disabled={disabled || guideExample !== undefined}/>
     {disabled ? (!text.trim()?<p className="weakness-muted">自分の問題にコピーすると疑問を保存できます。</p>:null) : <>
       {!adding&&text.trim()?<button type="button" className="weakness-button" onClick={()=>setAdding(true)}>＋ 追加で質問・メモ</button>:<div className="weakness-composer">
         <label htmlFor={`memo-${questionId}`}>詳しく知りたいこと</label>
