@@ -50,7 +50,10 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
     {set ? <>
       <h2 className="note-overview-title">{set.title}</h2>
       <div className="note-overview-copy">
-        <button type="button" disabled={copying || notesError || !pending.length} onClick={() => void copyPending()}>{copying ? 'コピー中…' : '未解説メモのプロンプトをコピー'}</button>
+        <div className="note-overview-actions">
+          <button type="button" aria-label="未解説メモのプロンプトをコピー" disabled={copying || notesError || !pending.length} onClick={() => void copyPending()}>{copying ? 'コピー中…' : '依頼文をコピー'}</button>
+          <button type="button" onClick={onImport}>AIの回答を取り込む</button>
+        </div>
         {copyMessage ? <p role="status">{copyMessage}</p> : null}
         {copyError ? <p role="alert">{copyError}</p> : null}
       </div>
@@ -82,7 +85,6 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
         <span className="library-icon"><StudyIcon size={18} /></span>
         <span className="library-row__body"><strong>{category}</strong></span><span aria-hidden="true">›</span>
       </button>)}
-      <div className="note-overview-import"><button type="button" onClick={onImport}>AIの回答を取り込む<span aria-hidden="true">›</span></button></div>
     </> : <p>問題セットが見つかりません</p>}
   </main></Layout>;
 }

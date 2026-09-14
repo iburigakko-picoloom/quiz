@@ -59,6 +59,7 @@
 .guide-example__app span,.guide-example__notice,.guide-example__diagram figcaption{font-size:11px;color:#6b7582}
 .guide-example__action{display:flex;justify-content:center;align-items:center;min-height:46px;width:100%;padding:10px;border:1px solid #b8c6d8;border-radius:10px;background:#fff;color:#305da3;font:inherit;font-weight:600;box-sizing:border-box}
 .guide-example__action--primary{background:#315d9c;color:#fff}
+.guide-example__paired-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
 .guide-example__memo{margin:16px 0;padding:12px;border-left:3px solid #d7dfe9;background:#fafafa}
 .guide-example__memo p{margin:6px 0}
 .guide-example__bubble{margin:18px 0 18px 20px;padding:14px;background:#f0f0f0;border-radius:18px}
