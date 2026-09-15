@@ -129,6 +129,23 @@
 .quiz-runner .quiz-runner__choices { justify-content: flex-start; gap: 8px; padding: 18px 16px; overflow-y: auto; }
 .quiz-runner .quiz-choice { min-height: 52px; border-radius: 6px; box-shadow: none; }
 .answer-sheet:not(.answer-sheet--hidden) { border-radius: 12px 12px 0 0; }
+/* Dock the mobile sheet itself to the edge; reserve the home-indicator inset
+   inside the controls, rather than lifting the whole sheet above it. */
+@media (max-width: 899px) {
+  body > .answer-sheet.answer-sheet { bottom: 0; }
+  .answer-sheet .answer-sheet__actions {
+    margin-top: auto;
+    padding-bottom: max(12px, var(--safe-bottom, 0px));
+  }
+  body > .answer-sheet.answer-sheet--hidden {
+    height: calc(64px + var(--safe-bottom, 0px));
+    padding-bottom: var(--safe-bottom, 0px);
+    border-radius: 18px 18px 0 0;
+  }
+  .quiz-runner .quiz-runner__answer-actions {
+    padding-bottom: max(14px, var(--safe-bottom, 0px)) !important;
+  }
+}
 .answer-sheet .answer-sheet__answer-box { padding: 0 0 12px; border: 0; border-radius: 0; background: white; box-shadow: none; }
 .answer-sheet .answer-sheet__action, .answer-sheet .answer-sheet__hide-button { border-radius: 7px; }
 .quiz-runner .quiz-runner__answer-actions { gap: 8px; padding-inline: 16px; }
