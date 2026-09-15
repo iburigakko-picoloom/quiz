@@ -4,6 +4,7 @@ import { readClipboardText, writeClipboardText } from '../utils/nativePlatform';
 import { changeWeaknessNotes, detailBody, explanationPrompt, finishExplanationBatch, makeExplanationRequest, NOTES_EVENT, readExplanationBatch, readWeaknessNotes, rememberExplanationRequest, type ExplanationBatch, type WeaknessNote } from '../utils/weaknessNotes';
 import { ExplanationReader, WeaknessDetail } from '../components/WeaknessDetail';
 import { ChevronRightIcon, ProblemSetIcon } from '../components/UiIcons';
+import { hasAnsweredMemo } from '../utils/weaknessNotes';
 
 
 export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDirtyChange, onBackRef, onCreateQuestions, importOnly = false }: {
@@ -46,29 +47,31 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
     try {
       const fresh=readWeaknessNotes();
       const picked=selected.map(id=>{const n=fresh.find(n=>n.id===id&&n.questionId);if(!n)throw new Error('メモが削除されました。選び直してください。');return n;});
+      if(!picked.length || picked.some(n=>!hasAnsweredMemo(n,data)))throw new Error('回答済みのメモを選び直してください。');
       const request=makeExplanationRequest(picked,data);
-      onCreateQuestions(JSON.stringify(request.targets.map(t=>({疑問:t.memoBodies,元の問題:t.question,選択肢:t.choices,正解位置:t.answerIndexes,元の解説:t.explanation,詳細解説:t.previousExplanation})),null,2));
+      onCreateQuestions(JSON.stringify(request.targets.map(t=>({学習する回答:t.previousExplanation,回答の元になった疑問:t.memoBodies})),null,2));
     }catch(e){setError(e instanceof Error?e.message:'メモを読み込めませんでした。');}
   };
   const apply=async()=>{if(!batch||busy)return;setBusy(true);setError('');try{const verified=readExplanationBatch(paste);await onApplyBatch(verified);await finishExplanationBatch(verified);setPaste('');setBatch(null);setMessage(`${verified.replies.length}件を反映しました`);setHistory(setId?['list']:[]);setStage('paste');setView(importOnly?'import':setId?'set':'list');}catch(e){setError(e instanceof Error?e.message:'保存できませんでした。回答を残しています。');}finally{setBusy(false);}};
-  const inSet=notes.filter(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===setId)&&n.body.trim());
+  const visibleNotes=purpose==='questions'?notes.filter(n=>hasAnsweredMemo(n,data)):notes;
+  const inSet=visibleNotes.filter(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===setId)&&n.body.trim());
   const title=view==='set'?data.problemSets.find(s=>s.id===setId)?.title:view==='prompt'?'AIへの依頼':view==='import'?'回答を取り込む':view==='question'?'解説・メモ':null;
-  const chooseAll=(id:string)=>{setSetId(id);const ns=notes.filter(n=>n.questionId&&n.body.trim()&&!n.draft&&n.resolvedBody!==n.body&&data.questions.some(q=>q.id===n.questionId&&q.setId===id));setSelected(ns.map(n=>n.id));go('set');};
+  const chooseAll=(id:string)=>{setSetId(id);const ns=visibleNotes.filter(n=>n.questionId&&n.body.trim()&&!n.draft&&(purpose==='questions'||n.resolvedBody!==n.body)&&data.questions.some(q=>q.id===n.questionId&&q.setId===id));setSelected(ns.map(n=>n.id));go('set');};
   return <section key={view} className={`weakness-workspace weakness-workspace--${direction}${view==='list'?' weakness-workspace--list':''}`} aria-label="苦手メモ">
     {title&&!importOnly?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}
     {error?<div role="alert" className="weakness-error">{error}{failed&&note?<button type="button" onClick={()=>update(note)}>再保存</button>:null}</div>:null}
     {message?<p className="weakness-status" role="status">{message}</p>:null}
     {view==='list'?<>
-        {data.problemSets.filter(s=>notes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===s.id))).map(s=>{const ns=notes.filter(n=>data.questions.some(q=>q.id===n.questionId&&q.setId===s.id));return <button type="button" key={s.id} className="weakness-row" onClick={()=>chooseAll(s.id)}><ProblemSetIcon size={32}/><span><strong>{s.title}</strong><small>未解説 {ns.filter(n=>n.body.trim()&&n.resolvedBody!==n.body).length} · 解説あり {ns.filter(n=>n.resolvedBody===n.body&&n.body.trim()).length}</small></span><ChevronRightIcon/></button>;})}
-        {!notes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-muted">学習中に残した疑問がここにまとまります。</p>:null}
+        {data.problemSets.filter(s=>visibleNotes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===s.id))).map(s=>{const ns=visibleNotes.filter(n=>data.questions.some(q=>q.id===n.questionId&&q.setId===s.id));return <button type="button" key={s.id} className="weakness-row" onClick={()=>chooseAll(s.id)}><ProblemSetIcon size={32}/><span><strong>{s.title}</strong><small>{purpose==='questions'?`回答済み ${ns.length}件`:`未解説 ${ns.filter(n=>n.body.trim()&&n.resolvedBody!==n.body).length} · 解説あり ${ns.filter(n=>n.resolvedBody===n.body&&n.body.trim()).length}`}</small></span><ChevronRightIcon/></button>;})}
+        {!visibleNotes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-muted">{purpose==='questions'?'回答済みのメモはありません。先にAIの回答を取り込んでください。':'学習中に残した疑問がここにまとまります。'}</p>:null}
       {purpose==='answer'?<div className="weakness-import-dock"><button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button></div>:null}
     </>:null}
     {view==='set'?<>
-      <div className="weakness-step">① メモを選ぶ　→　② {purpose==='questions'?'問題を作る':'AIに解答を依頼'}</div>
-      <label className="weakness-muted"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> 解説済みも表示</label>
-      {inSet.filter(n=>showAll||n.resolvedBody!==n.body).map(n=>{const q=data.questions.find(q=>q.id===n.questionId)!;return <div className="weakness-selection" key={n.id}><label><input type="checkbox" checked={selected.includes(n.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,n.id]:ids.filter(id=>id!==n.id))}/><span>{q.question.length>60?q.question.slice(0,60)+'…':q.question}</span></label><p>{n.body}</p><button type="button" className="weakness-text" onClick={()=>{setSelectedId(n.id);go('question');}}>{detailBody(q).trim()?'解説を読む・追加の疑問':'メモを開く'}</button>{n.draft?<span className="weakness-muted"> 下書き</span>:null}</div>;})}
+      <div className="weakness-step">{purpose==='questions'?'① 回答済みのメモを選ぶ　→　② 解説から問題を作る':'① メモを選ぶ　→　② AIに解答を依頼'}</div>
+      {purpose==='answer'?<label className="weakness-muted"><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> 解説済みも表示</label>:null}
+      {inSet.filter(n=>purpose==='questions'||showAll||n.resolvedBody!==n.body).map(n=>{const q=data.questions.find(q=>q.id===n.questionId)!;return <div className="weakness-selection" key={n.id}><label><input type="checkbox" checked={selected.includes(n.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,n.id]:ids.filter(id=>id!==n.id))}/><span>{q.question.length>60?q.question.slice(0,60)+'…':q.question}</span></label><p>{n.body}</p><button type="button" className="weakness-text" onClick={()=>{setSelectedId(n.id);go('question');}}>{detailBody(q).trim()?'解説を読む・追加の疑問':'メモを開く'}</button>{n.draft?<span className="weakness-muted"> 下書き</span>:null}</div>;})}
       {!inSet.length?<p>メモはありません</p>:null}
-      <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={!selected.length||busy||failed} onClick={()=>purpose==='questions'?createQuestions():go('prompt')}>{purpose==='questions'?'選んだメモから問題を作る':`${selected.length}件をAIに解答してもらう`}</button></div>
+      <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={!selected.length||busy||failed} onClick={()=>purpose==='questions'?createQuestions():go('prompt')}>{purpose==='questions'?'選んだ回答から問題を作る':`${selected.length}件をAIに解答してもらう`}</button></div>
     </>:null}
     {view==='question'&&question?<><WeaknessDetail key={question.id} questionId={question.id} text={detailBody(question)} onSave={body=>onSaveDetail(question.id,body)} onDirtyChange={setFailed} onMemoDeleted={id=>{setSelected(ids=>ids.filter(value=>value!==id));go('set');}}/>{note?<details><summary>選んだ疑問を編集</summary><textarea aria-label="保存した疑問" value={note.body} onChange={e=>update({...note,body:e.target.value})}/></details>:null}</>:null}
     {view==='prompt'?<>

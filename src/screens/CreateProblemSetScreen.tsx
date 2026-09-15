@@ -421,7 +421,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
 
         {view === 'methods' ? <MethodChooser onSelect={(next, purpose='answer')=>{setNotesPurpose(purpose);startMethod(next);}} /> : null}
         {view === 'notes' ? <div className="create-set__flow">
-          <CreationNotes importOnly={startWithExplanationImport} purpose={notesPurpose} onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onCreateQuestions={context=>{if(creationRequest.trim()&&!window.confirm('作成中の依頼文を苦手メモの問題作成に切り替えますか？'))return;setMemoContext(context);setCreationRequest('苦手メモの疑問を復習する問題集');setAiMethod('simple');setAiStep(1);goTo('chatgpt');activeMethodRef.current='chatgpt';}} />
+          <CreationNotes importOnly={startWithExplanationImport} purpose={notesPurpose} onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onCreateQuestions={context=>{if(creationRequest.trim()&&!window.confirm('作成中の依頼文を回答済みメモの問題作成に切り替えますか？'))return;setMemoContext(context);setCreationRequest('取り込んだ回答・詳細解説の理解を確かめる問題集');setAiMethod('simple');setAiStep(1);goTo('chatgpt');activeMethodRef.current='chatgpt';}} />
         </div> : null}
 
         {view === 'manual' ? (

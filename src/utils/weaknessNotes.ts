@@ -5,6 +5,11 @@ import { advanceLocalDataRevision } from './localDataRevision';
 export const NOTES_KEY = 'quiz-make-creation-notes-v1';
 export const NOTES_EVENT = 'quiz-make-weakness-notes-changed';
 export interface WeaknessNote { id: string; title: string; body: string; questionId?: string; setId?: string; draft?: boolean; resolvedBody?: string; explanation?: string }
+
+export function hasAnsweredMemo(note: WeaknessNote, data: AppData): boolean {
+  const question = data.questions.find(q => q.id === note.questionId);
+  return Boolean(question && !note.draft && note.body.trim() && note.resolvedBody === note.body && detailBody(question).replace(/<!--[^]*?-->/g, '').trim());
+}
 export interface ExplanationTarget { targetId: string; memoIds: string[]; memoBodies: string[]; title: string; question?: string; choices?: string[]; answerIndexes?: number[]; explanation?: string; previousExplanation?: string }
 export interface ExplanationRequest { id: string; targets: ExplanationTarget[] }
 export interface ExplanationReply { targetId: string; body: string }

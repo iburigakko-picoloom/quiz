@@ -13,6 +13,14 @@ globalThis.window = new EventTarget();
 const q={id:'q1',setId:'s1',question:'Choose',choices:['A','B','C','D'],answerIndex:0,explanation:'通常解説は残す',detailedExplanation:'旧解説',detailedAnswer:{body:'保存済み解説',imageIds:['legacy-image'],updatedAt:'old'},updatedAt:'old'};
 const data={version:1,folders:[],problemSets:[{id:'s1',title:'問題セット'}],questions:[q],progress:[{questionId:'q1',correctCount:5}],answerLogs:[{id:'log'}]};
 const memo={id:'m1',title:'疑問',body:'なぜA？',questionId:'q1'};
+
+test('question creation uses only answered memos with a remaining explanation', async()=>{
+  const { hasAnsweredMemo } = await vite.ssrLoadModule('/src/utils/weaknessNotes.ts');
+  const answered={...memo,resolvedBody:memo.body};
+  assert.equal(hasAnsweredMemo(answered,data),true);
+  for(const item of [memo,{...answered,draft:true},{...answered,body:'追加の疑問'},{...answered,questionId:'deleted'}])assert.equal(hasAnsweredMemo(item,data),false);
+  assert.equal(hasAnsweredMemo(answered,{...data,questions:[{...q,detailedExplanation:'',detailedAnswer:{body:'<!-- marker -->',imageIds:[]}}]}),false);
+});
 test('second and third memos delete independently without deleting a concurrently edited memo',async()=>{
   storage.clear();coordination.resetDataCoordinationForTests();
   const second={...memo,id:'m2',body:'2つ目'},third={...memo,id:'m3',body:'3つ目'};
