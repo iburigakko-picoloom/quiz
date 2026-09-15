@@ -13,13 +13,19 @@ globalThis.window = new EventTarget();
 const q={id:'q1',setId:'s1',question:'Choose',choices:['A','B','C','D'],answerIndex:0,explanation:'通常解説は残す',detailedExplanation:'旧解説',detailedAnswer:{body:'保存済み解説',imageIds:['legacy-image'],updatedAt:'old'},updatedAt:'old'};
 const data={version:1,folders:[],problemSets:[{id:'s1',title:'問題セット'}],questions:[q],progress:[{questionId:'q1',correctCount:5}],answerLogs:[{id:'log'}]};
 const memo={id:'m1',title:'疑問',body:'なぜA？',questionId:'q1'};
-test('batch copy includes only saved memos on unexplained questions in this set', () => {
+test('batch copy includes unanswered saved memos even with existing explanations or images', () => {
   const qs = [{...q,id:'empty',detailedAnswer:undefined,detailedExplanation:'<!-- marker -->'}, q,
     {...q,id:'image',detailedAnswer:{body:'',imageIds:['image']}},
     {...q,id:'other',setId:'s2',detailedAnswer:undefined,detailedExplanation:''}];
   const memos = ['empty','q1','image','other','deleted'].map(id=>({...memo,id,questionId:id}));
-  memos.push({...memo,id:'draft',questionId:'empty',draft:true},{...memo,id:'blank',questionId:'empty',body:' '});
-  assert.deepEqual(unexplainedNotes({...data,questions:qs},memos,'s1').map(n=>n.id),['empty']);
+  memos.push({...memo,id:'draft',questionId:'empty',draft:true},{...memo,id:'blank',questionId:'empty',body:' '},
+    {...memo,id:'answered',resolvedBody:memo.body},
+    {...memo,id:'edited',body:'追加の疑問',resolvedBody:memo.body});
+  const pending = unexplainedNotes({...data,questions:qs},memos,'s1');
+  assert.deepEqual(pending.map(n=>n.id),['empty','q1','image','edited']);
+  const target = makeExplanationRequest(pending,{...data,questions:qs}).targets.find(t=>t.targetId==='question:q1');
+  assert.deepEqual(target.memoBodies,[memo.body,'追加の疑問']);
+  assert.equal(target.previousExplanation,'保存済み解説');
 });
 test('orphan cleanup keeps existing questions and legacy notes, with a recovery copy',async()=>{
   storage.clear();coordination.resetDataCoordinationForTests();

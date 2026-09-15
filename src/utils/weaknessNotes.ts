@@ -17,8 +17,8 @@ export function hasDetailedExplanation(q: Question): boolean {
   return Boolean(detailBody(q).replace(/<!--[\s\S]*?-->/g, '').trim() || q.detailedAnswer?.imageIds.length);
 }
 export function unexplainedNotes(data: AppData, notes: WeaknessNote[], setId: string): WeaknessNote[] {
-  const ids = new Set(data.questions.filter(q => q.setId === setId && !hasDetailedExplanation(q)).map(q => q.id));
-  return notes.filter(n => n.questionId && ids.has(n.questionId) && !n.draft && n.body.trim());
+  const ids = new Set(data.questions.filter(q => q.setId === setId).map(q => q.id));
+  return notes.filter(n => n.questionId && ids.has(n.questionId) && !n.draft && n.body.trim() && n.resolvedBody !== n.body);
 }
 
 export function parseNotes(raw: string | null): WeaknessNote[] {
