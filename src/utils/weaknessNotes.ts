@@ -51,6 +51,13 @@ export function changeWeaknessNotes(change: (notes: WeaknessNote[]) => WeaknessN
   return writeWeaknessNotes(next);
   });
 }
+export function deleteWeaknessNote(note: WeaknessNote) {
+  return changeWeaknessNotes(notes => {
+    const current = notes.find(item => item.id === note.id);
+    if (current && JSON.stringify(current) !== JSON.stringify(note)) throw new Error('メモが更新されています。内容を確認してから削除してください。');
+    return notes.filter(item => item.id !== note.id);
+  });
+}
 function writeWeaknessNotes(next: WeaknessNote[]) {
   const raw = JSON.stringify(next);
   localStorage.setItem(NOTES_KEY, raw);

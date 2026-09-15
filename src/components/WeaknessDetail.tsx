@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { PinchImage } from './PinchImage';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { changeWeaknessNotes, readWeaknessNotes } from '../utils/weaknessNotes';
+import { changeWeaknessNotes, readWeaknessNotes, NOTES_EVENT, type WeaknessNote } from '../utils/weaknessNotes';
+import { WeaknessMemoList } from './WeaknessMemoList';
 import './WeaknessNotes.css';
 import { imageMarkdown } from '../utils/imageAttachment';
 import { rememberImageTarget } from '../utils/sharedImage';
@@ -68,13 +69,20 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
   </div>;
 }
 
-export function WeaknessDetail({ questionId, text, onSave, disabled = false, onDirtyChange, active = true, guideExample }: { questionId: string; text: string; onSave: (body:string)=>Promise<void>; disabled?:boolean; onDirtyChange?:(dirty:boolean)=>void; active?:boolean; guideExample?: string }) {
+export function WeaknessDetail({ questionId, text, onSave, disabled = false, onDirtyChange, active = true, guideExample, onMemoDeleted }: { questionId: string; text: string; onSave: (body:string)=>Promise<void>; disabled?:boolean; onDirtyChange?:(dirty:boolean)=>void; active?:boolean; guideExample?: string; onMemoDeleted?: (id: string) => void }) {
+  const [savedNotes, setSavedNotes] = useState<WeaknessNote[]>([]);
   const [body, setBody] = useState(''), [memoId, setMemoId] = useState(''), [error, setError] = useState(''), [message,setMessage]=useState('');
   const [adding,setAdding]=useState(!text.trim());
   const failed = useRef(false);
   const writeSequence = useRef(0);
   const saveLock = useRef(false);
   const [savingMemo, setSavingMemo] = useState(false);
+  useEffect(() => {
+    if (!active || disabled || guideExample !== undefined) return;
+    const load = () => { try { setSavedNotes(readWeaknessNotes().filter(note => note.questionId === questionId && !note.draft && note.body.trim())); } catch { setSavedNotes([]); setError('保存したメモを読み込めませんでした。'); } };
+    load(); window.addEventListener(NOTES_EVENT, load); window.addEventListener('storage', load);
+    return () => { window.removeEventListener(NOTES_EVENT, load); window.removeEventListener('storage', load); };
+  }, [questionId, active, disabled, guideExample]);
   useEffect(()=>{
     if (!active || disabled || guideExample !== undefined) return;
     const remember=()=>{if(document.visibilityState==='visible')rememberImageTarget(questionId);};
@@ -100,6 +108,7 @@ export function WeaknessDetail({ questionId, text, onSave, disabled = false, onD
   const save=async()=>{if(!body.trim()||!memoId||saveLock.current)return;saveLock.current=true;setSavingMemo(true);try{if(await persist(body,false)){setBody('');setMemoId(crypto.randomUUID());setMessage('苦手メモに保存しました');if(text.trim())setAdding(false);}}finally{saveLock.current=false;setSavingMemo(false);}};
   return <section className="weakness-detail">
     <ExplanationReader text={text} onSave={onSave} disabled={disabled || guideExample !== undefined}/>
+    {!disabled && guideExample === undefined && <WeaknessMemoList notes={savedNotes} disabled={savingMemo} onDeleted={onMemoDeleted}/>}
     {disabled ? (!text.trim()?<p className="weakness-muted">自分の問題にコピーすると疑問を保存できます。</p>:null) : <>
       {!adding&&text.trim()?<button type="button" className="weakness-button" onClick={()=>setAdding(true)}>＋ 追加で質問・メモ</button>:<div className="weakness-composer">
         <label htmlFor={`memo-${questionId}`}>詳しく知りたいこと</label>

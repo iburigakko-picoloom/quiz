@@ -10,6 +10,7 @@ import { detailBody, NOTES_EVENT, readWeaknessNotes, unexplainedNotes, makeExpla
 import { writeClipboardText } from '../utils/nativePlatform';
 import { normalizeExplanationMarkdown } from '../utils/explanationMarkdown';
 import { ExplanationReader } from '../components/WeaknessDetail';
+import { WeaknessMemoList } from '../components/WeaknessMemoList';
 import './NoteOverviewScreen.css';
 
 export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, onImport }: {
@@ -61,7 +62,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
         {notesError ? <p role="alert">メモを読み込めませんでした。解説は下に表示しています。</p> : null}
         <div className="note-explanation-list">
           {detailedQuestions.map(question => {
-            const memos = notes.filter(note => note.questionId === question.id && note.body.trim());
+            const memos = notes.filter(note => note.questionId === question.id && !note.draft && note.body.trim());
             const number = questions.findIndex(item => item.id === question.id) + 1;
             return <article key={question.id} className="note-explanation-item" aria-label={`Q${number}のメモと解説`}>
               <header className="note-explanation-item__header">
@@ -70,8 +71,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
               </header>
               <h3>{question.question}</h3>
               {memos.length ? <section className="note-explanation-item__memos" aria-label="メモ">
-                <h4>メモ</h4>
-                {memos.map(memo => <p key={memo.id}>{memo.body}</p>)}
+                <WeaknessMemoList notes={memos}/>
               </section> : null}
               <section className="note-explanation-item__answer" aria-label="詳細解説">
                 <h4>解説</h4>

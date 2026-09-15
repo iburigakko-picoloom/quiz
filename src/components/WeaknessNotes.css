@@ -54,3 +54,10 @@
 .weakness-flow-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .weakness-flow-step{border:1px solid #c9d5e3;border-radius:8px;padding:9px 12px;color:#243c55;overflow-wrap:anywhere;max-width:100%;line-height:1.6}
 .weakness-table th,.weakness-table td{overflow-wrap:anywhere;vertical-align:top}
+.weakness-saved-memos:empty{display:none}
+.weakness-saved-memo{margin:16px 0;padding:12px 0;border-bottom:1px solid #e5e9ee}
+.weakness-saved-memo header{display:flex;align-items:center;gap:10px;min-height:40px}
+.weakness-saved-memo header strong{font-size:13px}
+.weakness-saved-memo header span{font-size:12px;color:#6b7785}
+.weakness-saved-memo header button{margin-left:auto;min-height:44px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#d72d40;font:inherit;font-size:13px}
+.weakness-saved-memo p{margin:6px 0;font-size:15px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}

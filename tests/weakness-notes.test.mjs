@@ -5,7 +5,7 @@ after(() => vite.close());
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-const { removeOrphanWeaknessNotes, unexplainedNotes, parseNotes, makeExplanationRequest, explanationPrompt, rememberExplanationRequest, readExplanationBatch, applyQuestionExplanations, finishExplanationBatch, readWeaknessNotes, changeWeaknessNotes, NOTES_KEY } = await vite.ssrLoadModule('/src/utils/weaknessNotes.ts');
+const { deleteWeaknessNote, removeOrphanWeaknessNotes, unexplainedNotes, parseNotes, makeExplanationRequest, explanationPrompt, rememberExplanationRequest, readExplanationBatch, applyQuestionExplanations, finishExplanationBatch, readWeaknessNotes, changeWeaknessNotes, NOTES_KEY } = await vite.ssrLoadModule('/src/utils/weaknessNotes.ts');
 const coordination = await vite.ssrLoadModule('/src/utils/dataCoordination.ts');
 const storage = new Map();
 globalThis.localStorage = {getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)};
@@ -13,6 +13,18 @@ globalThis.window = new EventTarget();
 const q={id:'q1',setId:'s1',question:'Choose',choices:['A','B','C','D'],answerIndex:0,explanation:'通常解説は残す',detailedExplanation:'旧解説',detailedAnswer:{body:'保存済み解説',imageIds:['legacy-image'],updatedAt:'old'},updatedAt:'old'};
 const data={version:1,folders:[],problemSets:[{id:'s1',title:'問題セット'}],questions:[q],progress:[{questionId:'q1',correctCount:5}],answerLogs:[{id:'log'}]};
 const memo={id:'m1',title:'疑問',body:'なぜA？',questionId:'q1'};
+test('second and third memos delete independently without deleting a concurrently edited memo',async()=>{
+  storage.clear();coordination.resetDataCoordinationForTests();
+  const second={...memo,id:'m2',body:'2つ目'},third={...memo,id:'m3',body:'3つ目'};
+  storage.set(NOTES_KEY,JSON.stringify([memo,second,third]));
+  await deleteWeaknessNote(second);
+  assert.deepEqual(readWeaknessNotes(),[memo,third]);
+  await deleteWeaknessNote(third);
+  assert.deepEqual(readWeaknessNotes(),[memo]);
+  await changeWeaknessNotes(notes=>notes.map(n=>({...n,body:'更新した疑問'})));
+  await assert.rejects(()=>deleteWeaknessNote(memo),/更新されています/);
+  assert.equal(readWeaknessNotes()[0].body,'更新した疑問');
+});
 test('batch copy includes unanswered saved memos even with existing explanations or images', () => {
   const qs = [{...q,id:'empty',detailedAnswer:undefined,detailedExplanation:'<!-- marker -->'}, q,
     {...q,id:'image',detailedAnswer:{body:'',imageIds:['image']}},
