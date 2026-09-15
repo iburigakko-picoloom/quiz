@@ -1,5 +1,9 @@
 export interface CreationPromptOptions { choiceCount: 4 | 5; questionCount?: number; allowMultiple: boolean }
 
+export function buildMemoQuestionPrompt(context: string): string {
+  return buildSimpleCreationPrompt('回答済みメモに対する回答を教材として復習問題を作成。各メモにつき最低1問を必ず作り、回答内容が濃く複数の重要事項がある場合は2〜3問作ってください。同じ問題に複数メモをまとめて必要数を減らさないでください。全問5択、複数回答可。各問に追加誤答候補を必ず用意し、shuffleChoices:trueにしてください。', { choiceCount: 5, allowMultiple: true }, context, 'clipboard');
+}
+
 export function applyCreationConditions(template: string, options: CreationPromptOptions): string {
   if (![4, 5].includes(options.choiceCount) || (options.questionCount !== undefined && (!Number.isInteger(options.questionCount) || options.questionCount < 1 || options.questionCount > 2000))) throw new Error('invalid creation conditions');
   // The final example follows all request/memo context; never rewrite reference data.
@@ -28,10 +32,10 @@ ${options.allowMultiple ? '複数回答：適した問題では複数回答を�
 ${withExample}`;
 }
 
-export function buildSimpleCreationPrompt(request: string, options: CreationPromptOptions = { choiceCount: 4, questionCount: 20, allowMultiple: false }, memoContext = ''): string {
+export function buildSimpleCreationPrompt(request: string, options: CreationPromptOptions = { choiceCount: 4, questionCount: 20, allowMultiple: false }, memoContext = '', output: 'file' | 'clipboard' = 'file'): string {
   const template = `Quiz Make用の問題集を作成してください。
 【回答の進め方】
-原則1回の回答で完成したJSONファイルを添付してください。予告・方針案・サンプルだけ・許可の確認は不要です。主題が不明で作れない場合だけ確認してください。
+${output === 'file' ? '原則1回の回答で完成したJSONファイルを添付してください。' : '原則1回の回答で完成したJSONを1つのjsonコードブロックで出力してください。'}予告・方針案・サンプルだけ・許可の確認は不要です。主題が不明で作れない場合だけ確認してください。
 
 【通常解説の強調】
 explanationの重要語・判断条件を1問あたり1〜3箇所だけ**太字**で囲んでください。Quiz Makeでは赤い太字になります。JSON文字列の中に**を残してください。HTMLや色指定タグは使わないでください。question・choices・distractorsは強調しません。
@@ -57,8 +61,7 @@ Quiz Makeが正解を必ず残し、誤答候補から必要数を抽選して�
 explanationは正解の根拠 → 判断に必要な知識・手順 → 迷いやすい誤答との差を説明する。一般的な問題は300〜600字程度が目安で、文字数の上限にはしない。単純なら短く、複雑なら詳しく。単語は語義と用例、計算は途中式・単位、複数回答は各正解の根拠を示す。短い段落・箇条書きで整理し、無関係な一般論で水増ししない。
 依頼に含まれる対象・範囲・難易度を尊重し、一問で問う主題を明確にする。類似問題ばかりに偏らず、基礎から応用へ並べる。出力を短くするために後半の解説を省略しない。
 【1回で取り込める出力】
-ダウンロード可能なUTF-8の「quiz-make.json」を実際に作成・添付してください。ファイル内はJSON本体を1個だけとし、コメント・末尾カンマ・省略記号・コードフェンスは入れません。文字列の改行・引用符はJSONとしてエスケープし、**重要語**を保持してください。見本は実際の問題に置き換えます。チャット本文はファイルへのリンクと短い案内だけにし、JSON全文や作成コードは表示しません。ファイルを作れない環境では、その旨だけを伝え、架空の添付やリンクは作らないでください。
-1ファイルで扱いきれない場合は問題数を調整して完結したJSONにし、sourceに未収録範囲を明記する。全範囲を網羅したふりや解説の省略はしない。
+${output === 'file' ? 'ダウンロード可能なUTF-8の「quiz-make.json」を実際に作成・添付してください。ファイル内はJSON本体を1個だけとし、コメント・末尾カンマ・省略記号・コードフェンスは入れません。文字列の改行・引用符はJSONとしてエスケープし、**重要語**を保持してください。見本は実際の問題に置き換えます。チャット本文はファイルへのリンクと短い案内だけにし、JSON全文や作成コードは表示しません。ファイルを作れない環境では、その旨だけを伝え、架空の添付やリンクは作らないでください。\n1ファイルで扱いきれない場合は問題数を調整して完結したJSONにし、sourceに未収録範囲を明記する。全範囲を網羅したふりや解説の省略はしない。' : 'コピーして取り込めるよう、JSON本体を1つのjsonコードブロックにまとめてください。前後の説明・省略・コメント・末尾カンマは不要です。改行や引用符はJSONとしてエスケープし、**重要語**を保持してください。途中で切れる量の場合は無理に省略せず、対象メモを分けるよう伝えてください。'}
 全問の正解と全誤答、指定した回答形式・選択肢数・正解index・各解説の**強調**・JSON構文を点検する。点検過程は出力しない。`;
   return applyCreationConditions(template, options);
 }

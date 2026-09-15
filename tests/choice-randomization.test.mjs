@@ -2,9 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomizeQuestionChoices } from '../src/utils/choiceRandomization.ts';
 import { validateImportJson } from '../src/utils/importValidator.ts';
-import { buildSimpleCreationPrompt } from '../src/utils/simpleCreationPrompt.ts';
+import { buildSimpleCreationPrompt, buildMemoQuestionPrompt } from '../src/utils/simpleCreationPrompt.ts';
 
 const question = { id: 'q', question: '語義', choices: ['正解', '誤答1', '誤答2', '誤答3'], answerIndex: 0, explanation: '根拠', distractors: ['誤答4', '誤答5', '誤答6'], shuffleChoices: true };
+test('answered memo workflow fixes five choices, flexible per-memo coverage and clipboard JSON', () => {
+  const prompt = buildMemoQuestionPrompt('[{"学習する回答":"教材"}]');
+  assert.ok(prompt.includes('各メモにつき最低1問'));
+  assert.ok(prompt.includes('2〜3問'));
+  assert.ok(prompt.includes('必ず5個'));
+  assert.ok(prompt.includes('answerIndexes'));
+  assert.ok(prompt.includes('"shuffleChoices":true'));
+  assert.ok(prompt.includes('jsonコードブロック'));
+  assert.ok(!prompt.includes('ファイルへのリンクと短い案内だけ'));
+  assert.ok(buildSimpleCreationPrompt('英語').includes('ファイルへのリンクと短い案内だけ'));
+});
 test('sampling preserves the answer, remaps indexes and does not mutate the source', () => {
   const before = JSON.stringify(question);
   const variants = new Set();

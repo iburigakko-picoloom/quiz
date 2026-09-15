@@ -14,7 +14,7 @@ import {
   IMPORT_RESOURCE_LIMITS,
   validateImportJson,
 } from '../utils/importValidator';
-import { writeClipboardText } from '../utils/nativePlatform';
+import { readClipboardText, writeClipboardText } from '../utils/nativePlatform';
 import {
   hasUncommittedManualQuestion,
   inspectPendingManualQuestion,
@@ -25,7 +25,7 @@ import {
   type PendingQuestionSaveDecision,
 } from './createProblemSetSave';
 import './CreateProblemSetScreen.css';
-import { buildSimpleCreationPrompt, applyCreationConditions } from '../utils/simpleCreationPrompt';
+import { buildSimpleCreationPrompt, buildMemoQuestionPrompt, applyCreationConditions } from '../utils/simpleCreationPrompt';
 
 export interface CreateProblemSetSubmission {
   folderId: string;
@@ -61,7 +61,7 @@ interface CreateProblemSetScreenProps {
   onBack?: () => void;
 }
 
-type CreationView = 'methods' | 'manual' | 'bulk' | 'chatgpt' | 'copy' | 'other' | 'notes';
+type CreationView = 'methods' | 'manual' | 'bulk' | 'chatgpt' | 'copy' | 'other' | 'notes' | 'memo-questions';
 
 interface SetMeta {
   folderId: string;
@@ -132,7 +132,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   ), [creationRequest, drafts, hasUncommittedQuestion, meta, pasteText, sourceSetId, notesDirty]);
   const creationMethod: ProblemSetCreationMethod = sourceSetId
     ? 'copy'
-    : view === 'chatgpt'
+    : view === 'chatgpt' || view === 'memo-questions'
       ? 'chatgpt'
       : view === 'bulk'
         ? 'bulk'
@@ -223,7 +223,16 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
       setError('貼り付ける内容を入力してください。');
       return;
     }
-    const generated = parseGeneratedContent(pasteText);
+    const importText = view === 'memo-questions' ? pasteText.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, '$1') : pasteText;
+    if (view === 'memo-questions') {
+      const result = validateImportJson(importText);
+      if (!result.ok) { setError('問題のJSONを読み取れません。AIのコードブロック全体をコピーしてください。'); return; }
+      const memoCount = (JSON.parse(memoContext) as Array<{ '回答の元になった疑問': string[] }>).reduce((sum, item) => sum + item['回答の元になった疑問'].length, 0);
+      if (result.value.questions.length < memoCount) { setError(`選んだメモ${memoCount}件に対し、最低${memoCount}問必要です。AIに不足分を含めて作り直してもらってください。`); return; }
+      if (result.value.questions.some(q => q.choices.length !== 5 || !q.distractors?.length || q.shuffleChoices !== true)) { setError('5択・追加誤答候補・shuffleChoices:trueが必要です。プロンプトの条件に合わせてAIに修正してもらってください。'); return; }
+      setMeta(current => ({ ...current, title: current.title.trim() ? current.title : result.value.setTitle }));
+    }
+    const generated = parseGeneratedContent(importText);
     if (generated.questions.length === 0) {
       setError('問題を読み取れませんでした。問題文、選択肢、正解を分けて入力してください。');
       return;
@@ -410,7 +419,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
             <BackButton
-              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => { if(view === 'notes' && notesBackRef.current?.()) return; if(view === 'chatgpt' && aiStep === 2) setAiStep(1); else if((startWithAi || startWithExplanationImport) && onBack) onBack(); else goTo('methods'); }}
+              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => { if(view === 'memo-questions') { goTo('notes'); return; } if(view === 'notes' && notesBackRef.current?.()) return; if(view === 'chatgpt' && aiStep === 2) setAiStep(1); else if((startWithAi || startWithExplanationImport) && onBack) onBack(); else goTo('methods'); }}
               label={view === 'notes' ? '戻る' : editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : startWithAi ? '前の画面へ戻る' : '作成方法へ戻る'}
             />
           )}
@@ -420,8 +429,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
         </header>
 
         {view === 'methods' ? <MethodChooser onSelect={(next, purpose='answer')=>{setNotesPurpose(purpose);startMethod(next);}} /> : null}
-        {view === 'notes' ? <div className="create-set__flow">
-          <CreationNotes importOnly={startWithExplanationImport} purpose={notesPurpose} onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onCreateQuestions={context=>{if(creationRequest.trim()&&!window.confirm('作成中の依頼文を回答済みメモの問題作成に切り替えますか？'))return;setMemoContext(context);setCreationRequest('取り込んだ回答・詳細解説の理解を確かめる問題集');setAiMethod('simple');setAiStep(1);goTo('chatgpt');activeMethodRef.current='chatgpt';}} />
+        {view === 'notes' || view === 'memo-questions' ? <div className="create-set__flow" style={view !== 'notes' ? { display: 'none' } : undefined}>
+          <CreationNotes importOnly={startWithExplanationImport} purpose={notesPurpose} onBackRef={notesBackRef} data={data} onApplyBatch={onApplyExplanations} onSaveDetail={onSaveDetail} onDirtyChange={setNotesDirty} onCreateQuestions={context=>{if(context!==memoContext&&(pasteText.trim()||drafts.length)&&!window.confirm('メモの選択が変わったため、取り込み中の問題をクリアしますか？'))return;if(context!==memoContext){setPasteText('');setDrafts([]);}setMemoContext(context);goTo('memo-questions');activeMethodRef.current='notes';}} />
         </div> : null}
 
         {view === 'manual' ? (
@@ -443,8 +452,17 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
           </div>
         ) : null}
 
-        {(view === 'bulk' || view === 'chatgpt') ? (
+        {(view === 'bulk' || view === 'chatgpt' || view === 'memo-questions') ? (
           <div className="create-set__flow">
+            {view === 'memo-questions' ? <section className="create-set__memo-workspace">
+              <div className="create-set__memo-tools">
+                <button type="button" className="create-set__ai-copy" disabled={busy} onClick={async()=>{try{await writeClipboardText(buildMemoQuestionPrompt(memoContext));setCopiedTemplate('simple');setError('');}catch{setError('コピーできませんでした。もう一度お試しください。');}}}>{copiedTemplate==='simple'?'コピーしました':'プロンプトをコピー'}</button>
+                <button type="button" className="create-set__ai-copy" disabled={busy} onClick={async()=>{try{setPasteText(await readClipboardText());setDrafts([]);setError('');}catch{setError('入力欄を長押しして貼り付けてください。');}}}>クリップボードから貼り付け</button>
+              </div>
+              <p className="create-set__memo-hint">5択・複数回答可 · 1メモにつき1〜3問</p>
+              <textarea className="create-set__paste create-set__memo-paste" aria-label="メモから作成した問題JSON" placeholder="AIが作成した問題のJSONを貼り付け" value={pasteText} onChange={event=>{setPasteText(event.target.value);setDrafts([]);}} />
+              <div className="create-set__memo-import"><button type="button" className="create-set__primary" disabled={!pasteText.trim()||busy} onClick={parsePastedContent}>取り込む</button></div>
+            </section> : null}
             {view === 'chatgpt' ? (
               <nav className="create-set__steps" aria-label="生成AIで作る手順">
                 <button type="button" aria-current={aiStep === 1 ? 'step' : undefined} onClick={() => setAiStep(1)}><span>1</span>問題を作る</button>
@@ -472,15 +490,15 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               </article>
               {aiMethod === 'simple' ? <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button> : null}
             </section> : null}
-            {view !== 'chatgpt' || aiStep === 2 ? <>
+            {(view !== 'chatgpt' || aiStep === 2) && (view !== 'memo-questions' || reviewedDrafts.length > 0) ? <>
             <SetMetaFields data={data} value={meta} onChange={setMeta} />
-            <section className="create-set__panel">
+            {view !== 'memo-questions' ? <section className="create-set__panel">
               <h2>{view === 'chatgpt' ? 'JSONを取り込む' : '複数の問題'}</h2>
               <input ref={jsonFileRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importJsonFile(file); }} />
               <button type="button" className="create-set__ai-copy" disabled={busy} onClick={() => jsonFileRef.current?.click()}><DocumentOutlineIcon size={18} />{busy ? '読み込み中…' : 'JSONファイルを選ぶ'}</button>
               <textarea className="create-set__paste" value={pasteText} onChange={(event) => setPasteText(event.target.value)} aria-label={view === 'chatgpt' ? '問題セットJSON' : '問題の貼り付け欄'} />
               <button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' ? 'JSONを読み取る' : '読み取って確認'}</button>
-            </section>
+            </section> : null}
             {reviewedDrafts.length > 0 ? (
               <section className="create-set__review" aria-label="読み取り結果">
                 <div className="create-set__review-summary">
@@ -498,7 +516,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
                 ))}
               </section>
             ) : null}
-            {reviewedDrafts.length > 0 ? <SaveBar count={reviewedDrafts.length} busy={busy} disabled={needsReviewCount > 0} onSave={() => void submit()} /> : null}
+            {reviewedDrafts.length > 0 ? <SaveBar count={reviewedDrafts.length} busy={busy} disabled={needsReviewCount > 0} label={view === 'memo-questions' ? '問題を作る' : '問題セットを保存'} onSave={() => void submit()} /> : null}
             </> : null}
           </div>
         ) : null}
@@ -832,6 +850,7 @@ function getMetaError(meta: SetMeta) {
 }
 
 function getViewTitle(view: CreationView, sourceSetId?: string) {
+  if (view === 'memo-questions') return '回答から問題を作る';
   if (view === 'methods') return '作成';
   if (view === 'manual') return sourceSetId ? 'コピーを編集' : '問題を編集';
   if (view === 'bulk') return 'CSVを確認';

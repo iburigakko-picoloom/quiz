@@ -174,3 +174,10 @@
 .create-set__flow-next > span { font-size: 11px; letter-spacing: .08em; }
 .create-set__flow-next > strong { font-size: 15px; grid-column: 1; }
 .create-set__flow-next > svg { grid-column: 2; grid-row: 1; align-self: center; }
+.create-set__memo-workspace { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.create-set__memo-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.create-set__memo-tools .create-set__ai-copy { width: 100%; min-width: 0; min-height: 52px; padding: 10px; justify-content: center; white-space: normal; font-size: 14px; }
+.create-set__memo-hint { margin: 0; color: #65717d; font-size: 12px; text-align: center; }
+.create-set__memo-workspace .create-set__memo-paste { width: 100%; min-height: 260px; height: 42dvh; resize: vertical; border: 1px solid #cbd3de; border-radius: 12px; background: #fff; font-size: 16px; padding: 14px; }
+.create-set__memo-import { display: flex; justify-content: flex-end; }
+.create-set__memo-import .create-set__primary { width: auto; min-width: 130px; }
