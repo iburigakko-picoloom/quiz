@@ -1,4 +1,4 @@
-import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Children, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -380,7 +380,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
               {(instructionInfo.hasMultiple || instructionInfo.hasNegative) ? (
                 <div className="mb-2 flex flex-wrap justify-center gap-1.5">
                   {instructionInfo.hasMultiple ? <span className="question-instruction-badge">{'\u8907\u6570\u9078\u629e'}</span> : null}
-                  {instructionInfo.hasNegative ? <span className="question-instruction-badge question-instruction-badge--negative">{'\u5426\u5b9a\u554f\u984c\uff1a\u8aa4\u308a\u3092\u9078\u3076'}</span> : null}
+                  {instructionInfo.hasNegative ? <span className="question-instruction-badge question-instruction-badge--negative">誤答選択</span> : null}
                 </div>
               ) : null}
               <div className={['quiz-runner__question-text mx-auto max-h-[96px] overflow-y-auto whitespace-pre-wrap break-words font-semibold leading-[1.45] no-scrollbar', questionTextClass].join(' ')}>
@@ -600,7 +600,7 @@ function getQuestionInstructionInfo(question: Question | undefined) {
 
   return {
     hasMultiple: hasMultipleAnswers || multiplePhrases.length > 0,
-    hasNegative: negativePhrases.length > 0,
+    hasNegative: negativePhrases.length > 0 || /(?:誤っている|誤った|正しくない|適切でない|不適切な|あてはまらない|当てはまらない|該当しない)(?:もの|記述|組合せ|組み合わせ|選択肢)?を[^。\n]{0,12}選|(?:誤り|誤っている|正しくない|不適切な)(?:もの|記述)?はどれ/.test(text),
     highlightPhrases: Array.from(new Set([...multiplePhrases, ...negativePhrases])),
   };
 }
@@ -1105,6 +1105,7 @@ function ExplanationContent({ text, className }: { text: string; className: stri
         remarkPlugins={[remarkGfm]}
         urlTransform={sanitizeMarkdownUrl}
         components={{
+          p: ({ children }) => <p style={{ whiteSpace: 'pre-wrap' }}>{Children.map(children, child => typeof child === 'string' ? child.replace(/。(?=[^\n」』）])/g, '。\n') : child)}</p>,
           table: ({ children }) => (
             <div
               className="answer-sheet__markdown-table-wrap"

@@ -735,8 +735,8 @@ button:disabled {
 
 .question-instruction-badge--negative {
   background: transparent;
-  border-color: rgba(255, 138, 101, 0.55);
-  color: #9b3f1f;
+  border-color: rgba(220, 38, 56, 0.45);
+  color: #dc2638;
 }
 
 .question-instruction-highlight {

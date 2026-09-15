@@ -35,6 +35,7 @@ export function buildSimpleCreationPrompt(request: string, options: CreationProm
 
 【通常解説の強調】
 explanationの重要語・判断条件を1問あたり1〜3箇所だけ**太字**で囲んでください。Quiz Makeでは赤い太字になります。JSON文字列の中に**を残してください。HTMLや色指定タグは使わないでください。question・choices・distractorsは強調しません。
+explanationは内容のまとまりごとに改行し、根拠・補足・各選択肢の説明を別の段落にしてください。長い一段落にせず、JSON文字列では改行を\\n、段落間を\\n\\nで表してください。
 
 【学習者の依頼】
 ${JSON.stringify(request.trim())}
