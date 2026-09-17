@@ -64,6 +64,10 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
   return <section className="qm-sync-comparison" aria-label="同期の状態" aria-busy={loading || disabled}>
     {!value && (loading || !error) ? <p className="sync-overview-loading" role="status">{disabled ? '同期処理中…' : '同期状態を確認中…'}</p> : null}
     {error ? <div className="sync-overview-error" role="alert"><p>{error}</p><button className="sync-button sync-button--secondary" disabled={loading || disabled} onClick={() => setAttempt((n) => n+1)}>もう一度確認</button></div> : null}
+    {!value && error ? <div className="sync-overview-choices">
+      <p className="sync-help">新しい端末では、保存済みのクラウドデータを確認して取り込めます。クラウドは上書きしません。</p>
+      <button type="button" className="sync-button sync-button--primary" disabled={loading || disabled} onClick={() => void onDownload()}>クラウドの保存データを確認・取り込む</button>
+    </div> : null}
     {value && local ? <SyncComparisonView state={state} local={local} remote={remote || null} disabled={disabled || loading}
       onSync={() => void syncNormally()} onUpload={() => setPending(value)} onDownload={() => void onDownload()} /> : null}
     <ConfirmDialog fullPage open={Boolean(pending)} title="端末の内容でクラウドを置き換えますか？" message={pending ? `残す内容：端末の${summarizeSyncPayload(pending.local).questionCount}問\n上書きする側：クラウド${pending.remote ? `（${new Date(pending.remote.updatedAt).toLocaleString()}）` : '（未登録）'}\n\n両方の復元用バックアップを作成・読み戻し確認してから実行します。` : ''} confirmLabel={loading ? '処理中…' : 'バックアップしてクラウドを置き換える'} busy={loading} onCancel={() => setPending(null)} onConfirm={() => void confirm()} />

@@ -290,6 +290,13 @@ test('meaningful sync history blocks an authoritative empty export after app IDB
   assert.equal(blockedUpload.ok, false);
   if (!blockedUpload.ok) assert.match(blockedUpload.error, /復旧用/u);
   assert.equal(fetchCalls, 0);
+  const restored = await sync.importQuizMakeData({
+    version: 1, updatedAt: timestamp,
+    localStorage: { [storage.APP_DATA_STORAGE_KEY]: appRaw }, indexedDbNotes: {},
+  }, { expectedLocalHash: sync.computePayloadHash(recovery), authoritativeUpdatedAt: timestamp });
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+  assert.deepEqual(await storage.loadAppDataAsync(), appData);
+  assert.equal(fetchCalls, 0, 'restoring local data must not overwrite the cloud');
 });
 
 test('loading app data from backup keeps authoritative export tainted even after an ordinary save', async () => {

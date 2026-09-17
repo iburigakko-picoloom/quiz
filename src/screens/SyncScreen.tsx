@@ -816,8 +816,8 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
 
     const remoteSummary = summarizeSyncPayload(result.value.payload);
     let localHash: string;
-    try { localHash = computePayloadHash(await exportQuizMakeData()); }
-    catch { setError('端末の状態を確認できないため、読み込みを中止しました。'); return; }
+    try { localHash = computePayloadHash(await exportQuizMakeRecoveryData()); }
+    catch { setMessage(''); setError('端末の状態を確認できないため、読み込みを中止しました。'); return; }
     setMessage('');
     setPendingCloudImport({
       syncId: operationSyncId,
