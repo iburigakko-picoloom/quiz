@@ -17,3 +17,5 @@
 .note-explanation-item__memos p{margin:8px 0;font-size:15px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 .note-explanation-item__answer{min-width:0}
 .note-explanation-item .weakness-markdown>:first-child{margin-top:0}
+.note-overview-tablet-notes{margin:12px 0 24px;border-top:1px solid #e2e6ec}
+.note-overview-tablet-notes>summary{padding:16px 0;min-height:48px;color:#305da3;cursor:pointer}

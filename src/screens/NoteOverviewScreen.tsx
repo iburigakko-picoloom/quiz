@@ -47,7 +47,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
     finally { copyLock.current = false; setCopying(false); }
   };
   return <Layout><main className="library-page note-overview">
-    <header className="library-page__header"><BackButton onClick={onBack} /><h1>{phone ? '詳細解説一覧' : 'ノート一覧'}</h1></header>
+    <header className="library-page__header"><BackButton onClick={onBack} /><h1>詳細解説一覧</h1></header>
     {set ? <>
       <h2 className="note-overview-title">{set.title}</h2>
       <div className="note-overview-copy">
@@ -58,7 +58,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
         {copyMessage ? <p role="status">{copyMessage}</p> : null}
         {copyError ? <p role="alert">{copyError}</p> : null}
       </div>
-      {phone ? <>
+      <>
         {notesError ? <p role="alert">メモを読み込めませんでした。解説は下に表示しています。</p> : null}
         <div className="note-explanation-list">
           {detailedQuestions.map(question => {
@@ -81,10 +81,11 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
           })}
         </div>
         {!detailedQuestions.length ? <p>詳細解説はまだありません</p> : null}
-      </> : categories.map((category) => <button key={category} className="library-row" onClick={() => onOpen(category)}>
+      </>
+      {!phone ? <details className="note-overview-tablet-notes"><summary>手書きノート</summary>{categories.map((category) => <button key={category} className="library-row" onClick={() => onOpen(category)}>
         <span className="library-icon"><StudyIcon size={18} /></span>
         <span className="library-row__body"><strong>{category}</strong></span><span aria-hidden="true">›</span>
-      </button>)}
+      </button>)}</details> : null}
     </> : <p>問題セットが見つかりません</p>}
   </main></Layout>;
 }

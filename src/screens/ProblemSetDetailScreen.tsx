@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { usePhoneLayout } from '../utils/usePhoneLayout';
 import type { AppData, Question } from '../types';
 import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
@@ -17,7 +16,6 @@ import './ProblemSetDetailScreen.css';
 
 type CategoryFilter = 'all' | string;
 
-const ENABLE_TABLET_NOTES = true;
 const UNCATEGORIZED = '\u672a\u5206\u985e';
 const ALL_CATEGORIES = '\u3059\u3079\u3066';
 
@@ -60,7 +58,6 @@ export function ProblemSetDetailScreen({
   onShare,
   onStartSession,
 }: ProblemSetDetailScreenProps) {
-  const phone = usePhoneLayout();
   const problemSet = data.problemSets.find((set) => set.id === setId);
   const questions = useMemo(() => getQuestionsBySet(data, setId), [data, setId]);
   const [startCategory, setStartCategory] = useState<CategoryFilter>('all');
@@ -232,14 +229,14 @@ export function ProblemSetDetailScreen({
                   </span>
                   <b aria-hidden="true">{'\u203a'}</b>
                 </button>
-                {phone || ENABLE_TABLET_NOTES ? (
+                {(
                   <button type="button" className="quiz-detail__list-entry quiz-detail__note-list-entry" onClick={onOpenNoteList}>
                     <span>
-                      <strong>{phone ? '詳細解説一覧' : '\u30ce\u30fc\u30c8\u4e00\u89a7'}</strong>
+                      <strong>詳細解説一覧</strong>
                     </span>
                     <b aria-hidden="true">{'\u203a'}</b>
                   </button>
-                ) : null}
+                )}
               </div>
             </section>
 
