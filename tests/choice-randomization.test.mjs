@@ -1,10 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomizeQuestionChoices } from '../src/utils/choiceRandomization.ts';
-import { validateImportJson } from '../src/utils/importValidator.ts';
-import { buildSimpleCreationPrompt, buildMemoQuestionPrompt } from '../src/utils/simpleCreationPrompt.ts';
+import { validateImportJson, CHATGPT_MATERIAL_TEMPLATE_PROMPT } from '../src/utils/importValidator.ts';
+import { buildSimpleCreationPrompt, buildMemoQuestionPrompt, applyCreationConditions } from '../src/utils/simpleCreationPrompt.ts';
 
 const question = { id: 'q', question: '語義', choices: ['正解', '誤答1', '誤答2', '誤答3'], answerIndex: 0, explanation: '根拠', distractors: ['誤答4', '誤答5', '誤答6'], shuffleChoices: true };
+test('material prompt retains randomization while applying selected creation conditions', () => {
+  for (const choiceCount of [4, 5]) for (const allowMultiple of [false, true]) {
+    const prompt = applyCreationConditions(CHATGPT_MATERIAL_TEMPLATE_PROMPT, {choiceCount, allowMultiple});
+    const example = JSON.parse(prompt.match(/^\{"setTitle":.*\}$/m)[0]).questions[0];
+    assert.equal(example.choices.length, choiceCount);
+    assert.equal(example.shuffleChoices, true);
+    assert.equal(example.distractors.length, 6);
+    assert.equal(Boolean(example.answerIndexes), allowMultiple);
+    assert.ok(prompt.includes('段落間を\\n\\n'));
+    assert.ok(prompt.includes('quiz-make.json'));
+    assert.ok(!prompt.includes('問題数：'));
+  }
+});
 test('answered memo workflow fixes five choices, flexible per-memo coverage and clipboard JSON', () => {
   const prompt = buildMemoQuestionPrompt('[{"学習する回答":"教材"}]');
   assert.ok(prompt.includes('各メモにつき最低1問'));
