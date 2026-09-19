@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import type { AppData, AppScreen, Folder, ProblemSet, Question, QuizResult, QuizSession } from './types';
+import type { AppData, AppScreen, Folder, ProblemSet, Question, QuizResult, QuizSession, MaterialReference } from './types';
+import { linkQuestionMaterialPage } from './utils/materialModel';
 import {
   createEmptyAppData,
   establishCurrentAppDataAuthority,
@@ -988,6 +989,11 @@ export default function App() {
     }
   };
 
+  const handleLinkMaterialPage = async (questionId: string, reference: MaterialReference, linked: boolean): Promise<void> => {
+    const saved = await persistThenCommitData(linkQuestionMaterialPage(dataRef.current, questionId, reference, linked, nowIso()));
+    if (!saved) throw new Error('参照ページを保存できませんでした。もう一度お試しください。');
+  };
+
   const handleClearAll = async (): Promise<boolean> => {
     if (libraryMutationBusyRef.current) return false;
     libraryMutationBusyRef.current = true;
@@ -1481,6 +1487,7 @@ export default function App() {
           onAnswer={handleAnswer}
           onToggleAmbiguous={handleToggleAmbiguous}
           onSaveDetailedExplanation={handleSaveDetailedExplanation}
+          onLinkMaterialPage={handleLinkMaterialPage}
           onFinish={handleFinish}
         />
       </Suspense>
@@ -1502,6 +1509,7 @@ export default function App() {
           onAnswer={screen.session.isPreview ? handlePreviewAnswer : handleAnswer}
           onToggleAmbiguous={screen.session.isPreview ? async () => true : handleToggleAmbiguous}
           onSaveDetailedExplanation={screen.session.isPreview ? async () => undefined : handleSaveDetailedExplanation}
+          onLinkMaterialPage={screen.session.isPreview ? undefined : handleLinkMaterialPage}
           onFinish={handleFinish}
         />
       </Suspense>

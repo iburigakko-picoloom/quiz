@@ -15,7 +15,9 @@
 .materials-menu > div button { border:0; text-align:left; padding:10px 12px; }
 .materials-menu hr { border:0; border-top:1px solid #edf0f2; width:100%; margin:4px 0; }
 .materials-empty { padding:32px 20px; text-align:center; }
-.materials-content { flex:1; min-height:0; overflow:hidden; }
+.materials-content { flex:1; min-height:0; overflow:hidden; position:relative; }
+.materials-content.is-page-loading > .category-note-panel { pointer-events:none; }
+.materials-transition-cover { position:absolute; inset:0; z-index:2; pointer-events:none; }
 .materials-content > p { padding:24px; line-height:1.7; }
 .materials-content small { display:block; margin-top:16px; color:#6b7280; }
 .materials-error { padding:8px 12px; margin:0; color:#ba233a; font-size:13px; }

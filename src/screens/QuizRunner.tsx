@@ -2,7 +2,7 @@ import { Children, type PointerEvent, useCallback, useEffect, useMemo, useRef, u
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AppData, Question, QuizResult } from '../types';
+import type { AppData, Question, QuizResult, MaterialReference } from '../types';
 import { BackButton } from '../components/BackButton';
 import { type CategoryNoteDrawerHandle } from '../components/CategoryNoteDrawer';
 import { MaterialsDrawer } from '../components/MaterialsDrawer';
@@ -47,10 +47,11 @@ interface QuizRunnerProps {
   onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean) => AnswerHandlerResult;
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
+  onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onFinish }: QuizRunnerProps) {
+export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onLinkMaterialPage, onFinish }: QuizRunnerProps) {
   const [currentIndex, setCurrentIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(questions.length - 1, 0)));
   const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
@@ -365,7 +366,9 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             ref={noteDrawerRef}
             problemSetId={setId}
             setIds={data.problemSets.map(set => set.id)}
-            references={currentQuestion.materialReferences}
+            questionId={currentQuestion.id}
+            references={(data.questions.find(question => question.id === currentQuestion.id) ?? currentQuestion).materialReferences}
+            onLinkPage={onLinkMaterialPage ? (reference, linked) => onLinkMaterialPage(currentQuestion.id, reference, linked) : undefined}
             category={currentQuestion.category}
             open={noteOpen}
             onOpenChange={setNoteOpen}

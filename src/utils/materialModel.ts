@@ -1,4 +1,4 @@
-import type { MaterialReference } from '../types';
+import type { AppData, MaterialReference } from '../types';
 
 export interface MaterialPage { id: string; kind: 'pdf' | 'blank'; pdfPage?: number }
 export interface StudyMaterial { id: string; title: string; pages: MaterialPage[] }
@@ -69,6 +69,17 @@ export function normalizeMaterialReferences(value: unknown): MaterialReference[]
     && typeof ref.materialId === 'string' && ref.materialId.length > 0 && ref.materialId.length <= 200
     && typeof ref.pageId === 'string' && ref.pageId.length > 0 && ref.pageId.length <= 200);
   return refs.length ? [...new Map(refs.map(ref => [JSON.stringify([ref.materialId, ref.pageId]), { materialId: ref.materialId, pageId: ref.pageId }])).values()] : undefined;
+}
+
+export function linkQuestionMaterialPage(data: AppData, questionId: string, reference: MaterialReference, linked: boolean, updatedAt: string): AppData {
+  if (!data.questions.some(question => question.id === questionId)) throw new Error('問題が見つからないため紐付けできません。');
+  const valid = normalizeMaterialReferences([reference])?.[0];
+  if (!valid) throw new Error('資料の参照先が正しくありません。');
+  return { ...data, questions: data.questions.map(question => {
+    if (question.id !== questionId) return question;
+    const others = (question.materialReferences ?? []).filter(item => item.materialId !== valid.materialId || item.pageId !== valid.pageId);
+    return { ...question, materialReferences: linked ? [valid, ...others] : others, updatedAt };
+  }) };
 }
 
 export function validMaterialRecord(value: Record<string, unknown>): boolean {

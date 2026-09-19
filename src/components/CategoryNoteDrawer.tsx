@@ -23,6 +23,7 @@ import {
   type ByteBudgetHistory,
 } from './noteMemory';
 import './CategoryNoteDrawer.css';
+import { boundedNoteScale, noteSwipeDirection } from './noteGestures';
 
 const UNCATEGORIZED = '\u672a\u5206\u985e';
 const NOTE_COLORS = {
@@ -64,6 +65,8 @@ interface CategoryNoteProps {
   backgroundUrl?: string;
   pageAspect?: number;
   singlePage?: boolean;
+  pageNavigation?: { hasPrevious: boolean; hasNext: boolean; onNavigate: (delta: -1 | 1) => void };
+  onReady?: () => void;
   problemSetId?: string;
   category?: string;
   className?: string;
@@ -221,7 +224,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false },
+  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, pageNavigation, onReady },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -323,10 +326,10 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   };
 
   const setPagePanValue = (nextPan: { x: number; y: number }, scale = pageScaleRef.current, allowOverscroll = false) => {
+    if (pagePanFrameRef.current !== null) { cancelAnimationFrame(pagePanFrameRef.current); pagePanFrameRef.current = null; }
     const clamped = clampPagePan(nextPan, scale, allowOverscroll);
     pagePanRef.current = clamped;
     setPagePanState(clamped);
-    activePageRef.current?.style.setProperty('transform', scale === 1 ? '' : 'translate3d(' + clamped.x + 'px, ' + clamped.y + 'px, 0) scale(' + scale + ')');
   };
 
   const setPagePanInteractive = (nextPan: { x: number; y: number }, scale = pageScaleRef.current, allowOverscroll = true) => {
@@ -335,9 +338,8 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     if (pagePanFrameRef.current !== null) return;
     pagePanFrameRef.current = requestAnimationFrame(() => {
       pagePanFrameRef.current = null;
-      const page = activePageRef.current;
-      if (!page) return;
-      page.style.transform = 'translate3d(' + pagePanRef.current.x + 'px, ' + pagePanRef.current.y + 'px, 0) scale(' + scale + ')';
+      setPagePanState({ ...pagePanRef.current });
+      setPageScaleState(pageScaleRef.current);
     });
   };
 
@@ -354,13 +356,11 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   };
 
   const setPageScaleValue = (nextScale: number, elastic = false) => {
-    const bound = Math.max(1, Math.min(2.5, nextScale));
-    const delta = nextScale - bound;
-    const normalizedScale = elastic ? bound + Math.sign(delta) * 0.18 * (1 - Math.exp(-Math.abs(delta) / 0.18)) : bound;
+    const normalizedScale = boundedNoteScale(nextScale, elastic);
     pageScaleRef.current = normalizedScale;
-    setPageScaleState(normalizedScale);
-    if (normalizedScale <= 1.02) setPagePanValue({ x: 0, y: 0 }, 1);
-    else setPagePanValue(pagePanRef.current, normalizedScale);
+    const nextPan = normalizedScale <= 1 ? { x: 0, y: 0 } : pagePanRef.current;
+    if (elastic) setPagePanInteractive(nextPan, normalizedScale, false);
+    else { setPageScaleState(normalizedScale); setPagePanValue(nextPan, normalizedScale); }
   };
 
   const setPagePinchingValue = (nextPinching: boolean) => {
@@ -375,11 +375,14 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     pagePanGestureRef.current = null;
     pinchRef.current = null;
     setPagePinchingValue(false);
-    if (pageScaleRef.current <= 1.02) {
-      setPageScaleValue(1);
-      setPagePanValue({ x: 0, y: 0 }, 1);
-    }
+    setPageScaleValue(pageScaleRef.current);
   };
+
+  useEffect(() => () => {
+    if (pagePanFrameRef.current !== null) cancelAnimationFrame(pagePanFrameRef.current);
+    if (pageSwipeFrameRef.current !== null) cancelAnimationFrame(pageSwipeFrameRef.current);
+  }, []);
+  useEffect(() => { if (noteLoadState === 'ready' && notePaintState === 'ready') onReady?.(); }, [noteLoadState, notePaintState, onReady]);
 
   const pages = note.pages.length > 0 ? note.pages : [createBlankPage()];
   const currentPageIndex = Math.min(pageIndex, pages.length - 1);
@@ -748,6 +751,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     if (event.pointerType !== 'touch') return;
     if (drawingRef.current) return;
     event.preventDefault();
+    if (touchPointsRef.current.size >= 2 && !touchPointsRef.current.has(event.pointerId)) return;
     if (touchPointsRef.current.size === 0) {
       if (isPalmLikeTouch(event)) return;
       primaryTouchIdRef.current = event.pointerId;
@@ -756,9 +760,11 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     event.currentTarget.setPointerCapture?.(event.pointerId);
 
     if (touchPointsRef.current.size >= 2) {
+      if (pinchRef.current) return;
       pageSwipeRef.current = null;
       pagePanGestureRef.current = null;
       setPageSwiping(false);
+      resetPageRail();
       const points = Array.from(touchPointsRef.current.values()).slice(0, 2);
       pinchRef.current = { startDistance: getPointDistance(points[0], points[1]), startScale: pageScaleRef.current };
       setPagePinchingValue(true);
@@ -788,7 +794,9 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       touchPointsRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (touchPointsRef.current.size >= 2 && !pinchRef.current) {
         pageSwipeRef.current = null;
+        pagePanGestureRef.current = null;
         setPageSwiping(false);
+        resetPageRail();
         const startPoints = Array.from(touchPointsRef.current.values()).slice(0, 2);
         pinchRef.current = { startDistance: getPointDistance(startPoints[0], startPoints[1]), startScale: pageScaleRef.current };
         setPagePinchingValue(true);
@@ -805,6 +813,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     const pan = pagePanGestureRef.current;
     if (pan && pan.pointerId === event.pointerId && pageScaleRef.current > 1.02) {
       event.preventDefault();
+      setPagePinchingValue(true);
       setPagePanInteractive({
         x: pan.startPan.x + event.clientX - pan.x,
         y: pan.startPan.y + event.clientY - pan.y,
@@ -820,7 +829,8 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     if (Math.abs(deltaX) > Math.abs(deltaY)) {
       event.preventDefault();
       const limit = canvasRef.current?.clientWidth ?? 240;
-      setPageTransform(Math.max(-limit, Math.min(limit, deltaX)));
+      const hasPage = deltaX < 0 ? (pageNavigation?.hasNext ?? currentPageIndex < pages.length - 1) : (pageNavigation?.hasPrevious ?? currentPageIndex > 0);
+      setPageTransform(Math.max(-limit, Math.min(limit, deltaX * (hasPage ? 1 : 0.18))));
     }
   };
 
@@ -835,18 +845,20 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   };
   const endPageSwipe = (event: PointerEvent<HTMLCanvasElement>) => {
     if (event.pointerType === 'touch') {
+      if (event.type === 'pointerleave' && touchPointsRef.current.has(event.pointerId)) return;
       touchPointsRef.current.delete(event.pointerId);
       if (primaryTouchIdRef.current === event.pointerId) primaryTouchIdRef.current = null;
       if (pinchRef.current || pagePinchingRef.current) {
-        if (pageScaleRef.current <= 1.02) {
-      setPageScaleValue(1);
-      setPagePanValue({ x: 0, y: 0 }, 1);
-    }
         if (touchPointsRef.current.size < 2) {
           pinchRef.current = null;
           setPagePinchingValue(false);
           setPageScaleValue(pageScaleRef.current);
-          setPagePanValue(pagePanRef.current, pageScaleRef.current, false);
+          pagePanGestureRef.current = null;
+          // One finger remaining after a pinch may pan, but never turn a page.
+          const remaining = touchPointsRef.current.entries().next().value;
+          if (remaining && pageScaleRef.current > 1.02) {
+            pagePanGestureRef.current = { pointerId: remaining[0], x: remaining[1].x, y: remaining[1].y, startPan: { ...pagePanRef.current } };
+          }
         }
         event.currentTarget.releasePointerCapture?.(event.pointerId);
         return;
@@ -868,15 +880,22 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     }
     const deltaX = event.clientX - swipe.x;
     const deltaY = event.clientY - swipe.y;
-    const shouldChangePage = Math.abs(deltaX) > 70 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25;
+    const direction = noteSwipeDirection(deltaX, deltaY, event.type === 'pointercancel');
     pageSwipeRef.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
 
-    if (shouldChangePage && deltaX < 0 && currentPageIndex < pages.length - 1) {
+    if (pageNavigation) {
+      setPageSwiping(false);
+      // The parent owns PDF/blank page IDs and handles the guarded transition.
+      resetPageRail();
+      if ((direction === 1 && pageNavigation.hasNext) || (direction === -1 && pageNavigation.hasPrevious)) pageNavigation.onNavigate(direction);
+      return;
+    }
+    if (direction === 1 && currentPageIndex < pages.length - 1) {
       animatePageCommit('next', currentPageIndex + 1);
       return;
     }
-    if (shouldChangePage && deltaX > 0 && currentPageIndex > 0) {
+    if (direction === -1 && currentPageIndex > 0) {
       animatePageCommit('prev', currentPageIndex - 1);
       return;
     }
@@ -1168,7 +1187,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
             <div className="category-note-page-slot" aria-hidden="true">
               <div
                 ref={prevPageRef}
-                className={`category-note-page category-note-page--preview${currentPageIndex <= 0 ? ' category-note-page--missing' : ''}`}
+                className={`category-note-page category-note-page--preview${!(pageNavigation?.hasPrevious ?? currentPageIndex > 0) ? ' category-note-page--missing' : ''}`}
                 style={{ backgroundImage: pages[currentPageIndex - 1]?.dataUrl ? `url(${pages[currentPageIndex - 1].dataUrl})` : undefined }}
               />
             </div>
@@ -1193,7 +1212,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
             <div className="category-note-page-slot" aria-hidden="true">
               <div
                 ref={nextPageRef}
-                className={`category-note-page category-note-page--preview${currentPageIndex >= pages.length - 1 ? ' category-note-page--missing' : ''}`}
+                className={`category-note-page category-note-page--preview${!(pageNavigation?.hasNext ?? currentPageIndex < pages.length - 1) ? ' category-note-page--missing' : ''}`}
                 style={{ backgroundImage: pages[currentPageIndex + 1]?.dataUrl ? `url(${pages[currentPageIndex + 1].dataUrl})` : undefined }}
               />
             </div>

@@ -1,6 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { insertMaterialPage, moveMaterialPage, normalizeMaterialReferences, materialReferencePrompt, validMaterialRecord } from '../src/utils/materialModel.ts';
+import { insertMaterialPage, moveMaterialPage, normalizeMaterialReferences, materialReferencePrompt, validMaterialRecord, linkQuestionMaterialPage } from '../src/utils/materialModel.ts';
+
+test('binding a material page preserves question content, progress and other references', () => {
+  const reference = { materialId: 'material-1', pageId: 'page-b' };
+  const other = { materialId: 'material-2', pageId: 'page-a' };
+  const question = { id: 'q1', question: '問題', explanation: '通常の解説', detailedExplanation: '詳細解説', materialReferences: [other] };
+  const untouched = { id: 'q2', question: '別の問題' };
+  const data = { questions: [question, untouched], progress: { q1: { level: 3 } }, logs: ['keep'], problemSets: [{ id: 'set' }] };
+  const linked = linkQuestionMaterialPage(data, 'q1', reference, true, 'today');
+  assert.deepEqual(linked.questions[0], { ...question, materialReferences: [reference, other], updatedAt: 'today' });
+  assert.equal(linked.questions[1], untouched);
+  assert.equal(linked.progress, data.progress);
+  assert.equal(linked.logs, data.logs);
+  assert.equal(linked.problemSets, data.problemSets);
+  assert.deepEqual(data.questions[0].materialReferences, [other]);
+  const repeated = linkQuestionMaterialPage(linked, 'q1', reference, true, 'today');
+  assert.deepEqual(repeated.questions[0].materialReferences, [reference, other]);
+  const unlinked = linkQuestionMaterialPage(repeated, 'q1', reference, false, 'tomorrow');
+  assert.deepEqual(unlinked.questions[0].materialReferences, [other]);
+  assert.throws(() => linkQuestionMaterialPage(data, 'missing', reference, true, 'today'));
+  assert.throws(() => linkQuestionMaterialPage(data, 'q1', { materialId: '', pageId: 'page' }, true, 'today'));
+});
 
 test('material references survive insertion and reordering without changing source PDF pages', () => {
   const source = { id: 'material-1', title: '資料', pages: [{ id: 'page-a', kind: 'pdf', pdfPage: 1 }, { id: 'page-b', kind: 'pdf', pdfPage: 2 }] };

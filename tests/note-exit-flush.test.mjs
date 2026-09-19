@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { boundedNoteScale, noteSwipeDirection } from '../src/components/noteGestures.ts';
 import {
   getNoteSaveErrorMessage,
   NoteLoadError,
@@ -25,6 +26,27 @@ const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8'
 const noteListSource = readSource('../src/screens/NoteListScreen.tsx');
 const noteOverviewSource = readSource('../src/screens/NoteOverviewScreen.tsx');
 const appSource = readSource('../src/App.tsx');
+
+test('note zoom resistance is stable at both limits and settles within range', () => {
+  assert.equal(boundedNoteScale(1.75, true), 1.75);
+  for (const raw of [0.1, 0.5, 0.99, 2.51, 3, 10]) {
+    const resisted = boundedNoteScale(raw, true);
+    assert.ok(resisted >= 0.86 && resisted <= 2.64);
+    assert.equal(boundedNoteScale(raw, true), resisted, 'a held gesture must not creep or oscillate');
+    assert.equal(boundedNoteScale(resisted), raw < 1 ? 1 : 2.5);
+  }
+  assert.ok(boundedNoteScale(3.5, true) - boundedNoteScale(3, true) < boundedNoteScale(3, true) - boundedNoteScale(2.5, true));
+  assert.ok(boundedNoteScale(0.5, true) - boundedNoteScale(0, true) < boundedNoteScale(1, true) - boundedNoteScale(0.5, true));
+  assert.equal(boundedNoteScale(NaN), 1);
+});
+
+test('page swipes require horizontal intent and never turn on cancellation', () => {
+  assert.equal(noteSwipeDirection(-120, 10), 1);
+  assert.equal(noteSwipeDirection(120, 10), -1);
+  assert.equal(noteSwipeDirection(50, 0), 0);
+  assert.equal(noteSwipeDirection(100, 120), 0);
+  assert.equal(noteSwipeDirection(-120, 10, true), 0);
+});
 
 test('note list opens a dedicated category canvas and browser back waits for its flush', () => {
   assert.match(noteOverviewSource, /onClick=\{\(\) => onOpen\(category\)\}/);

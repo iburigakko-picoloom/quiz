@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { AppData, Question, QuizMode, QuizResult } from '../types';
+import type { AppData, Question, QuizMode, QuizResult, MaterialReference } from '../types';
 import { getQuestionsBySet, shuffleArray } from '../utils/quiz';
 import { QuizRunner, type AnswerHandlerResult } from './QuizRunner';
 
@@ -11,10 +11,11 @@ interface QuizScreenProps {
   onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean) => AnswerHandlerResult;
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
+  onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onFinish }: QuizScreenProps) {
+export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onLinkMaterialPage, onFinish }: QuizScreenProps) {
   const problemSet = data.problemSets.find((set) => set.id === setId);
   const allQuestions = getQuestionsBySet(data, setId);
   const [sessionQuestions] = useState<Question[]>(() => (mode === 'random' ? shuffleArray(allQuestions) : allQuestions));
@@ -36,6 +37,7 @@ export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbigu
       onAnswer={onAnswer}
       onToggleAmbiguous={onToggleAmbiguous}
       onSaveDetailedExplanation={onSaveDetailedExplanation}
+      onLinkMaterialPage={onLinkMaterialPage}
       onFinish={onFinish}
     />
   );
