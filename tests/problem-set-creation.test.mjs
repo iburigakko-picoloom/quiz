@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { referencePage, referenceCandidates, applyReferenceLinks } from '../src/utils/referenceLinking.ts';
+import { referencePage, referencePages, referenceCandidates, applyReferenceLinks } from '../src/utils/referenceLinking.ts';
 
 test('Reference page candidates are conservative and retain stable PDF page IDs', () => {
+  assert.deepEqual(referencePages('脳神経_医学全体像教材_2026-09.pdf p.7-8／1. 解剖・生理'), [7, 8]);
+  assert.deepEqual(referencePages('pp.7–9,12 / 第1章'), [7, 8, 9, 12]);
+  assert.deepEqual(referencePages('７〜８ページ'), [7, 8]);
+  assert.deepEqual(referencePages('p.9-7'), []);
+  assert.deepEqual(referencePages('p.1-9999999'), []);
+  const rangeQuestion = { id: 'range', setId: 's', sourcePage: 'p.7-8', question: 'range' };
+  const rangeMaterial = { id: 'm', pages: [{ id: 'p8', kind: 'pdf', pdfPage: 8 }, { id: 'p7', kind: 'pdf', pdfPage: 7 }] };
+  const range = referenceCandidates([rangeQuestion], rangeMaterial)[0];
+  assert.deepEqual(range.pages.map(p => p.id), ['p7', 'p8']);
+  const references = range.pages.map(p => ({ materialId: 'm', pageId: p.id }));
+  assert.deepEqual(applyReferenceLinks({ questions: [rangeQuestion] }, 's', [{ questionId: 'range', sourcePage: 'p.7-8', reference: references[0], references }], 'now').questions[0].materialReferences, references);
   for (const text of ['資料 p.5', '資料 P 5', '第5ページ', '５頁', '5p', 'Page 5', 'ページ5']) assert.equal(referencePage(text), 5);
   for (const text of ['2025 Q5', 'p.5-7', 'p.5, 7', 'p.5 / p.7', '5', 'p.0']) assert.equal(referencePage(text), null);
   const q = { id: 'q', setId: 's', sourcePage: '資料 p.5', question: 'keep', explanation: 'keep' };
