@@ -1,7 +1,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { MaterialReference } from '../types';
 import { CategoryNotePanel, type CategoryNotePanelHandle } from './CategoryNoteDrawer';
-import { annotationCategory, loadMaterialFile, loadMaterials, saveMaterials, storeMaterialPdf } from '../utils/materialStorage';
+import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf } from '../utils/materialStorage';
+import { MaterialPreviewCache, type MaterialPagePreview } from '../utils/materialPreview';
 import { createId } from '../utils/id';
 import { insertMaterialPage, moveMaterialPage, MAX_MATERIAL_PDF_BYTES, type MaterialIndex, type MaterialPage, type StudyMaterial } from '../utils/materialModel';
 import './MaterialsPanel.css';
@@ -19,27 +20,39 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const transitionLayer = useRef<HTMLDivElement>(null);
   const transitionDirection = useRef(1);
   const transitionVersion = useRef(0);
+  const stopAnimation = useRef<(() => void) | null>(null);
+  const [transitioning, setTransitioning] = useState(false);
+  const previews = useRef(new MaterialPreviewCache());
+  const [neighbours, setNeighbours] = useState<{ pageId: string; previous?: MaterialPagePreview; next?: MaterialPagePreview }>({ pageId: '' });
   const panel = useRef<CategoryNotePanelHandle>(null);
   const operation = useRef<Promise<void>>(Promise.resolve());
   const lock = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
-  const pdfCache = useRef<{ key: string; task: ReturnType<(typeof import('../utils/pdfReader'))['openPdf']> } | null>(null);
-  useEffect(() => () => { void pdfCache.current?.task.destroy(); pdfCache.current = null; }, []);
+  useEffect(() => () => { previews.current.clear(); stopAnimation.current?.(); }, []);
   const material = index?.materials.find(item => item.id === materialId);
   const page = material?.pages.find(item => item.id === pageId);
   const pageIndex = material?.pages.findIndex(item => item.id === pageId) ?? -1;
   const pagePending = !!page && displayed?.page.id !== page.id;
   const linked = questionReferences?.some(item => item.materialId === materialId && item.pageId === pageId) ?? false;
+  const clearTransition = useCallback(() => {
+    stopAnimation.current?.(); stopAnimation.current = null;
+    transitionLayer.current?.replaceChildren(); setTransitioning(false);
+    panel.current?.resetPageSlide?.();
+  }, []);
   const captureTransition = (direction = 1) => {
     const area = contentRef.current?.querySelector<HTMLElement>('.category-note-canvas-area');
     const layer = transitionLayer.current;
     if (!area || !layer) return;
+    stopAnimation.current?.(); stopAnimation.current = null;
+    setTransitioning(true);
     transitionVersion.current++; transitionDirection.current = direction;
     layer.classList.toggle('category-note-panel--material', !!area.closest('.category-note-panel--material'));
     const clone = area.cloneNode(true) as HTMLElement;
     const originalCanvas = area.querySelector('canvas');
     if (originalCanvas) clone.querySelector('canvas')?.getContext('2d')?.drawImage(originalCanvas, 0, 0);
+    const rail = clone.querySelector<HTMLElement>('.category-note-page-rail');
+    if (rail) rail.style.transition = 'none';
     const rect = area.getBoundingClientRect(); const container = contentRef.current!.getBoundingClientRect();
     Object.assign(clone.style, { position: 'absolute', top: `${rect.top - container.top}px`, left: `${rect.left - container.left}px`, width: `${rect.width}px`, height: `${rect.height}px`, margin: '0' });
     clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
@@ -47,28 +60,43 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   };
   const finishTransition = useCallback(() => {
     const layer = transitionLayer.current; const outgoing = layer?.firstElementChild;
-    const incoming = contentRef.current?.querySelector('.category-note-panel .category-note-canvas-area');
-    if (!layer || !outgoing || !incoming) return;
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { layer.replaceChildren(); return; }
-    const version = transitionVersion.current; const offset = transitionDirection.current * 28;
-    incoming.animate([{ opacity: 0.3, transform: `translateX(${offset}px)` }, { opacity: 1, transform: 'translateX(0)' }], { duration: 220, easing: 'cubic-bezier(.22,1,.36,1)' });
-    const exit = outgoing.animate([{ opacity: 1 }, { opacity: 0, transform: `translateX(${-offset}px)` }], { duration: 220, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'forwards' });
-    void exit.finished.then(() => { if (version === transitionVersion.current) layer.replaceChildren(); }, () => undefined);
-  }, []);
+    const incoming = contentRef.current?.querySelector<HTMLElement>('.category-note-panel .category-note-page--active');
+    const rail = outgoing?.querySelector<HTMLElement>('.category-note-page-rail');
+    if (!layer || !incoming || !rail || stopAnimation.current) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { clearTransition(); return; }
+    const version = transitionVersion.current;
+    const copy = incoming.cloneNode(true) as HTMLElement;
+    const canvas = incoming.querySelector('canvas');
+    if (canvas) copy.querySelector('canvas')?.getContext('2d')?.drawImage(canvas, 0, 0);
+    rail.children[transitionDirection.current > 0 ? 2 : 0]?.replaceChildren(copy);
+    // Same three-slot rail and 220ms easing as the original notebook. Continue
+    // from the swipe offset, then swap the already-painted centre page in place.
+    let timer = 0; let frame = 0;
+    const finish = () => { if (version === transitionVersion.current) clearTransition(); };
+    const onEnd = (event: TransitionEvent) => { if (event.target === rail && event.propertyName === 'transform') finish(); };
+    stopAnimation.current = () => { cancelAnimationFrame(frame); window.clearTimeout(timer); rail.removeEventListener('transitionend', onEnd); };
+    rail.style.transition = 'none'; void rail.offsetHeight;
+    rail.addEventListener('transitionend', onEnd);
+    rail.style.transition = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
+    frame = requestAnimationFrame(() => {
+      rail.style.transform = transitionDirection.current > 0 ? 'translate3d(-66.666667%, 0, 0)' : 'translate3d(0, 0, 0)';
+      timer = window.setTimeout(finish, 280);
+    });
+  }, [clearTransition]);
   useImperativeHandle(ref, () => ({ flush: async () => { await operation.current; await panel.current?.flush(); } }));
   const run = (action: () => Promise<void>) => {
-    if (lock.current) return;
+    if (lock.current || transitioning) return Promise.resolve(false);
     if (menu.current) menu.current.open = false;
     lock.current = true; setBusy(true); setError('');
     const pending = (async () => { await panel.current?.flush(); await action(); })();
     // Failed metadata changes are never applied to the visible index. Wait for
     // completion on exit, then let the handwriting panel enforce its own guard.
     operation.current = pending.then(() => undefined, () => undefined);
-    void pending.catch(err => setError(err instanceof Error ? err.message : '資料を保存できませんでした。')).finally(() => { lock.current = false; setBusy(false); });
+    return pending.then(() => true, err => { clearTransition(); setError(err instanceof Error ? err.message : '資料を保存できませんでした。'); return false; }).finally(() => { lock.current = false; setBusy(false); });
   };
   useEffect(() => {
     let cancelled = false;
-    if (!reference || reference.materialId !== displayed?.materialId || reference.pageId !== displayed?.page.id) captureTransition();
+    if (!reference || reference.materialId !== displayed?.materialId || reference.pageId !== displayed?.page.id) captureTransition(reference && material?.id === reference.materialId && material.pages.findIndex(item => item.id === reference.pageId) < pageIndex ? -1 : 1);
     setIndex(null); setError('');
     void (async () => {
       let found = await loadMaterials(setId);
@@ -79,43 +107,41 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       setIndex(found); setOwnerId(found.problemSetId);
       const selected = reference ? found.materials.find(item => item.id === reference.materialId) : found.materials[0];
       if (reference && (!selected || !selected.pages.some(item => item.id === reference.pageId))) {
-        setMaterialId(''); setPageId(''); setDisplayed(null); transitionLayer.current?.replaceChildren(); setError('参照資料がこの端末にありません。元の端末の資料を含むバックアップを確認してください。'); return;
+        setMaterialId(''); setPageId(''); setDisplayed(null); clearTransition(); setError('参照資料がこの端末にありません。元の端末の資料を含むバックアップを確認してください。'); return;
       }
       setMaterialId(selected?.id ?? ''); setPageId(reference?.pageId ?? selected?.pages[0]?.id ?? '');
-    })().catch(err => { if (!cancelled) { transitionLayer.current?.replaceChildren(); setError(String(err.message ?? err)); } });
+    })().catch(err => { if (!cancelled) { clearTransition(); setError(String(err.message ?? err)); } });
     return () => { cancelled = true; };
   }, [setId, reference?.materialId, reference?.pageId, referenceRequest]);
 
   useEffect(() => {
-    if (!material || !page) { if (index) { setDisplayed(null); transitionLayer.current?.replaceChildren(); } return; }
-    if (page.kind === 'blank') { setDisplayed({ ownerId, materialId: material.id, page }); return; }
+    if (!material || !page) { if (index) { setDisplayed(null); clearTransition(); } return; }
     let disposed = false;
-    let cleanup: (() => void) | undefined;
     void (async () => {
-      const { openPdf, pdfBytes } = await import('../utils/pdfReader');
-      const key = `${ownerId}/${material.id}`;
-      if (pdfCache.current?.key !== key) {
-        const raw = await loadMaterialFile(ownerId, material.id);
-        if (disposed) return;
-        await pdfCache.current?.task.destroy();
-        if (disposed) return;
-        pdfCache.current = { key, task: openPdf(pdfBytes(raw)) };
-      }
-      const task = pdfCache.current.task;
-      const doc = await task.promise;
-      const pdfPage = await doc.getPage(page.pdfPage!);
-      if (disposed) return;
-      const native = pdfPage.getViewport({ scale: 1 });
-      const viewport = pdfPage.getViewport({ scale: Math.min(2, 1800 / Math.max(native.width, native.height)) });
-      const canvas = document.createElement('canvas'); canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-      const rendering = pdfPage.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport });
-      cleanup = () => rendering.cancel();
-      await rendering.promise;
-      if (!disposed) setDisplayed({ ownerId, materialId: material.id, page, url: canvas.toDataURL('image/png'), aspect: native.width / native.height });
-      canvas.width = 0; canvas.height = 0;
-    })().catch(err => { if (!disposed) { transitionLayer.current?.replaceChildren(); setError(`PDFを表示できません: ${err.message ?? err}`); } });
-    return () => { disposed = true; cleanup?.(); };
+      const preview = await previews.current.load(ownerId, material.id, page);
+      if (!disposed) setDisplayed({ ownerId, materialId: material.id, page, url: preview.url, aspect: preview.aspect });
+    })().catch(err => { if (!disposed) { clearTransition(); if (displayed) { setMaterialId(displayed.materialId); setPageId(displayed.page.id); } setError(`資料を表示できません: ${err.message ?? err}`); } });
+    return () => { disposed = true; };
   }, [material?.id, page?.id, page?.pdfPage, ownerId]);
+
+  useEffect(() => {
+    if (!displayed || !material || displayed.materialId !== material.id) return;
+    let disposed = false;
+    const current = material.pages.findIndex(item => item.id === displayed.page.id);
+    setNeighbours({ pageId: displayed.page.id });
+    // Sequential background work limits transient canvas memory. Annotation
+    // images are read afresh so returning to a page never shows stale ink.
+    void (async () => {
+      for (const [side, adjacent] of [['next', material.pages[current + 1]], ['previous', material.pages[current - 1]]] as const) {
+        if (!adjacent || disposed) continue;
+        try {
+          const preview = await previews.current.load(ownerId, material.id, adjacent);
+          if (!disposed) setNeighbours(value => ({ ...value, [side]: preview }));
+        } catch { /* A failed prefetch is retried, with an error, on navigation. */ }
+      }
+    })();
+    return () => { disposed = true; };
+  }, [displayed?.page.id, displayed?.materialId, material?.pages, ownerId]);
 
   const update = async (nextMaterial: StudyMaterial) => {
     if (!index) return;
@@ -167,8 +193,8 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       <input ref={fileInput} hidden type="file" accept="application/pdf,.pdf" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) addPdf(file); }} />
     </div>
     {error ? <p className="materials-error" role="alert">{error}</p> : null}
-    <div ref={contentRef} className={`materials-content${pagePending ? ' is-page-loading' : ''}`} aria-busy={pagePending}>
-      {displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} pageNavigation={{ hasPrevious: !pagePending && pageIndex > 0, hasNext: !pagePending && pageIndex < (material?.pages.length ?? 0) - 1, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; if (next) goToPage(next.id); } }} /> : <div className="materials-empty"><p>{page ? 'PDFを読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <button disabled={!index || busy} onClick={() => fileInput.current?.click()}>PDFを追加</button> : null}<small>1ファイル50MB・500ページまで。PDFは専用の非公開ストレージに同期します。</small></div>}
+    <div ref={contentRef} className={`materials-content${pagePending || transitioning ? ' is-page-loading' : ''}`} aria-busy={pagePending || transitioning}>
+      {displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? 'PDFを読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <button disabled={!index || busy} onClick={() => fileInput.current?.click()}>PDFを追加</button> : null}<small>1ファイル50MB・500ページまで。PDFは専用の非公開ストレージに同期します。</small></div>}
       <div ref={transitionLayer} className="materials-transition-cover" aria-hidden="true" inert />
     </div>
   </section>;

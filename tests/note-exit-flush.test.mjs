@@ -89,8 +89,11 @@ test('drawer close button and swipe share the guarded close request', () => {
 
 test('flush waits for load and snapshots only a paint-ready dirty canvas', () => {
   const flushStart = notePanelSource.indexOf('const flushPendingNote = (): Promise<void> => {');
-  const flushEnd = notePanelSource.indexOf('useImperativeHandle(ref, () => ({ flush: flushPendingNote }))', flushStart);
+  const flushEnd = notePanelSource.indexOf('useImperativeHandle(ref, () => ({ flush: flushPendingNote', flushStart);
   assert.ok(flushStart >= 0 && flushEnd > flushStart, 'flush implementation should exist');
+  const externalSwipe = notePanelSource.slice(notePanelSource.indexOf('if (pageNavigation) {'), notePanelSource.indexOf("if (direction === 1 && currentPageIndex"));
+  assert.match(externalSwipe, /pageNavigation\.onNavigate\(direction\)/);
+  assert.doesNotMatch(externalSwipe.split('pageNavigation.onNavigate')[0], /resetPageRail\(\)/);
   const flushBody = notePanelSource.slice(flushStart, flushEnd);
   const loadIndex = flushBody.indexOf("noteLoadStateRef.current === 'loading'");
   const clearIndex = flushBody.indexOf('window.clearTimeout(pendingDrawSaveTimerRef.current)');

@@ -24,6 +24,7 @@ import {
 } from './noteMemory';
 import './CategoryNoteDrawer.css';
 import { boundedNoteScale, noteSwipeDirection } from './noteGestures';
+import type { MaterialPagePreview } from '../utils/materialPreview';
 
 const UNCATEGORIZED = '\u672a\u5206\u985e';
 const NOTE_COLORS = {
@@ -65,8 +66,9 @@ interface CategoryNoteProps {
   backgroundUrl?: string;
   pageAspect?: number;
   singlePage?: boolean;
-  pageNavigation?: { hasPrevious: boolean; hasNext: boolean; onNavigate: (delta: -1 | 1) => void };
+  pageNavigation?: { hasPrevious: boolean; hasNext: boolean; previous?: MaterialPagePreview; next?: MaterialPagePreview; onNavigate: (delta: -1 | 1) => Promise<boolean> };
   onReady?: () => void;
+  onUnavailable?: () => void;
   problemSetId?: string;
   category?: string;
   className?: string;
@@ -75,6 +77,7 @@ interface CategoryNoteProps {
 
 export interface CategoryNotePanelHandle {
   flush: () => Promise<void>;
+  resetPageSlide?: () => void;
 }
 
 export interface CategoryNoteDrawerHandle {
@@ -224,7 +227,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, pageNavigation, onReady },
+  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, pageNavigation, onReady, onUnavailable },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -392,6 +395,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     if (pageSwipeFrameRef.current !== null) cancelAnimationFrame(pageSwipeFrameRef.current);
   }, []);
   useEffect(() => { if (noteLoadState === 'ready' && notePaintState === 'ready') onReady?.(); }, [noteLoadState, notePaintState, onReady]);
+  useEffect(() => { if (noteLoadState === 'error' || notePaintState === 'error') onUnavailable?.(); }, [noteLoadState, notePaintState, onUnavailable]);
 
   const pages = note.pages.length > 0 ? note.pages : [createBlankPage()];
   const currentPageIndex = Math.min(pageIndex, pages.length - 1);
@@ -645,7 +649,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     return pendingFlush;
   };
 
-  useImperativeHandle(ref, () => ({ flush: flushPendingNote }));
+  useImperativeHandle(ref, () => ({ flush: flushPendingNote, resetPageSlide: () => resetPageRail() }));
 
   function clearHistory() {
     historyRef.current = createByteBudgetHistory();
@@ -894,10 +898,15 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     event.currentTarget.releasePointerCapture?.(event.pointerId);
 
     if (pageNavigation) {
+      if (pageSwipeFrameRef.current !== null) cancelAnimationFrame(pageSwipeFrameRef.current);
+      pageSwipeFrameRef.current = null;
+      if (pageElementRef.current) pageElementRef.current.style.transform = `translate3d(calc(-33.333333% + ${pageSwipeOffsetRef.current}px), 0, 0)`;
       setPageSwiping(false);
-      // The parent owns PDF/blank page IDs and handles the guarded transition.
-      resetPageRail();
-      if ((direction === 1 && pageNavigation.hasNext) || (direction === -1 && pageNavigation.hasPrevious)) pageNavigation.onNavigate(direction);
+      // Keep the finger's offset. The parent's three-page rail continues from
+      // this exact position after saving, rather than bouncing back then fading.
+      if ((direction === 1 && pageNavigation.hasNext) || (direction === -1 && pageNavigation.hasPrevious)) {
+        void pageNavigation.onNavigate(direction).then(moved => { if (!moved) resetPageRail(); }, resetPageRail);
+      } else resetPageRail();
       return;
     }
     if (direction === 1 && currentPageIndex < pages.length - 1) {
@@ -1197,7 +1206,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
               <div
                 ref={prevPageRef}
                 className={`category-note-page category-note-page--preview${!(pageNavigation?.hasPrevious ?? currentPageIndex > 0) ? ' category-note-page--missing' : ''}`}
-                style={{ backgroundImage: pages[currentPageIndex - 1]?.dataUrl ? `url(${pages[currentPageIndex - 1].dataUrl})` : undefined }}
+                style={pageNavigation ? materialPreviewStyle(pageNavigation.previous, pageAspect) : { backgroundImage: pages[currentPageIndex - 1]?.dataUrl ? `url(${pages[currentPageIndex - 1].dataUrl})` : undefined }}
               />
             </div>
             <div className="category-note-page-slot">
@@ -1222,7 +1231,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
               <div
                 ref={nextPageRef}
                 className={`category-note-page category-note-page--preview${!(pageNavigation?.hasNext ?? currentPageIndex < pages.length - 1) ? ' category-note-page--missing' : ''}`}
-                style={{ backgroundImage: pages[currentPageIndex + 1]?.dataUrl ? `url(${pages[currentPageIndex + 1].dataUrl})` : undefined }}
+                style={pageNavigation ? materialPreviewStyle(pageNavigation.next, pageAspect) : { backgroundImage: pages[currentPageIndex + 1]?.dataUrl ? `url(${pages[currentPageIndex + 1].dataUrl})` : undefined }}
               />
             </div>
           </div>
@@ -1259,6 +1268,11 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     </section>
   );
 });
+
+function materialPreviewStyle(preview: MaterialPagePreview | undefined, fallbackAspect: number) {
+  const aspect = preview?.aspect ?? fallbackAspect;
+  return { aspectRatio: aspect, width: `min(100%, ${aspect * 100}cqh)`, backgroundImage: [preview?.inkUrl, preview?.url].filter(Boolean).map(url => `url(${url})`).join(',') || undefined };
+}
 
 function EraserIcon() {
   return (
