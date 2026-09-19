@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
 import { StudyIcon } from '../components/UiIcons';
-import { buildProblemCategories, normalizeProblemCategory } from './ProblemSetDetailScreen';
 import { getQuestionsBySet } from '../utils/quiz';
 import { usePhoneLayout } from '../utils/usePhoneLayout';
 import { detailBody, NOTES_EVENT, readWeaknessNotes, unexplainedNotes, makeExplanationRequest, rememberExplanationRequest, explanationPrompt, type WeaknessNote } from '../utils/weaknessNotes';
@@ -31,8 +30,6 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
   }, []);
   const set = data.problemSets.find((item) => item.id === setId);
   const questions = getQuestionsBySet(data, setId);
-  const categories = buildProblemCategories(questions).slice(1);
-  if (!categories.length) categories.push(normalizeProblemCategory(undefined));
   const detailedQuestions = questions.filter(question => normalizeExplanationMarkdown(detailBody(question)).trim() || question.detailedAnswer?.imageIds.length);
   const pending = unexplainedNotes(data, notes, setId);
   const copyPending = async () => {
@@ -82,10 +79,10 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
         </div>
         {!detailedQuestions.length ? <p>詳細解説はまだありません</p> : null}
       </>
-      {!phone ? <details className="note-overview-tablet-notes"><summary>資料・以前の手書きノート</summary>{categories.map((category) => <button key={category} className="library-row" onClick={() => onOpen(category)}>
+      {!phone ? <div className="note-overview-tablet-notes"><button className="library-row" onClick={() => onOpen('__materials')}>
         <span className="library-icon"><StudyIcon size={18} /></span>
-        <span className="library-row__body"><strong>{category}</strong></span><span aria-hidden="true">›</span>
-      </button>)}</details> : null}
+        <span className="library-row__body"><strong>資料を開く</strong></span><span aria-hidden="true">›</span>
+      </button></div> : null}
     </> : <p>問題セットが見つかりません</p>}
   </main></Layout>;
 }

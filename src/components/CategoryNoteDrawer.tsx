@@ -32,8 +32,8 @@ const NOTE_COLORS = {
   black: '#111827',
 } as const;
 const PEN_WIDTHS = [1, 2, 3] as const;
-const MARKER_COLORS = { yellow: '#f4d949', green: '#67ce82', blue: '#6ebcf3' } as const;
-const MARKER_WIDTHS = [14, 22, 30] as const;
+const MARKER_COLORS = { yellow: '#facc15', green: '#22c55e', blue: '#38bdf8' } as const;
+const MARKER_WIDTHS = [10, 25, 30] as const;
 const ERASER_WIDTHS = [10, 15, 30] as const;
 const OVERSCROLL_LIMIT = 36;
 const PAN_EDGE_BREATHING_ROOM = 18;
@@ -279,7 +279,16 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const [eraserSize, setEraserSize] = useState<EraserSize>(10);
   const [tool, setTool] = useState<NoteTool>('pen');
   const [markerColor, setMarkerColor] = useState<keyof typeof MARKER_COLORS>('yellow');
-  const [markerSize, setMarkerSize] = useState<number>(22);
+  const [markerSize, setMarkerSize] = useState<number>(25);
+  const [toolOptions, setToolOptions] = useState<'color' | 'width' | null>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!toolOptions) return;
+    const outside = (event: globalThis.PointerEvent) => { if (!toolbarRef.current?.contains(event.target as Node)) setToolOptions(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setToolOptions(null); };
+    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [toolOptions]);
   const [canUndo, setCanUndo] = useState(false);
   const [pageSwiping, setPageSwiping] = useState(false);
   const [pageScale, setPageScaleState] = useState(1);
@@ -1033,7 +1042,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       // darker overlapping dots. The original PDF remains a separate layer.
       context.save(); context.setTransform(1, 0, 0, 1, 0, 0);
       context.clearRect(0, 0, canvas.width, canvas.height); context.drawImage(marker.base, 0, 0); context.restore();
-      context.globalAlpha = 0.38;
+      context.globalAlpha = 0.48;
       context.globalCompositeOperation = 'multiply';
       marker.points.push(nextPoint);
     }
@@ -1220,74 +1229,22 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         </div>
       </div>
 
-      <div className="category-note-toolbar" aria-label="note tools">
-        <div className="category-note-tool-group" aria-label="表示倍率">
-          <button type="button" aria-label="縮小" disabled={pageScale <= 1} onClick={() => setPageScaleValue(pageScale - 0.25)}>−</button>
-          <button type="button" aria-label="倍率をリセット" onClick={resetPageView}>{Math.round(pageScale * 100)}%</button>
-          <button type="button" aria-label="拡大" disabled={pageScale >= 2.5} onClick={() => setPageScaleValue(pageScale + 0.25)}>＋</button>
+      <div ref={toolbarRef} className="category-note-toolbar category-note-toolbar--compact" aria-label="note tools">
+        <button type="button" className="note-zoom-label" aria-label="倍率をリセット" title="タップで100%に戻す" onClick={resetPageView}>{Math.round(pageScale * 100)}%</button>
+        <div className="note-tool-switch" role="group" aria-label="筆記用具">
+          <button type="button" disabled={noteInteractionDisabled} aria-pressed={tool === 'pen'} onClick={() => { setTool('pen'); setToolOptions(null); }}>ペン</button>
+          <button type="button" disabled={noteInteractionDisabled} aria-pressed={tool === 'marker'} onClick={() => { setTool('marker'); setToolOptions(null); }}>マーカー</button>
         </div>
-        <div className="category-note-tool-group">
-          <span>{'\u592a\u3055'}</span>
-          {activeWidths.map((item) => (
-            <button
-              key={item}
-              type="button"
-              disabled={noteInteractionDisabled}
-              className={activeWidth === item ? 'is-active' : ''}
-              onClick={() => {
-                if (tool === 'eraser') setEraserSize(item as EraserSize);
-                else if (tool === 'marker') setMarkerSize(item);
-                else setPenSize(item as PenSize);
-              }}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-        <div className="category-note-tool-group category-note-tool-group--tools">
-          <span>ペン</span>
-          {(Object.keys(NOTE_COLORS) as NoteColorKey[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              disabled={noteInteractionDisabled}
-              className={`category-note-color category-note-color--${key}${colorKey === key && tool === 'pen' ? ' is-active' : ''}`}
-              aria-label={key}
-              title={key}
-              onClick={() => selectColor(key)}
-            />
-          ))}
-          <button
-            type="button"
-            disabled={noteInteractionDisabled}
-            className={`category-note-icon-button${tool === 'eraser' ? ' is-active' : ''}`}
-            aria-label="消しゴム"
-            title="消しゴム"
-            onClick={() => setTool('eraser')}
-          >
-            <EraserIcon />
-          </button>
-          <button
-            type="button"
-            className="category-note-icon-button"
-            aria-label="戻す"
-            title="戻す"
-            disabled={noteInteractionDisabled || !canUndo}
-            onClick={undo}
-          >
-            <UndoIcon />
-          </button>
-        </div>
-        <div className="category-note-tool-group category-note-markers" aria-label="マーカー">
-          <span>マーカー</span>
-          {(Object.keys(MARKER_COLORS) as (keyof typeof MARKER_COLORS)[]).map(key => <button
-            key={key} type="button" disabled={noteInteractionDisabled}
-            aria-label={`${{ yellow: '黄色', green: '緑色', blue: '青色' }[key]}のマーカー`}
-            aria-pressed={tool === 'marker' && markerColor === key}
-            className={`category-note-marker${tool === 'marker' && markerColor === key ? ' is-active' : ''}`}
-            onClick={() => { setMarkerColor(key); setTool('marker'); }}
-          ><span style={{ background: MARKER_COLORS[key] }} /></button>)}
-        </div>
+        <button type="button" className="note-color-trigger" disabled={noteInteractionDisabled || tool === 'eraser'} aria-label="色を選ぶ" aria-expanded={toolOptions === 'color'} onClick={() => setToolOptions(toolOptions === 'color' ? null : 'color')}><span style={{ background: tool === 'marker' ? MARKER_COLORS[markerColor] : NOTE_COLORS[colorKey] }} /></button>
+        <button type="button" className="note-width-trigger" disabled={noteInteractionDisabled} aria-label="太さを選ぶ" aria-expanded={toolOptions === 'width'} onClick={() => setToolOptions(toolOptions === 'width' ? null : 'width')}>{activeWidth}</button>
+        <button type="button" className="category-note-icon-button" disabled={noteInteractionDisabled} aria-label="消しゴム" title="消しゴム" aria-pressed={tool === 'eraser'} onClick={() => { setTool('eraser'); setToolOptions(null); }}><EraserIcon /></button>
+        <button type="button" className="category-note-icon-button" aria-label="戻す" title="戻す" disabled={noteInteractionDisabled || !canUndo} onClick={undo}><UndoIcon /></button>
+        {toolOptions ? <div className="note-tool-options" role="group" aria-label={toolOptions === 'color' ? '色' : '太さ'}>
+          <span>{toolOptions === 'color' ? '色' : '太さ'}</span>
+          {toolOptions === 'width' ? activeWidths.map(item => <button key={item} type="button" aria-pressed={activeWidth === item} onClick={() => { if (tool === 'eraser') setEraserSize(item as EraserSize); else if (tool === 'marker') setMarkerSize(item); else setPenSize(item as PenSize); setToolOptions(null); }}>{item}</button>) : tool === 'marker'
+            ? (Object.keys(MARKER_COLORS) as (keyof typeof MARKER_COLORS)[]).map(key => <button key={key} type="button" aria-label={`${{ yellow: '黄色', green: '緑色', blue: '青色' }[key]}のマーカー`} aria-pressed={markerColor === key} onClick={() => { setMarkerColor(key); setToolOptions(null); }}><span className="note-color-swatch" style={{ background: MARKER_COLORS[key] }} /></button>)
+            : (Object.keys(NOTE_COLORS) as NoteColorKey[]).map(key => <button key={key} type="button" aria-label={`${{ blue: '青', red: '赤', black: '黒' }[key]}のペン`} aria-pressed={colorKey === key} onClick={() => { selectColor(key); setToolOptions(null); }}><span className="note-color-swatch" style={{ background: NOTE_COLORS[key] }} /></button>)}
+        </div> : null}
       </div>
 
       <ConfirmDialog

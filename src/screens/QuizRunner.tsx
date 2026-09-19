@@ -68,6 +68,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   const [answerSaveState, setAnswerSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const answerRetryRef = useRef<(() => Promise<boolean>) | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [materialLauncherTarget, setMaterialLauncherTarget] = useState<HTMLSpanElement | null>(null);
   const [isTabletLandscape, setIsTabletLandscape] = useState(false);
   const [noteDrawerMounted, setNoteDrawerMounted] = useState(false);
   const [noteTransitionError, setNoteTransitionError] = useState('');
@@ -369,7 +370,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             questionId={currentQuestion.id}
             references={(data.questions.find(question => question.id === currentQuestion.id) ?? currentQuestion).materialReferences}
             onLinkPage={onLinkMaterialPage ? (reference, linked) => onLinkMaterialPage(currentQuestion.id, reference, linked) : undefined}
-            category={currentQuestion.category}
+            launcherTarget={materialLauncherTarget}
             open={noteOpen}
             onOpenChange={setNoteOpen}
           />
@@ -388,7 +389,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
         <main key={currentQuestion.id} className="quiz-runner__main quiz-runner__question-stage flex min-h-0 flex-1 flex-col">
           <section className="quiz-runner__question-panel flex h-[clamp(104px,17dvh,132px)] shrink-0 items-center justify-center overflow-hidden px-5 py-3 text-center">
             <div className="min-h-0 w-full">
-              <div className="quiz-question-kicker" aria-hidden="true">QUESTION {registeredQuestionNumber}</div>
+              <div className="quiz-question-heading"><div className="quiz-question-kicker" aria-hidden="true">QUESTION {registeredQuestionNumber}</div><span className="quiz-question-material" ref={setMaterialLauncherTarget} /></div>
               {currentQuestion.category ? (
                 <div className="quiz-runner__question-category mb-1 truncate text-xs font-semibold">{currentQuestion.category}</div>
               ) : null}

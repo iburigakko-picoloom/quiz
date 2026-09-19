@@ -11,7 +11,7 @@ interface NoteListScreenProps {
   onOpenQuestions?: () => void;
   registerExitGuard?: (guard: ((proceed: () => void) => Promise<boolean>) | null) => void;
 }
-export function NoteListScreen({ data, setId, onBack, initialCategory, onOpenQuestions, registerExitGuard }: NoteListScreenProps) {
+export function NoteListScreen({ data, setId, onBack, onOpenQuestions, registerExitGuard }: NoteListScreenProps) {
   const panel = useRef<CategoryNotePanelHandle>(null);
   const [error, setError] = useState('');
   const transition = async (proceed: () => void) => {
@@ -24,6 +24,6 @@ export function NoteListScreen({ data, setId, onBack, initialCategory, onOpenQue
     <header><BackButton onClick={() => void transition(onBack)} /><h1>{data.problemSets.find(set => set.id === setId)?.title ?? '資料'}</h1>
     {onOpenQuestions ? <button onClick={() => void transition(onOpenQuestions)}>問題一覧</button> : null}</header>
     {error ? <p role="alert">{error}</p> : null}
-    <MaterialsPanel ref={panel} setId={setId} setIds={data.problemSets.map(set => set.id)} category={initialCategory === '__materials' ? undefined : initialCategory} initialLegacy={initialCategory !== '__materials'} />
+    <MaterialsPanel ref={panel} setId={setId} setIds={data.problemSets.map(set => set.id)} />
   </main></Layout>;
 }

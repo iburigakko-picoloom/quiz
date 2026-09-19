@@ -48,11 +48,13 @@ test('page swipes require horizontal intent and never turn on cancellation', () 
   assert.equal(noteSwipeDirection(-120, 10, true), 0);
 });
 
-test('note list opens a dedicated category canvas and browser back waits for its flush', () => {
-  assert.match(noteOverviewSource, /onClick=\{\(\) => onOpen\(category\)\}/);
+test('note list opens materials without the retired notebook entry and browser back waits for its flush', () => {
+  assert.match(noteOverviewSource, /onClick=\{\(\) => onOpen\('__materials'\)\}/);
   assert.doesNotMatch(noteOverviewSource, /CategoryNotePanel/);
   assert.match(appSource, /name: 'noteDetail', setId: screen.setId, category/);
-  assert.match(noteListSource, /category=\{initialCategory === '__materials'/);
+  assert.match(noteListSource, /<MaterialsPanel ref=\{panel\} setId=\{setId\}/);
+  assert.doesNotMatch(noteListSource, /initialLegacy=/);
+  assert.doesNotMatch(readSource('../src/components/MaterialsPanel.tsx'), /以前の手書きノート|__legacy/);
   assert.match(noteListSource, /registerExitGuard\?\.\(transition\)/);
   assert.match(appSource, /noteExitGuardRef.current\(\(\) => applyBackNavigation\(target, historySteps\)\)/);
   assert.match(appSource, /if \(!completed\) window.history.pushState/);
