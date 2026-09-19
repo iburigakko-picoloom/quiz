@@ -30,11 +30,11 @@ test('note list opens a dedicated category canvas and browser back waits for its
   assert.match(noteOverviewSource, /onClick=\{\(\) => onOpen\(category\)\}/);
   assert.doesNotMatch(noteOverviewSource, /CategoryNotePanel/);
   assert.match(appSource, /name: 'noteDetail', setId: screen.setId, category/);
-  assert.match(noteListSource, /initialCategory \?\? noteCategories\[0\]/);
-  assert.match(noteListSource, /registerExitGuard\?\.\(requestNoteTransition\)/);
+  assert.match(noteListSource, /category=\{initialCategory === '__materials'/);
+  assert.match(noteListSource, /registerExitGuard\?\.\(transition\)/);
   assert.match(appSource, /noteExitGuardRef.current\(\(\) => applyBackNavigation\(target, historySteps\)\)/);
   assert.match(appSource, /if \(!completed\) window.history.pushState/);
-  assert.match(noteListSource, /requestNoteTransition\(onOpenQuestions\)/);
+  assert.match(noteListSource, /transition\(onOpenQuestions\)/);
   const noteCss = readSource('../src/screens/NoteListScreen.css');
   const specCss = readSource('../src/ui-spec.css');
   assert.doesNotMatch(noteCss, /background: #000000|background: #202020/);
@@ -43,16 +43,13 @@ test('note list opens a dedicated category canvas and browser back waits for its
 const notePanelSource = readSource('../src/components/CategoryNoteDrawer.tsx');
 const quizRunnerSource = readSource('../src/screens/QuizRunner.tsx');
 
-test('every note list exit waits for the active panel flush', () => {
-  assert.match(noteListSource, /const requestNoteTransition = useCallback[\s\S]*?notePanelRef\.current\?\.flush\(\)[\s\S]*?proceed/);
-  assert.match(noteListSource, /onClick=\{\(\) => void requestNoteTransition\(onBack\)\}/);
-  assert.match(noteListSource, /requestNoteTransition\(\(\) => setSelectedCategory\(category\)\)/);
-  assert.match(noteListSource, /requestNoteTransition\(\(\) => setSelectedCategory\(noteCategories\[0\]/);
-  assert.match(noteListSource, /onClose=\{\(\) => void requestNoteTransition\(onBack\)\}/);
-  assert.match(noteListSource, /if \(nextLandscape\)[\s\S]*?requestNoteTransition\(\(\) => \{[\s\S]*?setIsTabletLandscape\(false\)/);
-  assert.match(noteListSource, /noteTransitionQueueRef\.current\.then\(execute, execute\)/);
-  assert.match(noteListSource, /quiz-notes__transition-error" role="alert"/);
-  assert.doesNotMatch(noteListSource, /onClick=\{\(\) => setSelectedCategory\(category\)\}/);
+test('material screen and page switches flush before leaving', () => {
+  assert.match(noteListSource, /await panel.current\?\.flush\(\);[\s\S]*?proceed\(\)/);
+  assert.match(noteListSource, /transition\(onBack\)/);
+  assert.match(noteListSource, /transition\(onOpenQuestions\)/);
+  const materials = readSource('../src/components/MaterialsPanel.tsx');
+  assert.match(materials, /await panel.current\?\.flush\(\); await action\(\)/);
+  assert.match(materials, /await operation.current; await panel.current\?\.flush\(\)/);
 });
 
 test('drawer close button and swipe share the guarded close request', () => {
@@ -99,10 +96,10 @@ test('quiz navigation and rotation preserve the mounted drawer until its flush s
   assert.match(quizRunnerSource, /const handleQuizBack = useCallback[\s\S]*?requestNoteTransition\(onBack\)/);
   assert.match(quizRunnerSource, /const handleNext = \(\) => \{[\s\S]*?requestNoteTransition\(\(\) => \{[\s\S]*?setCurrentIndex/);
   assert.match(quizRunnerSource, /if \(!noteFeatureEnabled && noteOpen\)[\s\S]*?drawer\.close\(\)/);
-  assert.match(quizRunnerSource, /\{noteFeatureAvailable && noteDrawerMounted && setId \? \([\s\S]*?<CategoryNoteDrawer[\s\S]*?ref=\{noteDrawerRef\}/);
+  assert.match(quizRunnerSource, /\{noteFeatureAvailable && noteDrawerMounted && setId \? \([\s\S]*?<MaterialsDrawer[\s\S]*?ref=\{noteDrawerRef\}/);
   assert.match(quizRunnerSource, /if \(noteFeatureEnabled\) setNoteDrawerMounted\(true\)/);
   assert.match(quizRunnerSource, /noteTransitionError[\s\S]*?role="alert"/);
-  assert.doesNotMatch(quizRunnerSource, /\{noteFeatureEnabled && setId \? \([\s\S]*?<CategoryNoteDrawer/);
+  assert.doesNotMatch(quizRunnerSource, /\{noteFeatureEnabled && setId \? \([\s\S]*?<MaterialsDrawer/);
 });
 
 test('failed persistence blocks the requested transition', async () => {

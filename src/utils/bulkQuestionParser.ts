@@ -1,6 +1,7 @@
 import type { DetailedAnswer } from '../types';
 
 export interface BulkQuestionDraft {
+  materialReferences?: import('../types').MaterialReference[];
   distractors?: string[];
   shuffleChoices?: boolean;
   id: string;

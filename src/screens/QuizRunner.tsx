@@ -4,7 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AppData, Question, QuizResult } from '../types';
 import { BackButton } from '../components/BackButton';
-import { CategoryNoteDrawer, type CategoryNoteDrawerHandle } from '../components/CategoryNoteDrawer';
+import { type CategoryNoteDrawerHandle } from '../components/CategoryNoteDrawer';
+import { MaterialsDrawer } from '../components/MaterialsDrawer';
 import { runAfterSuccessfulNoteFlush } from '../components/noteExitGuard';
 import { Layout } from '../components/Layout';
 import { MissingResourceState } from '../components/MissingResourceState';
@@ -17,7 +18,7 @@ import { randomizeQuestionChoices } from '../utils/choiceRandomization';
 type AnswerSheetState = 'expanded' | 'default' | 'hidden';
 
 const ENABLE_TABLET_NOTES = true;
-const TABLET_LANDSCAPE_QUERY = '(min-width: 768px) and (orientation: landscape)';
+const TABLET_LANDSCAPE_QUERY = '(min-width: 768px)';
 
 export type AnswerHandlerResult = {
   isCorrect: boolean;
@@ -75,8 +76,8 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   const onDetailDirtyChange = useCallback((dirty: boolean) => { detailBlockedRef.current = dirty; }, []);
   const quizRunnerMountedRef = useRef(true);
   const noteFeatureAvailable = ENABLE_TABLET_NOTES && !readOnly && Boolean(setId);
-  const noteFeatureEnabled = noteFeatureAvailable && isTabletLandscape;
-  const noteAreaOpen = noteFeatureEnabled && noteOpen;
+  const noteFeatureEnabled = noteFeatureAvailable;
+  const noteAreaOpen = noteFeatureEnabled && noteOpen && isTabletLandscape;
 
   const requestNoteTransition = useCallback(async (proceed: () => void) => {
     if (detailBlockedRef.current) { setNoteTransitionError('疑問メモを保存できていません。再保存してから移動してください。'); return false; }
@@ -359,6 +360,17 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
     <Layout>
       <div className={`quiz-runner relative flex h-full flex-col overflow-hidden${noteAreaOpen ? ' quiz-runner--note-open' : ''}`}>
         <QuizHeader title={title} current={currentIndex + 1} total={questions.length} onBack={handleQuizBack} />
+        {noteFeatureAvailable && noteDrawerMounted && setId ? (
+          <MaterialsDrawer
+            ref={noteDrawerRef}
+            problemSetId={setId}
+            setIds={data.problemSets.map(set => set.id)}
+            references={currentQuestion.materialReferences}
+            category={currentQuestion.category}
+            open={noteOpen}
+            onOpenChange={setNoteOpen}
+          />
+        ) : null}
         {noteTransitionError ? (
           <div role="alert" className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-center text-sm font-bold text-red-800">
             {noteTransitionError}
@@ -437,16 +449,6 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             </div>
           </section>
         </main>
-
-        {noteFeatureAvailable && noteDrawerMounted && setId ? (
-          <CategoryNoteDrawer
-            ref={noteDrawerRef}
-            problemSetId={setId}
-            category={currentQuestion.category}
-            open={noteOpen}
-            onOpenChange={setNoteOpen}
-          />
-        ) : null}
 
         {answered ? createPortal(
           <>
@@ -763,8 +765,8 @@ export function AnswerPanel({
   };
 
   const snapByDrag = (dragOffset: number, velocityY: number) => {
-    const FAST_SWIPE_VELOCITY = 0.45;
-    const MIN_SWIPE_DISTANCE = 18;
+    const FAST_SWIPE_VELOCITY = 0.65;
+    const MIN_SWIPE_DISTANCE = 64;
     if (dragOffset <= -MIN_SWIPE_DISTANCE && velocityY <= -FAST_SWIPE_VELOCITY) {
       onExpand();
       return;
@@ -870,7 +872,7 @@ export function AnswerPanel({
 
   const getDraggedSheetHeight = () => {
     const expandedHeight = getBaseSheetHeight('expanded');
-    const maxHeight = Math.max(expandedHeight, window.innerHeight - 40);
+    const maxHeight = expandedHeight + 20;
     return Math.max(48, Math.min(maxHeight, startHeightRef.current - dragOffsetRef.current));
   };
 

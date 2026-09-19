@@ -1,5 +1,26 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { insertMaterialPage, moveMaterialPage, normalizeMaterialReferences, materialReferencePrompt, validMaterialRecord } from '../src/utils/materialModel.ts';
+
+test('material references survive insertion and reordering without changing source PDF pages', () => {
+  const source = { id: 'material-1', title: '資料', pages: [{ id: 'page-a', kind: 'pdf', pdfPage: 1 }, { id: 'page-b', kind: 'pdf', pdfPage: 2 }] };
+  const inserted = insertMaterialPage(source, { id: 'blank', kind: 'blank' }, 0);
+  const moved = moveMaterialPage(inserted, 'page-b', 0);
+  const reference = normalizeMaterialReferences([{ materialId: source.id, pageId: 'page-b' }])[0];
+  assert.equal(moved.pages.find(page => page.id === reference.pageId).pdfPage, 2);
+  assert.equal(source.pages.length, 2);
+  assert.match(materialReferencePrompt(moved), /"pdfPage":2,"pageId":"page-b"/);
+  assert.equal(validMaterialRecord({ kind: 'quiz-material-index', version: 1, problemSetId: 'set', materials: [moved], updatedAt: '2026-09-19' }), true);
+  assert.equal(validMaterialRecord({ kind: 'quiz-material-index', version: 1, problemSetId: 'set', materials: [{ ...source, pages: [source.pages[0], source.pages[0]] }], updatedAt: '2026-09-19' }), false);
+});
+
+test('question JSON retains structured references and rejects malformed IDs', () => {
+  const question = { question: '問題', choices: ['a', 'b', 'c', 'd'], answerIndex: 0, explanation: '解説', materialReferences: [{ materialId: 'material-1', pageId: 'page-b' }] };
+  const result = validateImportJson(JSON.stringify({ setTitle: 'テスト', questions: [question] }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.value.questions[0].materialReferences, question.materialReferences);
+  assert.equal(validateImportJson(JSON.stringify({ setTitle: 'テスト', questions: [{ ...question, materialReferences: [{ materialId: 'x', pageId: 2 }] }] })).ok, false);
+});
 import {
   getDraftAnswerIndexes,
   getDraftIssues,

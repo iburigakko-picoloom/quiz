@@ -45,8 +45,8 @@ test('community dialogs stay above navigation and support keyboard focus', () =>
   assert.match(communityCss, /\.community-overlay \{[^}]*z-index:\s*100100/);
 });
 
-test('tablet note behavior and styles share the 768px landscape boundary', () => {
-  assert.match(quizRunnerSource, /TABLET_LANDSCAPE_QUERY = '\(min-width: 768px\) and \(orientation: landscape\)'/);
+test('material split is available from 768px including portrait', () => {
+  assert.match(quizRunnerSource, /TABLET_LANDSCAPE_QUERY = '\(min-width: 768px\)'/);
   assert.match(globalCss, /@media \(min-width: 768px\) and \(orientation: landscape\) \{[\s\S]*?body\.quiz-note-open \.quiz-runner__answer-actions/);
 });
 

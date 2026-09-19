@@ -1,3 +1,4 @@
+import { normalizeMaterialReferences } from './materialModel';
 import type {
   AnswerLog,
   AppData,
@@ -168,6 +169,7 @@ function normalizeQuestions(
         : answerResult.data.map((answerIndex) => choices[answerIndex]).join(' / '),
       explanation: typeof value.explanation === 'string' ? value.explanation : '',
       sourcePage: typeof value.sourcePage === 'string' ? value.sourcePage : '',
+      materialReferences: normalizeMaterialReferences(value.materialReferences),
       category: typeof value.category === 'string' ? value.category : '',
       difficulty: typeof value.difficulty === 'string' ? value.difficulty : 'standard',
       createdAt,

@@ -31,6 +31,8 @@ const NOTE_COLORS = {
   black: '#111827',
 } as const;
 const PEN_WIDTHS = [1, 2, 3] as const;
+const MARKER_COLORS = { yellow: '#f4d949', green: '#67ce82', blue: '#6ebcf3' } as const;
+const MARKER_WIDTHS = [14, 22, 30] as const;
 const ERASER_WIDTHS = [10, 15, 30] as const;
 const OVERSCROLL_LIMIT = 36;
 const PAN_EDGE_BREATHING_ROOM = 18;
@@ -39,7 +41,7 @@ const noteImageCache = new ByteBudgetLruCache<string, HTMLImageElement>(NOTE_DEC
 type NoteColorKey = keyof typeof NOTE_COLORS;
 type PenSize = (typeof PEN_WIDTHS)[number];
 type EraserSize = (typeof ERASER_WIDTHS)[number];
-type NoteTool = 'pen' | 'eraser';
+type NoteTool = 'pen' | 'eraser' | 'marker';
 type NoteLoadState = 'loading' | 'ready' | 'error';
 type NotePaintState = 'loading' | 'ready' | 'error';
 type NoteSaveQueueState = 'idle' | 'pending' | 'saved' | 'error';
@@ -59,6 +61,9 @@ type CategoryNote = {
 };
 
 interface CategoryNoteProps {
+  backgroundUrl?: string;
+  pageAspect?: number;
+  singlePage?: boolean;
   problemSetId?: string;
   category?: string;
   className?: string;
@@ -216,7 +221,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { problemSetId, category, className = '', onClose },
+  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -244,6 +249,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const primaryTouchIdRef = useRef<number | null>(null);
   const pageDataUrlRef = useRef('');
   const toolRef = useRef<NoteTool>('pen');
+  const markerStrokeRef = useRef<{ base: HTMLCanvasElement; points: { x: number; y: number }[] } | null>(null);
   const colorRef = useRef<string>(NOTE_COLORS.black);
   const widthRef = useRef<number>(1);
   const noteSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -269,6 +275,8 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const [penSize, setPenSize] = useState<PenSize>(1);
   const [eraserSize, setEraserSize] = useState<EraserSize>(10);
   const [tool, setTool] = useState<NoteTool>('pen');
+  const [markerColor, setMarkerColor] = useState<keyof typeof MARKER_COLORS>('yellow');
+  const [markerSize, setMarkerSize] = useState<number>(22);
   const [canUndo, setCanUndo] = useState(false);
   const [pageSwiping, setPageSwiping] = useState(false);
   const [pageScale, setPageScaleState] = useState(1);
@@ -345,8 +353,10 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     setPagePinchingValue(false);
   };
 
-  const setPageScaleValue = (nextScale: number) => {
-    const normalizedScale = Math.max(1, nextScale);
+  const setPageScaleValue = (nextScale: number, elastic = false) => {
+    const bound = Math.max(1, Math.min(2.5, nextScale));
+    const delta = nextScale - bound;
+    const normalizedScale = elastic ? bound + Math.sign(delta) * 0.18 * (1 - Math.exp(-Math.abs(delta) / 0.18)) : bound;
     pageScaleRef.current = normalizedScale;
     setPageScaleState(normalizedScale);
     if (normalizedScale <= 1.02) setPagePanValue({ x: 0, y: 0 }, 1);
@@ -374,8 +384,8 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const pages = note.pages.length > 0 ? note.pages : [createBlankPage()];
   const currentPageIndex = Math.min(pageIndex, pages.length - 1);
   const currentPage = pages[currentPageIndex] ?? pages[0];
-  const activeWidth = tool === 'eraser' ? eraserSize : penSize;
-  const activeWidths = tool === 'eraser' ? ERASER_WIDTHS : PEN_WIDTHS;
+  const activeWidth = tool === 'eraser' ? eraserSize : tool === 'marker' ? markerSize : penSize;
+  const activeWidths = tool === 'eraser' ? ERASER_WIDTHS : tool === 'marker' ? MARKER_WIDTHS : PEN_WIDTHS;
   const noteInteractionDisabled = isFlushing || noteLoadState !== 'ready' || notePaintState !== 'ready';
   const saveStatusText = noteLoadState === 'loading' || notePaintState === 'loading'
     ? '読み込み中'
@@ -388,8 +398,8 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   }, [tool]);
 
   useEffect(() => {
-    colorRef.current = NOTE_COLORS[colorKey];
-  }, [colorKey]);
+    colorRef.current = tool === 'marker' ? MARKER_COLORS[markerColor] : NOTE_COLORS[colorKey];
+  }, [colorKey, markerColor, tool]);
 
   useEffect(() => {
     widthRef.current = activeWidth;
@@ -736,6 +746,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       || renderedPageIdRef.current !== (currentPage?.id ?? '')
     ) return;
     if (event.pointerType !== 'touch') return;
+    if (drawingRef.current) return;
     event.preventDefault();
     if (touchPointsRef.current.size === 0) {
       if (isPalmLikeTouch(event)) return;
@@ -787,7 +798,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         const points = Array.from(touchPointsRef.current.values()).slice(0, 2);
         const nextDistance = getPointDistance(points[0], points[1]);
         const nextScale = pinchRef.current.startScale * (nextDistance / Math.max(pinchRef.current.startDistance, 1));
-        setPageScaleValue(Math.max(1, Math.min(2.5, nextScale)));
+        setPageScaleValue(nextScale, true);
         return;
       }
     }
@@ -834,6 +845,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         if (touchPointsRef.current.size < 2) {
           pinchRef.current = null;
           setPagePinchingValue(false);
+          setPageScaleValue(pageScaleRef.current);
           setPagePanValue(pagePanRef.current, pageScaleRef.current, false);
         }
         event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -967,6 +979,12 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     drawingRef.current = true;
     pendingResizeRef.current = false;
     lastPointRef.current = getCanvasPoint(canvas, event);
+    markerStrokeRef.current = null;
+    if (toolRef.current === 'marker') {
+      const base = document.createElement('canvas'); base.width = canvas.width; base.height = canvas.height;
+      base.getContext('2d')?.drawImage(canvas, 0, 0);
+      markerStrokeRef.current = { base, points: [lastPointRef.current] };
+    }
     canvas.setPointerCapture?.(event.pointerId);
   };
 
@@ -989,9 +1007,25 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     context.lineJoin = 'round';
     context.lineWidth = widthRef.current;
     context.strokeStyle = drawingTool === 'eraser' ? '#ffffff' : colorRef.current;
+    if (singlePage && drawingTool === 'eraser') context.globalCompositeOperation = 'destination-out';
+    const marker = drawingTool === 'marker' ? markerStrokeRef.current : null;
+    if (marker) {
+      // Repaint the whole stroke once per frame: slow movement must not leave
+      // darker overlapping dots. The original PDF remains a separate layer.
+      context.save(); context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvas.width, canvas.height); context.drawImage(marker.base, 0, 0); context.restore();
+      context.globalAlpha = 0.38;
+      context.globalCompositeOperation = 'multiply';
+      marker.points.push(nextPoint);
+    }
     context.beginPath();
-    context.moveTo(lastPoint.x, lastPoint.y);
-    context.lineTo(nextPoint.x, nextPoint.y);
+    if (marker) {
+      context.moveTo(marker.points[0].x, marker.points[0].y);
+      for (const point of marker.points.slice(1)) context.lineTo(point.x, point.y);
+    } else {
+      context.moveTo(lastPoint.x, lastPoint.y);
+      context.lineTo(nextPoint.x, nextPoint.y);
+    }
     context.stroke();
     context.restore();
     canvasDirtyRef.current = true;
@@ -1005,6 +1039,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     }
     if (!drawingRef.current) return;
     drawingRef.current = false;
+    markerStrokeRef.current = null;
     lastPointRef.current = null;
     canvasRef.current?.releasePointerCapture?.(event.pointerId);
     pendingDrawSaveTimerRef.current = window.setTimeout(() => {
@@ -1048,6 +1083,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       width,
       height,
       () => notePaintRequestIdRef.current === paintRequestId,
+      singlePage,
     );
     notePaintPromiseRef.current = pendingPaint;
     void pendingPaint.then(
@@ -1080,14 +1116,14 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 
   return (
     <section
-      className={`category-note-panel${isFlushing ? ' category-note-panel--flushing' : ''} ${className}`.trim()}
+      className={`category-note-panel${singlePage ? ' category-note-panel--material' : ''}${isFlushing ? ' category-note-panel--flushing' : ''} ${className}`.trim()}
       aria-busy={isFlushing}
     >
       <header className="category-note-drawer__header">
         <div className="category-note-drawer__title-block">
           <p>{'\u30ce\u30fc\u30c8'}</p>
           <div className="category-note-drawer__title-row">
-            <h2>{normalizedCategory}</h2>
+            <h2>{singlePage ? '書き込み' : normalizedCategory}</h2>
             <span>{'\u30da\u30fc\u30b8'} {currentPageIndex + 1} / {pages.length}</span>
             {saveStatusText ? (
               <span
@@ -1099,7 +1135,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
             ) : null}
           </div>
         </div>
-        <div className="category-note-drawer__header-actions">
+        <div className="category-note-drawer__header-actions" hidden={singlePage}>
           <button type="button" disabled={noteInteractionDisabled} onClick={() => addPage('before')}>{'前に追加'}</button>
           <button type="button" disabled={noteInteractionDisabled} onClick={() => addPage('after')}>{'後ろに追加'}</button>
           <button type="button" className="category-note-drawer__danger-button" disabled={noteInteractionDisabled || pages.length <= 1} onClick={deletePage}>{'\u524a\u9664'}</button>
@@ -1140,7 +1176,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
               <div
                 ref={activePageRef}
                 className={`category-note-page category-note-page--active${pagePinching ? ' category-note-page--pinching' : ''}`}
-                style={{ transform: pageScale === 1 ? undefined : `translate3d(${pagePan.x}px, ${pagePan.y}px, 0) scale(${pageScale})` }}
+                style={{ aspectRatio: pageAspect, width: singlePage ? `min(100%, ${pageAspect * 100}cqh)` : undefined, backgroundImage: backgroundUrl ? `url(${backgroundUrl})` : undefined, backgroundSize: '100% 100%', transform: pageScale === 1 ? undefined : `translate3d(${pagePan.x}px, ${pagePan.y}px, 0) scale(${pageScale})` }}
               >
                 <canvas
                   ref={canvasRef}
@@ -1166,6 +1202,11 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       </div>
 
       <div className="category-note-toolbar" aria-label="note tools">
+        <div className="category-note-tool-group" aria-label="表示倍率">
+          <button type="button" aria-label="縮小" disabled={pageScale <= 1} onClick={() => setPageScaleValue(pageScale - 0.25)}>−</button>
+          <button type="button" aria-label="倍率をリセット" onClick={resetPageView}>{Math.round(pageScale * 100)}%</button>
+          <button type="button" aria-label="拡大" disabled={pageScale >= 2.5} onClick={() => setPageScaleValue(pageScale + 0.25)}>＋</button>
+        </div>
         <div className="category-note-tool-group">
           <span>{'\u592a\u3055'}</span>
           {activeWidths.map((item) => (
@@ -1176,6 +1217,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
               className={activeWidth === item ? 'is-active' : ''}
               onClick={() => {
                 if (tool === 'eraser') setEraserSize(item as EraserSize);
+                else if (tool === 'marker') setMarkerSize(item);
                 else setPenSize(item as PenSize);
               }}
             >
@@ -1184,7 +1226,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
           ))}
         </div>
         <div className="category-note-tool-group category-note-tool-group--tools">
-          <span>{'\u8272'}</span>
+          <span>ペン</span>
           {(Object.keys(NOTE_COLORS) as NoteColorKey[]).map((key) => (
             <button
               key={key}
@@ -1216,6 +1258,16 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
           >
             <UndoIcon />
           </button>
+        </div>
+        <div className="category-note-tool-group category-note-markers" aria-label="マーカー">
+          <span>マーカー</span>
+          {(Object.keys(MARKER_COLORS) as (keyof typeof MARKER_COLORS)[]).map(key => <button
+            key={key} type="button" disabled={noteInteractionDisabled}
+            aria-label={`${{ yellow: '黄色', green: '緑色', blue: '青色' }[key]}のマーカー`}
+            aria-pressed={tool === 'marker' && markerColor === key}
+            className={`category-note-marker${tool === 'marker' && markerColor === key ? ' is-active' : ''}`}
+            onClick={() => { setMarkerColor(key); setTool('marker'); }}
+          ><span style={{ background: MARKER_COLORS[key] }} /></button>)}
         </div>
       </div>
 
@@ -1318,7 +1370,7 @@ function getCanvasLogicalSize(canvas: HTMLCanvasElement) {
   };
 }
 function canDraw(event: PointerEvent<HTMLCanvasElement>) {
-  return event.pointerType === 'pen' || (import.meta.env.DEV && event.pointerType === 'mouse');
+  return event.pointerType === 'pen' || event.pointerType === 'mouse';
 }
 
 function isPalmLikeTouch(event: PointerEvent<HTMLCanvasElement>) {
@@ -1374,10 +1426,11 @@ async function drawDataUrlToContext(
   width: number,
   height: number,
   shouldDraw: () => boolean = () => true,
+  transparent = false,
 ): Promise<void> {
   if (!shouldDraw()) return;
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, width, height);
+  context.clearRect(0, 0, width, height);
+  if (!transparent) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, width, height); }
   if (!dataUrl) return;
 
   const cached = getCachedNoteImage(dataUrl);

@@ -3,7 +3,7 @@
   display: none;
 }
 
-@media (min-width: 768px) and (orientation: landscape) {
+@media (min-width: 0px) {
   :root {
     --tablet-note-width: min(56vw, 760px);
   }
@@ -313,7 +313,7 @@
   }
 }
 
-@media (min-width: 768px) and (orientation: landscape) {
+@media (min-width: 0px) {
   .category-note-drawer__title-block {
     min-width: 0;
     flex: 1 1 auto;
@@ -356,7 +356,7 @@
 
 }
 
-@media (min-width: 768px) and (orientation: landscape) {
+@media (min-width: 0px) {
   .category-note-drawer__header-actions {
     gap: 8px;
   }
@@ -371,7 +371,7 @@
   }
 }
 
-@media (min-width: 768px) and (orientation: landscape) {
+@media (min-width: 0px) {
   .category-note-page-viewport {
     width: 100%;
     height: 100%;
@@ -435,3 +435,6 @@
   }
 }
 
+.category-note-marker { display:grid; place-items:center; width:34px; height:34px; border-radius:8px; }
+.category-note-marker > span { width:22px; height:13px; opacity:.55; border-radius:3px; transform:rotate(-20deg); }
+.category-note-marker.is-active { outline:2px solid #305894; outline-offset:1px; }

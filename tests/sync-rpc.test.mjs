@@ -380,3 +380,53 @@ test('payload validation enforces the same byte and key limits as the server bef
   assert.equal(keyResult.ok, false);
   if (!keyResult.ok) assert.equal(keyResult.code, 'invalid');
 });
+
+test('PDF sync separates bytes, skips unchanged uploads, and restores portable local data', async () => {
+  const materials = await vite.ssrLoadModule('/src/utils/materialCloud.ts');
+  const key = 'quizMake:notes:set:__material_pdf_pdf1';
+  const bytes = new Uint8Array(7 * 1024 * 1024); bytes.set(new TextEncoder().encode('%PDF-1.7'));
+  const file = { kind: 'quiz-material-file', version: 1, materialId: 'pdf1', updatedAt, dataUrl: 'data:application/pdf;base64,' + Buffer.from(bytes).toString('base64') };
+  const payload = { version: 1, updatedAt, localStorage: { [storage.APP_DATA_STORAGE_KEY]: JSON.stringify(storage.createEmptyAppData()) }, indexedDbNotes: { [key]: JSON.stringify(file) } };
+  const original = payload.indexedDbNotes[key];
+  const remoteFiles = new Map(); let uploaded = 0;
+  const transport = { userId: '00000000-0000-4000-8000-000000000001',
+    exists: async file => remoteFiles.has(file.path),
+    upload: async (file, bytes) => { uploaded++; remoteFiles.set(file.path, bytes); },
+    download: async file => remoteFiles.get(file.path),
+  };
+  assert.equal(sync.validateSyncPayload(payload).ok, true, 'PDF bytes no longer consume the 8MB metadata budget');
+  assert.equal(sync.validateSyncPayload(payload, { wire: true }).ok, false, 'oversized inline RPC payload remains forbidden');
+  const wire = await materials.prepareMaterialUpload(payload, transport);
+  assert.equal(sync.validateSyncPayload(wire, { wire: true }).ok, true);
+  assert.equal(sync.validateSyncPayload(wire).ok, false, 'unresolved pointers cannot overwrite local PDFs');
+  assert.ok(JSON.stringify(wire).length < 2000);
+  await materials.prepareMaterialUpload(payload, transport);
+  assert.equal(uploaded, 1);
+  assert.equal(payload.indexedDbNotes[key], original, 'export snapshot is immutable');
+  const restored = await materials.hydrateMaterialDownload(wire, transport);
+  assert.deepEqual(JSON.parse(restored.indexedDbNotes[key]), file);
+  assert.equal(sync.computePayloadHash(restored), sync.computePayloadHash(payload));
+  const reorderedFile = { updatedAt: file.updatedAt, dataUrl: file.dataUrl, ...file };
+  assert.equal(sync.computePayloadHash({ ...payload, indexedDbNotes: { [key]: JSON.stringify(reorderedFile) } }), sync.computePayloadHash(payload));
+  await assert.rejects(materials.hydrateMaterialDownload(wire, { ...transport, userId: '00000000-0000-4000-8000-000000000002' }), /所有者/);
+  await assert.rejects(materials.hydrateMaterialDownload(wire, { ...transport, download: async () => new Uint8Array([1, 2, 3]) }), /保存内容/);
+  await assert.rejects(materials.prepareMaterialUpload(payload, { ...transport, exists: async () => false, upload: async () => { throw new Error('offline'); } }), /offline/);
+  assert.equal(payload.indexedDbNotes[key], original);
+});
+
+test('remote PDF download is verified before returning an importable snapshot', async () => {
+  const materials = await vite.ssrLoadModule('/src/utils/materialCloud.ts');
+  const key = 'quizMake:notes:set:__material_pdf_pdf2';
+  const file = { kind: 'quiz-material-file', version: 1, materialId: 'pdf2', updatedAt, dataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF-1.7 test').toString('base64') };
+  const payload = { version: 1, updatedAt, localStorage: { [storage.APP_DATA_STORAGE_KEY]: JSON.stringify(storage.createEmptyAppData()) }, indexedDbNotes: { [key]: JSON.stringify(file) } };
+  let binary;
+  const wire = await materials.prepareMaterialUpload(payload, { userId: (await testAccessTokenProvider()).userId, exists: async () => false, upload: async (_file, bytes) => { binary = bytes; } });
+  localStorage.clear(); sync.setStoredSyncId(syncId);
+  globalThis.fetch = async url => String(url).includes('/storage/v1/object/') ? new Response(binary) : rpcResponse([{ sync_id: syncId, updated_at: updatedAt, data: wire }]);
+  const result = await sync.downloadSyncData(syncId);
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(JSON.parse(result.value.payload.indexedDbNotes[key]), file);
+  globalThis.fetch = async url => String(url).includes('/storage/v1/object/') ? new Response('broken') : rpcResponse([{ sync_id: syncId, updated_at: updatedAt, data: wire }]);
+  assert.equal((await sync.downloadSyncData(syncId)).ok, false);
+  assert.equal(localStorage.getItem(key), null, 'failed downloads never write notes');
+});

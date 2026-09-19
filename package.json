@@ -24,10 +24,12 @@
     "@capacitor/ios": "^8.5.0",
     "@capacitor/share": "^8.0.1",
     "@supabase/supabase-js": "^2.112.1",
+    "pdfjs-dist": "5.4.624",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "tus-js-client": "4.3.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",

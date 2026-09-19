@@ -41,6 +41,8 @@ import {
 } from './dataCoordination';
 import type { CloudAccessTokenResult } from './cloudService';
 import { saveBackupPayload } from './backupRepository';
+import { materialFileEntry, materialMetadataOnly } from './materialModel';
+import { createMaterialTransport, hasMaterialFiles, hasRemoteMaterialFiles, hydrateMaterialDownload, prepareMaterialUpload } from './materialCloud';
 import { NOTES_KEY, REQUEST_KEY, WEAKNESS_STORAGE_KEYS, NOTES_EVENT, parseNotes, parseExplanationRequests } from './weaknessNotes';
 export type SyncPayload = {
   version: 1;
@@ -687,13 +689,23 @@ export async function uploadSyncData(
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
 
     try {
+      // PDFs finish first, outside the data lock. Re-check the original snapshot
+      // afterwards, before committing metadata. Failed transfers never replace it.
+      let wirePayload = validation.value;
+      if (hasMaterialFiles(wirePayload)) {
+        const access = await syncAccessTokenProvider();
+        if (!access.ok) return { ok: false, error: access.message };
+        wirePayload = await prepareMaterialUpload(wirePayload, createMaterialTransport(config, access));
+      }
+      const wireValidation = validateSyncPayload(wirePayload, { wire: true });
+      if (!wireValidation.ok) return wireValidation;
       const uploaded = await withCoordinatedDataRead(['app', 'notes'], async () => {
         if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
         assertDataEpochSnapshotCurrent(payload, ['app', 'notes']);
         if (getLocalDataRevision() !== beforeUpload.value) return localDataChangedBeforeUploadResult();
         return uploadSyncDataUnlocked(
           normalizedSyncId,
-          validation.value,
+          wireValidation.value,
           options,
           config,
           authenticatedHeaders.value,
@@ -720,9 +732,7 @@ export async function uploadSyncData(
           : 'クラウドへ保存しました',
         error: afterUpload.ok ? '' : afterUpload.error,
       })) return syncConnectionChangedResult();
-      return localChangesPending
-        ? { ok: true, value: { ...uploaded.value, localChangesPending: true } }
-        : uploaded;
+      return { ok: true, value: { ...uploaded.value, payload: uploadPayload, ...(localChangesPending ? { localChangesPending: true } : {}) } };
     } catch (error) {
       if (error instanceof Error && error.name === 'ExternalDataChangeError') {
         return localDataChangedBeforeUploadResult();
@@ -730,7 +740,7 @@ export async function uploadSyncData(
       return {
         ok: false,
         error: error instanceof Error
-          ? `別のタブとの保存調整に失敗したため、クラウド保存を中止しました: ${error.message}`
+          ? `クラウド保存を中止しました: ${error.message}`
           : '別のタブとの保存調整に失敗したため、クラウド保存を中止しました。',
       };
     }
@@ -836,6 +846,13 @@ export async function downloadSyncData(syncId: string): Promise<SyncResult<Remot
 
     const record = parseRemoteRecord(rows[0], normalizedSyncId);
     if (!record.ok) return record;
+    if (hasRemoteMaterialFiles(record.value.payload)) {
+      const access = await syncAccessTokenProvider();
+      if (!access.ok) return { ok: false, error: access.message };
+      record.value.payload = await hydrateMaterialDownload(record.value.payload, createMaterialTransport(config, access));
+      const hydrated = validateSyncPayload(record.value.payload);
+      if (!hydrated.ok) return hydrated;
+    }
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
     if (!setLastSyncStateForConnection(normalizedSyncId, { lastRemoteUpdatedAt: record.value.updatedAt })) {
       return syncConnectionChangedResult();
@@ -980,7 +997,11 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
 }
 
 export function computePayloadHash(payload: SyncPayload): string {
-  const text = JSON.stringify({ version: payload.version, localStorage: sortRecord(payload.localStorage), indexedDbNotes: sortRecord(payload.indexedDbNotes ?? {}) });
+  const stableEntries = (entries: Record<string, string>) => sortRecord(Object.fromEntries(Object.entries(entries).map(([key, raw]) => {
+    const file = materialFileEntry(key, raw);
+    return [key, file ? JSON.stringify(Object.fromEntries(Object.entries(file).sort(([a], [b]) => a.localeCompare(b)))) : raw];
+  })));
+  const text = JSON.stringify({ version: payload.version, localStorage: stableEntries(payload.localStorage), indexedDbNotes: stableEntries(payload.indexedDbNotes ?? {}) });
   let hash = 0;
   for (let index = 0; index < text.length; index += 1) {
     hash = (hash * 31 + text.charCodeAt(index)) | 0;
@@ -1031,9 +1052,11 @@ export function summarizeSyncPayload(payload: SyncPayload): SyncPayloadSummary {
   };
 }
 
-export function validateSyncPayload(value: unknown): SyncResult<SyncPayload> {
+export function validateSyncPayload(value: unknown, options: { wire?: boolean } = {}): SyncResult<SyncPayload> {
   if (!isRecord(value)) return { ok: false, error: '同期データの形式が正しくありません。' };
-  const byteSize = measureJsonBytes(value);
+  const canSeparatePdfs = !options.wire && isStringRecord(value.localStorage)
+    && (value.indexedDbNotes === undefined || isStringRecord(value.indexedDbNotes));
+  const byteSize = measureJsonBytes(canSeparatePdfs ? materialMetadataOnly(value as SyncPayload) : value);
   if (byteSize === null) return { ok: false, code: 'invalid', error: '同期データをJSONとして読み込めません。' };
   if (byteSize > MAX_SYNC_PAYLOAD_BYTES) {
     return {
@@ -1064,6 +1087,9 @@ export function validateSyncPayload(value: unknown): SyncResult<SyncPayload> {
     return { ok: false, error: '同期データのindexedDbNotes形式が正しくありません。' };
   }
   const indexedDbNotes = indexedDbNotesValue ?? {};
+  if (!options.wire && hasRemoteMaterialFiles(value as SyncPayload)) {
+    return { ok: false, code: 'invalid', error: 'PDF本体が未取得の同期データです。クラウドから読み込み直してください。' };
+  }
   const storageKeyCount = Object.keys(value.localStorage).length + Object.keys(indexedDbNotes).length;
   if (storageKeyCount > MAX_SYNC_STORAGE_KEYS) {
     return {
@@ -1726,7 +1752,7 @@ function parseRemoteRecord(value: unknown, expectedSyncId: string, requireSucces
     return { ok: false, error: 'クラウドデータの形式が正しくありません。' };
   }
 
-  const validation = validateSyncPayload(value.data);
+  const validation = validateSyncPayload(value.data, { wire: true });
   if (!validation.ok) return validation;
 
   return {

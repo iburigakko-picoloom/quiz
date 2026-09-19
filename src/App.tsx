@@ -534,6 +534,7 @@ export default function App() {
       explanation: question.explanation,
       detailedExplanation: question.detailedExplanation ?? '',
       sourcePage: question.sourcePage ?? '',
+      materialReferences: question.materialReferences,
       category: question.category ?? '',
       difficulty: question.difficulty ?? 'basic',
       createdAt: timestamp,
@@ -649,6 +650,7 @@ export default function App() {
         detailedAnswer: question.detailedAnswer,
         questionImageIds: question.questionImageIds,
         sourcePage: question.sourcePage.trim(),
+        materialReferences: question.materialReferences,
         category: question.category.trim() || '未分類',
         difficulty: question.difficulty ?? submission.difficulty,
         createdAt: timestamp,
@@ -741,6 +743,7 @@ export default function App() {
         detailedAnswer: draft.detailedAnswer ? { ...draft.detailedAnswer, body: draft.detailedExplanation?.trim() ?? draft.detailedAnswer.body } : previous?.detailedAnswer,
         questionImageIds: draft.questionImageIds ?? previous?.questionImageIds,
         sourcePage: draft.sourcePage.trim(),
+        materialReferences: draft.materialReferences,
         category: draft.category.trim() || '未分類',
         difficulty: draft.difficulty ?? submission.difficulty,
         createdAt: previous?.createdAt ?? timestamp,
@@ -1391,6 +1394,7 @@ export default function App() {
         onOpenProblemList={() => navigate({ name: 'problemList', setId: screen.setId })}
         onCopy={() => navigate({ name: 'createProblemSet', copySetId: screen.setId, backScreen: { name: 'problemSetDetail', setId: screen.setId } })}
         onOpenNoteList={() => navigate({ name: 'noteList', setId: screen.setId })}
+        onOpenMaterials={() => navigate({ name: 'noteDetail', setId: screen.setId, category: '__materials', backScreen: screen })}
         onShare={() => navigate({
           name: 'community',
           tab: 'mine',

@@ -82,7 +82,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
         </div>
         {!detailedQuestions.length ? <p>詳細解説はまだありません</p> : null}
       </>
-      {!phone ? <details className="note-overview-tablet-notes"><summary>手書きノート</summary>{categories.map((category) => <button key={category} className="library-row" onClick={() => onOpen(category)}>
+      {!phone ? <details className="note-overview-tablet-notes"><summary>資料・以前の手書きノート</summary>{categories.map((category) => <button key={category} className="library-row" onClick={() => onOpen(category)}>
         <span className="library-icon"><StudyIcon size={18} /></span>
         <span className="library-row__body"><strong>{category}</strong></span><span aria-hidden="true">›</span>
       </button>)}</details> : null}

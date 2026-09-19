@@ -224,6 +224,17 @@ export async function signOutCloud(): Promise<void> {
 
 export async function deleteCloudAccount(): Promise<void> {
   const client = requireCloudClient();
+  const { data: account, error: accountError } = await client.auth.getUser();
+  if (accountError || !account.user) throw new Error('ログイン状態を確認してから、もう一度お試しください。');
+  // Storage binaries must be removed through its API, not by deleting SQL rows.
+  const bucket = client.storage.from('quiz-material-pdfs');
+  while (true) {
+    const { data: files, error: listError } = await bucket.list(account.user.id, { limit: 100 });
+    if (listError) throw new Error('資料の削除を確認できませんでした。アカウントは削除していません。再試行してください。');
+    if (!files.length) break;
+    const { error: removeError } = await bucket.remove(files.map(file => `${account.user.id}/${file.name}`));
+    if (removeError) throw new Error('資料の削除が完了していません。アカウントは残っています。再試行してください。');
+  }
   const { error } = await client.rpc('delete_quiz_account');
   if (error) throw new Error(toFriendlyCloudError(error.message));
   await client.auth.signOut({ scope: 'local' });

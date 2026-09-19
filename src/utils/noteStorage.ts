@@ -1,4 +1,5 @@
 import { advanceLocalDataRevision } from './localDataRevision';
+import { validMaterialRecord } from './materialModel';
 import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './dataCoordination';
 import { hasPersistedSyncHistory } from './syncState';
 
@@ -816,6 +817,7 @@ function isUsableNoteRaw(raw: string): boolean {
   try {
     const value = JSON.parse(raw) as unknown;
     if (!isRecord(value)) return false;
+    if (value.kind === 'quiz-material-index' || value.kind === 'quiz-material-file' || value.kind === 'quiz-material-remote-file') return validMaterialRecord(value);
     if (Array.isArray(value.pages)) {
       return value.pages.length > 0
         && value.pages.every((page) => (

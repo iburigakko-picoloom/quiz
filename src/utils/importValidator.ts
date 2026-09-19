@@ -1,4 +1,5 @@
 import type { ImportedProblemSet, ImportedQuestion } from '../types';
+import { normalizeMaterialReferences } from './materialModel.ts';
 
 type ValidationResult = { ok: true; value: ImportedProblemSet } | { ok: false; errors: string[] };
 
@@ -250,6 +251,7 @@ export function validateImportJson(text: string): ValidationResult {
       validateStringLength(rawQuestion.difficulty, `${path}.difficulty`, IMPORT_RESOURCE_LIMITS.difficulty, errors);
     }
 
+    if (rawQuestion.materialReferences !== undefined && (!Array.isArray(rawQuestion.materialReferences) || rawQuestion.materialReferences.some(ref => !normalizeMaterialReferences([ref])))) errors.push(`${path}.materialReferences は materialId と pageId の配列にしてください。`);
     const choices = Array.isArray(rawQuestion.choices) && (rawQuestion.choices.length === 4 || rawQuestion.choices.length === 5)
       ? rawQuestion.choices.map((choice) => (typeof choice === 'string' ? stripChoicePrefix(choice) : choice))
       : ['', '', '', ''];
@@ -279,6 +281,7 @@ export function validateImportJson(text: string): ValidationResult {
         explanation: rawQuestion.explanation,
         detailedExplanation: typeof rawQuestion.detailedExplanation === 'string' ? rawQuestion.detailedExplanation : '',
         sourcePage: getSourcePage(rawQuestion),
+        materialReferences: normalizeMaterialReferences(rawQuestion.materialReferences),
         category: typeof rawQuestion.category === 'string' && rawQuestion.category.trim() !== '' ? rawQuestion.category : '未分類',
         difficulty: typeof rawQuestion.difficulty === 'string' ? rawQuestion.difficulty : 'basic',
       });

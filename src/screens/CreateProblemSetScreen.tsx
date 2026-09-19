@@ -26,6 +26,8 @@ import {
 } from './createProblemSetSave';
 import './CreateProblemSetScreen.css';
 import { buildSimpleCreationPrompt, buildMemoQuestionPrompt, applyCreationConditions } from '../utils/simpleCreationPrompt';
+import { loadMaterials } from '../utils/materialStorage';
+import { materialReferencePrompt, type StudyMaterial } from '../utils/materialModel';
 
 export interface CreateProblemSetSubmission {
   folderId: string;
@@ -92,6 +94,17 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const [memoContext, setMemoContext] = useState('');
   const [aiStep, setAiStep] = useState<1 | 2>(1);
   const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>('simple');
+  const [registeredMaterials, setRegisteredMaterials] = useState<{ setTitle: string; material: StudyMaterial }[]>([]);
+  const [referenceMaterialId, setReferenceMaterialId] = useState('');
+  const [materialsError, setMaterialsError] = useState('');
+  useEffect(() => {
+    if (aiMethod !== 'material') return;
+    let cancelled = false;
+    void Promise.all(data.problemSets.map(async set => ({ setTitle: set.title, index: await loadMaterials(set.id) }))).then(results => {
+      if (!cancelled) { setRegisteredMaterials(results.flatMap(result => result.index.materials.map(material => ({ setTitle: result.setTitle, material })))); setMaterialsError(''); }
+    }).catch(() => { if (!cancelled) setMaterialsError('登録済み資料を読み込めませんでした。'); });
+    return () => { cancelled = true; };
+  }, [aiMethod, data.problemSets]);
   const [choiceCount, setChoiceCount] = useState<4 | 5>(4);
   const [questionCount, setQuestionCount] = useState('');
   const [allowMultiple, setAllowMultiple] = useState(false);
@@ -363,6 +376,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
         questionImageIds: question.questionImageIds,
         category: question.category,
         sourcePage: question.sourcePage,
+        materialReferences: question.materialReferences,
         difficulty: question.difficulty,
         issues: [],
       }));
@@ -401,7 +415,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
         : CHATGPT_PAST_EXAM_TEMPLATE_PROMPT;
       await writeClipboardText(kind !== 'material'
         ? template
-        : applyCreationConditions(template, { choiceCount, questionCount: count, allowMultiple }));
+        : applyCreationConditions(template, { choiceCount, questionCount: count, allowMultiple }) + (registeredMaterials.find(item => item.material.id === referenceMaterialId) ? materialReferencePrompt(registeredMaterials.find(item => item.material.id === referenceMaterialId)!.material) : ''));
       setCopiedTemplate(kind);
       setError('');
       if (copiedTemplateTimerRef.current !== null) window.clearTimeout(copiedTemplateTimerRef.current);
@@ -483,6 +497,9 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
                 <button type="button" className="create-set__ai-copy" disabled={!creationRequest.trim()} onClick={() => void copyPromptTemplate('simple')}><CopyIcon size={18} />{copiedTemplate === 'simple' ? 'コピーしました' : '依頼文をコピー'}</button>
               </article>
               <article className="create-set__ai-method" hidden={aiMethod !== 'material'}>
+                <label className="create-set__field"><span>参照資料（任意）</span><select value={referenceMaterialId} onChange={event => setReferenceMaterialId(event.target.value)}><option value="">紐づけない</option>{registeredMaterials.map(({ setTitle, material }) => <option key={material.id} value={material.id}>{setTitle} · {material.title}</option>)}</select></label>
+                <small>問題セットの「資料」でPDFを登録すると、問題から参照ページを開けます。同じPDFをAIに添付してください。</small>
+                {materialsError ? <p role="alert">{materialsError}</p> : null}
                 <PdfPromptFlow pdfLabel="資料PDF" copied={copiedTemplate === 'material'} onCopy={() => void copyPromptTemplate('material')} onNext={() => setAiStep(2)} />
               </article>
               <article className="create-set__ai-method" hidden={aiMethod !== 'past-exam'}>
@@ -799,6 +816,7 @@ function createDraftsFromProblemSet(data: AppData, problemSet?: ProblemSet): Bul
         questionImageIds: question.questionImageIds,
       category: question.category,
       sourcePage: question.sourcePage,
+      materialReferences: question.materialReferences,
       difficulty: question.difficulty,
       issues: [],
     }));
@@ -837,7 +855,7 @@ function PdfPromptFlow({ pdfLabel, copied, onCopy, onNext }: { pdfLabel: string;
 function parseGeneratedContent(text: string) {
   const jsonResult = validateImportJson(text);
   if (jsonResult.ok) {
-    const questions = jsonResult.value.questions.map((question, index) => refreshIssues(normalizeDraftAnswers({ id: `generated-${index + 1}`, question: question.question, choices: [...question.choices], distractors: question.distractors, shuffleChoices: question.shuffleChoices, answerIndex: question.answerIndex ?? question.answerIndexes?.[0] ?? null, answerIndexes: question.answerIndexes?.length ? [...question.answerIndexes] : undefined, explanation: question.explanation, detailedExplanation: question.detailedExplanation ?? '', category: question.category ?? '', sourcePage: question.sourcePage ?? question.reference ?? '', difficulty: question.difficulty, issues: [] })));
+    const questions = jsonResult.value.questions.map((question, index) => refreshIssues(normalizeDraftAnswers({ id: `generated-${index + 1}`, question: question.question, choices: [...question.choices], distractors: question.distractors, shuffleChoices: question.shuffleChoices, answerIndex: question.answerIndex ?? question.answerIndexes?.[0] ?? null, answerIndexes: question.answerIndexes?.length ? [...question.answerIndexes] : undefined, explanation: question.explanation, detailedExplanation: question.detailedExplanation ?? '', category: question.category ?? '', sourcePage: question.sourcePage ?? question.reference ?? '', materialReferences: question.materialReferences, difficulty: question.difficulty, issues: [] })));
     return { questions };
   }
   return parseBulkQuestionText(text);

@@ -36,6 +36,7 @@ interface ProblemSetDetailScreenProps {
   onCopy?: () => void;
   onOpenProblemList: () => void;
   onOpenNoteList: () => void;
+  onOpenMaterials?: () => void;
   onShare: () => void;
   onStartSession: (params: {
     questions: Question[];
@@ -55,6 +56,7 @@ export function ProblemSetDetailScreen({
   onCopy,
   onOpenProblemList,
   onOpenNoteList,
+  onOpenMaterials,
   onShare,
   onStartSession,
 }: ProblemSetDetailScreenProps) {
@@ -223,6 +225,7 @@ export function ProblemSetDetailScreen({
 
             <section className="quiz-detail__body">
               <div className="quiz-detail__entry-grid">
+                {onOpenMaterials ? <button type="button" className="quiz-detail__list-entry" onClick={onOpenMaterials}><strong>資料</strong><b aria-hidden="true">›</b></button> : null}
                 <button type="button" className="quiz-detail__list-entry" onClick={onOpenProblemList}>
                   <span>
                     <strong>{'\u554f\u984c\u4e00\u89a7'}</strong>

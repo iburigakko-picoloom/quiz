@@ -50,7 +50,10 @@ export interface DetailedAnswer {
   updatedAt: string;
 }
 
+export interface MaterialReference { materialId: string; pageId: string }
+
 export interface Question {
+  materialReferences?: MaterialReference[];
   distractors?: string[];
   shuffleChoices?: boolean;
   id: string;
@@ -98,6 +101,7 @@ export interface AnswerLog {
 }
 
 export interface ImportedQuestion {
+  materialReferences?: MaterialReference[];
   distractors?: string[];
   shuffleChoices?: boolean;
   id?: string;
