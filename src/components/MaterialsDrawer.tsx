@@ -10,7 +10,7 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
 }>(function MaterialsDrawer({ problemSetId, setIds, questionId, references, open, onOpenChange, onLinkPage, launcherTarget }, ref) {
   const panel = useRef<CategoryNotePanelHandle>(null);
   const [error, setError] = useState('');
-  const [reference, setReference] = useState<MaterialReference>();
+  const [reference, setReference] = useState<MaterialReference | undefined>(references?.[0]);
   const [keepPanel, setKeepPanel] = useState(open);
   const [referenceRequest, setReferenceRequest] = useState(0);
   const followedQuestion = useRef('');
@@ -20,7 +20,6 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
   const suppressClick = useRef(false);
   const firstReference = references?.[0];
   useEffect(() => {
-    if (!open) return;
     const targetKey = `${questionId}/${firstReference?.materialId ?? ''}/${firstReference?.pageId ?? ''}`;
     if (followedQuestion.current === targetKey) return;
     let cancelled = false;
@@ -77,7 +76,7 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
     setDragReveal(null);
   };
   return <>
-    {launcherTarget ? createPortal(<button className="materials-mobile-launcher" type="button" aria-label="資料を開く" aria-expanded={open} onClick={() => void openAt()}><span aria-hidden="true">▤</span> 資料</button>, launcherTarget) : null}
+    {launcherTarget && !open ? createPortal(<button className="materials-mobile-launcher" type="button" aria-label="資料を開く" aria-expanded={open} onClick={() => void openAt()}><span aria-hidden="true">▤</span> 資料</button>, launcherTarget) : null}
     {createPortal(<><button type="button" className={`materials-edge-tab${open ? ' is-open' : ''}`} aria-label={open ? '資料を閉じる' : '資料を開く'} aria-expanded={open}
       onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={event => void endDrag(event)} onPointerCancel={event => void endDrag(event)}
       onLostPointerCapture={() => { if (drag.current) { drag.current = null; setDragReveal(null); } }}

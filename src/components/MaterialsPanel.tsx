@@ -19,6 +19,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const contentRef = useRef<HTMLDivElement>(null);
   const transitionLayer = useRef<HTMLDivElement>(null);
   const transitionDirection = useRef(1);
+  const transitionDistance = useRef(1);
   const transitionVersion = useRef(0);
   const stopAnimation = useRef<(() => void) | null>(null);
   const [transitioning, setTransitioning] = useState(false);
@@ -40,13 +41,14 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     transitionLayer.current?.replaceChildren(); setTransitioning(false);
     panel.current?.resetPageSlide?.();
   }, []);
-  const captureTransition = (direction = 1) => {
+  const captureTransition = (direction = 1, distance = 1) => {
     const area = contentRef.current?.querySelector<HTMLElement>('.category-note-canvas-area');
     const layer = transitionLayer.current;
     if (!area || !layer) return;
     stopAnimation.current?.(); stopAnimation.current = null;
     setTransitioning(true);
     transitionVersion.current++; transitionDirection.current = direction;
+    transitionDistance.current = Math.max(1, distance);
     layer.classList.toggle('category-note-panel--material', !!area.closest('.category-note-panel--material'));
     const clone = area.cloneNode(true) as HTMLElement;
     const originalCanvas = area.querySelector('canvas');
@@ -69,6 +71,30 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     const canvas = incoming.querySelector('canvas');
     if (canvas) copy.querySelector('canvas')?.getContext('2d')?.drawImage(canvas, 0, 0);
     rail.children[transitionDirection.current > 0 ? 2 : 0]?.replaceChildren(copy);
+    let destination = transitionDirection.current > 0 ? -66.666667 : 0;
+    const fastJump = transitionDistance.current > 1;
+    if (fastJump) {
+      // A few lightweight paper silhouettes convey skipped pages without
+      // rendering every PDF page or delaying arrival at a distant reference.
+      const source = rail.children[1].cloneNode(true) as HTMLElement;
+      const originalCanvas = rail.children[1].querySelector('canvas');
+      if (originalCanvas) source.querySelector('canvas')?.getContext('2d')?.drawImage(originalCanvas, 0, 0);
+      const target = source.cloneNode(false) as HTMLElement; target.append(copy);
+      const count = Math.min(3, transitionDistance.current - 1);
+      const papers = Array.from({ length: count }, () => {
+        const slot = source.cloneNode(false) as HTMLElement;
+        const paper = document.createElement('div'); paper.className = 'category-note-page materials-rushing-page';
+        paper.style.aspectRatio = incoming.style.aspectRatio || '210 / 297';
+        slot.append(paper); return slot;
+      });
+      const slots = transitionDirection.current > 0 ? [source, ...papers, target] : [target, ...papers, source];
+      rail.replaceChildren(...slots);
+      rail.style.width = `${slots.length * 100}%`;
+      rail.style.gridTemplateColumns = `repeat(${slots.length}, minmax(0, 1fr))`;
+      const end = -(slots.length - 1) / slots.length * 100;
+      rail.style.transform = `translate3d(${transitionDirection.current > 0 ? 0 : end}%,0,0)`;
+      destination = transitionDirection.current > 0 ? end : 0;
+    }
     // Same three-slot rail and 220ms easing as the original notebook. Continue
     // from the swipe offset, then swap the already-painted centre page in place.
     let timer = 0; let frame = 0;
@@ -77,10 +103,10 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     stopAnimation.current = () => { cancelAnimationFrame(frame); window.clearTimeout(timer); rail.removeEventListener('transitionend', onEnd); };
     rail.style.transition = 'none'; void rail.offsetHeight;
     rail.addEventListener('transitionend', onEnd);
-    rail.style.transition = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
+    rail.style.transition = fastJump ? 'transform 360ms cubic-bezier(.45,0,.15,1)' : 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
     frame = requestAnimationFrame(() => {
-      rail.style.transform = transitionDirection.current > 0 ? 'translate3d(-66.666667%, 0, 0)' : 'translate3d(0, 0, 0)';
-      timer = window.setTimeout(finish, 280);
+      rail.style.transform = `translate3d(${destination}%, 0, 0)`;
+      timer = window.setTimeout(finish, fastJump ? 420 : 280);
     });
   }, [clearTransition]);
   useImperativeHandle(ref, () => ({ flush: async () => { await operation.current; await panel.current?.flush(); } }));
@@ -96,7 +122,8 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   };
   useEffect(() => {
     let cancelled = false;
-    if (!reference || reference.materialId !== displayed?.materialId || reference.pageId !== displayed?.page.id) captureTransition(reference && material?.id === reference.materialId && material.pages.findIndex(item => item.id === reference.pageId) < pageIndex ? -1 : 1);
+    const delta = reference && material?.id === reference.materialId ? material.pages.findIndex(item => item.id === reference.pageId) - pageIndex : 1;
+    if (!reference || reference.materialId !== displayed?.materialId || reference.pageId !== displayed?.page.id) captureTransition(delta < 0 ? -1 : 1, Math.abs(delta));
     setIndex(null); setError('');
     void (async () => {
       let found = await loadMaterials(setId);
