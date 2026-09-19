@@ -5,8 +5,8 @@
 .materials-panel button:disabled { opacity:.4; }
 .materials-controls { display:flex; align-items:center; flex-wrap:nowrap; gap:4px; padding:6px 8px; flex-shrink:0; border-bottom:1px solid #e2e5e9; position:relative; z-index:3; }
 .materials-controls select { min-width:0; max-width:100%; flex:1; width:0; padding:8px 4px; background:white; border:0; border-radius:6px; font:inherit; font-size:14px; text-overflow:ellipsis; min-height:40px; }
-.materials-pagination { display:flex; align-items:center; flex:0 0 auto; }
-.materials-pagination select { flex:none; width:68px; text-align:center; }
+.materials-pagination { display:flex; align-items:center; flex:0 0 auto; border:1px solid #bdcbdc; border-radius:9px; overflow:hidden; }
+.materials-pagination select { flex:none; width:58px; text-align:center; border-radius:0; border-left:1px solid #dde4ec; border-right:1px solid #dde4ec; }
 .materials-controls .materials-pagination button,.materials-controls .materials-close { padding:4px; min-width:32px; border:0; background:transparent; font-size:25px; }
 .materials-menu { flex:0 0 36px; font-size:14px; }
 .materials-menu > summary { list-style:none; cursor:pointer; min-height:40px; display:flex; align-items:center; justify-content:center; color:#305894; }
@@ -49,7 +49,6 @@
 .materials-mobile-launcher { display:inline-flex; align-items:center; gap:4px; min-height:30px; padding:3px 9px; border:1px solid #d5dce4; border-radius:8px; background:white; color:#305894; font:inherit; font-size:12px; line-height:1.2; }
 .materials-mobile-launcher > span { font-size:16px; }
 .materials-edge-tab { display:none; }
-.materials-link-reference { flex-shrink:0; padding:8px 12px; background:white; color:#305894; border:0; border-bottom:1px solid #e2e5e9; text-align:left; font:inherit; font-size:13px; cursor:pointer; }
 .reference-link-dialog { width:min(560px,calc(100vw - 24px)); max-height:85dvh; padding:0; border:1px solid #dde2e8; border-radius:16px; color:#173042; box-sizing:border-box; }
 .reference-link-dialog[open] { display:flex; flex-direction:column; }
 .reference-link-dialog::backdrop { background:#17304266; }
