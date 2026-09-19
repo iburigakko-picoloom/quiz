@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { MaterialReference } from '../types';
-import { CategoryNotePanel, type CategoryNotePanelHandle } from './CategoryNoteDrawer';
+import { CategoryNotePanel, type CategoryNotePanelHandle, type NoteToolSettings } from './CategoryNoteDrawer';
 import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf } from '../utils/materialStorage';
 import { MaterialPreviewCache, type MaterialPagePreview } from '../utils/materialPreview';
 import { createId } from '../utils/id';
@@ -26,6 +26,8 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const previews = useRef(new MaterialPreviewCache());
   const [neighbours, setNeighbours] = useState<{ pageId: string; previous?: MaterialPagePreview; next?: MaterialPagePreview }>({ pageId: '' });
   const panel = useRef<CategoryNotePanelHandle>(null);
+  const tools = useRef<NoteToolSettings | undefined>(undefined);
+  const rememberTools = useCallback((settings: NoteToolSettings) => { tools.current = settings; }, []);
   const operation = useRef<Promise<void>>(Promise.resolve());
   const lock = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -97,10 +99,13 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     }
     // Same three-slot rail and 220ms easing as the original notebook. Continue
     // from the swipe offset, then swap the already-painted centre page in place.
-    let timer = 0; let frame = 0;
-    const finish = () => { if (version === transitionVersion.current) clearTransition(); };
+    let timer = 0; let frame = 0; let settleFrame = 0;
+    const finish = () => {
+      if (settleFrame) return;
+      settleFrame = requestAnimationFrame(() => { settleFrame = requestAnimationFrame(() => { if (version === transitionVersion.current) clearTransition(); }); });
+    };
     const onEnd = (event: TransitionEvent) => { if (event.target === rail && event.propertyName === 'transform') finish(); };
-    stopAnimation.current = () => { cancelAnimationFrame(frame); window.clearTimeout(timer); rail.removeEventListener('transitionend', onEnd); };
+    stopAnimation.current = () => { cancelAnimationFrame(frame); cancelAnimationFrame(settleFrame); window.clearTimeout(timer); rail.removeEventListener('transitionend', onEnd); };
     rail.style.transition = 'none'; void rail.offsetHeight;
     rail.addEventListener('transitionend', onEnd);
     rail.style.transition = fastJump ? 'transform 360ms cubic-bezier(.45,0,.15,1)' : 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
@@ -152,7 +157,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   }, [material?.id, page?.id, page?.pdfPage, ownerId]);
 
   useEffect(() => {
-    if (!displayed || !material || displayed.materialId !== material.id) return;
+    if (transitioning || !displayed || !material || displayed.materialId !== material.id) return;
     let disposed = false;
     const current = material.pages.findIndex(item => item.id === displayed.page.id);
     setNeighbours({ pageId: displayed.page.id });
@@ -168,7 +173,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       }
     })();
     return () => { disposed = true; };
-  }, [displayed?.page.id, displayed?.materialId, material?.pages, ownerId]);
+  }, [displayed?.page.id, displayed?.materialId, material?.pages, ownerId, transitioning]);
 
   const update = async (nextMaterial: StudyMaterial) => {
     if (!index) return;
@@ -222,7 +227,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     </div>
     {error ? <p className="materials-error" role="alert">{error}</p> : null}
     <div ref={contentRef} className={`materials-content${pagePending || transitioning ? ' is-page-loading' : ''}`} aria-busy={pagePending || transitioning}>
-      {displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? 'PDFを読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <button disabled={!index || busy} onClick={() => fileInput.current?.click()}>PDFを追加</button> : null}<small>1ファイル50MB・500ページまで。PDFは専用の非公開ストレージに同期します。</small></div>}
+      {displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? 'PDFを読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <button disabled={!index || busy} onClick={() => fileInput.current?.click()}>PDFを追加</button> : null}<small>1ファイル50MB・500ページまで。PDFは専用の非公開ストレージに同期します。</small></div>}
       <div ref={transitionLayer} className="materials-transition-cover" aria-hidden="true" inert />
     </div>
   </section>;

@@ -34,7 +34,7 @@ const NOTE_COLORS = {
 } as const;
 const PEN_WIDTHS = [1, 2, 3] as const;
 const MARKER_COLORS = { yellow: '#facc15', green: '#22c55e', blue: '#38bdf8' } as const;
-const MARKER_WIDTHS = [10, 25, 30] as const;
+const MARKER_WIDTHS = [10, 15, 30] as const;
 const ERASER_WIDTHS = [10, 15, 30] as const;
 const OVERSCROLL_LIMIT = 36;
 const PAN_EDGE_BREATHING_ROOM = 18;
@@ -44,6 +44,7 @@ type NoteColorKey = keyof typeof NOTE_COLORS;
 type PenSize = (typeof PEN_WIDTHS)[number];
 type EraserSize = (typeof ERASER_WIDTHS)[number];
 type NoteTool = 'pen' | 'eraser' | 'marker';
+export interface NoteToolSettings { colorKey: NoteColorKey; penSize: PenSize; eraserSize: EraserSize; tool: NoteTool; markerColor: keyof typeof MARKER_COLORS; markerSize: number }
 type NoteLoadState = 'loading' | 'ready' | 'error';
 type NotePaintState = 'loading' | 'ready' | 'error';
 type NoteSaveQueueState = 'idle' | 'pending' | 'saved' | 'error';
@@ -63,6 +64,8 @@ type CategoryNote = {
 };
 
 interface CategoryNoteProps {
+  initialTools?: NoteToolSettings;
+  onToolsChange?: (settings: NoteToolSettings) => void;
   backgroundUrl?: string;
   pageAspect?: number;
   singlePage?: boolean;
@@ -227,7 +230,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, pageNavigation, onReady, onUnavailable },
+  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -277,12 +280,13 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 
   const [note, setNote] = useState<CategoryNote>(() => createEmptyNote(problemSetId ?? '', normalizedCategory));
   const [pageIndex, setPageIndex] = useState(0);
-  const [colorKey, setColorKey] = useState<NoteColorKey>('black');
-  const [penSize, setPenSize] = useState<PenSize>(1);
-  const [eraserSize, setEraserSize] = useState<EraserSize>(10);
-  const [tool, setTool] = useState<NoteTool>('pen');
-  const [markerColor, setMarkerColor] = useState<keyof typeof MARKER_COLORS>('yellow');
-  const [markerSize, setMarkerSize] = useState<number>(25);
+  const [colorKey, setColorKey] = useState<NoteColorKey>(initialTools?.colorKey ?? 'black');
+  const [penSize, setPenSize] = useState<PenSize>(initialTools?.penSize ?? 1);
+  const [eraserSize, setEraserSize] = useState<EraserSize>(initialTools?.eraserSize ?? 10);
+  const [tool, setTool] = useState<NoteTool>(initialTools?.tool ?? 'pen');
+  const [markerColor, setMarkerColor] = useState<keyof typeof MARKER_COLORS>(initialTools?.markerColor ?? 'yellow');
+  const [markerSize, setMarkerSize] = useState<number>(initialTools?.markerSize ?? 15);
+  useEffect(() => { onToolsChange?.({ colorKey, penSize, eraserSize, tool, markerColor, markerSize }); }, [colorKey, penSize, eraserSize, tool, markerColor, markerSize, onToolsChange]);
   const [toolOptions, setToolOptions] = useState<'color' | 'width' | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
