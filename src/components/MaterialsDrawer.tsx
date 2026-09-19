@@ -1,15 +1,19 @@
 import { forwardRef, type PointerEvent, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { MaterialReference } from '../types';
+import type { MaterialReference, Question } from '../types';
+import type { ReferenceLink } from '../utils/referenceLinking';
+import { ReferenceLinkDialog } from './ReferenceLinkDialog';
 import { MaterialsPanel } from './MaterialsPanel';
 import type { CategoryNoteDrawerHandle, CategoryNotePanelHandle } from './CategoryNoteDrawer';
 
 export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
   problemSetId: string; setIds: string[]; questionId: string; references?: MaterialReference[]; open: boolean; onOpenChange: (open: boolean) => void; launcherTarget?: HTMLElement | null;
   onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void>;
-}>(function MaterialsDrawer({ problemSetId, setIds, questionId, references, open, onOpenChange, onLinkPage, launcherTarget }, ref) {
+  questions?: Question[]; onLinkBatch?: (links: ReferenceLink[]) => Promise<void>;
+}>(function MaterialsDrawer({ problemSetId, setIds, questionId, references, open, onOpenChange, onLinkPage, onLinkBatch, questions = [], launcherTarget }, ref) {
   const panel = useRef<CategoryNotePanelHandle>(null);
   const [error, setError] = useState('');
+  const [linkDialog, setLinkDialog] = useState(false);
   const [reference, setReference] = useState<MaterialReference | undefined>(references?.[0]);
   const [keepPanel, setKeepPanel] = useState(open);
   const [referenceRequest, setReferenceRequest] = useState(0);
@@ -76,6 +80,7 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
     setDragReveal(null);
   };
   return <>
+    {linkDialog && onLinkBatch ? <ReferenceLinkDialog setIds={setIds} questions={questions} onSave={onLinkBatch} onClose={() => setLinkDialog(false)} /> : null}
     {launcherTarget && !open ? createPortal(<button className="materials-mobile-launcher" type="button" aria-label="資料を開く" aria-expanded={open} onClick={() => void openAt()}><span aria-hidden="true">▤</span> 資料</button>, launcherTarget) : null}
     {createPortal(<><button type="button" className={`materials-edge-tab${open ? ' is-open' : ''}`} aria-label={open ? '資料を閉じる' : '資料を開く'} aria-expanded={open}
       onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={event => void endDrag(event)} onPointerCancel={event => void endDrag(event)}
@@ -83,6 +88,7 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
       onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } if (open) void close(); else void openAt(); }}><span aria-hidden="true">{open ? '›' : '‹'}</span><span className="materials-edge-tab__label">資料</span></button>
     <aside ref={drawer} className={`materials-drawer${open ? ' is-open' : ''}${dragReveal !== null ? ' is-dragging' : ''}`} style={dragReveal !== null ? { transform: `translateX(calc(100% - ${dragReveal}px))` } : undefined} aria-label="資料ビューア" aria-hidden={!open} inert={!open}>
       {error ? <p role="alert">{error}</p> : null}
+      {onLinkBatch && <button className="materials-link-reference" onClick={() => void (async () => { try { await panel.current?.flush(); setLinkDialog(true); } catch { setError('書き込みを保存できません。'); } })()}>{references?.length ? '参照をまとめて設定' : '参照未登録 · Referenceから紐付け'}</button>}
       {open || keepPanel ? <MaterialsPanel ref={panel} setId={problemSetId} setIds={setIds} reference={reference} referenceRequest={referenceRequest} questionReferences={references} onOpenReference={target => void openAt(target)} onLinkPage={onLinkPage} onClose={() => void close()} /> : null}
     </aside></>, document.body)}
   </>;

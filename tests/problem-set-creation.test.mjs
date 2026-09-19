@@ -1,5 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { referencePage, referenceCandidates, applyReferenceLinks } from '../src/utils/referenceLinking.ts';
+
+test('Reference page candidates are conservative and retain stable PDF page IDs', () => {
+  for (const text of ['資料 p.5', '資料 P 5', '第5ページ', '５頁', '5p', 'Page 5', 'ページ5']) assert.equal(referencePage(text), 5);
+  for (const text of ['2025 Q5', 'p.5-7', 'p.5, 7', 'p.5 / p.7', '5', 'p.0']) assert.equal(referencePage(text), null);
+  const q = { id: 'q', setId: 's', sourcePage: '資料 p.5', question: 'keep', explanation: 'keep' };
+  const material = { id: 'm', pages: [{ id: 'blank', kind: 'blank' }, { id: 'page7', kind: 'pdf', pdfPage: 7 }] };
+  assert.equal(referenceCandidates([q], material, 2)[0].page.id, 'page7');
+  assert.equal(referenceCandidates([q], material, 0)[0].page, undefined);
+  const data = { questions: [q], progress: ['keep'] };
+  const links = [{ questionId: 'q', sourcePage: q.sourcePage, reference: { materialId: 'm', pageId: 'page7' } }];
+  const saved = applyReferenceLinks(data, 's', links, 'today');
+  assert.equal(saved.progress, data.progress);
+  assert.equal(saved.questions[0].explanation, 'keep');
+  assert.deepEqual(saved.questions[0].materialReferences, [links[0].reference]);
+  assert.throws(() => applyReferenceLinks(saved, 's', links, 'today'));
+  assert.throws(() => applyReferenceLinks(data, 'other', links, 'today'));
+  assert.throws(() => applyReferenceLinks(data, 's', [{ ...links[0], sourcePage: 'changed' }], 'today'));
+});
 import { insertMaterialPage, moveMaterialPage, normalizeMaterialReferences, materialReferencePrompt, validMaterialRecord, linkQuestionMaterialPage } from '../src/utils/materialModel.ts';
 
 test('binding a material page preserves question content, progress and other references', () => {

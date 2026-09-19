@@ -6,6 +6,7 @@ import type { AppData, Question, QuizResult, MaterialReference } from '../types'
 import { BackButton } from '../components/BackButton';
 import { type CategoryNoteDrawerHandle } from '../components/CategoryNoteDrawer';
 import { MaterialsDrawer } from '../components/MaterialsDrawer';
+import type { ReferenceLink } from '../utils/referenceLinking';
 import { runAfterSuccessfulNoteFlush } from '../components/noteExitGuard';
 import { Layout } from '../components/Layout';
 import { MissingResourceState } from '../components/MissingResourceState';
@@ -48,10 +49,11 @@ interface QuizRunnerProps {
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
   onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
+  onLinkMaterialBatch?: (setId: string, links: ReferenceLink[]) => Promise<void>;
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onLinkMaterialPage, onFinish }: QuizRunnerProps) {
+export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
   const [currentIndex, setCurrentIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(questions.length - 1, 0)));
   const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
@@ -368,6 +370,8 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             problemSetId={setId}
             setIds={data.problemSets.map(set => set.id)}
             questionId={currentQuestion.id}
+            questions={data.questions.filter(q => q.setId === setId)}
+            onLinkBatch={onLinkMaterialBatch ? links => onLinkMaterialBatch(setId, links) : undefined}
             references={(data.questions.find(question => question.id === currentQuestion.id) ?? currentQuestion).materialReferences}
             onLinkPage={onLinkMaterialPage ? (reference, linked) => onLinkMaterialPage(currentQuestion.id, reference, linked) : undefined}
             launcherTarget={materialLauncherTarget}
