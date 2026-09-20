@@ -359,6 +359,13 @@ test('payload validation enforces the same byte and key limits as the server bef
     indexedDbNotes: {},
   };
   assert.equal(sync.validateSyncPayload(validPayload).ok, true);
+  assert.equal(sync.MAX_SYNC_PAYLOAD_BYTES, 32 * 1024 * 1024);
+  const expandedPayload = {
+    ...validPayload,
+    localStorage: { ...validPayload.localStorage, 'quizMake:capacity-test': 'x'.repeat(9 * 1024 * 1024) },
+  };
+  assert.equal(sync.validateSyncPayload(expandedPayload).ok, true, 'existing data above the old 8 MiB limit stays intact');
+  assert.equal(sync.validateSyncPayload(expandedPayload, { wire: true }).ok, true);
 
   const oversized = {
     ...validPayload,
@@ -369,7 +376,10 @@ test('payload validation enforces the same byte and key limits as the server bef
   };
   const oversizedResult = sync.validateSyncPayload(oversized);
   assert.equal(oversizedResult.ok, false);
-  if (!oversizedResult.ok) assert.equal(oversizedResult.code, 'payload_too_large');
+  if (!oversizedResult.ok) {
+    assert.equal(oversizedResult.code, 'payload_too_large');
+    assert.match(oversizedResult.error, /32 MB/);
+  }
 
   const tooManyKeys = Object.fromEntries(Array.from(
     { length: sync.MAX_SYNC_STORAGE_KEYS },
@@ -384,7 +394,7 @@ test('payload validation enforces the same byte and key limits as the server bef
 test('PDF sync separates bytes, skips unchanged uploads, and restores portable local data', async () => {
   const materials = await vite.ssrLoadModule('/src/utils/materialCloud.ts');
   const key = 'quizMake:notes:set:__material_pdf_pdf1';
-  const bytes = new Uint8Array(7 * 1024 * 1024); bytes.set(new TextEncoder().encode('%PDF-1.7'));
+  const bytes = new Uint8Array(25 * 1024 * 1024); bytes.set(new TextEncoder().encode('%PDF-1.7'));
   const file = { kind: 'quiz-material-file', version: 1, materialId: 'pdf1', updatedAt, dataUrl: 'data:application/pdf;base64,' + Buffer.from(bytes).toString('base64') };
   const payload = { version: 1, updatedAt, localStorage: { [storage.APP_DATA_STORAGE_KEY]: JSON.stringify(storage.createEmptyAppData()) }, indexedDbNotes: { [key]: JSON.stringify(file) } };
   const original = payload.indexedDbNotes[key];
@@ -394,7 +404,7 @@ test('PDF sync separates bytes, skips unchanged uploads, and restores portable l
     upload: async (file, bytes) => { uploaded++; remoteFiles.set(file.path, bytes); },
     download: async file => remoteFiles.get(file.path),
   };
-  assert.equal(sync.validateSyncPayload(payload).ok, true, 'PDF bytes no longer consume the 8MB metadata budget');
+  assert.equal(sync.validateSyncPayload(payload).ok, true, 'PDF bytes do not consume the 32 MiB snapshot budget');
   assert.equal(sync.validateSyncPayload(payload, { wire: true }).ok, false, 'oversized inline RPC payload remains forbidden');
   const wire = await materials.prepareMaterialUpload(payload, transport);
   assert.equal(sync.validateSyncPayload(wire, { wire: true }).ok, true);

@@ -204,7 +204,9 @@ test('sync network access is timeout-bound and never falls back to direct table 
   assert.equal((syncServiceSource.match(/\bfetch\s*\(/gu) ?? []).length, 1);
   assert.match(syncServiceSource, /const\s+REMOTE_REQUEST_TIMEOUT_MS\s*=\s*15_000/);
   assert.match(syncServiceSource, /async\s+function\s+fetchWithTimeout[\s\S]*?new\s+AbortController\(\)/);
-  assert.match(syncServiceSource, /window\.setTimeout\(\(\)\s*=>\s*controller\.abort\(\),\s*REMOTE_REQUEST_TIMEOUT_MS\)/);
+  assert.match(syncServiceSource, /timeoutMs = REMOTE_REQUEST_TIMEOUT_MS/);
+  assert.match(syncServiceSource, /const DATA_TRANSFER_TIMEOUT_MS = 60_000/);
+  assert.match(syncServiceSource, /window\.setTimeout\(\(\)\s*=>\s*controller\.abort\(\),\s*timeoutMs\)/);
   assert.match(syncServiceSource, /fetch\(input,\s*\{\s*\.\.\.init,\s*signal:\s*controller\.signal\s*\}\)/);
   assert.match(syncServiceSource, /finally\s*\{\s*window\.clearTimeout\(timeout\)/);
   assert.ok((syncServiceSource.match(/fetchWithTimeout\(`/gu) ?? []).length >= 5);

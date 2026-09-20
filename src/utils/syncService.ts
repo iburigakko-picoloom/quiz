@@ -147,7 +147,8 @@ export type SyncEnvironmentStatus = {
 export const SYNC_ID_STORAGE_KEY = 'quizMake:sync:id';
 const AUTO_SYNC_ENABLED_KEY = 'quizMake:sync:autoEnabled';
 export const SYNC_BACKUP_PREFIX = 'quizMake:sync:backup:';
-export const MAX_SYNC_PAYLOAD_BYTES = 8 * 1024 * 1024;
+export const MAX_SYNC_PAYLOAD_BYTES = 32 * 1024 * 1024;
+const SYNC_PAYLOAD_TOO_LARGE_MESSAGE = '同期データが上限32 MBを超えています。端末のデータは変更していません。「JSONバックアップを保存」で控えを保存してください。';
 export const MAX_SYNC_STORAGE_KEYS = 10_000;
 const SUPABASE_READ_RPC = 'quiz_sync_read';
 const SUPABASE_META_RPC = 'quiz_sync_meta';
@@ -161,6 +162,7 @@ const LEGACY_UPGRADE_PENDING_KEY = 'quizMake:sync:legacyUpgradePending';
 const LEGACY_UPGRADE_COMPLETED_KEY = 'quizMake:sync:legacyUpgradeCompleted';
 const DATA_IMPORT_IN_PROGRESS_KEY = 'quizMake:sync:dataImportInProgress';
 const REMOTE_REQUEST_TIMEOUT_MS = 15_000;
+const DATA_TRANSFER_TIMEOUT_MS = 60_000;
 let syncDataOperationQueue: Promise<void> = Promise.resolve();
 const recoveryOnlyPayloads = new WeakSet<object>();
 type SyncAccessTokenProvider = () => Promise<CloudAccessTokenResult>;
@@ -768,7 +770,7 @@ async function uploadSyncDataUnlocked(
         p_expected_updated_at: options.expectedRemoteUpdatedAt ?? null,
         p_force: options.force ?? false,
       }),
-    });
+    }, DATA_TRANSFER_TIMEOUT_MS);
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
 
     if (!response.ok && await isMissingSyncRpc(response)) {
@@ -782,7 +784,7 @@ async function uploadSyncDataUnlocked(
         return { ok: false, code: 'rate_limited', error: '操作回数が多すぎます。1分ほど待ってからもう一度お試しください。' };
       }
       if (response.status === 413) {
-        return { ok: false, code: 'payload_too_large', error: '同期データが大きすぎます（上限8 MB）。大きなノート画像を整理してから再試行してください。' };
+        return { ok: false, code: 'payload_too_large', error: SYNC_PAYLOAD_TOO_LARGE_MESSAGE };
       }
       return {
         ok: false,
@@ -833,7 +835,7 @@ export async function downloadSyncData(syncId: string): Promise<SyncResult<Remot
       method: 'POST',
       headers: authenticatedHeaders.value,
       body: JSON.stringify({ p_sync_id: normalizedSyncId }),
-    });
+    }, DATA_TRANSFER_TIMEOUT_MS);
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
 
     if (!response.ok && await isMissingSyncRpc(response)) return { ok: false, error: '安全な同期RPCが見つかりません。Supabaseへ最新の同期マイグレーションを適用してください。' };
@@ -1062,7 +1064,7 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
     return {
       ok: false,
       code: 'payload_too_large',
-      error: '同期データが大きすぎます（上限8 MB）。大きなノート画像を整理してから再試行してください。',
+      error: SYNC_PAYLOAD_TOO_LARGE_MESSAGE,
     };
   }
   if (value.version !== 1) return { ok: false, error: '同期データのversionに対応していません。' };
@@ -1548,7 +1550,7 @@ function syncRpcFailureFromRow(value: unknown, operation: SyncRpcOperation): Syn
     return {
       ok: false,
       code: 'payload_too_large',
-      error: '同期データが大きすぎます（上限8 MB）。大きなノート画像を整理してから再試行してください。',
+      error: SYNC_PAYLOAD_TOO_LARGE_MESSAGE,
     };
   }
   if (code === 'quota_exceeded') {
@@ -1602,7 +1604,7 @@ async function syncRpcHttpError(response: Response, fallback: string): Promise<s
     return '操作回数が多すぎます。1分ほど待ってからもう一度お試しください。';
   }
   if (response.status === 413) {
-    return '同期データが大きすぎます（上限8 MB）。大きなノート画像を整理してから再試行してください。';
+    return SYNC_PAYLOAD_TOO_LARGE_MESSAGE;
   }
   return details.message ? `${fallback} ${details.message}` : fallback;
 }
@@ -1717,9 +1719,9 @@ function createSupabaseHeaders(
   };
 }
 
-async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
+async function fetchWithTimeout(input: string, init: RequestInit, timeoutMs = REMOTE_REQUEST_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), REMOTE_REQUEST_TIMEOUT_MS);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(input, { ...init, signal: controller.signal });
     const body = await response.arrayBuffer();

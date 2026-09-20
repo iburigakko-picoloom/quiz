@@ -1049,14 +1049,14 @@ begin
     raise exception 'legacy ownership transfer bypassed actor quota or partially rotated';
   end if;
 
-  -- Payload over 8 MiB is rejected as an expected result row, not an error.
+  -- Payload over 32 MiB is rejected as an expected result row, not an error.
   select response.result_code
     into result_code
     from public.quiz_sync_upsert_v2(
       sync_b,
       pg_catalog.jsonb_build_object(
         'version', 1,
-        'localStorage', pg_catalog.jsonb_build_object('oversized', pg_catalog.repeat('x', 8388608))
+        'localStorage', pg_catalog.jsonb_build_object('oversized', pg_catalog.repeat('x', 33554432))
       ),
       clock_timestamp(),
       null,
