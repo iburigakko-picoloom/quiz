@@ -15,6 +15,7 @@ interface Props {
 export function LibraryItemActions({ data, kind, id, onSave, onDelete, onAddSet }: Props) {
   const [open, setOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const backdropPressed = useRef(false);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (open && dialog && !dialog.open) dialog.showModal();
@@ -48,7 +49,17 @@ export function LibraryItemActions({ data, kind, id, onSave, onDelete, onAddSet 
   };
   return <div className="library-actions">
     <button type="button" className="library-actions__trigger" aria-label={`${folder?.name ?? set?.title ?? ''}の操作`} aria-haspopup="dialog" onClick={() => { setMode(null); setError(''); setOpen(true); }}>…</button>
-    {createPortal(<dialog ref={dialogRef} className="library-actions__body library-actions__dialog" aria-label={`${folder?.name ?? set?.title ?? ''}の操作`} onCancel={(event) => { if (busy) event.preventDefault(); }} onClose={() => setOpen(false)}>
+    {createPortal(<dialog ref={dialogRef} className="library-actions__body library-actions__dialog" aria-label={`${folder?.name ?? set?.title ?? ''}の操作`} onCancel={(event) => { if (busy) event.preventDefault(); }} onClose={() => setOpen(false)}
+      onPointerDown={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        backdropPressed.current = event.target === event.currentTarget && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
+      }}
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const outside = event.target === event.currentTarget && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom);
+        if (backdropPressed.current && outside && !busy && !mode) setOpen(false);
+        backdropPressed.current = false;
+      }}>
       {mode ? <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <label>{mode === 'rename' ? '名前' : '移動先'}</label>
         {mode === 'rename' ? <input aria-label="名前" value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} autoFocus />
