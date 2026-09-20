@@ -8,9 +8,14 @@ test('public and multiple group destinations can be selected without removing ex
   assert.match(ui, /公開先（複数選択可）/);
   assert.match(ui, /groupIds: target.groupIds, addDestinations: true/);
   assert.match(ui, /!addTarget.public && !addTarget.groupIds.length/);
-  assert.match(ui, /groups.length \? <fieldset><legend>グループにも公開/);
+  assert.match(ui, /community-share-groups/);
+  assert.match(ui, /shareGroupIds.includes\(group.id\)/);
   assert.doesNotMatch(ui, /共有中のセットは公開先が変わります/);
   assert.match(read('../src/utils/cloudService.ts'), /add_destinations: params.addDestinations \?\? false/);
+  const fields = read('../src/components/PublicationDetails.tsx');
+  assert.doesNotMatch(fields, /<textarea[^>]*\brequired\b/);
+  assert.doesNotMatch(ui, /audience.trim\(\) && detailsFor\(id\).description.trim\(\) &&/);
+  assert.doesNotMatch(read('../src/utils/cloudService.ts'), /!description\b/);
 });
 
 test('RPC retains existing public and group destinations and still checks membership', () => {

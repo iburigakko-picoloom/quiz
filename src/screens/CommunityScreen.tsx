@@ -129,7 +129,7 @@ export function CommunityScreen({
     audience: data.problemSets.find((set) => set.id === id)?.audience ?? '',
     description: data.problemSets.find((set) => set.id === id)?.description ?? '',
   };
-  const detailsValid = (id: string) => Boolean(detailsFor(id).audience.trim() && detailsFor(id).description.trim() && detailsFor(id).description.length <= 300);
+  const detailsValid = (id: string) => Boolean(detailsFor(id).audience.trim() && detailsFor(id).description.trim().length <= 300);
   const renderPublicationDetails = (id: string) => <PublicationDetails value={detailsFor(id)} disabled={busy} onChange={(value) => setPublicationInfo((current) => ({ ...current, [id]: value }))} />;
   const [addResults, setAddResults] = useState<Record<string, string>>({});
   const addBusyRef = useRef(false);
@@ -334,7 +334,7 @@ export function CommunityScreen({
   };
 
   const submitShare = async () => {
-    if (!shareLocalSetId || !session || !detailsValid(shareLocalSetId)) return;
+    if (busy || !shareLocalSetId || !session || !detailsValid(shareLocalSetId)) return;
     if (shareVisibility === 'group' && shareGroupIds.length === 0) {
       setError('共有先のグループを1つ以上選んでください。');
       return;
@@ -872,23 +872,22 @@ export function CommunityScreen({
           <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setCopyTarget(null)}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !data.folders.some((folder) => folder.id === copyFolderId)} onClick={() => void confirmCopy()}>{busy ? '取り込み中…' : 'ここに取り込む'}</button></div>
         </CommunityModal> : null}
         {addTarget ? (
-          <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)}>
-            <h2>{Object.keys(addResults).length ? busy ? '公開中…' : '公開結果' : addReview ? '公開しますか？' : '公開する問題を選択'}</h2>
-            <fieldset disabled={busy || Boolean(Object.keys(addResults).length)} className="community-destinations"><legend>公開先（複数選択可）</legend>
+          <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)} publishing>
+            <h2>{Object.keys(addResults).length ? busy ? '公開中…' : '公開結果' : addReview ? '公開の設定' : '公開する問題を選択'}</h2>
+            {addReview && !Object.keys(addResults).length ? <fieldset disabled={busy} className="community-destinations"><legend>公開先（複数選択可）</legend>
               <label className="community-check"><input type="checkbox" checked={addTarget.public} onChange={(event) => setAddTarget({ ...addTarget, public: event.target.checked })} />全体（見つける）</label>
               {groups.map((group) => <label key={group.id} className="community-check"><input type="checkbox" checked={addTarget.groupIds.includes(group.id)} onChange={(event) => setAddTarget({ ...addTarget, groupIds: event.target.checked ? [...addTarget.groupIds, group.id] : addTarget.groupIds.filter((id) => id !== group.id) })} />{group.name}</label>)}
-            </fieldset>
+            </fieldset> : null}
             {addTarget.folderPath ? <p>{addTarget.folderPath.map((part) => part.name).join(' / ')}</p> : null}
             <div hidden={addReview}><PublishPicker data={data} selected={addIds} onChange={setAddIds} /></div>
-            {!addReview ? <p aria-live="polite">{addSets.length}セットを選択</p> : null}
             {addReview ? <>
               <div className="community-publication-preview">{addSets.map((set) => <section key={set.id}><strong>{set.title}</strong>{Object.keys(addResults).length ? <p>{addResults[set.id] ?? '公開待ち'}</p> : renderPublicationDetails(set.id)}</section>)}</div>
             </> : null}
             {!Object.keys(addResults).length ? <>
-              {addReview ? <p>{addTarget.public ? '全体に公開すると、誰でも閲覧・コピーできます。' : '選択したグループに追加します。'}{addSets.some((set) => set.cloudSetId) ? '既存の公開先も維持します。' : ''}</p> : null}
-              <details><summary>公開について</summary><p>フォルダ構成を含めて公開します。学習履歴は公開しません。</p></details>
+              {addReview ? <p className="community-publication-note">{addTarget.public ? '全体公開は誰でも閲覧・コピーできます。' : ''}学習履歴は共有しません。</p> : null}
             </> : null}
-            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '戻る' : 'キャンセル'}</button>{!Object.keys(addResults).length ? <button type="button" className="community-primary" disabled={busy || !addSets.length || (!addTarget.public && !addTarget.groupIds.length) || (addReview && !addSets.every((set) => detailsValid(set.id)))} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? '次へ' : '公開する'}</button> : null}</div>
+            {error ? <p role="alert" className="community-notice--error">{error}</p> : null}
+            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '戻る' : 'キャンセル'}</button>{!Object.keys(addResults).length ? <button type="button" className="community-primary" disabled={busy || !addSets.length || (addReview && ((!addTarget.public && !addTarget.groupIds.length) || !addSets.every((set) => detailsValid(set.id))))} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? `次へ（${addSets.length}セット）` : '公開する'}</button> : null}</div>
           </CommunityModal>
         ) : null}
         {loginOpen ? (
@@ -900,16 +899,22 @@ export function CommunityScreen({
         ) : null}
 
         {shareLocalSetId && session ? (
-          <CommunityModal ariaLabel="問題セットを共有" busy={busy} onClose={() => setShareLocalSetId('')}>
+          <CommunityModal ariaLabel="問題セットを共有" busy={busy} onClose={() => setShareLocalSetId('')} publishing>
               <h2>問題セットを共有</h2>
-              <p>{data.problemSets.find((set) => set.id === shareLocalSetId)?.title}</p>
+              <div className="community-share-title"><ProblemSetIcon size={30} /><strong>{data.problemSets.find((set) => set.id === shareLocalSetId)?.title}</strong></div>
               {!shareResult ? (
                 <>
-                  <label>公開範囲<select value={shareVisibility} onChange={(event) => setShareVisibility(event.target.value as Exclude<ProblemSetVisibility, 'private'>)}><option value="link">リンクを知っている人</option><option value="public">全体に公開</option><option value="group">グループだけ</option></select></label>
-                  {groups.length ? <fieldset><legend>グループにも公開（複数選択可）</legend>{groups.map((group) => <label key={group.id} className="community-check"><input type="checkbox" checked={shareGroupIds.includes(group.id)} onChange={(event) => setShareGroupIds((values) => event.target.checked ? [...values, group.id] : values.filter((id) => id !== group.id))} />{group.name}</label>)}</fieldset> : null}
+                  <fieldset disabled={busy} className="community-share-scope"><legend>共有先</legend>
+                    <div className="community-share-options">{([{ value: 'link', label: 'リンク' }, { value: 'public', label: '全体公開' }, { value: 'group', label: 'グループ' }] as const).map((option) => <label key={option.value}>
+                      <input type="radio" name="share-scope" value={option.value} checked={shareVisibility === option.value} onChange={() => setShareVisibility(option.value)} />{option.label}
+                    </label>)}</div>
+                    <p className="community-publication-note">{shareVisibility === 'public' ? '「見つける」で誰でも閲覧・コピーできます。' : shareVisibility === 'group' ? '選んだグループのメンバーに共有します。' : 'リンクを知っている人が閲覧できます。'}</p>
+                  </fieldset>
+                  {shareVisibility === 'group' ? <fieldset disabled={busy} className="community-destinations"><legend>グループを選択</legend>{groups.length ? groups.map((group) => <label key={group.id} className="community-check"><input type="checkbox" checked={shareGroupIds.includes(group.id)} onChange={(event) => setShareGroupIds((values) => event.target.checked ? [...values, group.id] : values.filter((id) => id !== group.id))} />{group.name}</label>) : <p className="community-publication-note">先にグループを作成・参加してください。</p>}</fieldset> : groups.length ? <details className="community-share-groups"><summary>グループにも共有{shareGroupIds.length ? `（${shareGroupIds.length}件選択）` : '（任意）'}</summary><fieldset disabled={busy} className="community-destinations"><legend>複数選択できます</legend>{groups.map((group) => <label key={group.id} className="community-check"><input type="checkbox" checked={shareGroupIds.includes(group.id)} onChange={(event) => setShareGroupIds((values) => event.target.checked ? [...values, group.id] : values.filter((id) => id !== group.id))} />{group.name}</label>)}</fieldset></details> : null}
                   {renderPublicationDetails(shareLocalSetId)}
-                  <p>既存の公開先も維持します。</p>
-                  <div className="community-sheet__actions"><button type="button" onClick={() => setShareLocalSetId('')}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !detailsValid(shareLocalSetId)} onClick={() => void submitShare()}>{busy ? '共有中…' : '共有する'}</button></div>
+                  <p className="community-publication-note">学習履歴は共有しません。{data.problemSets.find((set) => set.id === shareLocalSetId)?.cloudSetId ? '既存の公開先も維持します。' : ''}</p>
+                  {error ? <p role="alert" className="community-notice--error">{error}</p> : null}
+                  <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setShareLocalSetId('')}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !detailsValid(shareLocalSetId) || (shareVisibility === 'group' && !shareGroupIds.length)} onClick={() => void submitShare()}>{busy ? '共有中…' : '共有する'}</button></div>
                 </>
               ) : (
                 <>
@@ -935,7 +940,8 @@ export function CommunityScreen({
   );
 }
 
-function CommunityModal({ ariaLabel, busy = false, onClose, children, sidePanel = false }: {
+function CommunityModal({ ariaLabel, busy = false, onClose, children, sidePanel = false, publishing = false }: {
+  publishing?: boolean;
   sidePanel?: boolean;
   ariaLabel: string;
   busy?: boolean;
@@ -965,8 +971,8 @@ function CommunityModal({ ariaLabel, busy = false, onClose, children, sidePanel 
       if (event.key !== 'Tab') return;
 
       const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])',
-      ) ?? []);
+        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, a[href], [tabindex]:not([tabindex="-1"])',
+      ) ?? []).filter((element) => element.getClientRects().length > 0 && !element.closest('[inert]'));
       if (focusable.length === 0) {
         event.preventDefault();
         dialogRef.current?.focus();
@@ -1001,7 +1007,7 @@ function CommunityModal({ ariaLabel, busy = false, onClose, children, sidePanel 
     >
       <section
         ref={dialogRef}
-        className={`community-sheet${sidePanel ? ' community-conditions' : ''}`}
+        className={`community-sheet${sidePanel ? ' community-conditions' : ''}${publishing ? ' community-sheet--publishing' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}

@@ -272,7 +272,8 @@ export async function publishLocalProblemSet(params: {
   if (!problemSet) throw new Error('共有する問題セットが見つかりません。');
   const audience = (params.publicationInfo?.audience ?? problemSet.audience ?? '').trim();
   const description = (params.publicationInfo?.description ?? problemSet.description ?? '').trim();
-  if (!audience || !description || description.length > 300) throw new Error('対策・用途と300文字以内の説明を入力してください。');
+  if (!audience) throw new Error('対策・用途を選んでください。');
+  if (description.length > 300) throw new Error('説明は300文字以内で入力してください。');
   const questions = params.data.questions.filter((item) => item.setId === params.setId);
   if (questions.length === 0) throw new Error('問題がないセットは共有できません。');
 
