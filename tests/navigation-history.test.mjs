@@ -20,6 +20,14 @@ import {
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
+test('recommended review returns to study records after a session or result', () => {
+  const target = { name: 'studyRecord' };
+  const result = { mode: 'review', title: '今日のおすすめ', returnScreen: target };
+  assert.deepEqual(getResultReturnScreen(result, { folders: [], problemSets: [] }), target);
+  assert.equal(getResultReturnLabel(target), '学習記録へ戻る');
+  assert.equal(getBackNavigationSteps([{ name: 'home' }, target, { name: 'quizSession', session: { questions: [], mode: 'review', backScreen: target } }], target), 1);
+});
+
 test('jumping home unwinds every pushed screen instead of leaving dead history entries', () => {
   const stack = [
     { name: 'home' },

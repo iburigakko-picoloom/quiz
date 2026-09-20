@@ -168,6 +168,7 @@ export interface QuizSession {
 
 export type AppScreen =
   | { name: 'home' }
+  | { name: 'studyRecord' }
   | { name: 'search' }
   | { name: 'backupComplete'; folderCount: number; setCount: number; questionCount: number }
   | { name: 'questionDetail'; questionId: string; backScreen: AppScreen }

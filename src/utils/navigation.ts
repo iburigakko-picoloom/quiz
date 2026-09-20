@@ -69,6 +69,7 @@ export function getResultReturnScreen(result: QuizResult, data: AppData): AppScr
 }
 
 export function getResultReturnLabel(target: AppScreen): string {
+  if (target.name === 'studyRecord') return '学習記録へ戻る';
   if (target.name === 'problemSetDetail') return '問題セットへ戻る';
   if (target.name === 'problemList') return '問題一覧へ戻る';
   if (target.name === 'noteList') return '詳細解説一覧へ戻る';

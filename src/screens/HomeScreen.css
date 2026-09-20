@@ -560,3 +560,9 @@
 
 .quiz-home__actions { height: 76px; flex: 0 0 76px; padding-top: 8px; padding-right: 14px; background: #f1f5f9; }
 .quiz-home__folder-list { flex: 1 1 auto; max-height: none; margin: 0 12px; padding: 0 0 calc(var(--primary-nav-height) + var(--safe-bottom) + 18px); background: transparent; }
+
+.quiz-home button.quiz-home__study-card { border: 1px solid var(--ui-border); border-radius: 12px; padding: 10px 12px; background: white; color: var(--ui-text); text-align: left; cursor: pointer; }
+.quiz-home button.quiz-home__study-card:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+.quiz-home button.quiz-home__study-card:active { background: var(--ui-surface-muted); }
+.quiz-home__study-title { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 3px; font-size: 12px; font-weight: 700; }
+.quiz-home__study-title svg { color: var(--ui-accent); flex-shrink: 0; }

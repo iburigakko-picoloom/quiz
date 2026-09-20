@@ -14,6 +14,8 @@ import {
 import { buildAppDataView } from '../utils/appDataView';
 import './HomeScreen.css';
 import { StudyCompanion } from '../components/StudyCompanion';
+import { StudyActivity } from '../components/StudyActivity';
+import { useStudyRecord } from '../hooks/useStudyRecord';
 
 interface HomeScreenProps {
   data: AppData;
@@ -21,6 +23,7 @@ interface HomeScreenProps {
   onCreateSample: () => void;
   onDeleteFolder: (folderId: string) => void;
   onOpenFolder: (folderId: string) => void;
+  onOpenStudyRecord: () => void;
   onSave: (data: AppData) => Promise<boolean>;
 }
 
@@ -30,9 +33,11 @@ export function HomeScreen({
   onCreateSample,
   onDeleteFolder,
   onOpenFolder,
+  onOpenStudyRecord,
   onSave,
 }: HomeScreenProps) {
   const [folderName, setFolderName] = useState('');
+  const { summary } = useStudyRecord(data.answerLogs);
   const editMode = false;
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Folder | null>(null);
@@ -83,7 +88,12 @@ export function HomeScreen({
           })}
         </section>
 
-        <StudyCompanion scene="home" />
+        <StudyCompanion scene="home">
+          <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
+            <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
+            <StudyActivity summary={summary} compact />
+          </button>
+        </StudyCompanion>
 
         {createOpen ? (
           <CreateFolderDialog

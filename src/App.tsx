@@ -77,6 +77,7 @@ const ImportScreen = lazy(() => import('./screens/ImportScreen').then((module) =
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then((module) => ({ default: module.SettingsScreen })));
 const SyncScreen = lazy(() => import('./screens/SyncScreen').then((module) => ({ default: module.SyncScreen })));
 const PrivacyScreen = lazy(() => import('./screens/PrivacyScreen').then((module) => ({ default: module.PrivacyScreen })));
+const StudyRecordScreen = lazy(() => import('./screens/StudyRecordScreen').then((module) => ({ default: module.StudyRecordScreen })));
 type PendingBackupImport =
   | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary }
   | { kind: 'legacy'; data: AppData };
@@ -1562,6 +1563,8 @@ export default function App() {
     content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} />;
   } else if (screen.name === 'privacy') {
     content = <PrivacyScreen onBack={() => goBackTo({ name: 'settings' })} />;
+  } else if (screen.name === 'studyRecord') {
+    content = <StudyRecordScreen data={data} onBack={() => goBackTo({ name: 'home' })} onStart={handleStartQuizSession} />;
   } else {
     content = (
     <HomeScreen
@@ -1570,6 +1573,7 @@ export default function App() {
       onCreateSample={() => void commitData(createSampleAppData())}
       onDeleteFolder={handleDeleteFolder}
       onOpenFolder={(folderId) => navigate({ name: 'folder', folderId })}
+      onOpenStudyRecord={() => navigate({ name: 'studyRecord' })}
       onSave={commitData}
     />
   );
