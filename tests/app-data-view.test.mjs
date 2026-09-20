@@ -57,17 +57,17 @@ test('recommendations preserve review semantics, prioritize uncertainty, and nev
   assert.equal(getRecommendedReviewQuestions({ ...data, progress: [] }, now).questions.length, 0);
 });
 
-test('recommendations cap at ten, break ties by lateness then accuracy, and support multiple sets', () => {
+test('recommendations include all eligible questions, break ties by lateness then accuracy, and support multiple sets', () => {
   const entries = Array.from({ length: 12 }, (_, i) => createProgress(`q${i}`, {
     isReview: true, lastAnswerCorrect: true, answeredCount: 10, correctCount: i < 10 ? i : 5,
     wrongCount: i < 10 ? 10 - i : 5, lastAnsweredAt: new Date(2026, 8, i === 11 ? 1 : 2).toISOString(),
   }));
   const data = { problemSets: [{ id: 'a' }, { id: 'b' }], questions: entries.map((p, i) => createQuestion(p.questionId, i % 2 ? 'a' : 'b')), progress: entries };
   const result = getRecommendedReviewQuestions(data, new Date(2026, 8, 21));
-  assert.equal(result.questions.length, 10);
+  assert.equal(result.questions.length, 12);
   assert.equal(result.questions[0].id, 'q11');
   assert.equal(result.questions[1].id, 'q0');
-  assert.equal(result.dueCount + result.needsCheckCount, 10);
+  assert.equal(result.dueCount + result.needsCheckCount, 12);
 });
 
 const timestamp = '2026-08-15T00:00:00.000Z';

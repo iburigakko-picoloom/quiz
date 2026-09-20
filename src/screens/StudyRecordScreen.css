@@ -1,23 +1,28 @@
-.study-record { color: var(--ui-text); background: white; min-height: 100%; padding-bottom: calc(24px + var(--safe-bottom, 0px)); }
+.study-record { color: var(--ui-text); background: white; min-height: 100%; padding-bottom: calc(8px + var(--safe-bottom, 0px)); }
 .study-record__header { padding: var(--safe-top, 0px) 16px 0; min-height: calc(64px + var(--safe-top, 0px)); border-bottom: 1px solid var(--ui-border); }
 .study-record__header h1 { margin: 0; font-size: 20px; }
-.study-record__body { display: grid; gap: 16px; max-width: 680px; margin: 20px auto 0; padding: 0 16px; }
-.study-record__card { min-width: 0; border: 1px solid var(--ui-border); border-radius: 12px; padding: 18px; }
-.study-record__card h2 { margin: 0 0 16px; font-size: 17px; font-weight: 700; }
+.study-record__body { display: grid; gap: 8px; max-width: 680px; margin: 10px auto 0; padding: 0 16px; }
+.study-record__card { min-width: 0; border: 1px solid var(--ui-border); border-radius: 12px; padding: 10px 14px; }
+.study-record__card h2 { margin: 0 0 6px; font-size: 16px; line-height: 1.5; font-weight: 700; }
 .study-record__muted { margin: 0; color: var(--ui-text-muted); font-size: 14px; line-height: 1.7; }
-.study-record__recommended-count { margin: 4px 0 10px; font-size: 14px; }
-.study-record__recommended-count strong { font-size: 36px; margin-right: 4px; }
-.study-record__breakdown { display: flex; gap: 16px; flex-wrap: wrap; margin: 0 0 18px; color: var(--ui-text-muted); font-size: 13px; }
-.study-record .study-record__start { width: 100%; min-height: 48px; border: 0; border-radius: 8px; color: white; background: var(--ui-accent); font: inherit; font-weight: 700; cursor: pointer; }
+.study-record__recommendation { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.study-record__recommended-count { margin: 0; font-size: 14px; }
+.study-record__recommended-count strong { font-size: 28px; line-height: 1.2; margin-right: 4px; }
+.study-record__breakdown { display: flex; gap: 16px; flex-wrap: wrap; margin: 4px 0 8px; color: var(--ui-text-muted); font-size: 12px; }
+.study-record .study-record__start { width: 100%; min-height: 44px; border: 0; border-radius: 8px; color: white; background: var(--ui-accent); font: inherit; font-weight: 700; cursor: pointer; }
 .study-record__start:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
-.study-record__calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; }
-.study-record__weekday { text-align: center; color: var(--ui-text-muted); font-size: 12px; padding-bottom: 6px; }
-.study-record__date { display: grid; place-items: center; aspect-ratio: 1; border-radius: 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.study-record__calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px 7px; }
+.study-record__weekday { text-align: center; color: var(--ui-text-muted); font-size: 12px; }
+.study-record__date { display: grid; place-items: center; height: clamp(20px, calc((100dvh - 520px) / 7), 36px); border-radius: 5px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .study-record__date--0 { background: #f5f6f8; color: var(--ui-text-muted); }
 .study-record__date--1 { background: #edf3fb; color: #2859a6; }
 .study-record__date--2 { background: #cfdef3; color: #244e87; }
 .study-record__date--3 { background: #4b77b4; color: #fff; }
 .study-record__date--4 { background: var(--ui-accent); color: #fff; }
 .study-record__date--today { outline: 1px solid var(--ui-accent); outline-offset: 2px; font-weight: 750; }
-.study-record__legend { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin-top: 16px; font-size: 10px; color: var(--ui-text-muted); }
+.study-record__legend { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--ui-text-muted); }
 .study-record__legend i { width: 12px; height: 12px; border-radius: 2px; }
+.study-record .study-activity__count strong { font-size: 28px; line-height: 1.2; }
+.study-record .study-activity__chart { margin-top: 6px; }
+.study-record .study-activity__track { height: clamp(24px, calc((100dvh - 480px) / 6), 48px); }
+.study-record .study-activity__day { gap: 3px; }

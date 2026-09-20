@@ -65,7 +65,7 @@ export function getRecommendedReviewQuestions(data: AppData, now = new Date()) {
     });
   }
   candidates.sort((a, b) => a.priority - b.priority || (a.due === b.due ? 0 : a.due - b.due) || a.accuracy - b.accuracy || a.question.id.localeCompare(b.question.id));
-  const selected = candidates.slice(0, 10);
+  const selected = candidates;
   const needsCheckCount = selected.filter((item) => item.needsCheck).length;
   return { questions: selected.map((item) => item.question), needsCheckCount, dueCount: selected.length - needsCheckCount };
 }

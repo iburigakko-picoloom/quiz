@@ -19,8 +19,10 @@ export function StudyRecordScreen({ data, onBack, onStart }: { data: AppData; on
       <section className="study-record__card" aria-labelledby="study-review-title">
         <h2 id="study-review-title">復習するべき問題</h2>
         {count ? <>
-          <p className="study-record__muted">今日のおすすめ</p>
-          <p className="study-record__recommended-count"><strong>{count}</strong>問</p>
+          <div className="study-record__recommendation">
+            <p className="study-record__muted">今日のおすすめ</p>
+            <p className="study-record__recommended-count"><strong>{count}</strong>問</p>
+          </div>
           <p className="study-record__breakdown"><span>期限到来 {recommended.dueCount}問</span><span>要確認 {recommended.needsCheckCount}問</span></p>
           <button type="button" className="study-record__start" aria-label={`今日のおすすめ問題を${count}問開始`} onClick={() => onStart({ title: '今日のおすすめ', questions: recommended.questions, mode: 'review', backScreen: { name: 'studyRecord' } })}>{count}問はじめる</button>
         </> : <p className="study-record__muted">今日は復習する問題はありません</p>}
