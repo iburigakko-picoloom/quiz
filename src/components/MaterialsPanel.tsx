@@ -23,6 +23,8 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const transitionVersion = useRef(0);
   const stopAnimation = useRef<(() => void) | null>(null);
   const [transitioning, setTransitioning] = useState(false);
+  const [transitionReady, setTransitionReady] = useState(false);
+  const transitionReadyRef = useRef(false);
   const previews = useRef(new MaterialPreviewCache());
   const [neighbours, setNeighbours] = useState<{ pageId: string; previous?: MaterialPagePreview; next?: MaterialPagePreview }>({ pageId: '' });
   const panel = useRef<CategoryNotePanelHandle>(null);
@@ -41,7 +43,8 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const clearTransition = useCallback(() => {
     stopAnimation.current?.(); stopAnimation.current = null;
     transitionLayer.current?.replaceChildren(); setTransitioning(false);
-    panel.current?.resetPageSlide?.();
+    transitionReadyRef.current = false; setTransitionReady(false);
+    panel.current?.resetPageSlide?.(false);
   }, []);
   const captureTransition = (direction = 1, distance = 1) => {
     const area = contentRef.current?.querySelector<HTMLElement>('.category-note-canvas-area');
@@ -49,6 +52,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     if (!area || !layer) return;
     stopAnimation.current?.(); stopAnimation.current = null;
     setTransitioning(true);
+    transitionReadyRef.current = false; setTransitionReady(false);
     transitionVersion.current++; transitionDirection.current = direction;
     transitionDistance.current = Math.max(1, distance);
     layer.classList.toggle('category-note-panel--material', !!area.closest('.category-note-panel--material'));
@@ -67,6 +71,9 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     const incoming = contentRef.current?.querySelector<HTMLElement>('.category-note-panel .category-note-page--active');
     const rail = outgoing?.querySelector<HTMLElement>('.category-note-page-rail');
     if (!layer || !incoming || !rail || stopAnimation.current) return;
+    // The new PDF and its handwriting are ready. A fresh gesture can take over
+    // without waiting for the decorative settling animation to finish.
+    transitionReadyRef.current = true; setTransitionReady(true);
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { clearTransition(); return; }
     const version = transitionVersion.current;
     const copy = incoming.cloneNode(true) as HTMLElement;
@@ -116,7 +123,8 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   }, [clearTransition]);
   useImperativeHandle(ref, () => ({ flush: async () => { await operation.current; await panel.current?.flush(); } }));
   const run = (action: () => Promise<void>) => {
-    if (lock.current || transitioning) return Promise.resolve(false);
+    if (lock.current || (transitioning && !transitionReadyRef.current)) return Promise.resolve(false);
+    if (transitionReadyRef.current) clearTransition();
     if (menu.current) menu.current.open = false;
     lock.current = true; setBusy(true); setError('');
     const pending = (async () => { await panel.current?.flush(); await action(); })();
@@ -164,11 +172,14 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     // Sequential background work limits transient canvas memory. Annotation
     // images are read afresh so returning to a page never shows stale ink.
     void (async () => {
-      for (const [side, adjacent] of [['next', material.pages[current + 1]], ['previous', material.pages[current - 1]]] as const) {
+      const nearby = transitionDirection.current < 0
+        ? [['previous', material.pages[current - 1]], ['next', material.pages[current + 1]], ['ahead', material.pages[current - 2]]] as const
+        : [['next', material.pages[current + 1]], ['previous', material.pages[current - 1]], ['ahead', material.pages[current + 2]]] as const;
+      for (const [side, adjacent] of nearby) {
         if (!adjacent || disposed) continue;
         try {
           const preview = await previews.current.load(ownerId, material.id, adjacent);
-          if (!disposed) setNeighbours(value => ({ ...value, [side]: preview }));
+          if (!disposed && side !== 'ahead') setNeighbours(value => ({ ...value, [side]: preview }));
         } catch { /* A failed prefetch is retried, with an error, on navigation. */ }
       }
     })();
@@ -226,7 +237,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       <input ref={fileInput} hidden type="file" accept="application/pdf,.pdf" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) addPdf(file); }} />
     </div>
     {error ? <p className="materials-error" role="alert">{error}</p> : null}
-    <div ref={contentRef} className={`materials-content${pagePending || transitioning ? ' is-page-loading' : ''}`} aria-busy={pagePending || transitioning}>
+    <div ref={contentRef} className={`materials-content${pagePending || (transitioning && !transitionReady) ? ' is-page-loading' : ''}`} aria-busy={pagePending || (transitioning && !transitionReady)} onPointerDownCapture={() => { if (transitionReadyRef.current) clearTransition(); }}>
       {displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? 'PDFを読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <button disabled={!index || busy} onClick={() => fileInput.current?.click()}>PDFを追加</button> : null}<small>1ファイル50MB・500ページまで。PDFは専用の非公開ストレージに同期します。</small></div>}
       <div ref={transitionLayer} className="materials-transition-cover" aria-hidden="true" inert />
     </div>

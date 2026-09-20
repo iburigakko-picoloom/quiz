@@ -80,7 +80,7 @@ interface CategoryNoteProps {
 
 export interface CategoryNotePanelHandle {
   flush: () => Promise<void>;
-  resetPageSlide?: () => void;
+  resetPageSlide?: (animate?: boolean) => void;
 }
 
 export interface CategoryNoteDrawerHandle {
@@ -253,6 +253,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const pageElementRef = useRef<HTMLDivElement | null>(null);
   const pageSwipeFrameRef = useRef<number | null>(null);
   const pageSwipeOffsetRef = useRef(0);
+  const pageResetTimerRef = useRef<number | null>(null);
   const pagePanFrameRef = useRef<number | null>(null);
   const activePageRef = useRef<HTMLDivElement | null>(null);
   const primaryTouchIdRef = useRef<number | null>(null);
@@ -397,6 +398,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   useEffect(() => () => {
     if (pagePanFrameRef.current !== null) cancelAnimationFrame(pagePanFrameRef.current);
     if (pageSwipeFrameRef.current !== null) cancelAnimationFrame(pageSwipeFrameRef.current);
+    if (pageResetTimerRef.current !== null) window.clearTimeout(pageResetTimerRef.current);
   }, []);
   useEffect(() => { if (noteLoadState === 'ready' && notePaintState === 'ready') onReady?.(); }, [noteLoadState, notePaintState, onReady]);
   useEffect(() => { if (noteLoadState === 'error' || notePaintState === 'error') onUnavailable?.(); }, [noteLoadState, notePaintState, onUnavailable]);
@@ -653,7 +655,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     return pendingFlush;
   };
 
-  useImperativeHandle(ref, () => ({ flush: flushPendingNote, resetPageSlide: () => resetPageRail() }));
+  useImperativeHandle(ref, () => ({ flush: flushPendingNote, resetPageSlide: (animate = true) => resetPageRail(animate) }));
 
   function clearHistory() {
     historyRef.current = createByteBudgetHistory();
@@ -767,6 +769,11 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     ) return;
     if (event.pointerType !== 'touch') return;
     if (drawingRef.current) return;
+    // A new gesture takes over immediately, including during a snap-back.
+    // Inline transition styles otherwise override the swiping CSS class.
+    if (pageResetTimerRef.current !== null) window.clearTimeout(pageResetTimerRef.current);
+    pageResetTimerRef.current = null;
+    if (pageElementRef.current) pageElementRef.current.style.transition = 'none';
     event.preventDefault();
     if (touchPointsRef.current.size >= 2 && !touchPointsRef.current.has(event.pointerId)) return;
     if (touchPointsRef.current.size === 0) {
@@ -926,17 +933,20 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     resetPageRail();
   };
 
-  const resetPageRail = () => {
+  const resetPageRail = (animate = true) => {
+    if (pageResetTimerRef.current !== null) window.clearTimeout(pageResetTimerRef.current);
+    pageResetTimerRef.current = null;
     pageSwipeOffsetRef.current = 0;
     if (pageSwipeFrameRef.current !== null) {
       cancelAnimationFrame(pageSwipeFrameRef.current);
       pageSwipeFrameRef.current = null;
     }
     if (pageElementRef.current) {
-      pageElementRef.current.style.transition = 'transform 300ms cubic-bezier(.25,.8,.25,1)';
+      pageElementRef.current.style.transition = animate ? 'transform 300ms cubic-bezier(.25,.8,.25,1)' : 'none';
       pageElementRef.current.style.transform = 'translate3d(-33.333333%, 0, 0)';
       pageElementRef.current.style.opacity = '';
-      window.setTimeout(() => {
+      if (animate) pageResetTimerRef.current = window.setTimeout(() => {
+        pageResetTimerRef.current = null;
         if (pageElementRef.current) pageElementRef.current.style.transition = '';
       }, 320);
     }

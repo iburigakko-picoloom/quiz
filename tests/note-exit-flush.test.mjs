@@ -74,6 +74,9 @@ test('material screen and page switches flush before leaving', () => {
   const materials = readSource('../src/components/MaterialsPanel.tsx');
   assert.match(materials, /await panel.current\?\.flush\(\); await action\(\)/);
   assert.match(materials, /await operation.current; await panel.current\?\.flush\(\)/);
+  assert.match(materials, /lock.current \|\| \(transitioning && !transitionReadyRef.current\)/);
+  assert.match(materials, /panel.current\?\.resetPageSlide\?\.\(false\)/);
+  assert.match(notePanelSource, /if \(pageResetTimerRef.current !== null\) window.clearTimeout\(pageResetTimerRef.current\)/);
 });
 
 test('drawer close button and swipe share the guarded close request', () => {

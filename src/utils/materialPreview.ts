@@ -5,7 +5,9 @@ import type { MaterialPage } from './materialModel';
 import { ByteBudgetLruCache, estimateDataUrlMemoryBytes, estimateRgbaPixelBytes } from '../components/noteMemory';
 
 export interface MaterialPagePreview { url?: string; inkUrl?: string; aspect: number }
-type Background = Omit<MaterialPagePreview, 'inkUrl'>;
+// Retain the decoded PDF image within the existing byte budget. Revisiting a
+// prefetched page must not create and decode another copy of the same bitmap.
+type Background = Omit<MaterialPagePreview, 'inkUrl'> & { decoded?: HTMLImageElement };
 
 /** Only a few neighbouring pages are requested; original PDF and ink stay separate. */
 export class MaterialPreviewCache {
@@ -53,7 +55,19 @@ export class MaterialPreviewCache {
       try {
         await pdfPage.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
         if (session.cancelled) throw new Error('資料の読込を中止しました。');
-        const result = { url: canvas.toDataURL('image/png'), aspect: native.width / native.height };
+        // PNG encoding can be expensive for scanned pages. Keep it off the
+        // synchronous gesture path while preserving the existing image quality.
+        const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('資料画像を作成できませんでした。')), 'image/png'));
+        const url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error('資料画像を読み込めませんでした。'));
+          reader.readAsDataURL(blob);
+        });
+        const decoded = new Image(); decoded.src = url;
+        await decoded.decode();
+        if (session.cancelled) throw new Error('資料の読込を中止しました。');
+        const result = { url, aspect: native.width / native.height, decoded };
         this.images.set(key, result, estimateDataUrlMemoryBytes(result.url) + estimateRgbaPixelBytes(canvas.width, canvas.height));
         return result;
       } finally { canvas.width = 0; canvas.height = 0; }
@@ -70,9 +84,9 @@ export class MaterialPreviewCache {
     const note = raw ? JSON.parse(raw) : null;
     const ink = note?.pages?.[Math.max(0, Math.min(note.currentPageIndex ?? 0, note.pages.length - 1))]?.dataUrl ?? note?.dataUrl;
     const inkUrl = typeof ink === 'string' && ink ? ink : undefined;
-    await Promise.all([background.url, inkUrl].filter((url): url is string => !!url).map(async url => {
-      const image = new Image(); image.src = url; await image.decode();
-    }));
-    return { ...background, inkUrl };
+    if (inkUrl) {
+      const image = new Image(); image.src = inkUrl; await image.decode();
+    }
+    return { url: background.url, aspect: background.aspect, inkUrl };
   }
 }
