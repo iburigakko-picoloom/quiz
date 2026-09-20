@@ -25,6 +25,9 @@ export function StudyCompanion({ scene, answered = 0, correct = 0, children }: {
   if (!enabled && !children) return null;
   return <aside className={`study-companion study-companion--${scene}${children ? ' study-companion--summary' : ''}${!enabled ? ' study-companion--no-dog' : ''}`} aria-label="学習応援">
     {children ?? <p className="study-companion__bubble">{scene === 'home' ? companionGreeting(messageVariant) : companionPraise(answered, correct, messageVariant)}</p>}
-    {enabled && <img src={pose} alt="" draggable={false} />}
+    {enabled && (children ? <div className="study-companion__dog">
+      <p className="study-companion__bubble">{companionGreeting(messageVariant)}</p>
+      <img src={pose} alt="" draggable={false} />
+    </div> : <img src={pose} alt="" draggable={false} />)}
   </aside>;
 }
