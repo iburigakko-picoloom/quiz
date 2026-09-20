@@ -54,7 +54,8 @@ test('public discovery supports required filters, detail preview and both primar
 
 test('groups navigate to a dedicated detail with foldered problem sets', () => {
   assert.match(typesSource, /name: 'community';[^\n]*groupId\?: string/);
-  assert.match(appSource, /onOpenGroup=\{\(groupId\) => navigate\(\{ name: 'community', tab: 'groups', groupId/);
+  assert.match(appSource, /onOpenGroup=\{\(groupId\) => \{\s*const next: AppScreen = \{ name: 'community', tab: 'groups', groupId/);
+  assert.match(appSource, /if \(communityScreen\.groupPage\) replaceScreen\(next\); else navigate\(next\)/);
   assert.match(screenSource, /initialGroupId/);
   assert.match(screenSource, /community-group-folder-list/);
   assert.match(screenSource, /<SharedLibrary[^\n]*sets=\{groupSets\}/);

@@ -57,7 +57,7 @@ test('primary headers share one height and create returns to its launch context'
   assert.match(globalCss, /\.quiz-runner \.quiz-runner__header/);
   assert.match(createSource, /onBack \? <BackButton onClick=\{onBack\} label="前の画面へ戻る" \/> : null/);
   assert.match(appSource, /backScreen:\s*\{ name: 'folder', folderId \}/);
-  assert.match(appSource, /backScreen:\s*\{ name: 'problemSetDetail', setId: screen\.setId \}/);
+  assert.match(appSource, /editSetId: screen\.setId,\s*backScreen: screen,/);
   assert.match(appSource, /onBack=\{createBackScreen \? \(\) => goBackTo\(createBackScreen\) : undefined\}/);
   assert.match(typesSource, /name: 'createProblemSet';[^{\n]*backScreen\?: AppScreen/);
 });
