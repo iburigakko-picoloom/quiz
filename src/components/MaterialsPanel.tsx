@@ -97,7 +97,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       rail.style.transform = `translate3d(${transitionDirection.current > 0 ? 0 : end}%,0,0)`;
       destination = transitionDirection.current > 0 ? end : 0;
     }
-    // Same three-slot rail and 220ms easing as the original notebook. Continue
+    // Continue along the three-slot rail with a gentler settling motion.
     // from the swipe offset, then swap the already-painted centre page in place.
     let timer = 0; let frame = 0; let settleFrame = 0;
     const finish = () => {
@@ -108,10 +108,10 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     stopAnimation.current = () => { cancelAnimationFrame(frame); cancelAnimationFrame(settleFrame); window.clearTimeout(timer); rail.removeEventListener('transitionend', onEnd); };
     rail.style.transition = 'none'; void rail.offsetHeight;
     rail.addEventListener('transitionend', onEnd);
-    rail.style.transition = fastJump ? 'transform 360ms cubic-bezier(.45,0,.15,1)' : 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
+    rail.style.transition = fastJump ? 'transform 360ms cubic-bezier(.45,0,.15,1)' : 'transform 360ms cubic-bezier(.25,.8,.25,1)';
     frame = requestAnimationFrame(() => {
       rail.style.transform = `translate3d(${destination}%, 0, 0)`;
-      timer = window.setTimeout(finish, fastJump ? 420 : 280);
+      timer = window.setTimeout(finish, 440);
     });
   }, [clearTransition]);
   useImperativeHandle(ref, () => ({ flush: async () => { await operation.current; await panel.current?.flush(); } }));
