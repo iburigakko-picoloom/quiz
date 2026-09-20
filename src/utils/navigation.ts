@@ -39,6 +39,15 @@ export function getCreateProblemSetBackScreen(
   return null;
 }
 
+export function getCommunityBackScreen(screen: Extract<AppScreen, { name: 'community' }>): AppScreen {
+  if (screen.backScreen) return screen.backScreen;
+  if ((screen.tab ?? 'mine') === 'mine' && screen.shareSetId && !screen.shareToken) {
+    return { name: 'problemSetDetail', setId: screen.shareSetId };
+  }
+  if (screen.groupId || screen.groupPage) return { name: 'community', tab: 'groups' };
+  return { name: 'home' };
+}
+
 export function getResultReturnScreen(result: QuizResult, data: AppData): AppScreen {
   const target = result.returnScreen
     ?? result.retry?.backScreen
@@ -62,7 +71,7 @@ export function getResultReturnScreen(result: QuizResult, data: AppData): AppScr
 export function getResultReturnLabel(target: AppScreen): string {
   if (target.name === 'problemSetDetail') return '問題セットへ戻る';
   if (target.name === 'problemList') return '問題一覧へ戻る';
-  if (target.name === 'noteList') return 'ノート一覧へ戻る';
+  if (target.name === 'noteList') return '詳細解説一覧へ戻る';
   if (target.name === 'folder') return 'フォルダへ戻る';
   if (target.name === 'community') {
     if (target.groupId) return target.shareSetId ? 'グループの問題へ戻る' : 'グループへ戻る';

@@ -56,6 +56,7 @@ interface CommunityScreenProps {
   initialGroupId?: string;
   shareToken?: string;
   onBack: () => void;
+  onManageShares: () => void;
   onCreateProblemSet: () => void;
   onOpenGroup: (groupId: string) => void;
   onOpenLocalSet: (setId: string) => void;
@@ -74,6 +75,7 @@ export function CommunityScreen({
   initialGroupId,
   shareToken = '',
   onBack,
+  onManageShares,
   onCreateProblemSet,
   onOpenGroup,
   onOpenLocalSet,
@@ -107,6 +109,7 @@ export function CommunityScreen({
   const [difficultyFilter, setDifficultyFilter] = useState('all');
   const [conditionDraft, setConditionDraft] = useState<{ sort: 'new' | 'popular'; audience: string; difficulty: string } | null>(null);
   const [shareLocalSetId, setShareLocalSetId] = useState(() => initialSetId && !shareToken && initialTab === 'mine' ? initialSetId : '');
+  const isDirectShare = Boolean(initialSetId && !shareToken && initialTab === 'mine');
   const [shareVisibility, setShareVisibility] = useState<Exclude<ProblemSetVisibility, 'private'>>('link');
   const [shareGroupIds, setShareGroupIds] = useState<string[]>([]);
   const [shareResult, setShareResult] = useState<{ url: string; visibility: ProblemSetVisibility } | null>(null);
@@ -331,6 +334,18 @@ export function CommunityScreen({
     setShareResult(null);
     if (!requireLogin()) return;
     if (groups.length === 0) setShareVisibility('link');
+  };
+
+  const closeShare = () => {
+    if (busy) return;
+    if (isDirectShare) onBack();
+    else setShareLocalSetId('');
+  };
+
+  const closeLogin = () => {
+    if (busy) return;
+    if (isDirectShare) onBack();
+    else setLoginOpen(false);
   };
 
   const submitShare = async () => {
@@ -652,7 +667,7 @@ export function CommunityScreen({
         ? 'グループ'
         : tab === 'discover'
           ? '見つける'
-          : '問題セット';
+          : isDirectShare ? '共有設定' : '共有の管理';
   const handleHeaderBack = isGroupSetDetail ? () => setDirectSet(null) : onBack;
 
   return (
@@ -721,7 +736,11 @@ export function CommunityScreen({
             )
           ) : (
           <>
-          {tab === 'mine' ? (
+          {tab === 'mine' && isDirectShare ? <section className="community-section">
+            <h2>{data.problemSets.find((set) => set.id === initialSetId)?.title ?? '問題セット'}</h2>
+            {!authReady ? <p role="status">確認中…</p> : !session ? <button type="button" onClick={() => setLoginOpen(true)}>ログインして共有</button> : null}
+          </section> : null}
+          {tab === 'mine' && !isDirectShare ? (
             <section className="community-section">
               <div className="community-section__heading">
                 <h2>自分の問題セット</h2>
@@ -891,15 +910,15 @@ export function CommunityScreen({
           </CommunityModal>
         ) : null}
         {loginOpen ? (
-          <CommunityModal ariaLabel="ログイン" busy={busy} onClose={() => setLoginOpen(false)}>
+          <CommunityModal ariaLabel="ログイン" busy={busy} onClose={closeLogin}>
               <h2>共有機能にログイン</h2>
               <label>メールアドレス<input data-dialog-autofocus type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></label>
-              <div className="community-sheet__actions"><button type="button" onClick={() => setLoginOpen(false)}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !email.trim()} onClick={() => void submitMagicLink()}>リンクを送る</button></div>
+              <div className="community-sheet__actions"><button type="button" onClick={closeLogin}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !email.trim()} onClick={() => void submitMagicLink()}>リンクを送る</button></div>
           </CommunityModal>
         ) : null}
 
         {shareLocalSetId && session ? (
-          <CommunityModal ariaLabel="問題セットを共有" busy={busy} onClose={() => setShareLocalSetId('')} publishing>
+          <CommunityModal ariaLabel="問題セットを共有" busy={busy} onClose={closeShare} publishing>
               <h2>問題セットを共有</h2>
               <div className="community-share-title"><ProblemSetIcon size={30} /><strong>{data.problemSets.find((set) => set.id === shareLocalSetId)?.title}</strong></div>
               {!shareResult ? (
@@ -914,15 +933,16 @@ export function CommunityScreen({
                   {renderPublicationDetails(shareLocalSetId)}
                   <p className="community-publication-note">学習履歴は共有しません。{data.problemSets.find((set) => set.id === shareLocalSetId)?.cloudSetId ? '既存の公開先も維持します。' : ''}</p>
                   {error ? <p role="alert" className="community-notice--error">{error}</p> : null}
-                  <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setShareLocalSetId('')}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !detailsValid(shareLocalSetId) || (shareVisibility === 'group' && !shareGroupIds.length)} onClick={() => void submitShare()}>{busy ? '共有中…' : '共有する'}</button></div>
+                  <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={closeShare}>キャンセル</button><button type="button" className="community-primary" disabled={busy || !detailsValid(shareLocalSetId) || (shareVisibility === 'group' && !shareGroupIds.length)} onClick={() => void submitShare()}>{busy ? '共有中…' : '共有する'}</button></div>
                 </>
               ) : (
                 <>
                   <div className="community-share-result"><strong>共有できました</strong><span>{shareResult.visibility === 'public' ? '「見つける」に公開中' : shareResult.visibility === 'group' || shareGroupIds.length ? '選択したグループに共有中' : 'リンクから閲覧できます'}</span>{shareResult.visibility === 'public' && shareGroupIds.length ? <span>選択したグループにも共有済み</span> : null}</div>
                   <button type="button" className="community-primary" onClick={() => void writeClipboardText(shareResult.url).then(() => setAuthMessage('共有リンクをコピーしました。'))}>共有リンクをコピー</button>
-                  <button type="button" onClick={() => setShareLocalSetId('')}>閉じる</button>
+                  <button type="button" disabled={busy} onClick={closeShare}>{isDirectShare ? '問題セットへ戻る' : '閉じる'}</button>
                 </>
               )}
+              {isDirectShare && publishedSets.length > 0 ? <button type="button" disabled={busy} onClick={onManageShares}>共有済みを管理</button> : null}
           </CommunityModal>
         ) : null}
 

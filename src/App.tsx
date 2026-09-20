@@ -39,6 +39,7 @@ import { folderSubtreeIds } from './utils/folderHierarchy';
 import { formatBackupDate, nowIso } from './utils/date';
 import {
   getBackNavigationSteps,
+  getCommunityBackScreen,
   getCreateProblemSetBackScreen,
   getResultReturnLabel,
   getResultReturnScreen,
@@ -288,11 +289,13 @@ export default function App() {
       }
     }
 
-    navigationStackRef.current = targetIndex >= 0 ? stack.slice(0, targetIndex + 1) : [target];
+    // Keep the original entry point when a child supplies only the destination ID.
+    const resolvedTarget = targetIndex >= 0 ? { ...stack[targetIndex], ...target } : target;
+    navigationStackRef.current = targetIndex >= 0 ? [...stack.slice(0, targetIndex), resolvedTarget] : [resolvedTarget];
     browserDepthRef.current = Math.max(0, browserDepthRef.current - historySteps);
     pendingBackTargetRef.current = null;
     setTransitionDirection('back');
-    setScreen(target);
+    setScreen(resolvedTarget);
   };
 
   const performBackNavigation = (target: AppScreen) => {
@@ -795,7 +798,8 @@ export default function App() {
     if (!saved) return '変更を端末へ保存できませんでした。入力内容を残したまま、空き容量や保存設定を確認してください。';
     if (screenRef.current.name === 'createProblemSet' && screenRef.current.editSetId === setId) {
       setCreateDraftDirty(false);
-      replaceScreen({ name: 'problemSetDetail', setId });
+      createDraftDirtyRef.current = false;
+      performBackNavigation(screenRef.current.backScreen ?? { name: 'problemSetDetail', setId });
     }
     return null;
   };
@@ -1348,11 +1352,7 @@ export default function App() {
       }} />;
   } else if (screen.name === 'community' || screen.name === 'search') {
     const communityScreen: Extract<AppScreen, { name: 'community' }> = screen.name === 'search' ? { name: 'community', tab: 'discover' } : screen;
-    const communityBackScreen = communityScreen.groupId || communityScreen.groupPage
-      ? communityScreen.backScreen ?? { name: 'community' as const, tab: 'groups' as const }
-      : communityScreen.backScreen && communityScreen.backScreen.name !== 'community'
-        ? communityScreen.backScreen
-        : null;
+    const communityBackScreen = getCommunityBackScreen(communityScreen);
     content = (
       <Suspense fallback={<div className="quiz-app-loading">共有機能を読み込み中...</div>}>
         <CommunityScreen
@@ -1363,10 +1363,15 @@ export default function App() {
           initialSetId={communityScreen.shareSetId}
           initialGroupId={communityScreen.groupId}
           shareToken={communityScreen.shareToken}
-          onBack={communityBackScreen ? () => goBackTo(communityBackScreen) : goHome}
+          onBack={communityBackScreen.name === 'home' ? goHome : () => goBackTo(communityBackScreen)}
+          onManageShares={() => replaceScreen({ name: 'community', tab: 'mine', backScreen: communityBackScreen })}
           onCreateProblemSet={() => navigate({ name: 'createProblemSet', backScreen: screen })}
-          onOpenGroup={(groupId) => navigate({ name: 'community', tab: 'groups', groupId, backScreen: { name: 'community', tab: 'groups' } })}
-          onOpenLocalSet={(setId) => navigate({ name: 'problemSetDetail', setId })}
+          onOpenGroup={(groupId) => {
+            const next: AppScreen = { name: 'community', tab: 'groups', groupId, backScreen: { name: 'community', tab: 'groups' } };
+            // A completed create/join form must not remain behind the group.
+            if (communityScreen.groupPage) replaceScreen(next); else navigate(next);
+          }}
+          onOpenLocalSet={(setId) => navigate({ name: 'problemSetDetail', setId, backScreen: communityScreen })}
           onCopySharedSet={handleCopySharedProblemSet}
           onPracticeSharedSet={handlePracticeSharedProblemSet}
           onPublished={handlePublishedProblemSet}
@@ -1381,7 +1386,7 @@ export default function App() {
         folderId={screen.folderId}
         onBack={goHome}
         onCreateProblemSet={(folderId) => navigate({ name: 'createProblemSet', folderId, backScreen: { name: 'folder', folderId } })}
-        onOpenProblemSet={(setId) => navigate({ name: 'problemSetDetail', setId })}
+        onOpenProblemSet={(setId) => navigate({ name: 'problemSetDetail', setId, backScreen: screen })}
         onDeleteProblemSet={handleDeleteProblemSet}
         onSave={commitData}
         onDeleteFolder={handleDeleteFolder}
@@ -1394,24 +1399,24 @@ export default function App() {
       <ProblemSetDetailScreen
         data={data}
         setId={screen.setId}
-        onBack={problemSet && parentFolderExists
+        onBack={screen.backScreen ? () => goBackTo(screen.backScreen!) : problemSet && parentFolderExists
           ? () => goBackTo({ name: 'folder', folderId: problemSet.folderId })
           : goHome}
         onEdit={() => navigate({
           name: 'createProblemSet',
           folderId: problemSet?.folderId,
           editSetId: screen.setId,
-          backScreen: { name: 'problemSetDetail', setId: screen.setId },
+          backScreen: screen,
         })}
         onOpenProblemList={() => navigate({ name: 'problemList', setId: screen.setId })}
-        onCopy={() => navigate({ name: 'createProblemSet', copySetId: screen.setId, backScreen: { name: 'problemSetDetail', setId: screen.setId } })}
+        onCopy={() => navigate({ name: 'createProblemSet', copySetId: screen.setId, backScreen: screen })}
         onOpenNoteList={() => navigate({ name: 'noteList', setId: screen.setId })}
         onOpenMaterials={() => navigate({ name: 'noteDetail', setId: screen.setId, category: '__materials', backScreen: screen })}
         onShare={() => navigate({
           name: 'community',
           tab: 'mine',
           shareSetId: screen.setId,
-          backScreen: { name: 'problemSetDetail', setId: screen.setId },
+          backScreen: screen,
         })}
         onStartSession={({ questions, mode, initialIndex, title, subtitle, setId }) => handleStartQuizSession({
           title,
@@ -1431,15 +1436,15 @@ export default function App() {
         data={data}
         setId={screen.setId}
         initialSortMode={screen.sortMode}
-        onBack={problemSet ? () => goBackTo({ name: 'problemSetDetail', setId: screen.setId }) : goHome}
+        onBack={screen.backScreen ? () => goBackTo(screen.backScreen!) : problemSet ? () => goBackTo({ name: 'problemSetDetail', setId: screen.setId }) : goHome}
         onOpenQuestion={(questionId, sortMode) => navigate({
           name: 'questionDetail',
           questionId,
-          backScreen: { name: 'problemList', setId: screen.setId, sortMode },
+          backScreen: { ...screen, sortMode },
         })}
         onStartFromQuestion={({ questions, initialIndex, title, subtitle, setId, sortMode }) => handleStartQuizSession({
           questions, initialIndex, title, subtitle, setId, mode: 'quiz',
-          backScreen: { name: 'problemList', setId, sortMode },
+          backScreen: { ...screen, setId, sortMode },
         })}
       />
     );
@@ -1448,7 +1453,7 @@ export default function App() {
       onImport={() => navigate({ name: 'createProblemSet', importExplanations: true, backScreen: screen })}
       onOpenDetail={(questionId) => navigate({ name: 'detailedAnswer', questionId, backScreen: screen })}
       onBack={() => goBackTo({ name: 'problemSetDetail', setId: screen.setId })}
-      onOpen={(category) => navigate({ name: 'noteDetail', setId: screen.setId, category })} />;
+      onOpen={(category) => navigate({ name: 'noteDetail', setId: screen.setId, category, backScreen: screen })} />;
   } else if (screen.name === 'noteDetail') {
     const problemSet = data.problemSets.find((set) => set.id === screen.setId);
     content = (
@@ -1457,7 +1462,7 @@ export default function App() {
         setId={screen.setId}
         initialCategory={screen.category}
         registerExitGuard={(guard) => { noteExitGuardRef.current = guard; }}
-        onOpenQuestions={() => navigate({ name: 'problemList', setId: screen.setId })}
+        onOpenQuestions={() => navigate({ name: 'problemList', setId: screen.setId, backScreen: screen })}
         onBack={problemSet ? () => goBackTo(screen.backScreen ?? { name: 'noteList', setId: screen.setId }) : goHome}
       />
     );
@@ -1650,7 +1655,8 @@ export default function App() {
 }
 
 function getScreenLoadingMessage(screen: AppScreen) {
-  if (screen.name === 'noteList' || screen.name === 'noteDetail') return 'ノートを読み込み中…';
+  if (screen.name === 'noteList') return '詳細解説を読み込み中…';
+  if (screen.name === 'noteDetail') return '資料を読み込み中…';
   if (screen.name === 'import') return '問題の取り込み画面を読み込み中…';
   if (screen.name === 'settings') return '設定画面を読み込み中…';
   if (screen.name === 'sync') return '同期設定を読み込み中…';

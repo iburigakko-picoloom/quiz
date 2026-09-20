@@ -179,8 +179,8 @@ export type AppScreen =
   | { name: 'privacy' }
   | { name: 'createProblemSet'; folderId?: string; editSetId?: string; copySetId?: string; importExplanations?: boolean; backScreen?: AppScreen }
   | { name: 'folder'; folderId: string }
-  | { name: 'problemSetDetail'; setId: string }
-  | { name: 'problemList'; setId: string; sortMode?: ProblemSortMode }
+  | { name: 'problemSetDetail'; setId: string; backScreen?: AppScreen }
+  | { name: 'problemList'; setId: string; sortMode?: ProblemSortMode; backScreen?: AppScreen }
   | { name: 'noteList'; setId: string }
   | { name: 'sessionAnswers'; result: QuizResult }
   | { name: 'noteDetail'; setId: string; category: string; backScreen?: AppScreen }

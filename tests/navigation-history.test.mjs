@@ -12,6 +12,7 @@ test('direct AI creation and the creation menu have separate navigation identiti
 });
 import {
   getBackNavigationSteps,
+  getCommunityBackScreen,
   getCreateProblemSetBackScreen,
   getResultReturnLabel,
   getResultReturnScreen,
@@ -78,6 +79,28 @@ test('problem-set creation returns to the screen that opened it', () => {
     getCreateProblemSetBackScreen({ name: 'createProblemSet' }),
     null,
   );
+
+  const source = { name: 'problemSetDetail', setId: 'set-1', backScreen: { name: 'folder', folderId: 'folder-1' } };
+  const edit = { name: 'createProblemSet', editSetId: 'set-1', backScreen: source };
+  assert.deepEqual(getCreateProblemSetBackScreen(edit), source);
+  assert.equal(getBackNavigationSteps([{ name: 'home' }, source.backScreen, source, edit], source), 1);
+  const save = readSource('../src/App.tsx').split('const handleUpdateProblemSet =')[1].split('const handleCopySharedProblemSet =')[0];
+  assert.match(save, /createDraftDirtyRef\.current = false;\s*performBackNavigation\(screenRef\.current\.backScreen/);
+  assert.doesNotMatch(save, /replaceScreen\(/);
+});
+
+test('sharing returns to its origin without exposing the management list', () => {
+  const origin = { name: 'problemSetDetail', setId: 'set-1', backScreen: { name: 'folder', folderId: 'folder-1' } };
+  assert.deepEqual(getCommunityBackScreen({ name: 'community', tab: 'mine', shareSetId: 'set-1', backScreen: origin }), origin);
+  assert.deepEqual(getCommunityBackScreen({ name: 'community', tab: 'mine', shareSetId: 'set-1' }), { name: 'problemSetDetail', setId: 'set-1' });
+  assert.deepEqual(getCommunityBackScreen({ name: 'community', tab: 'groups', groupId: 'group-1' }), { name: 'community', tab: 'groups' });
+  assert.deepEqual(getCommunityBackScreen({ name: 'community', tab: 'discover', shareSetId: 'cloud-1', shareToken: 'token' }), { name: 'home' });
+  const source = readSource('../src/screens/CommunityScreen.tsx');
+  assert.match(source, /if \(isDirectShare\) onBack\(\)/);
+  assert.match(source, /onClose=\{closeShare\}/);
+  assert.match(source, /onClose=\{closeLogin\}/);
+  assert.match(source, /tab === 'mine' && !isDirectShare/);
+  assert.match(source, /onClick=\{onManageShares\}/);
 });
 
 test('result exits return to the session origin and reject deleted local targets', () => {
