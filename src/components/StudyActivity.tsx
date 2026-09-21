@@ -10,6 +10,7 @@ export function StudyActivity({ summary, compact = false }: { summary: StudySumm
     </div>
     <div className="study-activity__chart" role="img" aria-label={`直近7日間の回答数。${summary.days.map((day) => `${day.key} ${day.count}問`).join('、')}`}>
       {summary.days.map((day) => <div className="study-activity__day" key={day.key} aria-hidden="true">
+        {!compact && <span className="study-activity__daily-count">{day.count.toLocaleString()}問</span>}
         <div className="study-activity__track"><span className={day.count ? 'study-activity__bar' : 'study-activity__bar study-activity__bar--empty'} style={{ height: `${Math.max(day.count ? 6 : 2, day.count / max * 100)}%` }} /></div>
         <span>{day.label}</span>
       </div>)}

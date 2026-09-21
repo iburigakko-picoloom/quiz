@@ -24,5 +24,5 @@
 .study-record__legend i { width: 12px; height: 12px; border-radius: 2px; }
 .study-record .study-activity__count strong { font-size: 28px; line-height: 1.2; }
 .study-record .study-activity__chart { margin-top: 6px; }
-.study-record .study-activity__track { height: clamp(24px, calc((100dvh - 480px) / 6), 48px); }
+.study-record .study-activity__track { height: clamp(8px, calc((100dvh - 576px) / 6), 32px); }
 .study-record .study-activity__day { gap: 3px; }
