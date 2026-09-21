@@ -2,17 +2,15 @@ import { useEffect, useRef } from 'react';
 import {
   cleanupLegacySyncBackups,
   computePayloadHash,
-  downloadSyncData,
   exportQuizMakeData,
   getAutoSyncSettings,
   getLastSyncState,
   getRemoteSyncMeta,
   setLastSyncState,
-  setLastSyncStateForConnection,
   uploadSyncData,
 } from '../utils/syncService';
 import type { ProtectedWorkReason } from '../utils/protectedWork';
-import { CLOUD_UPDATE_EVENT } from '../utils/cloudUpdateNotice';
+import { CLOUD_UPDATE_EVENT, isCloudUpdateDismissed } from '../utils/cloudUpdateNotice';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 60000;
@@ -148,28 +146,13 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
         setLastSyncState({ lastRemoteUpdatedAt: meta.value.updatedAt });
         const remoteHasChanged = meta.value.updatedAt !== lastState.lastSyncAt;
         if (!remoteHasChanged) return;
-        // A different timestamp does not mean the cloud contains newer learning data.
-        const remote = await downloadSyncData(settings.syncId);
-        if (!remote.ok || !remote.value) return;
-        const currentSettings = getAutoSyncSettings();
-        if (currentSettings.syncId !== settings.syncId) return;
-        const localHash = computePayloadHash(await exportQuizMakeData());
-        if (getAutoSyncSettings().syncId !== settings.syncId) return;
-        if (localHash === computePayloadHash(remote.value.payload)) {
-          setLastSyncStateForConnection(settings.syncId, {
-            lastSyncAt: remote.value.updatedAt,
-            lastRemoteUpdatedAt: remote.value.updatedAt,
-            lastUploadHash: localHash,
-            status: '端末とクラウドは同じ内容です', error: '',
-          });
-          return;
-        }
         const promptKey = `${settings.syncId}:${meta.value.updatedAt}`;
-        if (promptedRemoteUpdatedAtRef.current === promptKey) return;
-
+        if (promptedRemoteUpdatedAtRef.current === promptKey || isCloudUpdateDismissed({ syncId: settings.syncId, updatedAt: meta.value.updatedAt })) return;
+        // Notify from lightweight revision metadata. Download/compare content only
+        // when the user chooses to review it; never advance the sync baseline here.
         promptedRemoteUpdatedAtRef.current = promptKey;
-        setLastSyncState({ status: '端末とクラウドに異なる内容があります', error: '' });
-        window.dispatchEvent(new CustomEvent(CLOUD_UPDATE_EVENT, { detail: { syncId: settings.syncId, updatedAt: remote.value.updatedAt } }));
+        setLastSyncState({ status: 'クラウドの更新を確認してください', error: '' });
+        window.dispatchEvent(new CustomEvent(CLOUD_UPDATE_EVENT, { detail: { syncId: settings.syncId, updatedAt: meta.value.updatedAt } }));
         // Resolve differences only when the user opens Settings > Sync.
       } catch (error) {
         const message = error instanceof Error ? error.message : 'クラウド確認に失敗しました。';
@@ -197,7 +180,7 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('quiz-make-sync-settings-change', handleSettingsChange);
 
-    const initialCheckTimer = window.setTimeout(() => void checkRemote(true), 1200);
+    const initialCheckTimer = window.setTimeout(() => void checkRemote(true), 0);
 
     return () => {
       window.clearInterval(intervalId);

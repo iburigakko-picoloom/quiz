@@ -12,6 +12,8 @@ const syncScreenSource = readSource('../src/screens/SyncScreen.tsx');
 test('automatic cloud imports wait until local work is no longer protected', () => {
   assert.match(appSource, /<AutoSyncController protectedWorkReason=\{protectedWorkReason\}/);
   assert.doesNotMatch(autoSyncSource, /ConfirmDialog|importQuizMakeData/);
+  assert.match(autoSyncSource, /getRemoteSyncMeta\(settings.syncId\)/);
+  assert.doesNotMatch(autoSyncSource, /downloadSyncData|lastSyncAt:\s*meta/);
   assert.match(autoSyncSource, /if \(protectedWorkReasonRef\.current\)/);
   assert.match(autoSyncSource, /if \(protectedWorkReasonRef\.current\)[\s\S]*?自動同期: 作業終了後に保存します/);
   assert.match(autoSyncSource, /uploadRunningRef\.current \|\| remoteCheckRunningRef\.current/);

@@ -424,6 +424,27 @@ test('PDF sync separates bytes, skips unchanged uploads, and restores portable l
   assert.equal(payload.indexedDbNotes[key], original);
 });
 
+test('verified PDF reuse avoids repeated transfers and isolates sessions and revisions', async () => {
+  const materials = await vite.ssrLoadModule('/src/utils/materialCloud.ts');
+  const key = 'quizMake:notes:set:__material_pdf_cached';
+  const file = { kind: 'quiz-material-file', version: 1, materialId: 'cached', updatedAt, dataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF-1.7 cached').toString('base64') };
+  const payload = { version: 1, updatedAt, localStorage: {}, indexedDbNotes: { [key]: JSON.stringify(file) } };
+  let bytes; let downloads = 0;
+  const transport = { userId: '00000000-0000-4000-8000-000000000001', cacheScope: 'project-a:session-a',
+    exists: async () => false, upload: async (_file, value) => { bytes = value; },
+    download: async () => { downloads++; return bytes; } };
+  const wire = await materials.prepareMaterialUpload(payload, transport);
+  assert.deepEqual(await materials.hydrateMaterialDownload(wire, transport), payload);
+  assert.deepEqual(await materials.hydrateMaterialDownload(wire, transport), payload);
+  assert.equal(downloads, 1, 'same verified PDF is transferred only once');
+  await materials.hydrateMaterialDownload(wire, { ...transport, cacheScope: 'project-a:session-b' });
+  assert.equal(downloads, 2, 'new session cannot reuse previous session content');
+  const corrupt = { ...wire, indexedDbNotes: { [key]: JSON.stringify({ ...JSON.parse(wire.indexedDbNotes[key]), sha256: '0'.repeat(64), path: `${transport.userId}/${'0'.repeat(64)}.pdf` }) } };
+  await assert.rejects(materials.hydrateMaterialDownload(corrupt, transport), /保存内容/);
+  await assert.rejects(materials.hydrateMaterialDownload(corrupt, transport), /保存内容/);
+  assert.equal(downloads, 4, 'failed verification is never cached');
+});
+
 test('remote PDF download is verified before returning an importable snapshot', async () => {
   const materials = await vite.ssrLoadModule('/src/utils/materialCloud.ts');
   const key = 'quizMake:notes:set:__material_pdf_pdf2';
@@ -436,6 +457,8 @@ test('remote PDF download is verified before returning an importable snapshot', 
   const result = await sync.downloadSyncData(syncId);
   assert.equal(result.ok, true, result.error);
   assert.deepEqual(JSON.parse(result.value.payload.indexedDbNotes[key]), file);
+  const nextFile = { ...JSON.parse(wire.indexedDbNotes[key]), sha256: '1'.repeat(64), path: `${(await testAccessTokenProvider()).userId}/${'1'.repeat(64)}.pdf` };
+  wire.indexedDbNotes[key] = JSON.stringify(nextFile);
   globalThis.fetch = async url => String(url).includes('/storage/v1/object/') ? new Response('broken') : rpcResponse([{ sync_id: syncId, updated_at: updatedAt, data: wire }]);
   assert.equal((await sync.downloadSyncData(syncId)).ok, false);
   assert.equal(localStorage.getItem(key), null, 'failed downloads never write notes');

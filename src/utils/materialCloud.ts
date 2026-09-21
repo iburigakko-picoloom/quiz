@@ -3,9 +3,38 @@ import type { SyncPayload } from './syncService';
 
 export interface MaterialTransport {
   userId: string;
+  /** In-memory scope, including project and authenticated session. Never persisted. */
+  cacheScope?: string;
   exists(file: RemoteMaterialFile): Promise<boolean>;
   upload(file: RemoteMaterialFile, bytes: Uint8Array<ArrayBuffer>): Promise<void>;
   download(file: RemoteMaterialFile): Promise<Uint8Array<ArrayBuffer>>;
+}
+// Only verified immutable PDF content is reused. Metadata/RPC authorization is still
+// fetched on every sync, and a different session immediately clears this cache.
+const MAX_CACHED_CHARACTERS = 24 * 1024 * 1024;
+const verifiedPdfs = new Map<string, string>();
+let cachedCharacters = 0;
+let cacheScope: string | undefined;
+function selectCacheScope(scope: string | undefined) {
+  if (!scope || cacheScope !== scope) {
+    verifiedPdfs.clear();
+    cachedCharacters = 0;
+    cacheScope = scope;
+  }
+}
+function cachePdf(key: string, dataUrl: string) {
+  if (dataUrl.length > MAX_CACHED_CHARACTERS) return;
+  const previous = verifiedPdfs.get(key);
+  if (previous) cachedCharacters -= previous.length;
+  verifiedPdfs.delete(key);
+  while (cachedCharacters + dataUrl.length > MAX_CACHED_CHARACTERS) {
+    const oldest = verifiedPdfs.keys().next().value;
+    if (!oldest) break;
+    cachedCharacters -= verifiedPdfs.get(oldest)!.length;
+    verifiedPdfs.delete(oldest);
+  }
+  verifiedPdfs.set(key, dataUrl);
+  cachedCharacters += dataUrl.length;
 }
 const fileEntries = (payload: SyncPayload) => [payload.localStorage, payload.indexedDbNotes ?? {}]
   .flatMap(entries => Object.entries(entries).map(([key, raw]) => materialFileEntry(key, raw))).filter(file => file !== null);
@@ -59,12 +88,19 @@ export async function prepareMaterialUpload(payload: SyncPayload, transport: Mat
 
 /** No local writes until every PDF has downloaded and passed its hash check. */
 export async function hydrateMaterialDownload(payload: SyncPayload, transport: MaterialTransport): Promise<SyncPayload> {
+  selectCacheScope(transport.cacheScope);
   return mapFiles(payload, async file => {
     if (file.kind === 'quiz-material-file') return file; // Old backups/cloud snapshots remain readable.
     if (file.path.split('/')[0] !== transport.userId) throw new Error('資料の所有者が現在のアカウントと一致しません。');
-    const bytes = await transport.download(file);
-    if (bytes.byteLength !== file.size || await digest(bytes) !== file.sha256) throw new Error('PDFの保存内容を確認できませんでした。端末データは変更していません。');
-    return { kind: 'quiz-material-file', version: 1, materialId: file.materialId, updatedAt: file.updatedAt, dataUrl: encodePdf(bytes) };
+    const key = `${file.bucket}:${file.path}:${file.sha256}:${file.size}`;
+    let dataUrl = transport.cacheScope && cacheScope === transport.cacheScope ? verifiedPdfs.get(key) : undefined;
+    if (!dataUrl) {
+      const bytes = await transport.download(file);
+      if (bytes.byteLength !== file.size || await digest(bytes) !== file.sha256) throw new Error('PDFの保存内容を確認できませんでした。端末データは変更していません。');
+      dataUrl = encodePdf(bytes);
+      if (transport.cacheScope && cacheScope === transport.cacheScope) cachePdf(key, dataUrl);
+    }
+    return { kind: 'quiz-material-file', version: 1, materialId: file.materialId, updatedAt: file.updatedAt, dataUrl };
   });
 }
 
@@ -79,7 +115,7 @@ export function createMaterialTransport(config: { url: string; anonKey: string }
     throw new Error('PDFの保存先を確認できません。ログイン状態と通信を確認してください。');
   };
   return {
-    userId: access.userId, exists,
+    userId: access.userId, cacheScope: `${config.url}:${access.userId}:${access.accessToken}`, exists,
     async upload(file, bytes) {
       const { Upload } = await import('tus-js-client');
       const endpoint = storageUrl.replace('.supabase.co/', '.storage.supabase.co/') + '/upload/resumable';
