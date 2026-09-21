@@ -42,7 +42,7 @@ export function playAnswerFeedback(kind: 'correct' | 'relearned' | 'wrong'): voi
     const play = () => {
       const start = audio.currentTime;
       const gain = audio.createGain();
-      gain.gain.value = 1;
+      gain.gain.value = 1.5;
       gain.connect(audio.destination);
       const duration = kind === 'relearned' ? 1 : kind === 'wrong' ? 0.6 : 0.75;
       const notes = kind === 'wrong' ? [[330, 0], [220, 0.12]]

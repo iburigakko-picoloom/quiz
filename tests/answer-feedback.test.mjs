@@ -97,7 +97,7 @@ test('all answer outcomes play louder audio, while the off preference stays sile
       playAnswerFeedback(kind);
       assert.deepEqual(oscillators.map((node) => node.frequency.value), frequencies);
       assert.ok(oscillators.every((node) => node.stoppedAt === duration));
-      assert.equal(gains[0].gain.value, 1);
+      assert.equal(gains[0].gain.value, 1.5);
     }
     enabled = false;
     oscillators.length = 0;

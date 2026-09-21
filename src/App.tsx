@@ -29,6 +29,7 @@ import { saveBackupPayload } from './utils/backupRepository';
 import type { CreateProblemSetSubmission, LegacyImportTarget } from './screens/CreateProblemSetScreen';
 import { lineLinkReturn } from './utils/lineAuthReturn';
 import { AutoSyncController } from './components/AutoSyncController';
+import { UpdateNotices } from './components/UpdateNotices';
 import { WelcomeGuide } from './components/WelcomeGuide';
 import { UsageGuide } from './components/UsageGuide';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -1620,7 +1621,7 @@ export default function App() {
         onCancel={cancelProtectedExit}
         onConfirm={confirmProtectedExit}
       />
-      {(backupImportError || backupExportNotice || authNotice || storageError || waitingWorker) ? (
+      {(
         <div className="quiz-toast-stack">
           {backupImportError ? (
             <div className="quiz-update-toast" role="alert">
@@ -1646,14 +1647,12 @@ export default function App() {
               <button type="button" onClick={() => setStorageError('')}>閉じる</button>
             </div>
           ) : null}
-          {waitingWorker ? (
-            <div className="quiz-update-toast" role="status" aria-live="polite">
-              <span>{protectedWorkReason ? getUpdateBlockedMessage(protectedWorkReason) : '新しいバージョンがあります'}</span>
-              <button type="button" disabled={protectedWorkReason !== null} onClick={() => void handleApplyUpdate()}>更新する</button>
-            </div>
-          ) : null}
+          <UpdateNotices screenKey={getScreenKey(screen)} updateAvailable={Boolean(waitingWorker)}
+            updateMessage={protectedWorkReason ? getUpdateBlockedMessage(protectedWorkReason) : '新しいバージョンがあります'}
+            disabled={protectedWorkReason !== null} onUpdate={() => void handleApplyUpdate()}
+            onCloudReview={() => navigate({ name: 'sync' })} />
         </div>
-      ) : null}
+      )}
     </>
   );
 }

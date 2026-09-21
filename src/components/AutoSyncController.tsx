@@ -12,6 +12,7 @@ import {
   uploadSyncData,
 } from '../utils/syncService';
 import type { ProtectedWorkReason } from '../utils/protectedWork';
+import { CLOUD_UPDATE_EVENT } from '../utils/cloudUpdateNotice';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 60000;
@@ -118,7 +119,7 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
 
     const checkRemote = async (force = false) => {
       const settings = getAutoSyncSettings();
-      if (!settings.enabled || !settings.syncId || !settings.configured) return;
+      if (!settings.syncId || !settings.configured) return;
       if (remoteCheckRunningRef.current || uploadRunningRef.current) return;
 
       const now = Date.now();
@@ -129,7 +130,7 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
       try {
         const meta = await getRemoteSyncMeta(settings.syncId);
         const latestSettings = getAutoSyncSettings();
-        if (!latestSettings.enabled || latestSettings.syncId !== settings.syncId) return;
+        if (latestSettings.syncId !== settings.syncId) return;
         if (!meta.ok) {
           if (meta.code !== 'authentication_required') console.warn('Auto sync remote check failed.', meta.error);
           setLastSyncState({
@@ -151,8 +152,9 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
         const remote = await downloadSyncData(settings.syncId);
         if (!remote.ok || !remote.value) return;
         const currentSettings = getAutoSyncSettings();
-        if (!currentSettings.enabled || currentSettings.syncId !== settings.syncId) return;
+        if (currentSettings.syncId !== settings.syncId) return;
         const localHash = computePayloadHash(await exportQuizMakeData());
+        if (getAutoSyncSettings().syncId !== settings.syncId) return;
         if (localHash === computePayloadHash(remote.value.payload)) {
           setLastSyncStateForConnection(settings.syncId, {
             lastSyncAt: remote.value.updatedAt,
@@ -167,6 +169,7 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
 
         promptedRemoteUpdatedAtRef.current = promptKey;
         setLastSyncState({ status: '端末とクラウドに異なる内容があります', error: '' });
+        window.dispatchEvent(new CustomEvent(CLOUD_UPDATE_EVENT, { detail: { syncId: settings.syncId, updatedAt: remote.value.updatedAt } }));
         // Resolve differences only when the user opens Settings > Sync.
       } catch (error) {
         const message = error instanceof Error ? error.message : 'クラウド確認に失敗しました。';
@@ -194,10 +197,11 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('quiz-make-sync-settings-change', handleSettingsChange);
 
-    window.setTimeout(() => void checkRemote(true), 1200);
+    const initialCheckTimer = window.setTimeout(() => void checkRemote(true), 1200);
 
     return () => {
       window.clearInterval(intervalId);
+      window.clearTimeout(initialCheckTimer);
       if (localChangeRetryTimer !== null) window.clearTimeout(localChangeRetryTimer);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);

@@ -2,6 +2,27 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { getScreenKey } from '../src/utils/navigation.ts';
+import { dismissCloudUpdate, isCloudUpdateDismissed } from '../src/utils/cloudUpdateNotice.ts';
+
+test('cloud notice dismissal applies only to the same connection and revision', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const values = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) } });
+  try {
+    const notice = { syncId: 'notice-test', updatedAt: '2026-09-21T00:00:00Z' };
+    assert.equal(isCloudUpdateDismissed(notice), false);
+    dismissCloudUpdate(notice);
+    assert.equal(isCloudUpdateDismissed(notice), true);
+    assert.equal(values.get('quiz-make-cloud-notice-dismissed:notice-test'), notice.updatedAt);
+    assert.equal(isCloudUpdateDismissed({ ...notice, updatedAt: '2026-09-22T00:00:00Z' }), false);
+    assert.equal(isCloudUpdateDismissed({ ...notice, syncId: 'another-connection' }), false);
+    values.set('quiz-make-cloud-notice-dismissed:stored-connection', notice.updatedAt);
+    assert.equal(isCloudUpdateDismissed({ ...notice, syncId: 'stored-connection' }), true);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete globalThis.localStorage;
+  }
+});
 
 test('direct AI creation and the creation menu have separate navigation identities',()=>{
   assert.notEqual(getScreenKey({name:'createProblemSet'}),getScreenKey({name:'createProblemSet',backScreen:{name:'home'}}));
