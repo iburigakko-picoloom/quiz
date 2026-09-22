@@ -19,7 +19,7 @@ function listFiles(directory) {
   });
 }
 
-function createWorkerHarness(fetchHandler = async () => new Response('ok')) {
+function createWorkerHarness(fetchHandler = async () => new Response('ok'), clients = []) {
   const handlers = new Map();
   const entries = new Map();
   const deletedCaches = [];
@@ -45,6 +45,9 @@ function createWorkerHarness(fetchHandler = async () => new Response('ok')) {
     Request,
     Response,
     Set,
+    MessageChannel,
+    setTimeout,
+    clearTimeout,
     crypto: globalThis.crypto,
     caches: {
       async open() {
@@ -69,6 +72,7 @@ function createWorkerHarness(fetchHandler = async () => new Response('ok')) {
       },
       registration: { scope },
       clients: {
+        async matchAll() { return clients; },
         async claim() {
           claimed = true;
         },
@@ -81,7 +85,7 @@ function createWorkerHarness(fetchHandler = async () => new Response('ok')) {
   });
 
   vm.runInContext(
-    `${workerSource}\nglobalThis.__workerTest = { networkFirst, staleWhileRevalidate, extractBuildAssetUrls, parsePrecacheManifest, receiveSharedImage };`,
+    `${workerSource}\nglobalThis.__workerTest = { networkFirst, staleWhileRevalidate, extractBuildAssetUrls, parsePrecacheManifest, receiveSharedImage, deliverToOpenExplanation };`,
     context,
   );
 
@@ -110,6 +114,29 @@ test('activation removes only obsolete Quiz make cache generations', async () =>
 
   assert.deepEqual(harness.deletedCaches, ['quiz-make-cache-old']);
   assert.equal(harness.claimed, true);
+});
+
+test('image share hands off to a live explanation without navigating it, with safe focus fallback', async () => {
+  const messages=[];
+  let focused=0;
+  const client={url:scope,async focus(){focused++;},postMessage(message,ports){
+    messages.push(message.type);
+    ports[0].postMessage(message.type==='QUIZ_SHARE_PROBE'?{ready:true}:{accepted:true});
+    ports[0].close();
+  }};
+  const destination=new URL(scope+'?sharedImage=12345678-1234-1234-1234-123456789abc');
+  const harness=createWorkerHarness(undefined,[client]);
+  assert.equal(await harness.api.deliverToOpenExplanation(destination),true);
+  assert.equal(focused,1);
+  assert.deepEqual(messages,['QUIZ_SHARE_PROBE','QUIZ_SHARE_DELIVER']);
+  messages.length=0;
+  const denied=createWorkerHarness(undefined,[{...client,async focus(){throw new Error('not active');}}]);
+  assert.equal(await denied.api.deliverToOpenExplanation(destination),false);
+  assert.deepEqual(messages,['QUIZ_SHARE_PROBE'],'no delivery occurs when the original window cannot be focused');
+  const outside=createWorkerHarness(undefined,[{...client,url:'https://other.test/quiz/'}]);
+  assert.equal(await outside.api.deliverToOpenExplanation(destination),false);
+  const closed=createWorkerHarness();
+  assert.equal(await closed.api.deliverToOpenExplanation(destination),false);
 });
 
 test('image share POST is persisted locally and redirects to confirmation, not a server', async () => {

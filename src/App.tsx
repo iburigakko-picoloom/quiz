@@ -12,7 +12,7 @@ import {
 } from './storage';
 import { HomeScreen } from './screens/HomeScreen';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
-import { appendSharedImage } from './utils/sharedImage';
+import { appendSharedImage, getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
 import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
@@ -132,7 +132,12 @@ export default function App() {
         const url = new URL(window.location.href);
         const sharedSetId = url.searchParams.get('sharedSet') ?? '';
         const shareToken = url.searchParams.get('token') ?? '';
-        if (sharedSetId) {
+        const imageReturnScreen = sharedImageReturnScreen(loadedData, url);
+        if (imageReturnScreen) {
+          navigationStackRef.current = [imageReturnScreen];
+          screenRef.current = imageReturnScreen;
+          setScreen(imageReturnScreen);
+        } else if (sharedSetId) {
           const sharedScreen: AppScreen = { name: 'community', tab: 'discover', shareSetId: sharedSetId, shareToken };
           navigationStackRef.current = [sharedScreen];
           screenRef.current = sharedScreen;
@@ -1583,7 +1588,12 @@ export default function App() {
   return (
     <>
       <AutoSyncController protectedWorkReason={protectedWorkReason} />
-      <SharedImageReceiver data={data} onClose={()=>setReceivingSharedImage(false)} onOpenQuestion={questionId=>navigate({name:'detailedAnswer',questionId,backScreen:screenRef.current})} onSave={async (questionId,originalQuestion,image,shareId)=>{
+      <SharedImageReceiver data={data} onReceive={()=>setReceivingSharedImage(true)} onClose={()=>setReceivingSharedImage(false)} onOpenQuestion={questionId=>{
+        const current = screenRef.current;
+        if (getActiveImageTarget() === questionId) return;
+        if (current.name === 'detailedAnswer' && current.questionId === questionId) return;
+        navigate({name:'detailedAnswer',questionId,backScreen:current});
+      }} onSave={async (questionId,originalQuestion,image,shareId)=>{
         const next=appendSharedImage(dataRef.current,questionId,originalQuestion,image,shareId);
         if(!await persistThenCommitData(next))throw new Error('画像を保存できませんでした。再読み込みして追加し直してください。');
       }}/>

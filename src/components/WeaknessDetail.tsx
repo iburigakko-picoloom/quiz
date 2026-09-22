@@ -6,7 +6,7 @@ import { changeWeaknessNotes, readWeaknessNotes, NOTES_EVENT, type WeaknessNote 
 import { WeaknessMemoList } from './WeaknessMemoList';
 import './WeaknessNotes.css';
 import { imageMarkdown } from '../utils/imageAttachment';
-import { rememberImageTarget } from '../utils/sharedImage';
+import { activateImageTarget, rememberImageTarget } from '../utils/sharedImage';
 import { extractExplanationMedia, normalizeExplanationMarkdown } from '../utils/explanationMarkdown';
 export { extractExplanationMedia } from '../utils/explanationMarkdown';
 
@@ -85,9 +85,10 @@ export function WeaknessDetail({ questionId, text, onSave, disabled = false, onD
   }, [questionId, active, disabled, guideExample]);
   useEffect(()=>{
     if (!active || disabled || guideExample !== undefined) return;
+    const deactivate = activateImageTarget(questionId);
     const remember=()=>{if(document.visibilityState==='visible')rememberImageTarget(questionId);};
     remember(); document.addEventListener('visibilitychange',remember);
-    return()=>document.removeEventListener('visibilitychange',remember);
+    return()=>{deactivate();document.removeEventListener('visibilitychange',remember);};
   },[questionId,active,disabled,guideExample]);
   useEffect(()=>{
     if (guideExample !== undefined) { setBody(guideExample); setMemoId('guide-only'); return; }

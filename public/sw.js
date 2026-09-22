@@ -85,7 +85,36 @@ async function receiveSharedImage(request) {
   } catch (error) {
     destination.searchParams.set('sharedImageError', ['count','missing','type','size','full'].includes(error.message) ? error.message : 'storage');
   }
+  // Preserve a live quiz and its panel/scroll state instead of navigating it.
+  if (await deliverToOpenExplanation(destination)) return new Response(null, { status: 204 });
   return Response.redirect(destination.href, 303);
+}
+
+function askShareClient(client, message) {
+  return new Promise(resolve => {
+    const channel = new MessageChannel();
+    const finish = value => { clearTimeout(timer); channel.port1.close(); resolve(value); };
+    const timer = setTimeout(() => finish(null), 500);
+    channel.port1.onmessage = event => finish(event.data);
+    try { client.postMessage(message, [channel.port2]); } catch { finish(null); }
+  });
+}
+
+async function deliverToOpenExplanation(destination) {
+  try {
+    const windows = (await self.clients.matchAll({ type: 'window' })).filter(client => {
+      const url = new URL(client.url);
+      return url.origin === BASE_URL.origin && url.pathname.startsWith(BASE_PATH);
+    });
+    const candidates = await Promise.all(windows.map(async client => ({ client, reply: await askShareClient(client, { type: 'QUIZ_SHARE_PROBE' }) })));
+    const target = candidates.find(item => item.reply?.ready);
+    if (!target) return false;
+    await target.client.focus();
+    const result = await askShareClient(target.client, {
+      type: 'QUIZ_SHARE_DELIVER', id: destination.searchParams.get('sharedImage'), error: destination.searchParams.get('sharedImageError'),
+    });
+    return result?.accepted === true;
+  } catch { return false; } // Closed/suspended clients or denied focus: safe fallback.
 }
 
 async function precacheAppShell() {

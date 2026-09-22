@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AppData } from '../types';
 import { imageMarkdown } from '../utils/imageAttachment';
-import { readImageTarget, SHARE_IMAGE_CACHE } from '../utils/sharedImage';
+import { getActiveImageTarget, readImageTarget, SHARE_IMAGE_CACHE } from '../utils/sharedImage';
 import './SharedImageReceiver.css';
 
 const errors: Record<string,string> = {
@@ -11,8 +11,8 @@ const errors: Record<string,string> = {
   size:'10MB以下の画像を共有してください。', full:'未追加の共有画像が残っています。先に追加または閉じてください。',
   storage:'共有画像を受け取れませんでした。写真に保存して「画像を追加」から選んでください。',
 };
-export function SharedImageReceiver({data,onSave,onClose,onOpenQuestion}: {data:AppData;onSave:(questionId:string,originalQuestion:string,image:string,shareId:string)=>Promise<void>;onClose:()=>void;onOpenQuestion:(questionId:string)=>void}) {
-  const [id]=useState(()=>new URL(location.href).searchParams.get('sharedImage')??'');
+export function SharedImageReceiver({data,onSave,onClose,onOpenQuestion,onReceive}: {data:AppData;onSave:(questionId:string,originalQuestion:string,image:string,shareId:string)=>Promise<void>;onClose:()=>void;onOpenQuestion:(questionId:string)=>void;onReceive:()=>void}) {
+  const [id,setId]=useState(()=>new URL(location.href).searchParams.get('sharedImage')??'');
   const [error,setError]=useState(()=>errors[new URL(location.href).searchParams.get('sharedImageError')??'']??'');
   const [open,setOpen]=useState(()=>Boolean(id||error));
   const [questionId,setQuestionId]=useState(readImageTarget);
@@ -20,6 +20,25 @@ export function SharedImageReceiver({data,onSave,onClose,onOpenQuestion}: {data:
   const lock=useRef(false), dialog=useRef<HTMLDialogElement>(null);
   const question=data.questions.find(q=>q.id===questionId);
   const cacheUrl=()=>new URL(`_shared-image/${id}`,new URL(import.meta.env.BASE_URL,location.href)).href;
+  useEffect(()=>{
+    if (!('serviceWorker' in navigator)) return;
+    const receive=(event:MessageEvent)=>{
+      if (event.source !== navigator.serviceWorker.controller || !event.ports[0]) return;
+      const port=event.ports[0];
+      const target=getActiveImageTarget();
+      const available=!open&&!lock.current&&!!target&&target===readImageTarget()&&data.questions.some(q=>q.id===target);
+      if (event.data?.type==='QUIZ_SHARE_PROBE') { port.postMessage({ready:available}); return; }
+      if (event.data?.type!=='QUIZ_SHARE_DELIVER') return;
+      const incoming=event.data.id;
+      const errorCode=event.data.error;
+      if (!available || !(typeof incoming==='string'&&/^[a-f0-9-]{36}$/.test(incoming) || typeof errorCode==='string'&&!!errors[errorCode])) { port.postMessage({accepted:false}); return; }
+      setId(incoming??'');setError(errors[errorCode]??'');setQuestionId(target);
+      setImage('');setSaved(false);setOpen(true);onReceive();
+      port.postMessage({accepted:true});
+    };
+    navigator.serviceWorker.addEventListener('message',receive);
+    return()=>navigator.serviceWorker.removeEventListener('message',receive);
+  },[data,open,onReceive]);
   useEffect(()=>{if(open)dialog.current?.showModal();},[open]);
   useEffect(()=>{
     if(!id)return;

@@ -1,7 +1,13 @@
-import type { AppData } from '../types';
+import type { AppData, AppScreen } from '../types';
 
 export const SHARE_IMAGE_CACHE = 'quiz-make-shared-images-v1';
 const TARGET_KEY = 'quiz-make-image-target-v1';
+let activeImageTarget = '';
+export function activateImageTarget(questionId: string) {
+  activeImageTarget = questionId;
+  return () => { if (activeImageTarget === questionId) activeImageTarget = ''; };
+}
+export function getActiveImageTarget() { return activeImageTarget; }
 export function rememberImageTarget(questionId: string) {
   try { localStorage.setItem(TARGET_KEY, JSON.stringify({questionId, updatedAt: Date.now()})); } catch { /* Receiver still allows an explicit choice. */ }
 }
@@ -10,6 +16,14 @@ export function readImageTarget(): string {
     const target = JSON.parse(localStorage.getItem(TARGET_KEY) ?? 'null');
     return target && typeof target.questionId === 'string' && Number.isFinite(target.updatedAt) && Date.now() >= target.updatedAt && Date.now() - target.updatedAt < 30 * 60_000 ? target.questionId : '';
   } catch { return ''; }
+}
+/** Restore only a valid saved question, and only for an incoming share launch. */
+export function sharedImageReturnScreen(data: AppData, url: URL): AppScreen | null {
+  if (!url.searchParams.has('sharedImage') && !url.searchParams.has('sharedImageError')) return null;
+  const questionId = readImageTarget();
+  const question = data.questions.find(item => item.id === questionId);
+  if (!question || !data.problemSets.some(set => set.id === question.setId)) return null;
+  return { name: 'detailedAnswer', questionId, backScreen: { name: 'problemSetDetail', setId: question.setId } };
 }
 export function appendSharedImage(data: AppData, questionId: string, originalQuestion: string, image: string, shareId: string): AppData {
   if (!/^[a-f0-9-]{36}$/.test(shareId) || !/^!\[添付画像\]\(data:image\/jpeg;base64,[a-zA-Z0-9+/=]+\)$/.test(image)) throw new Error('画像データを確認できません。');

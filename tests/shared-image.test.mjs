@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendSharedImage, readImageTarget, rememberImageTarget } from '../src/utils/sharedImage.ts';
+import { activateImageTarget, getActiveImageTarget, appendSharedImage, readImageTarget, rememberImageTarget, sharedImageReturnScreen } from '../src/utils/sharedImage.ts';
 import { extractExplanationMedia } from '../src/utils/explanationMarkdown.ts';
 const id='12345678-1234-1234-1234-123456789abc';
 const image='![添付画像](data:image/jpeg;base64,YQ==)';
 const question={id:'q',setId:'s',question:'問題',choices:['a','b','c','d'],answerIndex:0,explanation:'通常',detailedAnswer:{body:'既存',imageIds:['old'],updatedAt:'old'}};
 const data={questions:[question],progress:[{correctCount:2}],answerLogs:[{}]};
+test('only a currently mounted explanation accepts live shares',()=>{
+  const closeFirst=activateImageTarget('q1');
+  assert.equal(getActiveImageTarget(),'q1');
+  const closeSecond=activateImageTarget('q2');
+  closeFirst(); assert.equal(getActiveImageTarget(),'q2');
+  closeSecond(); assert.equal(getActiveImageTarget(),'');
+});
 test('shared image appends once without changing normal explanations or progress',()=>{
   const next=appendSharedImage(data,'q','問題',image,id);
   assert.equal(next.questions[0].explanation,'通常');
@@ -27,4 +34,20 @@ test('remembered targets expire and malformed storage never picks an arbitrary q
   rememberImageTarget('q');assert.equal(readImageTarget(),'q');
   raw=JSON.stringify({questionId:'q',updatedAt:Date.now()-31*60_000});assert.equal(readImageTarget(),'');
   raw='invalid';assert.equal(readImageTarget(),'');
+});
+test('incoming image shares restore the remembered explanation, not home or an unrelated question',()=>{
+  const previous = globalThis.localStorage;
+  let raw=''; globalThis.localStorage={setItem:(_k,v)=>{raw=v;},getItem:()=>raw};
+  try {
+    const savedData={...data,problemSets:[{id:'s'}]};
+    const url=new URL('https://example.com/quiz/?sharedImage='+id);
+    rememberImageTarget('q');
+    assert.deepEqual(sharedImageReturnScreen(savedData,url),{name:'detailedAnswer',questionId:'q',backScreen:{name:'problemSetDetail',setId:'s'}});
+    assert.equal(sharedImageReturnScreen(savedData,new URL('https://example.com/quiz/')),null);
+    assert.equal(sharedImageReturnScreen(savedData,new URL('https://example.com/quiz/?sharedImageError=missing')).questionId,'q');
+    assert.equal(sharedImageReturnScreen({...savedData,questions:[]},url),null);
+    assert.equal(sharedImageReturnScreen({...savedData,problemSets:[]},url),null);
+    raw=JSON.stringify({questionId:'q',updatedAt:Date.now()-31*60_000});
+    assert.equal(sharedImageReturnScreen(savedData,url),null);
+  } finally { globalThis.localStorage=previous; }
 });
