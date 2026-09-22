@@ -10,6 +10,7 @@ import {
   createSyncPairingCode,
   deleteRemoteSyncData,
   downloadSyncData,
+  refreshDownloadedSyncData,
   exportQuizMakeData,
   exportQuizMakeRecoveryData,
   generateSyncId,
@@ -847,7 +848,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
     setError('');
     setMessage('クラウドの最新状態を確認しています...');
 
-    const latestRemote = await downloadSyncData(target.syncId);
+    const latestRemote = await refreshDownloadedSyncData({ syncId: target.syncId, payload: target.payload, updatedAt: target.remoteUpdatedAt });
     if (!latestRemote.ok) {
       setBusy(false);
       setPendingCloudImport(null);

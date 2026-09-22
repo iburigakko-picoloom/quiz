@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { computePayloadHash, downloadSyncData, exportQuizMakeData, getLastSyncState, getStoredSyncId, summarizeSyncPayload, type RemoteSyncRecord, type SyncPayload, type SyncPayloadSummary } from '../utils/syncService';
 import { saveBackupPayload } from '../utils/backupRepository';
+import { materialComparisonPayload } from '../utils/materialCloud';
 
-type Comparison = { local: SyncPayload; remote: RemoteSyncRecord | null; syncId: string };
+type Comparison = { local: SyncPayload; remote: RemoteSyncRecord | null; syncId: string; same: boolean; localHash: string };
 export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syncId: string; disabled: boolean; onUpload: (payload?: SyncPayload, confirmedRemoteUpdatedAt?: string) => Promise<void>; onDownload: () => Promise<void> }) {
   const [value,setValue] = useState<Comparison | null>(null);
   const [pending,setPending] = useState<Comparison | null>(null);
@@ -15,10 +16,14 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
     let active = true;
     if (disabled) { setValue(null); if (!lock.current) setLoading(false); return; }
     setLoading(true); setError(''); setValue(null);
-    void Promise.all([exportQuizMakeData(),downloadSyncData(syncId)]).then(([local,remote]) => {
+    void Promise.all([exportQuizMakeData(),downloadSyncData(syncId, { materialFiles: 'references' })]).then(async ([local,remote]) => {
       if (!active) return;
       if (!remote.ok) throw new Error(remote.error);
-      setValue({local,remote:remote.value,syncId});
+      const [localComparison, remoteComparison] = await Promise.all([
+        materialComparisonPayload(local), remote.value ? materialComparisonPayload(remote.value.payload) : null,
+      ]);
+      if (!active) return;
+      setValue({local,remote:remote.value,syncId,localHash:computePayloadHash(local),same:Boolean(remoteComparison && computePayloadHash(localComparison) === computePayloadHash(remoteComparison))});
     }).catch((reason) => { if(active) setError(reason instanceof Error ? reason.message : '同期状態を確認できません。'); }).finally(() => {if(active) setLoading(false);});
     return () => { active = false; };
   },[syncId,disabled,attempt]);
@@ -36,13 +41,13 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
     } catch(reason) { setError(reason instanceof Error ? reason.message : '同期を完了できませんでした。'); setPending(null); }
     finally {lock.current = false; setLoading(false);}
   };
-  const same = value?.remote && computePayloadHash(value.local) === computePayloadHash(value.remote.payload);
+  const same = value?.same ?? false;
   const syncNormally = async () => {
     if (!value || lock.current || disabled) return;
     lock.current = true; setLoading(true); setError('');
     try {
       const last = getLastSyncState();
-      const localChanged = computePayloadHash(value.local) !== last.lastUploadHash;
+      const localChanged = value.localHash !== last.lastUploadHash;
       const remoteChanged = Boolean(value.remote && value.remote.updatedAt !== last.lastSyncAt);
       if (localChanged && remoteChanged && !same) {
         setError('両方に変更があります。残す内容を選んでください。');
@@ -55,10 +60,10 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
     } catch (reason) { setError(reason instanceof Error ? reason.message : '同期できませんでした。'); }
     finally { lock.current = false; setLoading(false); }
   };
-  const local = value && summarizeSyncPayload(value.local);
-  const remote = value?.remote && summarizeSyncPayload(value.remote.payload);
+  const local = useMemo(() => value && summarizeSyncPayload(value.local), [value]);
+  const remote = useMemo(() => value?.remote && summarizeSyncPayload(value.remote.payload), [value]);
   const last = getLastSyncState();
-  const localChanged = Boolean(value && computePayloadHash(value.local) !== last.lastUploadHash);
+  const localChanged = Boolean(value && value.localHash !== last.lastUploadHash);
   const remoteChanged = Boolean(value?.remote && value.remote.updatedAt !== last.lastSyncAt);
   const state: SyncViewState = same ? 'same' : localChanged && remoteChanged ? 'conflict' : remoteChanged ? 'cloud' : 'local';
   return <section className="qm-sync-comparison" aria-label="同期の状態" aria-busy={loading || disabled}>
@@ -70,7 +75,7 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
     </div> : null}
     {value && local ? <SyncComparisonView state={state} local={local} remote={remote || null} disabled={disabled || loading}
       onSync={() => void syncNormally()} onUpload={() => setPending(value)} onDownload={() => void onDownload()} /> : null}
-    <ConfirmDialog fullPage open={Boolean(pending)} title="端末の内容でクラウドを置き換えますか？" message={pending ? `残す内容：端末の${summarizeSyncPayload(pending.local).questionCount}問\n上書きする側：クラウド${pending.remote ? `（${new Date(pending.remote.updatedAt).toLocaleString()}）` : '（未登録）'}\n\n両方の復元用バックアップを作成・読み戻し確認してから実行します。` : ''} confirmLabel={loading ? '処理中…' : 'バックアップしてクラウドを置き換える'} busy={loading} onCancel={() => setPending(null)} onConfirm={() => void confirm()} />
+    <ConfirmDialog fullPage open={Boolean(pending)} title="端末の内容でクラウドを置き換えますか？" message={pending ? `残す内容：端末の${local?.questionCount ?? 0}問\n上書きする側：クラウド${pending.remote ? `（${new Date(pending.remote.updatedAt).toLocaleString()}）` : '（未登録）'}\n\n両方の復元用バックアップを作成・読み戻し確認してから実行します。` : ''} confirmLabel={loading ? '処理中…' : 'バックアップしてクラウドを置き換える'} busy={loading} onCancel={() => setPending(null)} onConfirm={() => void confirm()} />
   </section>;
 }
 

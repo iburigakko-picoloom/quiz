@@ -51,6 +51,21 @@ function decodePdf(dataUrl: string) {
 async function digest(bytes: Uint8Array<ArrayBuffer>) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
+/** Comparison only: replace PDF bodies/remote pointers with the same content digest.
+ * The result is deliberately not an importable/uploadable material snapshot. */
+export async function materialComparisonPayload(payload: SyncPayload): Promise<SyncPayload> {
+  const map = async (entries: Record<string, string>) => {
+    const result = { ...entries };
+    for (const [key, raw] of Object.entries(entries)) {
+      const file = materialFileEntry(key, raw);
+      if (!file) continue;
+      const sha256 = file.kind === 'quiz-material-file' ? await digest(decodePdf(file.dataUrl)) : file.sha256;
+      result[key] = JSON.stringify({ kind: 'quiz-material-comparison', materialId: file.materialId, updatedAt: file.updatedAt, sha256 });
+    }
+    return result;
+  };
+  return { ...payload, localStorage: await map(payload.localStorage), indexedDbNotes: await map(payload.indexedDbNotes ?? {}) };
+}
 function encodePdf(bytes: Uint8Array) {
   const parts: string[] = [];
   for (let i = 0; i < bytes.length; i += 0x8000) parts.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));

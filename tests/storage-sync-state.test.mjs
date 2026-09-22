@@ -54,6 +54,59 @@ const storage = await import('../src/storage.ts');
 const notes = await import('../src/utils/noteStorage.ts');
 const syncState = await import('../src/utils/syncState.ts');
 const coordination = await import('../src/utils/dataCoordination.ts');
+const backups = await import('../src/utils/backupRepository.ts');
+
+test('backup listing contains only summaries; legacy and current backups remain restorable', async () => {
+  delete globalThis.indexedDB;
+  localStorage.clear();
+  const payload = { version: 1, updatedAt: '2026-09-22', localStorage: { example: '日本語' }, indexedDbNotes: {} };
+  const saved = await backups.saveBackupPayload(payload, 'manual');
+  const legacy = { id: 'old-backup', createdAt: '2020-01-01', kind: 'before-sync', raw: JSON.stringify(payload) };
+  localStorage.setItem('quizMake:sync:saved-backup:old-backup', JSON.stringify(legacy));
+  const list = await backups.listSavedBackups();
+  assert.equal(list.length, 2);
+  assert.equal(list[0].id, saved.id);
+  for (const row of list) {
+    assert.equal('raw' in row, false, 'list state must not retain backup bodies');
+    assert.equal(row.byteSize, new Blob([JSON.stringify(payload)]).size);
+    assert.deepEqual(JSON.parse((await backups.getSavedBackup(row.id)).raw), payload);
+  }
+  assert.equal(localStorage.getItem('quizMake:sync:saved-backup:old-backup'), JSON.stringify(legacy), 'reading summaries never rewrites older backups');
+  await backups.deleteSavedBackup(saved.id);
+  assert.equal((await backups.listSavedBackups()).length, 1);
+});
+
+test('IndexedDB backup listing reads one record at a time and closes its read-only transaction', async () => {
+  const previous = globalThis.indexedDB;
+  localStorage.clear();
+  const rows = [0, 1, 2].map(index => ({ id: String(index), createdAt: `2026-09-${20+index}`, kind: 'manual', raw: 'x'.repeat(1000), byteSize: 1000 }));
+  let closed = false; let reads = 0;
+  globalThis.indexedDB = { open() {
+    const opening = {};
+    opening.result = { close() { closed = true; }, transaction(_name, mode) {
+      assert.equal(mode, 'readonly');
+      const transaction = { objectStore() { return { openCursor() {
+        const request = {}; let index = 0;
+        const next = () => queueMicrotask(() => {
+          request.result = index < rows.length ? { value: rows[index++], continue: next } : null;
+          if (request.result) reads++;
+          request.onsuccess();
+          if (!request.result) transaction.oncomplete();
+        });
+        next(); return request;
+      } }; } };
+      return transaction;
+    } };
+    queueMicrotask(() => opening.onsuccess()); return opening;
+  } };
+  try {
+    const summaries = await backups.listSavedBackups();
+    assert.equal(reads, 3);
+    assert.equal(closed, true);
+    assert.deepEqual(summaries.map(row => row.id), ['2','1','0']);
+    assert.ok(summaries.every(row => !('raw' in row) && row.byteSize === 1000));
+  } finally { if (previous === undefined) delete globalThis.indexedDB; else globalThis.indexedDB = previous; }
+});
 
 function resetStorage() {
   localStorage.clear();

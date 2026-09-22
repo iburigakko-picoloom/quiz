@@ -467,19 +467,17 @@ export function exportQuizMakeData(
       // that never included question memos or pending AI requests.
       WEAKNESS_STORAGE_KEYS.forEach(key => { localStorageData[key] ??= '[]'; });
 
-      localStorageData[APP_DATA_STORAGE_KEY] = await exportAppDataRaw({
-        coordinationLockHeld: true,
-        mode: options.mode,
-      });
+      const [appDataRaw, indexedDbNotes] = await Promise.all([
+        exportAppDataRaw({ coordinationLockHeld: true, mode: options.mode }),
+        exportCategoryNotesRaw({ coordinationLockHeld: true, mode: options.mode }),
+      ]);
+      localStorageData[APP_DATA_STORAGE_KEY] = appDataRaw;
 
       const payload: SyncPayload = {
         version: 1,
         updatedAt,
         localStorage: localStorageData,
-        indexedDbNotes: await exportCategoryNotesRaw({
-          coordinationLockHeld: true,
-          mode: options.mode,
-        }),
+        indexedDbNotes,
       };
       const result = associateLocalDataRevision(
         associateDataEpochSnapshot(payload, ['app', 'notes']),
@@ -550,8 +548,10 @@ async function importQuizMakeDataUnlocked(
   let previousLocalStorage: Record<string, string>;
   let previousIntegrity: DataIntegritySnapshot;
   try {
-    previousAppDataRaw = await exportAppDataRaw({ coordinationLockHeld: true, mode: 'recovery' });
-    previousNotes = await exportCategoryNotesRaw({ coordinationLockHeld: true, mode: 'recovery' });
+    [previousAppDataRaw, previousNotes] = await Promise.all([
+      exportAppDataRaw({ coordinationLockHeld: true, mode: 'recovery' }),
+      exportCategoryNotesRaw({ coordinationLockHeld: true, mode: 'recovery' }),
+    ]);
     previousIntegrity = captureDataIntegritySnapshot();
     previousLocalStorage = collectCurrentQuizMakeLocalStorage();
     if (expectedLocalHash && computePayloadHash({version:1, updatedAt:'', localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes}) !== expectedLocalHash) {
@@ -817,7 +817,7 @@ async function uploadSyncDataUnlocked(
   }
 }
 
-export async function downloadSyncData(syncId: string): Promise<SyncResult<RemoteSyncRecord | null>> {
+export async function downloadSyncData(syncId: string, options: { materialFiles?: 'download' | 'references' } = {}): Promise<SyncResult<RemoteSyncRecord | null>> {
   const normalizedSyncId = syncId.trim();
   if (!normalizedSyncId) return { ok: false, error: '同期IDを入力してください。' };
   if (!isStrongSyncId(normalizedSyncId)) return { ok: false, error: '同期IDは「同期IDを生成」で作成した36文字のIDを使用してください。' };
@@ -848,7 +848,7 @@ export async function downloadSyncData(syncId: string): Promise<SyncResult<Remot
 
     const record = parseRemoteRecord(rows[0], normalizedSyncId);
     if (!record.ok) return record;
-    if (hasRemoteMaterialFiles(record.value.payload)) {
+    if (options.materialFiles !== 'references' && hasRemoteMaterialFiles(record.value.payload)) {
       const access = await syncAccessTokenProvider();
       if (!access.ok) return { ok: false, error: access.message };
       record.value.payload = await hydrateMaterialDownload(record.value.payload, createMaterialTransport(config, access));
@@ -866,6 +866,21 @@ export async function downloadSyncData(syncId: string): Promise<SyncResult<Remot
       error: error instanceof Error ? `クラウドからの読み込みに失敗しました: ${error.message}` : 'クラウドからの読み込みに失敗しました。',
     };
   }
+}
+
+/** Revalidate an already downloaded preview before importing, without transferring
+ * the same complete backup twice. A changed revision always gets a fresh body. */
+export async function refreshDownloadedSyncData(previous: RemoteSyncRecord): Promise<SyncResult<RemoteSyncRecord | null>> {
+  if (!isCurrentSyncConnection(previous.syncId)) return syncConnectionChangedResult();
+  const validation = validateSyncPayload(previous.payload);
+  if (!validation.ok) return validation;
+  const meta = await getRemoteSyncMeta(previous.syncId);
+  if (!isCurrentSyncConnection(previous.syncId)) return syncConnectionChangedResult();
+  if (!meta.ok) return meta;
+  if (!meta.value) return { ok: true, value: null };
+  return meta.value.updatedAt === previous.updatedAt
+    ? { ok: true, value: previous }
+    : downloadSyncData(previous.syncId);
 }
 
 export async function getRemoteSyncMeta(syncId: string): Promise<SyncResult<RemoteSyncMeta | null>> {

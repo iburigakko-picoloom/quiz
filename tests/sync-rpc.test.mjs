@@ -107,6 +107,32 @@ test('remote metadata uses the lightweight meta RPC instead of downloading the p
   assert.notEqual(calledHeaders.get('authorization'), 'Bearer test-anon-key');
 });
 
+test('import confirmation reuses a validated snapshot only while its authenticated remote revision is unchanged', async () => {
+  localStorage.clear(); sync.setStoredSyncId(syncId);
+  const payload = { version: 1, updatedAt, localStorage: { [storage.APP_DATA_STORAGE_KEY]: JSON.stringify(storage.createEmptyAppData()) }, indexedDbNotes: {} };
+  const previous = { syncId, updatedAt, payload };
+  const requests = [];
+  globalThis.fetch = async url => { requests.push(String(url)); return rpcResponse([{ sync_id: syncId, updated_at: updatedAt }]); };
+  const unchanged = await sync.refreshDownloadedSyncData(previous);
+  assert.equal(unchanged.ok, true);
+  assert.equal(unchanged.value, previous);
+  assert.equal(requests.length, 1);
+  assert.match(requests[0], /quiz_sync_meta$/);
+  const newer = '2026-09-23T00:00:00.000Z';
+  requests.length = 0;
+  globalThis.fetch = async url => { requests.push(String(url)); return rpcResponse([{ sync_id: syncId, updated_at: newer, data: payload }]); };
+  const changed = await sync.refreshDownloadedSyncData(previous);
+  assert.equal(changed.ok, true, changed.error);
+  assert.equal(changed.value.updatedAt, newer);
+  assert.equal(requests.length, 2, 'a new revision requires a fresh full snapshot');
+  globalThis.fetch = async () => rpcResponse([]);
+  assert.deepEqual(await sync.refreshDownloadedSyncData(previous), { ok: true, value: null });
+  globalThis.fetch = async () => rpcResponse({ message: 'not authorized' }, 403);
+  assert.equal((await sync.refreshDownloadedSyncData(previous)).ok, false, 'cached contents never bypass an authorization failure');
+  globalThis.fetch = async () => { sync.setStoredSyncId('00000000-0000-4000-8000-000000000099'); return rpcResponse([{ sync_id: syncId, updated_at: updatedAt }]); };
+  assert.equal((await sync.refreshDownloadedSyncData(previous)).ok, false, 'connection changes abort cached imports');
+});
+
 test('signed-out sync fails before network I/O and never falls back to the public API key', async () => {
   let fetchCount = 0;
   globalThis.fetch = async () => {
@@ -415,6 +441,9 @@ test('PDF sync separates bytes, skips unchanged uploads, and restores portable l
   assert.equal(payload.indexedDbNotes[key], original, 'export snapshot is immutable');
   const restored = await materials.hydrateMaterialDownload(wire, transport);
   assert.deepEqual(JSON.parse(restored.indexedDbNotes[key]), file);
+  assert.equal(sync.computePayloadHash(await materials.materialComparisonPayload(payload)), sync.computePayloadHash(await materials.materialComparisonPayload(wire)), 'inline and remote PDFs compare equally without downloading bytes');
+  const changedWire = { ...wire, indexedDbNotes: { [key]: JSON.stringify({ ...JSON.parse(wire.indexedDbNotes[key]), sha256: '0'.repeat(64), path: `${transport.userId}/${'0'.repeat(64)}.pdf` }) } };
+  assert.notEqual(sync.computePayloadHash(await materials.materialComparisonPayload(payload)), sync.computePayloadHash(await materials.materialComparisonPayload(changedWire)), 'a changed PDF must not be reported as synchronized');
   assert.equal(sync.computePayloadHash(restored), sync.computePayloadHash(payload));
   const reorderedFile = { updatedAt: file.updatedAt, dataUrl: file.dataUrl, ...file };
   assert.equal(sync.computePayloadHash({ ...payload, indexedDbNotes: { [key]: JSON.stringify(reorderedFile) } }), sync.computePayloadHash(payload));
@@ -453,9 +482,18 @@ test('remote PDF download is verified before returning an importable snapshot', 
   let binary;
   const wire = await materials.prepareMaterialUpload(payload, { userId: (await testAccessTokenProvider()).userId, exists: async () => false, upload: async (_file, bytes) => { binary = bytes; } });
   localStorage.clear(); sync.setStoredSyncId(syncId);
-  globalThis.fetch = async url => String(url).includes('/storage/v1/object/') ? new Response(binary) : rpcResponse([{ sync_id: syncId, updated_at: updatedAt, data: wire }]);
+  let pdfRequests = 0;
+  globalThis.fetch = async url => {
+    if (String(url).includes('/storage/v1/object/')) { pdfRequests++; return new Response(binary); }
+    return rpcResponse([{ sync_id: syncId, updated_at: updatedAt, data: wire }]);
+  };
+  const preview = await sync.downloadSyncData(syncId, { materialFiles: 'references' });
+  assert.equal(preview.ok, true);
+  assert.equal(pdfRequests, 0, 'status preview must not download PDF bodies');
+  assert.equal(sync.validateSyncPayload(preview.value.payload).ok, false, 'preview pointers are not importable data');
   const result = await sync.downloadSyncData(syncId);
   assert.equal(result.ok, true, result.error);
+  assert.equal(pdfRequests, 1, 'actual imports still download and verify PDF bodies');
   assert.deepEqual(JSON.parse(result.value.payload.indexedDbNotes[key]), file);
   const nextFile = { ...JSON.parse(wire.indexedDbNotes[key]), sha256: '1'.repeat(64), path: `${(await testAccessTokenProvider()).userId}/${'1'.repeat(64)}.pdf` };
   wire.indexedDbNotes[key] = JSON.stringify(nextFile);

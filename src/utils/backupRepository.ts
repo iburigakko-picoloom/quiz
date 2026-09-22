@@ -1,6 +1,11 @@
 import type { SyncPayload } from './syncService';
 
-export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; }
+export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; }
+export type SavedBackupSummary = Omit<SavedBackup, 'raw' | 'byteSize'> & { byteSize: number };
+export function summarizeSavedBackup(record: SavedBackup): SavedBackupSummary {
+  return { id: record.id, createdAt: record.createdAt, kind: record.kind,
+    byteSize: typeof record.byteSize === 'number' && Number.isFinite(record.byteSize) && record.byteSize >= 0 ? record.byteSize : new Blob([record.raw]).size };
+}
 const DB = 'quiz-make-backups';
 // Durable backups must not be matched by legacy temporary-backup cleanup.
 const PREFIX = 'quizMake:sync:saved-backup:';
@@ -24,6 +29,7 @@ async function operation<T>(mode: IDBTransactionMode, execute: (store: IDBObject
 }
 export async function saveBackupPayload(payload: SyncPayload, kind: SavedBackup['kind']): Promise<SavedBackup> {
   const record: SavedBackup = { id: `backup-${crypto.randomUUID()}`, createdAt: new Date().toISOString(), kind, raw: JSON.stringify(payload) };
+  record.byteSize = new Blob([record.raw]).size;
   if (typeof indexedDB === 'undefined') localStorage.setItem(PREFIX + record.id, JSON.stringify(record));
   else await operation('readwrite', (store) => store.add(record));
   const checked = await getSavedBackup(record.id);
@@ -38,12 +44,30 @@ export async function getSavedBackup(id: string): Promise<SavedBackup | undefine
   const raw = localStorage.getItem(PREFIX + id);
   return raw ? JSON.parse(raw) as SavedBackup : undefined;
 }
-export async function listSavedBackups(): Promise<SavedBackup[]> {
-  const records: SavedBackup[] = typeof indexedDB !== 'undefined' ? await operation('readonly', (store) => store.getAll()) : [];
+export async function listSavedBackups(): Promise<SavedBackupSummary[]> {
+  const records: SavedBackupSummary[] = [];
+  if (typeof indexedDB !== 'undefined') {
+    const db = await database();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('backups', 'readonly');
+      const request = transaction.objectStore('backups').openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        // Keep only the small list row. Never retain every backup body in memory.
+        try {
+          records.push(summarizeSavedBackup(cursor.value as SavedBackup));
+          cursor.continue();
+        } catch { transaction.abort(); }
+      };
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('バックアップを読み込めませんでした。')); };
+    });
+  }
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (key?.startsWith(PREFIX)) {
-      try { const item = JSON.parse(localStorage.getItem(key) ?? 'null'); if (typeof item?.id === 'string' && typeof item.createdAt === 'string' && typeof item.raw === 'string' && !records.some((record) => record.id === item.id)) records.push(item); } catch { /* Keep unreadable originals untouched. */ }
+      try { const item = JSON.parse(localStorage.getItem(key) ?? 'null'); if (typeof item?.id === 'string' && typeof item.createdAt === 'string' && typeof item.raw === 'string' && !records.some((record) => record.id === item.id)) records.push(summarizeSavedBackup(item)); } catch { /* Keep unreadable originals untouched. */ }
     }
   }
   return records.sort((a,b) => b.createdAt.localeCompare(a.createdAt));
