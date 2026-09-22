@@ -8,6 +8,7 @@ const { normalizeAppData } = await import('../src/utils/appDataValidation.ts');
 const { canMoveFolder, moveFolder, moveProblemSet } = await import('../src/utils/folderHierarchy.ts');
 const { addFolder, deleteFolder } = await import('../src/utils/quiz.ts');
 const { buildAppDataView } = await import('../src/utils/appDataView.ts');
+const { changeFolderColor, folderPalette, FOLDER_COLORS } = await import('../src/utils/folderColors.ts');
 hook.deregister();
 const date = '2026-09-07T00:00:00.000Z';
 function fixture() {
@@ -62,4 +63,39 @@ test('parent deletion leaves no descendant content or logs', () => {
   const result = deleteFolder(fixture(), 'a');
   assert.deepEqual(result.folders.map((f) => f.id), ['c']);
   for (const field of ['problemSets', 'questions', 'progress', 'answerLogs']) assert.equal(result[field].length, 0);
+});
+
+test('folder colors are independent and preserve content, IDs and move behavior', () => {
+  const original = fixture();
+  const colored = changeFolderColor(changeFolderColor(original, 'a', 'green'), 'b', 'purple');
+  assert.equal(colored.folders[0].color, 'green');
+  assert.equal(colored.folders[1].color, 'purple');
+  assert.notEqual(colored.folders[0].updatedAt, date);
+  assert.deepEqual(colored.folders.map((folder) => folder.id), original.folders.map((folder) => folder.id));
+  assert.equal(colored.folders[2], original.folders[2]);
+  assert.equal(original.folders[0].color, undefined);
+  for (const key of ['problemSets', 'questions', 'progress', 'answerLogs']) assert.equal(colored[key], original[key]);
+  const moved = moveFolder(colored, 'b', 'c');
+  assert.equal(moved.folders[1].color, 'purple');
+  assert.equal(moved.folders[1].parentFolderId, 'c');
+  assert.throws(() => changeFolderColor(original, 'missing', 'blue'));
+  assert.throws(() => changeFolderColor(original, 'a', 'invalid'));
+});
+
+test('all folder colors survive backup/sync normalization; old and invalid colors safely use blue', () => {
+  for (const color of FOLDER_COLORS) {
+    const data = changeFolderColor(fixture(), 'a', color.value);
+    const restored = normalizeAppData(JSON.parse(JSON.stringify(data)));
+    assert.equal(restored.ok, true);
+    assert.equal(restored.data.folders[0].color, color.value);
+    assert.deepEqual(normalizeAppData(restored.data), restored);
+  }
+  const legacy = fixture();
+  legacy.folders[1].color = 'not-a-color';
+  const restored = normalizeAppData(legacy);
+  assert.equal(restored.ok, true);
+  assert.equal(restored.data.folders[0].color, undefined);
+  assert.equal(restored.data.folders[1].color, undefined);
+  assert.equal(folderPalette(restored.data.folders[0].color).value, 'blue');
+  assert.equal(folderPalette('invalid').value, 'blue');
 });

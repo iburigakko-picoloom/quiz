@@ -10,6 +10,7 @@ import type {
   QuestionProgress,
 } from '../types';
 import { normalizeFolderHierarchy } from './folderHierarchy';
+import { isFolderColor } from './folderColors';
 
 export type AppDataNormalizationResult =
   | { ok: true; data: AppData }
@@ -81,6 +82,7 @@ function normalizeFolders(values: unknown[]): NormalizationResult<Folder[]> {
     const createdAt = normalizeDate(value.createdAt, normalizeDate(value.updatedAt, FALLBACK_DATE));
     result.push({
       id: value.id,
+      ...(isFolderColor(value.color) ? { color: value.color } : {}),
       name: typeof value.name === 'string' ? value.name : '',
       ...(isNonEmptyString(value.parentFolderId) ? { parentFolderId: value.parentFolderId } : {}),
       createdAt,

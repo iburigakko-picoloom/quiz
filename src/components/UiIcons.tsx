@@ -1,4 +1,6 @@
 import { useId, type SVGProps } from 'react';
+import type { FolderColor } from '../types';
+import { folderPalette } from '../utils/folderColors';
 
 type IconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
@@ -20,19 +22,20 @@ function iconProps(size: IconProps['size'], props: SVGProps<SVGSVGElement>) {
   };
 }
 
-export function FolderOutlineIcon({ size = 42, ...props }: IconProps) {
+export function FolderOutlineIcon({ size = 42, folderColor, ...props }: IconProps & { folderColor?: FolderColor }) {
   const id = useId();
+  const palette = folderPalette(folderColor);
   return (
     <svg {...iconProps(size, props)} data-library-artwork="folder" viewBox="0 0 64 64" stroke="none" aria-hidden={props['aria-hidden'] ?? true}>
       <defs>
-        <linearGradient id={`${id}-back`} x2="0.7" y2="1"><stop stopColor="#81d0f5" /><stop offset="1" stopColor="#519be9" /></linearGradient>
-        <linearGradient id={`${id}-front`} x2="1" y2="0.3"><stop stopColor="#6564cf" /><stop offset="1" stopColor="#6bbaf2" /></linearGradient>
+        <linearGradient id={`${id}-back`} x2="0.7" y2="1"><stop stopColor={palette.back} /><stop offset="1" stopColor={palette.edge} /></linearGradient>
+        <linearGradient id={`${id}-front`} x2="1" y2="0.3"><stop stopColor={palette.front} /><stop offset="1" stopColor={palette.light} /></linearGradient>
       </defs>
       <path d="M5 17a5 5 0 0 1 5-5h15a5 5 0 0 1 5 5v1h24a5 5 0 0 1 5 5v27H5Z" fill={`url(#${id}-back)`} />
       <path d="m9 25 45-3 1 24-46 2Z" fill="#e7dfd1" />
       <path d="m12 28 42-7 3 27-45 3Z" fill="#fff" />
       <path d="M5 32a5 5 0 0 1 5-5h44a5 5 0 0 1 5 5v19a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5Z" fill={`url(#${id}-front)`} />
-      <path d="M10 28h44" stroke="#a3d6fc" strokeWidth=".8" opacity=".45" />
+      <path d="M10 28h44" stroke={palette.value === 'blue' ? '#a3d6fc' : palette.back} strokeWidth=".8" opacity=".45" />
     </svg>
   );
 }

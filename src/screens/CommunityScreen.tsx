@@ -882,7 +882,7 @@ export function CommunityScreen({
           <div className="community-copy-folders" role="radiogroup" aria-label="保存先フォルダ">
             {data.folders.map((folder) => <label key={folder.id} className="community-copy-folder">
               <input type="radio" name="copy-folder" value={folder.id} checked={copyFolderId === folder.id} disabled={busy} onChange={() => setCopyFolderId(folder.id)} />
-              <FolderOutlineIcon size={26} />
+              <FolderOutlineIcon size={26} folderColor={folder.color} />
               <span>{folder.parentFolderId ? <small>{data.folders.find((parent) => parent.id === folder.parentFolderId)?.name} /</small> : null}{folder.name}</span>
             </label>)}
             {!data.folders.length ? <p>ホームでフォルダを作成してください。</p> : null}

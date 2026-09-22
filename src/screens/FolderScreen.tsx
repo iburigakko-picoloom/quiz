@@ -81,7 +81,7 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
       {children.map(({ folder: child, setCount, questionCount, reviewCount }) => <div key={child.id}>
         <div className="library-row-with-actions">
           <button type="button" className="library-row" aria-expanded={expanded === child.id} onClick={() => setExpanded((current) => current === child.id ? null : child.id)}>
-            <span className="library-icon"><FolderOutlineIcon size={18} /></span>
+            <span className="library-icon"><FolderOutlineIcon size={18} folderColor={child.color} /></span>
             <span className="library-row__body"><strong>{child.name}</strong><span>{setCount}セット · {questionCount}問 {reviewCount > 0 ? <em>復習 {reviewCount}</em> : null}</span></span>
             <ChevronRightIcon size={18} className="quiz-folder__child-chevron" style={{ transform: expanded === child.id ? 'rotate(90deg)' : undefined }} />
           </button>

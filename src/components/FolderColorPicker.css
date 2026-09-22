@@ -1,0 +1,74 @@
+.folder-color-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 4px 12px;
+  border: 0;
+}
+
+.folder-color-picker legend {
+  padding: 4px 4px 8px;
+  color: #1f2937;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.folder-color-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 4px;
+}
+
+.folder-color-picker__option {
+  position: relative;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.folder-color-picker__option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.folder-color-picker__preview {
+  position: relative;
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.folder-color-picker__option input:checked + .folder-color-picker__preview {
+  border-color: #315da0;
+  background: #f1f5fb;
+}
+
+.folder-color-picker__option input:focus-visible + .folder-color-picker__preview {
+  outline: 2px solid #315da0;
+  outline-offset: 2px;
+}
+
+.folder-color-picker__option input:disabled + .folder-color-picker__preview {
+  opacity: .6;
+  cursor: default;
+}
+
+.folder-color-picker__check {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  color: #315da0;
+  font-size: 12px;
+  line-height: 1;
+}

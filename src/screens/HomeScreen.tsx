@@ -156,7 +156,7 @@ function QuizHomeFolderItem({
     <article className="quiz-home__folder-card">
       <button type="button" className="quiz-home__folder-main" onClick={onOpen} disabled={editMode}>
         <span className="quiz-home__folder-icon" aria-hidden="true">
-          <FolderOutlineIcon />
+          <FolderOutlineIcon folderColor={folder.color} />
         </span>
         <span className="quiz-home__folder-body">
           <span className="quiz-home__folder-name">{folder.name}</span>

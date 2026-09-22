@@ -16,8 +16,11 @@ export interface AppData {
   answerLogs: AnswerLog[];
 }
 
+export type FolderColor = 'blue' | 'teal' | 'green' | 'orange' | 'red' | 'pink' | 'purple' | 'gray';
+
 export interface Folder {
   id: string;
+  color?: FolderColor;
   parentFolderId?: string;
   name: string;
   createdAt: string;

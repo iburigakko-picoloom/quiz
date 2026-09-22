@@ -31,7 +31,7 @@ export function PublishPicker({ data, selected, onChange }: { data: AppData; sel
       <div className="publish-picker__row">
         <Selection checked={ids.length > 0 && count === ids.length} partial={count > 0 && count < ids.length} disabled={!ids.length} label={`${folder.name}内をまとめて選択`} onChange={() => toggle(ids)} />
         <button type="button" className="publish-picker__item" aria-expanded={open} onClick={() => setOpened(open ? opened.filter((id) => id !== folder.id) : [...opened, folder.id])}>
-          <FolderOutlineIcon size={26} /><span>{folder.name}<small>{ids.length}セット{count ? ` · ${count}選択` : ''}</small></span><ChevronRightIcon size={18} className="publish-picker__arrow" style={{ transform: open ? 'rotate(90deg)' : undefined }} />
+          <FolderOutlineIcon size={26} folderColor={folder.color} /><span>{folder.name}<small>{ids.length}セット{count ? ` · ${count}選択` : ''}</small></span><ChevronRightIcon size={18} className="publish-picker__arrow" style={{ transform: open ? 'rotate(90deg)' : undefined }} />
         </button>
       </div>
       <div className={`publish-picker__children${open ? ' is-open' : ''}`} inert={!open} aria-hidden={!open}><div>
