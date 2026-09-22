@@ -578,6 +578,88 @@ test('an in-flight upload cannot restore a sync connection that was changed mean
   });
 });
 
+test('automatic import rejects a changed local snapshot, defers new work, and commits a strong baseline with its data', async () => {
+  resetStorage(); sync.setStoredSyncId(syncId);
+  await storage.saveAppData(appDataWithFolder('base'));
+  const base = await sync.exportQuizMakeData(timestamp);
+  const digest = await sync.computePayloadDigest(base);
+  const nextTime = '2026-09-22T00:00:00.000Z';
+  const remote = { ...base, localStorage: { ...base.localStorage, [storage.APP_DATA_STORAGE_KEY]: JSON.stringify(appDataWithFolder('cloud-new')) } };
+  sync.setLastSyncState({ lastSyncAt: timestamp, lastUploadHash: sync.computePayloadHash(base), lastSyncDigest: digest });
+  const options = { expectedSyncId: syncId, authoritativeUpdatedAt: nextTime, expectedLocalDigest: digest };
+  await storage.saveAppData(appDataWithFolder('local-edit'));
+  const blocked = await sync.importQuizMakeData(remote, options);
+  assert.equal(blocked.code, 'local_changed');
+  assert.equal((await storage.loadAppDataAsync()).folders[0].name, 'local-edit');
+  assert.equal(sync.getLastSyncState().lastSyncAt, timestamp);
+  await storage.saveAppData(appDataWithFolder('base'));
+  let checks = 0;
+  const deferred = await sync.importQuizMakeData(remote, { ...options, canApply: () => ++checks < 2 });
+  assert.equal(deferred.code, 'local_changed', 'work beginning during backup creation cancels import');
+  assert.equal((await storage.loadAppDataAsync()).folders[0].name, 'base');
+  const imported = await sync.importQuizMakeData(remote, { ...options, canApply: () => true });
+  assert.equal(imported.ok, true, imported.error);
+  assert.equal((await storage.loadAppDataAsync()).folders[0].name, 'cloud-new');
+  assert.equal(sync.getLastSyncState().lastSyncAt, nextTime);
+  assert.equal(sync.getLastSyncState().lastSyncDigest, await sync.computePayloadDigest(await sync.exportQuizMakeData()));
+  sync.setLastSyncState({ status: 'test' });
+  assert.ok(sync.getLastSyncState().lastSyncDigest, 'status updates keep the common ancestor');
+  sync.setLastSyncState({ lastSyncAt: 'another-version' });
+  assert.equal(sync.getLastSyncState().lastSyncDigest, undefined, 'legacy baseline changes invalidate the digest');
+});
+
+test('sync preview checks unchanged revisions without downloading payloads, but revalidates changed and legacy baselines', async () => {
+  resetStorage(); sync.setStoredSyncId(syncId);
+  await storage.saveAppData(appDataWithFolder('preview'));
+  const payload = await sync.exportQuizMakeData(timestamp);
+  sync.setLastSyncState({ lastSyncAt: timestamp, lastUploadHash: sync.computePayloadHash(payload), lastSyncDigest: await sync.computePayloadDigest(payload) });
+  const { readSyncPreview } = await vite.ssrLoadModule('/src/utils/syncPreview.ts');
+  const calls = [];
+  let remoteTime = timestamp;
+  globalThis.fetch = async url => {
+    calls.push(String(url));
+    return new Response(JSON.stringify([{ sync_id: syncId, updated_at: remoteTime, data: payload }]), { status: 200 });
+  };
+  assert.equal((await readSyncPreview(syncId)).same, true);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /quiz_sync_meta$/);
+  remoteTime = '2026-09-22T00:00:00.000Z'; calls.length = 0;
+  assert.equal((await readSyncPreview(syncId)).same, true);
+  assert.equal(calls.length, 2);
+  remoteTime = timestamp; calls.length = 0;
+  sync.setLastSyncState({ lastSyncDigest: undefined });
+  await readSyncPreview(syncId);
+  assert.equal(calls.length, 2, 'legacy rolling hashes cannot skip verification');
+  globalThis.fetch = async () => new Response(JSON.stringify({ message: 'denied' }), { status: 403 });
+  await assert.rejects(readSyncPreview(syncId), /denied|確認|取得/);
+});
+
+test('strong digests distinguish legacy hash collisions and ignore snapshot export times', async () => {
+  const make = value => ({ version: 1, updatedAt: timestamp, localStorage: { example: value }, indexedDbNotes: {} });
+  const left = make('Aa'); const right = make('BB');
+  assert.equal(sync.computePayloadHash(left), sync.computePayloadHash(right));
+  assert.notEqual(await sync.computePayloadDigest(left), await sync.computePayloadDigest(right));
+  assert.equal(await sync.computePayloadDigest(left), await sync.computePayloadDigest({ ...left, updatedAt: 'another-time' }));
+});
+
+test('an incomplete rollback keeps the import marker and blocks automatic exports of mixed data', async () => {
+  resetStorage(); sync.setStoredSyncId(syncId);
+  await storage.saveAppData(appDataWithFolder('base'));
+  const payload = await sync.exportQuizMakeData(timestamp);
+  const noteKey = 'quizMake:notes:set-1:test';
+  const originalNote = JSON.stringify({ dataUrl: 'original' });
+  await notes.saveCategoryNoteRaw(noteKey, originalNote);
+  const remote = { ...payload, indexedDbNotes: { [noteKey]: JSON.stringify({ dataUrl: 'changed' }) } };
+  localStorage.onSetItem = key => { if (key === noteKey) throw new Error('note disk failure'); };
+  const result = await sync.importQuizMakeData(remote, { expectedSyncId: syncId, authoritativeUpdatedAt: timestamp });
+  localStorage.onSetItem = null;
+  assert.equal(result.ok, false);
+  assert.match(result.error, /復元にも失敗/);
+  assert.ok(localStorage.getItem('quizMake:sync:dataImportInProgress'));
+  await assert.rejects(sync.exportQuizMakeData(), /前回のデータ読込/);
+  resetStorage();
+});
+
 function createDelayedIndexedDb(captureRelease) {
   const fakeDb = {
     objectStoreNames: { contains: () => true },

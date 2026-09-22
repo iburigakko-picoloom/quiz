@@ -57,7 +57,7 @@ import {
 } from './utils/quiz';
 import { validateImportJson } from './utils/importValidator';
 import { getDraftAnswerIndexes } from './utils/bulkQuestionParser';
-import { exportQuizMakeRecoveryData, getAutoSyncSettings, importQuizMakeData, setAutoSyncEnabled, summarizeSyncPayload, validateSyncPayload, type SyncPayload, type SyncPayloadSummary } from './utils/syncService';
+import { exportQuizMakeRecoveryData, getAutoSyncSettings, importQuizMakeData, setAutoSyncEnabled, summarizeSyncPayload, validateSyncPayload, type RemoteSyncRecord, type SyncPayload, type SyncPayloadSummary } from './utils/syncService';
 import { waitForPendingCategoryNoteSaves } from './utils/noteStorage';
 import { persistLibraryDeletion, type LibraryDeletionResult } from './utils/libraryDeletion';
 import { saveJsonBackup } from './utils/nativePlatform';
@@ -104,6 +104,8 @@ export default function App() {
   const [authNotice, setAuthNotice] = useState('');
   const [storageRecoverySyncOpen, setStorageRecoverySyncOpen] = useState(false);
   const [libraryMutationBusy, setLibraryMutationBusy] = useState(false);
+  const [autoImportBusy, setAutoImportBusy] = useState(false);
+  const autoImportBusyRef = useRef(false);
   const [storageError, setStorageError] = useState('');
   const navigationStackRef = useRef<AppScreen[]>(lineLinkReturn ? [{ name: 'home' }, { name: 'settings', page: 'account' }] : [{ name: 'home' }]);
   const noteExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
@@ -118,6 +120,53 @@ export default function App() {
   const screenRef = useRef<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
   const dataRevisionRef = useRef(0);
   const libraryMutationBusyRef = useRef(false);
+  const autoImportEligibleRef = useRef(false);
+  // Import on the home screen only. Quiz/editor/viewer state stays untouched;
+  // downloading in the background never blocks interaction.
+  autoImportEligibleRef.current = screen.name === 'home' && !guideReturn && !waitingWorker
+    && !receivingSharedImage && !pendingBackupImport && !backupImportBusy
+    && !pendingExitTarget && !storageError && !storageLoadError;
+  const canAutoImport = () => autoImportEligibleRef.current && screenRef.current.name === 'home'
+    && !libraryMutationBusyRef.current && !autoImportBusyRef.current;
+
+  const refreshImportedData = async () => {
+    const loaded = await loadAppDataAsync();
+    dataRevisionRef.current += 1;
+    dataRef.current = loaded;
+    durableDataRef.current = loaded;
+    setData(loaded);
+  };
+
+  const handleAutoImport = async (remote: RemoteSyncRecord, expectedLocalDigest: string): Promise<boolean> => {
+    if (!canAutoImport()) return false;
+    autoImportBusyRef.current = true;
+    libraryMutationBusyRef.current = true;
+    setAutoImportBusy(true);
+    setLibraryMutationBusy(true);
+    try {
+      const result = await importQuizMakeData(remote.payload, {
+        expectedSyncId: remote.syncId, authoritativeUpdatedAt: remote.updatedAt, expectedLocalDigest,
+        canApply: () => autoImportEligibleRef.current && screenRef.current.name === 'home'
+          && document.visibilityState === 'visible' && getAutoSyncSettings().enabled
+          && getAutoSyncSettings().syncId === remote.syncId,
+      });
+      if (!result.ok) {
+        if (result.code !== 'local_changed') setStorageLoadError(result.error);
+        return false;
+      }
+      await refreshImportedData();
+      return true;
+    } catch (error) {
+      // Never let stale in-memory AppData overwrite a successfully imported copy.
+      setStorageLoadError(error instanceof Error ? error.message : '取り込んだデータを表示できませんでした。');
+      return false;
+    } finally {
+      autoImportBusyRef.current = false;
+      libraryMutationBusyRef.current = false;
+      setAutoImportBusy(false);
+      setLibraryMutationBusy(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +228,10 @@ export default function App() {
     window.history.replaceState({ quizMake: true }, '');
 
     const handlePopState = () => {
+      if (autoImportBusyRef.current) {
+        window.history.pushState({ quizMake: true }, '');
+        return;
+      }
       const current = screenRef.current;
       const target = pendingBackTargetRef.current ?? navigationStackRef.current[navigationStackRef.current.length - 2] ?? { name: 'home' };
       const historySteps = pendingBackStepsRef.current;
@@ -278,6 +331,8 @@ export default function App() {
   };
 
   const navigate = (next: AppScreen) => {
+    if (autoImportBusyRef.current) return;
+    screenRef.current = next;
     navigationStackRef.current = [...navigationStackRef.current, next];
     browserDepthRef.current += 1;
     window.history.pushState({ quizMake: true }, '');
@@ -334,6 +389,8 @@ export default function App() {
   };
 
   const replaceScreen = (next: AppScreen) => {
+    if (autoImportBusyRef.current) return;
+    screenRef.current = next;
     const stack = navigationStackRef.current;
     navigationStackRef.current = stack.length > 0 ? [...stack.slice(0, -1), next] : [next];
     window.history.replaceState({ quizMake: true }, '');
@@ -421,6 +478,7 @@ export default function App() {
   };
 
   const navigatePrimary = (item: PrimaryNavItem) => {
+    if (autoImportBusyRef.current) return;
     const next: AppScreen = item === 'home'
       ? { name: 'home' }
       : item === 'discover'
@@ -1566,7 +1624,7 @@ export default function App() {
       />
     );
   } else if (screen.name === 'sync') {
-    content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} />;
+    content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} onImported={refreshImportedData} />;
   } else if (screen.name === 'privacy') {
     content = <PrivacyScreen onBack={() => goBackTo({ name: 'settings' })} />;
   } else if (screen.name === 'studyRecord') {
@@ -1587,7 +1645,9 @@ export default function App() {
 
   return (
     <>
-      <AutoSyncController protectedWorkReason={protectedWorkReason} />
+      <AutoSyncController protectedWorkReason={protectedWorkReason} canAutoImport={canAutoImport}
+        autoImportReady={autoImportEligibleRef.current && !libraryMutationBusy && !autoImportBusy} onAutoImport={handleAutoImport} />
+      {autoImportBusy && <div className="quiz-sync-applying" role="status" aria-live="polite">クラウドの更新を反映中…</div>}
       <SharedImageReceiver data={data} onReceive={()=>setReceivingSharedImage(true)} onClose={()=>setReceivingSharedImage(false)} onOpenQuestion={questionId=>{
         const current = screenRef.current;
         if (getActiveImageTarget() === questionId) return;
@@ -1599,7 +1659,7 @@ export default function App() {
       }}/>
       <WelcomeGuide active={!guideReturn && screen.name === 'home' && !waitingWorker && !storageError && !receivingSharedImage} onStartGuide={() => { setGuideReturn('home'); navigatePrimary('home'); }} />
       {guideReturn && <UsageGuide onNavigate={navigatePrimary} onClose={() => { navigatePrimary(guideReturn); setGuideReturn(null); }} />}
-      <div key={getScreenKey(screen)} className={`quiz-screen-transition quiz-screen-transition--${transitionDirection}`}>
+      <div inert={autoImportBusy} key={getScreenKey(screen)} className={`quiz-screen-transition quiz-screen-transition--${transitionDirection}`}>
         <Suspense fallback={(
           <div className="quiz-app-loading" role="status" aria-live="polite">
             {getScreenLoadingMessage(screen)}
@@ -1608,7 +1668,7 @@ export default function App() {
           {content}
         </Suspense>
       </div>
-      {getPrimaryNavItem(screen) ? (
+      {getPrimaryNavItem(screen) && !autoImportBusy ? (
         <PrimaryBottomNav active={getPrimaryNavItem(screen)!} onSelect={navigatePrimary} />
       ) : null}
       <ConfirmDialog

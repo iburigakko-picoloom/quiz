@@ -117,6 +117,8 @@ export type AutoSyncSettings = {
 export type LastSyncState = {
   lastSyncAt: string;
   lastUploadHash: string;
+  /** Strong, verified common ancestor. Older clients may omit this field. */
+  lastSyncDigest?: string;
   lastRemoteUpdatedAt: string;
   status: string;
   error: string;
@@ -368,7 +370,7 @@ export function getLastSyncState(): LastSyncState {
 export function setLastSyncState(state: Partial<LastSyncState>): void {
   try {
     const owner = getStoredSyncId().trim();
-    const nextState = { ...getLastSyncState(), ...state };
+    const nextState = mergeLastSyncState(state);
     writeLastSyncStateRecord(owner, nextState);
     writeLegacyLastSyncStateBestEffort(owner, nextState);
     window.dispatchEvent(new CustomEvent('quiz-make-sync-state-change'));
@@ -422,7 +424,7 @@ export function setLastSyncStateForConnection(
   const expectedSyncId = syncId.trim();
   if (!expectedSyncId || !isCurrentSyncConnection(expectedSyncId)) return false;
   try {
-    const nextState = { ...getLastSyncState(), ...state };
+    const nextState = mergeLastSyncState(state);
     writeLastSyncStateRecord(expectedSyncId, nextState);
     writeLegacyLastSyncStateBestEffort(expectedSyncId, nextState);
     if (!isCurrentSyncConnection(expectedSyncId)) {
@@ -495,7 +497,7 @@ export function exportQuizMakeRecoveryData(updatedAt = new Date().toISOString())
 
 export function importQuizMakeData(
   payload: SyncPayload,
-  options: { expectedSyncId?: string; authoritativeUpdatedAt?: string; expectedLocalHash?: string } = {},
+  options: { expectedSyncId?: string; authoritativeUpdatedAt?: string; expectedLocalHash?: string; expectedLocalDigest?: string; canApply?: () => boolean } = {},
 ): Promise<SyncResult<number>> {
   return runSyncDataOperation(async () => {
     const expectedSyncId = options.expectedSyncId?.trim();
@@ -519,7 +521,7 @@ export function importQuizMakeData(
     try {
       return await withCoordinatedDataMutation(
         ['app', 'notes'],
-        () => importQuizMakeDataUnlocked(payload, expectedSyncId, options.authoritativeUpdatedAt, options.expectedLocalHash),
+        () => importQuizMakeDataUnlocked(payload, expectedSyncId, options.authoritativeUpdatedAt, options.expectedLocalHash, options.expectedLocalDigest, options.canApply),
         { requireCrossContext: true },
       );
     } catch (error) {
@@ -539,9 +541,12 @@ async function importQuizMakeDataUnlocked(
   expectedSyncId?: string,
   authoritativeUpdatedAt?: string,
   expectedLocalHash?: string,
+  expectedLocalDigest?: string,
+  canApply?: () => boolean,
 ): Promise<SyncResult<number>> {
   const validation = validateSyncPayload(payload);
   if (!validation.ok) return validation;
+  const previousSyncState = getLastSyncState();
 
   let previousAppDataRaw: string;
   let previousNotes: Record<string, string>;
@@ -554,10 +559,15 @@ async function importQuizMakeDataUnlocked(
     ]);
     previousIntegrity = captureDataIntegritySnapshot();
     previousLocalStorage = collectCurrentQuizMakeLocalStorage();
+    const previousPayload: SyncPayload = {version:1, updatedAt:'', localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes};
+    if ((expectedLocalDigest && await computePayloadDigest(previousPayload) !== expectedLocalDigest) || (canApply && !canApply())) {
+      return { ok: false, code: 'local_changed', error: '端末の変更または作業開始を検出したため、自動取り込みを見送りました。' };
+    }
     if (expectedLocalHash && computePayloadHash({version:1, updatedAt:'', localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes}) !== expectedLocalHash) {
       return { ok: false, code: 'local_changed', error: '確認中に端末データが更新されました。内容を確認し直してください。' };
     }
     await saveBackupPayload({ version: 1, updatedAt: new Date().toISOString(), localStorage: { ...previousLocalStorage, [APP_DATA_STORAGE_KEY]: previousAppDataRaw }, indexedDbNotes: previousNotes }, expectedSyncId ? 'before-sync' : 'before-import');
+    if (canApply && !canApply()) return { ok: false, code: 'local_changed', error: '作業が始まったため、自動取り込みを見送りました。' };
     localStorage.setItem(DATA_IMPORT_IN_PROGRESS_KEY, JSON.stringify({ version: 1, startedAt: new Date().toISOString() }));
   } catch (error) {
     return {
@@ -597,6 +607,7 @@ async function importQuizMakeDataUnlocked(
     const noteCount = await replaceCategoryNotesRaw(noteEntries, {
       coordinationLockHeld: true,
       establishAuthority: true,
+      onlyChanged: true,
     });
     assertExpectedSyncConnection(expectedSyncId);
     replaceQuizMakeLocalStorage(nextLocalStorage);
@@ -606,6 +617,15 @@ async function importQuizMakeDataUnlocked(
       if (!authoritativeUpdatedAt || !Number.isFinite(Date.parse(authoritativeUpdatedAt))) {
         throw new Error('クラウド側の更新時刻を確認できないため、読み込みを中止しました。');
       }
+      // Commit the common ancestor before releasing the operation/write lock.
+      // A queued upload must never use the pre-import ancestor.
+      const importedPayload: SyncPayload = { version: 1, updatedAt: authoritativeUpdatedAt,
+        localStorage: { ...nextLocalStorage, [APP_DATA_STORAGE_KEY]: appDataRaw }, indexedDbNotes: noteEntries };
+      if (!setLastSyncStateForConnection(expectedSyncId, {
+        lastSyncAt: authoritativeUpdatedAt, lastRemoteUpdatedAt: authoritativeUpdatedAt,
+        lastUploadHash: computePayloadHash(importedPayload), lastSyncDigest: await computePayloadDigest(importedPayload),
+        status: 'クラウドから読み込みました', error: '',
+      })) throw new Error('同期状態を保存できないため、読み込みを中止しました。');
     } else {
       setLastSyncState({
         lastSyncAt: '',
@@ -629,6 +649,9 @@ async function importQuizMakeDataUnlocked(
       previousIntegrity,
       true,
     );
+    if (expectedSyncId && isCurrentSyncConnection(expectedSyncId)) {
+      setLastSyncStateForConnection(expectedSyncId, { ...previousSyncState, lastSyncDigest: previousSyncState.lastSyncDigest });
+    }
     const connectionChanged = error instanceof SyncConnectionChangedDuringImportError;
     const rollbackSuffix = rollback.ok
       ? '既存データへ戻しました。'
@@ -723,6 +746,7 @@ export async function uploadSyncData(
       );
       if (!uploaded.ok) return uploaded;
 
+      const uploadDigest = await computePayloadDigest(validation.value);
       const afterUpload = await waitForLocalPersistence();
       let localChangesPending = !afterUpload.ok || afterUpload.value !== beforeUpload.value;
       try {
@@ -735,6 +759,7 @@ export async function uploadSyncData(
       if (!setLastSyncStateForConnection(normalizedSyncId, {
         lastSyncAt: uploaded.value.updatedAt,
         lastUploadHash: localChangesPending ? '' : computePayloadHash(uploadPayload),
+        lastSyncDigest: localChangesPending ? undefined : uploadDigest,
         lastRemoteUpdatedAt: uploaded.value.updatedAt,
         status: localChangesPending
           ? 'クラウド保存中に端末データが更新されました。最新の内容を再同期します'
@@ -824,7 +849,7 @@ async function uploadSyncDataUnlocked(
   }
 }
 
-export async function downloadSyncData(syncId: string, options: { materialFiles?: 'download' | 'references' } = {}): Promise<SyncResult<RemoteSyncRecord | null>> {
+export async function downloadSyncData(syncId: string, options: { materialFiles?: 'download' | 'references'; localPayload?: SyncPayload } = {}): Promise<SyncResult<RemoteSyncRecord | null>> {
   const normalizedSyncId = syncId.trim();
   if (!normalizedSyncId) return { ok: false, error: '同期IDを入力してください。' };
   if (!isStrongSyncId(normalizedSyncId)) return { ok: false, error: '同期IDは「同期IDを生成」で作成した36文字のIDを使用してください。' };
@@ -858,7 +883,8 @@ export async function downloadSyncData(syncId: string, options: { materialFiles?
     if (options.materialFiles !== 'references' && hasRemoteMaterialFiles(record.value.payload)) {
       const access = await syncAccessTokenProvider();
       if (!access.ok) return { ok: false, error: access.message };
-      record.value.payload = await hydrateMaterialDownload(record.value.payload, createMaterialTransport(config, access));
+      const localPayload = options.localPayload ?? await exportQuizMakeData().catch(() => undefined);
+      record.value.payload = await hydrateMaterialDownload(record.value.payload, createMaterialTransport(config, access), localPayload);
       const hydrated = validateSyncPayload(record.value.payload);
       if (!hydrated.ok) return hydrated;
     }
@@ -1020,12 +1046,21 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
   return { ok: steps.every((step) => step.ok), steps };
 }
 
-export function computePayloadHash(payload: SyncPayload): string {
+function canonicalPayloadText(payload: SyncPayload): string {
   const stableEntries = (entries: Record<string, string>) => sortRecord(Object.fromEntries(Object.entries(entries).map(([key, raw]) => {
     const file = materialFileEntry(key, raw);
     return [key, file ? JSON.stringify(Object.fromEntries(Object.entries(file).sort(([a], [b]) => a.localeCompare(b)))) : raw];
   })));
-  const text = JSON.stringify({ version: payload.version, localStorage: stableEntries(payload.localStorage), indexedDbNotes: stableEntries(payload.indexedDbNotes ?? {}) });
+  return JSON.stringify({ version: payload.version, localStorage: stableEntries(payload.localStorage), indexedDbNotes: stableEntries(payload.indexedDbNotes ?? {}) });
+}
+
+export async function computePayloadDigest(payload: SyncPayload): Promise<string> {
+  const bytes = new TextEncoder().encode(canonicalPayloadText(payload));
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function computePayloadHash(payload: SyncPayload): string {
+  const text = canonicalPayloadText(payload);
   let hash = 0;
   for (let index = 0; index < text.length; index += 1) {
     hash = (hash * 31 + text.charCodeAt(index)) | 0;
@@ -1826,10 +1861,12 @@ async function restoreImportedData(
   } catch {
     failures.push('設定');
   }
-  try {
-    restoreDataIntegritySnapshot(integritySnapshot);
-  } catch {
-    failures.push('保存状態');
+  if (failures.length === 0) {
+    try {
+      restoreDataIntegritySnapshot(integritySnapshot);
+    } catch {
+      failures.push('保存状態');
+    }
   }
   return failures.length === 0
     ? { ok: true, value: true }
@@ -1871,7 +1908,9 @@ function replaceQuizMakeLocalStorage(next: Record<string, string>): void {
   const before = collectCurrentQuizMakeLocalStorage();
   try {
     const keysToRemove = Object.keys(before).filter((key) => next[key] === undefined);
-    Object.entries(next).forEach(([key, value]) => localStorage.setItem(key, value));
+    Object.entries(next).forEach(([key, value]) => {
+      if (localStorage.getItem(key) !== value) localStorage.setItem(key, value);
+    });
     keysToRemove.forEach((key) => localStorage.removeItem(key));
   } catch (error) {
     try {
@@ -2009,6 +2048,7 @@ function readLastSyncStateRecord(): { owner: string; state: LastSyncState } | nu
       state: {
         lastSyncAt: state.lastSyncAt,
         lastUploadHash: state.lastUploadHash,
+        ...(typeof state.lastSyncDigest === 'string' && /^[a-f0-9]{64}$/.test(state.lastSyncDigest) ? { lastSyncDigest: state.lastSyncDigest } : {}),
         lastRemoteUpdatedAt: state.lastRemoteUpdatedAt,
         status: state.status,
         error: state.error,
@@ -2022,9 +2062,20 @@ function readLastSyncStateRecord(): { owner: string; state: LastSyncState } | nu
 function lastSyncStatesEqual(left: LastSyncState, right: LastSyncState): boolean {
   return left.lastSyncAt === right.lastSyncAt
     && left.lastUploadHash === right.lastUploadHash
+    && left.lastSyncDigest === right.lastSyncDigest
     && left.lastRemoteUpdatedAt === right.lastRemoteUpdatedAt
     && left.status === right.status
     && left.error === right.error;
+}
+
+function mergeLastSyncState(state: Partial<LastSyncState>): LastSyncState {
+  const previous = getLastSyncState();
+  const next = { ...previous, ...state };
+  if (!('lastSyncDigest' in state) && (
+    ('lastSyncAt' in state && state.lastSyncAt !== previous.lastSyncAt)
+    || ('lastUploadHash' in state && state.lastUploadHash !== previous.lastUploadHash)
+  )) delete next.lastSyncDigest;
+  return next;
 }
 
 function clearLastSyncStateOwnedBy(syncId: string): void {

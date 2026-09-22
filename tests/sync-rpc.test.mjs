@@ -472,6 +472,11 @@ test('verified PDF reuse avoids repeated transfers and isolates sessions and rev
   await assert.rejects(materials.hydrateMaterialDownload(corrupt, transport), /保存内容/);
   await assert.rejects(materials.hydrateMaterialDownload(corrupt, transport), /保存内容/);
   assert.equal(downloads, 4, 'failed verification is never cached');
+  assert.deepEqual(await materials.hydrateMaterialDownload(wire, { ...transport, cacheScope: 'fresh-launch' }, payload), payload);
+  assert.equal(downloads, 4, 'verified durable PDFs survive application restarts without another transfer');
+  const changedLocal = { ...payload, indexedDbNotes: { [key]: JSON.stringify({ ...file, dataUrl: 'data:application/pdf;base64,' + Buffer.from('%PDF-1.7 edited').toString('base64') }) } };
+  await materials.hydrateMaterialDownload(wire, { ...transport, cacheScope: 'another-launch' }, changedLocal);
+  assert.equal(downloads, 5, 'same material ID with different bytes never substitutes for the remote PDF');
 });
 
 test('remote PDF download is verified before returning an importable snapshot', async () => {

@@ -113,6 +113,17 @@ button:disabled {
   font-weight: 800;
 }
 
+.quiz-sync-applying {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-content: center;
+  background: rgb(255 255 255 / 80%);
+  color: #315fa0;
+  font-size: 14px;
+}
+
 .quiz-storage-recovery {
   min-height: 100dvh;
   display: grid;

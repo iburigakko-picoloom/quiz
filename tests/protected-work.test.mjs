@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createAutoSyncScheduler, isAutoUploadBlocked } from '../src/utils/autoSyncScheduler.ts';
+import { getSyncDecision } from '../src/utils/syncDecision.ts';
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const appSource = readSource('../src/App.tsx');
@@ -14,7 +15,10 @@ test('automatic cloud imports wait until local work is no longer protected', () 
   assert.match(appSource, /<AutoSyncController protectedWorkReason=\{protectedWorkReason\}/);
   assert.doesNotMatch(autoSyncSource, /ConfirmDialog|importQuizMakeData/);
   assert.match(autoSyncSource, /getRemoteSyncMeta\(settings.syncId\)/);
-  assert.doesNotMatch(autoSyncSource, /downloadSyncData|lastSyncAt:\s*meta/);
+  assert.doesNotMatch(autoSyncSource, /lastSyncAt:\s*meta/);
+  assert.match(autoSyncSource, /protectedWorkReasonRef.current === null[\s\S]*?canAutoImport/);
+  assert.match(appSource, /expectedLocalDigest,[\s\S]*?canApply:[\s\S]*?screenRef.current.name === 'home'/);
+  assert.match(appSource, /inert=\{autoImportBusy\}/);
   assert.match(autoSyncSource, /if \(isAutoUploadBlocked\(protectedWorkReasonRef\.current\)\)[\s\S]*?自動同期: 作業終了後に保存します/);
   assert.match(autoSyncSource, /uploadRunningRef\.current \|\| remoteCheckRunningRef\.current/);
   assert.match(autoSyncSource, /remoteCheckRunningRef\.current \|\| uploadRunningRef\.current/);
@@ -138,8 +142,19 @@ test('saved answers and memos may upload during study; imports and destructive w
     assert.ok(autoSyncSource.includes(`addEventListener(${event}`));
     assert.ok(autoSyncSource.includes(`removeEventListener(${event}`));
   }
-  assert.match(autoSyncSource, /onCloudAuthStateChange\(\(\) => uploadQueue.request\(true\)\)/);
+  assert.match(autoSyncSource, /onCloudAuthStateChange\(\(\) => \{\s*uploadQueue.request\(true\)/);
   assert.match(autoSyncSource, /expectedRemoteUpdatedAt: lastState.lastSyncAt \|\| null,\s*force: false/);
+});
+
+test('sync direction uses a verified common ancestor, not device times, and preserves divergent edits', () => {
+  const base = { lastSyncAt: 'server-1', lastSyncDigest: 'base' };
+  assert.equal(getSyncDecision(base, 'base', { updatedAt: 'server-2', digest: 'new' }), 'download');
+  assert.equal(getSyncDecision(base, 'local', { updatedAt: 'server-1', digest: 'base' }), 'upload');
+  assert.equal(getSyncDecision(base, 'local', { updatedAt: 'server-2', digest: 'remote' }), 'confirm');
+  assert.equal(getSyncDecision(base, 'same-change', { updatedAt: 'server-2', digest: 'same-change' }), 'same');
+  assert.equal(getSyncDecision({ lastSyncAt: 'server-1' }, 'base', { updatedAt: 'server-2', digest: 'new' }), 'confirm');
+  assert.equal(getSyncDecision({ lastSyncAt: '' }, 'empty', { updatedAt: 'server-2', digest: 'new' }), 'confirm');
+  assert.equal(getSyncDecision(base, 'base', { updatedAt: 'server-1', digest: 'unexpected' }), 'confirm');
 });
 
 test('finished sync requests cannot revive a connection changed while they were running', () => {

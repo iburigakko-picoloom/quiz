@@ -2,13 +2,18 @@ import { useEffect, useRef } from 'react';
 import {
   cleanupLegacySyncBackups,
   computePayloadHash,
+  computePayloadDigest,
+  downloadSyncData,
   exportQuizMakeData,
   getAutoSyncSettings,
   getLastSyncState,
   getRemoteSyncMeta,
   setLastSyncState,
+  setLastSyncStateForConnection,
   uploadSyncData,
+  type RemoteSyncRecord,
 } from '../utils/syncService';
+import { getSyncDecision } from '../utils/syncDecision';
 import type { ProtectedWorkReason } from '../utils/protectedWork';
 import { CLOUD_UPDATE_EVENT, isCloudUpdateDismissed } from '../utils/cloudUpdateNotice';
 import { createAutoSyncScheduler, isAutoUploadBlocked, type AutoSyncOutcome } from '../utils/autoSyncScheduler';
@@ -16,13 +21,16 @@ import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { onCloudAuthStateChange } from '../utils/cloudService';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
-const REMOTE_CHECK_COOLDOWN_MS = 60000;
+const REMOTE_CHECK_COOLDOWN_MS = 5000;
 
 interface AutoSyncControllerProps {
   protectedWorkReason: ProtectedWorkReason | null;
+  canAutoImport: () => boolean;
+  autoImportReady: boolean;
+  onAutoImport: (remote: RemoteSyncRecord, expectedLocalDigest: string) => Promise<boolean>;
 }
 
-export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerProps) {
+export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImportReady, onAutoImport }: AutoSyncControllerProps) {
   const uploadRunningRef = useRef(false);
   const remoteCheckRunningRef = useRef(false);
   const lastRemoteCheckAtRef = useRef(0);
@@ -30,10 +38,13 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
   const protectedWorkReasonRef = useRef(protectedWorkReason);
   const previousProtectedWorkReasonRef = useRef(protectedWorkReason);
   const resumeSyncRef = useRef<(() => void) | null>(null);
+  const importHandlersRef = useRef({ canAutoImport, onAutoImport });
+  importHandlersRef.current = { canAutoImport, onAutoImport };
   protectedWorkReasonRef.current = protectedWorkReason;
   useEffect(() => {
     cleanupLegacySyncBackups();
     let disposed = false;
+    let lastConflictKey = '';
 
     const uploadIfChanged = async (): Promise<AutoSyncOutcome> => {
       const settings = getAutoSyncSettings();
@@ -64,7 +75,9 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
           setLastSyncState({ status: '自動同期: 初回は手動保存または読み込みをしてください', error: '' });
           return 'paused';
         }
-        if (hash === lastState.lastUploadHash) {
+        if (lastState.lastSyncDigest
+          ? await computePayloadDigest(payload) === lastState.lastSyncDigest
+          : hash === lastState.lastUploadHash) {
           setLastSyncState({ status: '自動同期: 待機中', error: '' });
           return 'done';
         }
@@ -150,15 +163,48 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
         const lastState = getLastSyncState();
         setLastSyncState({ lastRemoteUpdatedAt: meta.value.updatedAt });
         const remoteHasChanged = meta.value.updatedAt !== lastState.lastSyncAt;
+        const canReconcile = () => !disposed && getAutoSyncSettings().enabled
+          && getAutoSyncSettings().syncId === settings.syncId
+          && document.visibilityState === 'visible' && protectedWorkReasonRef.current === null
+          && importHandlersRef.current.canAutoImport();
+        // A one-time full comparison establishes a strong ancestor for older
+        // clients. A legacy 32-bit hash alone never authorizes an auto import.
+        if ((remoteHasChanged || !lastState.lastSyncDigest) && canReconcile()) {
+          const local = await exportQuizMakeData();
+          const localDigest = await computePayloadDigest(local);
+          const conflictKey = `${settings.syncId}:${meta.value.updatedAt}:${localDigest}`;
+          if (lastConflictKey === conflictKey) return;
+          if (!canReconcile()) return;
+          const remote = await downloadSyncData(settings.syncId, { localPayload: local });
+          if (!remote.ok) throw new Error(remote.error);
+          if (!remote.value || !canReconcile()) return;
+          const remoteDigest = await computePayloadDigest(remote.value.payload);
+          if (!canReconcile()) return;
+          const decision = getSyncDecision(getLastSyncState(), localDigest, { updatedAt: remote.value.updatedAt, digest: remoteDigest });
+          if (decision === 'same') {
+            setLastSyncStateForConnection(settings.syncId, { lastSyncAt: remote.value.updatedAt,
+              lastUploadHash: computePayloadHash(local), lastSyncDigest: localDigest,
+              lastRemoteUpdatedAt: remote.value.updatedAt, status: '同期済み', error: '' });
+            return;
+          }
+          if (decision === 'download') {
+            setLastSyncState({ status: 'クラウドの更新を取り込み中…', error: '' });
+            if (await importHandlersRef.current.onAutoImport(remote.value, localDigest)) return;
+            // Local changes/new work during download are re-evaluated later.
+            lastRemoteCheckAtRef.current = 0;
+            return;
+          }
+          if (decision === 'upload') { uploadQueue.request(true); return; }
+          lastConflictKey = conflictKey;
+        }
         if (!remoteHasChanged) return;
         const promptKey = `${settings.syncId}:${meta.value.updatedAt}`;
         if (promptedRemoteUpdatedAtRef.current === promptKey || isCloudUpdateDismissed({ syncId: settings.syncId, updatedAt: meta.value.updatedAt })) return;
-        // Notify from lightweight revision metadata. Download/compare content only
-        // when the user chooses to review it; never advance the sync baseline here.
+        // Conflicts, first sync and protected screens keep the existing notice.
+        // Observing a revision alone never advances the accepted sync baseline.
         promptedRemoteUpdatedAtRef.current = promptKey;
         setLastSyncState({ status: 'クラウドの更新を確認してください', error: '' });
         window.dispatchEvent(new CustomEvent(CLOUD_UPDATE_EVENT, { detail: { syncId: settings.syncId, updatedAt: meta.value.updatedAt } }));
-        // Resolve differences only when the user opens Settings > Sync.
       } catch (error) {
         if (disposed || getAutoSyncSettings().syncId !== settings.syncId) return;
         const message = error instanceof Error ? error.message : 'クラウド確認に失敗しました。';
@@ -174,7 +220,10 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
       void checkRemote(true);
     };
 
-    const intervalId = window.setInterval(() => uploadQueue.request(), AUTO_SYNC_INTERVAL_MS);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void checkRemote(false);
+      uploadQueue.request();
+    }, AUTO_SYNC_INTERVAL_MS);
     const handleFocus = () => {
       uploadQueue.request(true);
       void checkRemote(false);
@@ -192,7 +241,12 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
     const handleLocalSave = () => uploadQueue.request(document.visibilityState === 'hidden');
     const handlePageHide = () => uploadQueue.request(true);
     // Supabase's auth callback holds a session lock; the queue defers Auth calls.
-    const unsubscribeAuth = onCloudAuthStateChange(() => uploadQueue.request(true));
+    let authCheckTimer: number | undefined;
+    const unsubscribeAuth = onCloudAuthStateChange(() => {
+      uploadQueue.request(true);
+      window.clearTimeout(authCheckTimer);
+      authCheckTimer = window.setTimeout(() => void checkRemote(true), 0);
+    });
 
     window.addEventListener('focus', handleFocus);
     window.addEventListener('online', handleFocus);
@@ -211,6 +265,7 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
       unsubscribeAuth();
       window.clearInterval(intervalId);
       window.clearTimeout(initialCheckTimer);
+      window.clearTimeout(authCheckTimer);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleFocus);
       window.removeEventListener('pageshow', handleFocus);
@@ -227,6 +282,10 @@ export function AutoSyncController({ protectedWorkReason }: AutoSyncControllerPr
     previousProtectedWorkReasonRef.current = protectedWorkReason;
     if (previousReason !== protectedWorkReason && !isAutoUploadBlocked(protectedWorkReason)) resumeSyncRef.current?.();
   }, [protectedWorkReason]);
+
+  useEffect(() => {
+    if (autoImportReady) resumeSyncRef.current?.();
+  }, [autoImportReady]);
 
   return null;
 }

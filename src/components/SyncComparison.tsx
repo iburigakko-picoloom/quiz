@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
-import { computePayloadHash, downloadSyncData, exportQuizMakeData, getLastSyncState, getStoredSyncId, summarizeSyncPayload, type RemoteSyncRecord, type SyncPayload, type SyncPayloadSummary } from '../utils/syncService';
+import { computePayloadHash, downloadSyncData, exportQuizMakeData, getLastSyncState, getStoredSyncId, summarizeSyncPayload, type SyncPayload, type SyncPayloadSummary } from '../utils/syncService';
 import { saveBackupPayload } from '../utils/backupRepository';
-import { materialComparisonPayload } from '../utils/materialCloud';
+import { readSyncPreview, type SyncPreview } from '../utils/syncPreview';
 
-type Comparison = { local: SyncPayload; remote: RemoteSyncRecord | null; syncId: string; same: boolean; localHash: string };
+type Comparison = SyncPreview;
 export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syncId: string; disabled: boolean; onUpload: (payload?: SyncPayload, confirmedRemoteUpdatedAt?: string) => Promise<void>; onDownload: () => Promise<void> }) {
   const [value,setValue] = useState<Comparison | null>(null);
   const [pending,setPending] = useState<Comparison | null>(null);
@@ -16,14 +16,8 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
     let active = true;
     if (disabled) { setValue(null); if (!lock.current) setLoading(false); return; }
     setLoading(true); setError(''); setValue(null);
-    void Promise.all([exportQuizMakeData(),downloadSyncData(syncId, { materialFiles: 'references' })]).then(async ([local,remote]) => {
-      if (!active) return;
-      if (!remote.ok) throw new Error(remote.error);
-      const [localComparison, remoteComparison] = await Promise.all([
-        materialComparisonPayload(local), remote.value ? materialComparisonPayload(remote.value.payload) : null,
-      ]);
-      if (!active) return;
-      setValue({local,remote:remote.value,syncId,localHash:computePayloadHash(local),same:Boolean(remoteComparison && computePayloadHash(localComparison) === computePayloadHash(remoteComparison))});
+    void readSyncPreview(syncId).then((preview) => {
+      if (active) setValue(preview);
     }).catch((reason) => { if(active) setError(reason instanceof Error ? reason.message : '同期状態を確認できません。'); }).finally(() => {if(active) setLoading(false);});
     return () => { active = false; };
   },[syncId,disabled,attempt]);

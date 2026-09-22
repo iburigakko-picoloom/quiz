@@ -5,8 +5,8 @@ import test from 'node:test';
 const extensionHook = registerHooks({
   resolve(specifier, context, nextResolve) {
     const extensionlessRelativeImport = /^\.\.?\//u.test(specifier)
-      && !/\.[cm]?[jt]sx?$/u.test(specifier)
-      && context.parentURL?.endsWith('.ts');
+      && !/\.[cm]?[jt]sx?$/u.test(specifier.split('?')[0])
+      && context.parentURL?.split('?')[0].endsWith('.ts');
     return nextResolve(extensionlessRelativeImport ? `${specifier}.ts` : specifier, context);
   },
 });
@@ -339,6 +339,42 @@ test('replacing IndexedDB notes clears current and backup stores atomically', as
   } finally {
     delete globalThis.indexedDB;
   }
+});
+
+test('incremental note import writes changed records only and includes additions and deletions in one transaction', async () => {
+  resetStorage();
+  const incrementalNotes = await import('../src/utils/noteStorage.ts?incremental');
+  const key = name => `quizMake:notes:set-1:${name}`;
+  const raw = value => JSON.stringify({ problemSetId: 'set-1', category: 'test', pages: [{ id: 'p', dataUrl: value, updatedAt: '2026-09-22' }], currentPageIndex: 0, updatedAt: '2026-09-22' });
+  const records = new Map([[key('same'), raw('same')], [key('edit'), raw('old')], [key('delete'), raw('gone')]]);
+  const next = { [key('same')]: raw('same'), [key('edit')]: raw('new'), [key('add')]: raw('added') };
+  const writes = [];
+  globalThis.indexedDB = { open() {
+    const request = { result: { objectStoreNames: { contains: () => true }, transaction(names, mode) {
+      assert.deepEqual(names, ['categoryNotes', 'categoryNoteBackups']); assert.equal(mode, 'readwrite');
+      const transaction = { objectStore(name) { return {
+        clear() { assert.equal(name, 'categoryNoteBackups', 'the current note store is not cleared'); },
+        put(value, key) { records.set(key, value); writes.push(['add', key]); },
+        openCursor() {
+          const request = {}; const entries = [...records]; let index = 0;
+          const advance = () => queueMicrotask(() => {
+            const entry = entries[index++];
+            request.result = entry ? { key: entry[0], value: entry[1],
+              update(value) { records.set(entry[0], value); writes.push(['edit', entry[0]]); },
+              delete() { records.delete(entry[0]); writes.push(['delete', entry[0]]); }, continue: advance } : null;
+            request.onsuccess();
+            if (!entry) queueMicrotask(() => transaction.oncomplete());
+          }); advance(); return request;
+        },
+      }; } }; return transaction;
+    } } };
+    queueMicrotask(() => request.onsuccess()); return request;
+  } };
+  try {
+    assert.equal(await incrementalNotes.replaceCategoryNotesRaw(next, { onlyChanged: true }), 3);
+    assert.deepEqual(Object.fromEntries(records), next);
+    assert.deepEqual(writes, [['edit', key('edit')], ['delete', key('delete')], ['add', key('add')]]);
+  } finally { delete globalThis.indexedDB; }
 });
 
 test('failed local note deletion restores entries removed earlier in the operation', async () => {

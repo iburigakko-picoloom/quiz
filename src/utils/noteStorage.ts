@@ -363,7 +363,7 @@ function getNoteUpdatedAt(raw: string): string | null {
 }
 export function replaceCategoryNotesRaw(
   notes: Record<string, string>,
-  options: { coordinationLockHeld?: boolean; establishAuthority?: boolean } = {},
+  options: { coordinationLockHeld?: boolean; establishAuthority?: boolean; onlyChanged?: boolean } = {},
 ): Promise<number> {
   const validNotes = sortRecord(Object.keys(notes).reduce<Record<string, string>>((result, key) => {
     if (isCategoryNoteKey(key) && typeof notes[key] === 'string' && isUsableNoteRaw(notes[key])) result[key] = notes[key];
@@ -372,7 +372,7 @@ export function replaceCategoryNotesRaw(
 
   return enqueueCategoryNoteOperation(async () => {
     if (isIndexedDbAvailable()) {
-      await replaceIndexedDbNotes(validNotes);
+      await replaceIndexedDbNotes(validNotes, options.onlyChanged);
       removeAllLegacyLocalStorageNotes();
       if (writeCategoryNotesManifestBestEffort(Object.keys(validNotes)) && options.establishAuthority) {
         safeLocalStorageRemove(CATEGORY_NOTES_RECOVERY_REQUIRED_KEY);
@@ -380,8 +380,14 @@ export function replaceCategoryNotesRaw(
       return Object.keys(validNotes).length;
     }
 
-    removeAllLegacyLocalStorageNotes();
-    Object.entries(validNotes).forEach(([key, value]) => localStorage.setItem(key, value));
+    if (options.onlyChanged) {
+      collectLegacyLocalStorageNotesOrThrow(isCategoryNoteKey).forEach(([key]) => {
+        if (!(key in validNotes)) localStorage.removeItem(key);
+      });
+    } else removeAllLegacyLocalStorageNotes();
+    Object.entries(validNotes).forEach(([key, value]) => {
+      if (!options.onlyChanged || localStorage.getItem(key) !== value) localStorage.setItem(key, value);
+    });
     if (writeCategoryNotesManifestBestEffort(Object.keys(validNotes)) && options.establishAuthority) {
       safeLocalStorageRemove(CATEGORY_NOTES_RECOVERY_REQUIRED_KEY);
     }
@@ -696,15 +702,33 @@ async function deleteIndexedDbNotesWhere(predicate: (key: string) => boolean): P
   });
 }
 
-async function replaceIndexedDbNotes(notes: Record<string, string>): Promise<void> {
+async function replaceIndexedDbNotes(notes: Record<string, string>, onlyChanged = false): Promise<void> {
   const db = await openNoteDb();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([NOTE_STORE_NAME, NOTE_BACKUP_STORE_NAME], 'readwrite');
     const store = transaction.objectStore(NOTE_STORE_NAME);
     const backupStore = transaction.objectStore(NOTE_BACKUP_STORE_NAME);
-    store.clear();
-    backupStore.clear();
-    Object.entries(notes).forEach(([key, value]) => store.put(value, key));
+    if (onlyChanged) {
+      backupStore.clear();
+      const remaining = new Set(Object.keys(notes));
+      const request = store.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          remaining.forEach(key => store.put(notes[key], key));
+          return;
+        }
+        const key = String(cursor.key);
+        if (!(key in notes)) cursor.delete();
+        else if (cursor.value !== notes[key]) cursor.update(notes[key]);
+        remaining.delete(key);
+        cursor.continue();
+      };
+    } else {
+      store.clear();
+      backupStore.clear();
+      Object.entries(notes).forEach(([key, value]) => store.put(value, key));
+    }
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error('Failed to import notes.'));
     transaction.onabort = () => reject(transaction.error ?? new Error('Failed to import notes.'));

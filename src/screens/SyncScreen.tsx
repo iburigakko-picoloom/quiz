@@ -50,9 +50,10 @@ import './SyncScreen.css';
 
 interface SyncScreenProps {
   onBack: () => void;
+  onImported?: () => Promise<void>;
 }
 
-export function SyncScreen({ onBack }: SyncScreenProps) {
+export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   const configured = useMemo(() => isSyncConfigured(), []);
   const environmentStatus = useMemo(() => getSyncEnvironmentStatus(), []);
   const [syncId, setSyncId] = useState(() => getStoredSyncId());
@@ -685,7 +686,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
       return;
     }
 
-    const verify = await downloadSyncData(operationSyncId);
+    const verify = await refreshDownloadedSyncData(result.value);
     setLastState(getLastSyncState());
 
     if (!verify.ok) {
@@ -902,9 +903,6 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
     }
 
     if (!setLastSyncStateForConnection(target.syncId, {
-      lastSyncAt: target.remoteUpdatedAt,
-      lastRemoteUpdatedAt: target.remoteUpdatedAt,
-      lastUploadHash: computePayloadHash(latestRemote.value.payload),
       status: 'クラウドから読み込みました',
       error: '',
     })) {
@@ -917,8 +915,16 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
     }
     setLastState(getLastSyncState());
 
-    setMessage(`クラウドから読み込みました。${formatSyncSummary(target.summary)} / アプリを再読み込みします...`);
-    window.setTimeout(() => window.location.reload(), 800);
+    if (onImported) {
+      try {
+        await onImported();
+        setPendingCloudImport(null);
+        setBusy(false);
+        setMessage(`クラウドから読み込みました。${formatSyncSummary(target.summary)}`);
+      } catch {
+        window.location.reload();
+      }
+    } else window.location.reload();
   };
   const handleDiagnostic = async () => {
     setDiagnosticBusy(true);
@@ -1003,8 +1009,8 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
 
             <div className="sync-auto-row">
               <div>
-                <strong>この端末の変更を自動で保存</strong>
-                <small>ほかの端末の内容を取り込むときは、この画面で確認します。</small>
+                <strong>自動同期</strong>
+                <small>端末の変更を保存し、ホームでクラウドの更新を取り込みます。両方に変更があるときだけ確認します。</small>
                 {autoEnabled && !autoCanRun ? <small>接続設定を確認してください</small> : null}
               </div>
               <button
@@ -1012,7 +1018,7 @@ export function SyncScreen({ onBack }: SyncScreenProps) {
                 className={`sync-toggle__button${autoEnabled ? ' sync-toggle__button--active' : ''}`}
                 onClick={handleToggleAutoSync}
                 role="switch"
-                aria-label="この端末の変更を自動で保存"
+                aria-label="自動同期"
                 aria-checked={autoEnabled}
                 disabled={!autoEnabled && (!configured || !authenticated || !syncIdConnected)}
               >

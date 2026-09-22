@@ -102,19 +102,28 @@ export async function prepareMaterialUpload(payload: SyncPayload, transport: Mat
 }
 
 /** No local writes until every PDF has downloaded and passed its hash check. */
-export async function hydrateMaterialDownload(payload: SyncPayload, transport: MaterialTransport): Promise<SyncPayload> {
+export async function hydrateMaterialDownload(payload: SyncPayload, transport: MaterialTransport, localPayload?: SyncPayload): Promise<SyncPayload> {
   selectCacheScope(transport.cacheScope);
+  const localFiles = new Map(fileEntries(localPayload ?? { version: 1, updatedAt: '', localStorage: {} })
+    .filter((file): file is MaterialFile => file.kind === 'quiz-material-file').map(file => [file.materialId, file]));
   return mapFiles(payload, async file => {
     if (file.kind === 'quiz-material-file') return file; // Old backups/cloud snapshots remain readable.
     if (file.path.split('/')[0] !== transport.userId) throw new Error('資料の所有者が現在のアカウントと一致しません。');
     const key = `${file.bucket}:${file.path}:${file.sha256}:${file.size}`;
     let dataUrl = transport.cacheScope && cacheScope === transport.cacheScope ? verifiedPdfs.get(key) : undefined;
+    const localFile = localFiles.get(file.materialId);
+    if (!dataUrl && localFile) {
+      // Reuse durable local PDFs across app launches, but never trust the ID or
+      // timestamp alone: verify the exact content against the cloud digest.
+      const bytes = decodePdf(localFile.dataUrl);
+      if (bytes.byteLength === file.size && await digest(bytes) === file.sha256) dataUrl = localFile.dataUrl;
+    }
     if (!dataUrl) {
       const bytes = await transport.download(file);
       if (bytes.byteLength !== file.size || await digest(bytes) !== file.sha256) throw new Error('PDFの保存内容を確認できませんでした。端末データは変更していません。');
       dataUrl = encodePdf(bytes);
-      if (transport.cacheScope && cacheScope === transport.cacheScope) cachePdf(key, dataUrl);
     }
+    if (transport.cacheScope && cacheScope === transport.cacheScope) cachePdf(key, dataUrl);
     return { kind: 'quiz-material-file', version: 1, materialId: file.materialId, updatedAt: file.updatedAt, dataUrl };
   });
 }
