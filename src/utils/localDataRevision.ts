@@ -1,4 +1,5 @@
 export type LocalDataRevision = number;
+export const LOCAL_DATA_SAVED_EVENT = 'quiz-make-local-data-saved';
 
 let currentRevision: LocalDataRevision = 0;
 const associatedRevisions = new WeakMap<object, LocalDataRevision>();
@@ -16,6 +17,11 @@ export function getLocalDataRevision(): LocalDataRevision {
  */
 export function advanceLocalDataRevision(): LocalDataRevision {
   currentRevision += 1;
+  // Every durable app/note/memo write wakes the same upload queue. Never emit
+  // this before a save succeeds, and never include the user's content in it.
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new Event(LOCAL_DATA_SAVED_EVENT));
+  }
   return currentRevision;
 }
 

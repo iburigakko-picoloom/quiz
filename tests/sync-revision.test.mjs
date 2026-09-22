@@ -197,6 +197,9 @@ test('successful app and note persistence advances one shared monotonic revision
   delete globalThis.indexedDB;
   resetStorage();
   const initialRevision = revision.getLocalDataRevision();
+  const savedEvents = [];
+  const dispatch = window.dispatchEvent;
+  window.dispatchEvent = (event) => { if (event.type === revision.LOCAL_DATA_SAVED_EVENT) savedEvents.push(event.type); };
 
   assert.equal(await storage.saveAppData(appDataWithFolder('first')), true);
   assert.equal(revision.getLocalDataRevision(), initialRevision + 1);
@@ -204,6 +207,7 @@ test('successful app and note persistence advances one shared monotonic revision
   const noteRaw = JSON.stringify({ dataUrl: 'data:image/png;base64,first', updatedAt: timestamp });
   await notes.saveCategoryNoteRaw('quizMake:notes:set-1:vocabulary', noteRaw);
   assert.equal(revision.getLocalDataRevision(), initialRevision + 2);
+  assert.equal(savedEvents.length, 2, 'successful durable saves wake auto sync');
 
   const revisionBeforeFailures = revision.getLocalDataRevision();
   localStorage.failWrites = true;
@@ -218,8 +222,10 @@ test('successful app and note persistence advances one shared monotonic revision
   } finally {
     console.error = originalConsoleError;
     localStorage.failWrites = false;
+    window.dispatchEvent = dispatch;
   }
   assert.equal(revision.getLocalDataRevision(), revisionBeforeFailures);
+  assert.equal(savedEvents.length, 2, 'failed saves must not announce persisted changes');
   await notes.saveCategoryNoteRaw('quizMake:notes:set-1:vocabulary', noteRaw);
 });
 
@@ -417,6 +423,38 @@ test('upload conflicts retain the exact remote revision required for confirmed C
     assert.equal(result.code, 'conflict');
     assert.equal(result.remoteUpdatedAt, remoteRevision);
   }
+});
+
+test('local answers remain saveable during a slow upload and the newer snapshot is kept pending', async () => {
+  delete globalThis.indexedDB;
+  resetStorage();
+  sync.setStoredSyncId(syncId);
+  assert.equal(await storage.saveAppData(appDataWithFolder('before-upload')), true);
+  const payload = await sync.exportQuizMakeData(timestamp);
+  let releaseFetch;
+  let started;
+  const fetchStarted = new Promise(resolve => { started = resolve; });
+  globalThis.fetch = async () => {
+    started();
+    await new Promise(resolve => { releaseFetch = resolve; });
+    return new Response(JSON.stringify([{ result_code: 'ok', sync_id: syncId, data: payload, updated_at: timestamp }]), { status: 200 });
+  };
+  const upload = sync.uploadSyncData(syncId, payload);
+  await fetchStarted;
+  let timer;
+  try {
+    const saved = await Promise.race([
+      storage.saveAppData(appDataWithFolder('answered-while-network-is-waiting')),
+      new Promise(resolve => { timer = setTimeout(() => resolve(false), 1000); }),
+    ]);
+    assert.equal(saved, true, 'cloud network I/O must not lock local answer persistence');
+  } finally { clearTimeout(timer); releaseFetch(); }
+  const result = await upload;
+  assert.equal(result.ok, true);
+  assert.equal(result.value.localChangesPending, true);
+  assert.equal(sync.getLastSyncState().lastUploadHash, '');
+  const latest = await sync.exportQuizMakeData(timestamp);
+  assert.equal(JSON.parse(latest.localStorage[storage.APP_DATA_STORAGE_KEY]).folders[0].name, 'answered-while-network-is-waiting');
 });
 
 test('a save finishing during upload keeps the authoritative remote timestamp but not a synced hash', async () => {

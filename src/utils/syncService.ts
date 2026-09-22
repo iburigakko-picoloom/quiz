@@ -701,19 +701,26 @@ export async function uploadSyncData(
       }
       const wireValidation = validateSyncPayload(wirePayload, { wire: true });
       if (!wireValidation.ok) return wireValidation;
-      const uploaded = await withCoordinatedDataRead(['app', 'notes'], async () => {
+      const ready = await withCoordinatedDataRead(['app', 'notes'], async (): Promise<SyncResult<true>> => {
         if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
         assertDataEpochSnapshotCurrent(payload, ['app', 'notes']);
         if (getLocalDataRevision() !== beforeUpload.value) return localDataChangedBeforeUploadResult();
-        return uploadSyncDataUnlocked(
-          normalizedSyncId,
-          wireValidation.value,
-          options,
-          config,
-          authenticatedHeaders.value,
-          beforeUpload.value,
-        );
+        return { ok: true, value: true };
       }, { requireCrossContext: true });
+      if (!ready.ok) return ready;
+      if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
+      // The snapshot is immutable and the remote write is guarded by CAS. Do not
+      // hold the origin's local-write lock over network I/O: answers and notes
+      // must remain saveable even on slow connections. Revisions/epochs below
+      // keep any changes made during the upload pending for the next pass.
+      const uploaded = await uploadSyncDataUnlocked(
+        normalizedSyncId,
+        wireValidation.value,
+        options,
+        config,
+        authenticatedHeaders.value,
+        beforeUpload.value,
+      );
       if (!uploaded.ok) return uploaded;
 
       const afterUpload = await waitForLocalPersistence();
