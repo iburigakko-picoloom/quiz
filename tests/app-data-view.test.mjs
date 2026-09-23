@@ -85,6 +85,33 @@ test('a completed problem set is excluded from review counts and recommendations
   assert.deepEqual(getRecommendedReviewQuestions(completed, new Date(2026, 8, 21)).questions, []);
 });
 
+test('study record recommends only due reviews and resumes a set after study completion is cleared', () => {
+  const now = new Date(2026, 8, 21, 12);
+  const dueProgress = (id, day, overrides = {}) => createProgress(id, {
+    isReview: true,
+    lastAnswerCorrect: true,
+    reviewLevel: 1,
+    lastAnsweredAt: new Date(2026, 8, day, 12).toISOString(),
+    ...overrides,
+  });
+  const progress = [
+    dueProgress('due', 20),
+    dueProgress('not-yet', 19, { reviewLevel: 2 }),
+    dueProgress('due-level-3', 13, { reviewLevel: 3 }),
+    dueProgress('finished-set', 20),
+    dueProgress('finished-question', 20, { isStudyCompleted: true }),
+  ];
+  const data = {
+    problemSets: [{ id: 'active' }, { id: 'finished', isStudyCompleted: true }],
+    questions: progress.map((item) => createQuestion(item.questionId, item.questionId === 'finished-set' ? 'finished' : 'active')),
+    progress,
+  };
+  assert.deepEqual(getRecommendedReviewQuestions(data, now).questions.map((question) => question.id), ['due-level-3', 'due']);
+  const resumed = { ...data, problemSets: [{ id: 'active' }, { id: 'finished', isStudyCompleted: false }] };
+  assert.deepEqual(getRecommendedReviewQuestions(resumed, now).questions.map((question) => question.id), ['due-level-3', 'due', 'finished-set']);
+  assert.deepEqual(data.progress, progress);
+});
+
 const timestamp = '2026-08-15T00:00:00.000Z';
 
 function createQuestion(id, setId) {
