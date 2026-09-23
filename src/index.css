@@ -10,6 +10,11 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+  --motion-fast: 140ms;
+  --motion-ui: 240ms;
+  --motion-expand: 320ms;
+  --motion-panel: 360ms;
+  --motion-ease: cubic-bezier(.22, 1, .36, 1);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -428,25 +433,24 @@ button:disabled {
   transform: translateZ(0);
   backface-visibility: hidden;
   contain: layout paint;
-  will-change: transform, opacity;
 }
 
 .quiz-screen-transition--forward {
-  animation: quizScreenForwardIn 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: quizScreenForwardIn 280ms var(--motion-ease) both;
 }
 
 .quiz-screen-transition--back {
-  animation: quizScreenBackIn 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: quizScreenBackIn var(--motion-ui) var(--motion-ease) both;
 }
 
 .quiz-screen-transition--replace {
-  animation: quizScreenReplaceIn 150ms ease-out both;
+  animation: quizScreenReplaceIn 180ms var(--motion-ease) both;
 }
 
 @keyframes quizScreenForwardIn {
   from {
-    opacity: 0.94;
-    transform: translate3d(18px, 0, 0);
+    opacity: 0.6;
+    transform: translate3d(28px, 0, 0);
   }
   to {
     opacity: 1;
@@ -456,8 +460,8 @@ button:disabled {
 
 @keyframes quizScreenBackIn {
   from {
-    opacity: 0.94;
-    transform: translate3d(-18px, 0, 0);
+    opacity: 0.7;
+    transform: translate3d(-20px, 0, 0);
   }
   to {
     opacity: 1;
@@ -467,8 +471,8 @@ button:disabled {
 
 @keyframes quizScreenReplaceIn {
   from {
-    opacity: 0.94;
-    transform: translate3d(0, 4px, 0);
+    opacity: 0.7;
+    transform: translate3d(0, 6px, 0);
   }
   to {
     opacity: 1;
@@ -536,6 +540,7 @@ button:disabled {
 
 .quiz-runner__progress-value {
   background: var(--ui-accent, #1769ff);
+  transition: width var(--motion-panel) var(--motion-ease);
 }
 
 .quiz-runner__question-panel {
@@ -782,7 +787,7 @@ button:disabled {
   color: var(--ui-text, #173042);
   box-shadow: 0 -12px 34px rgba(42, 77, 96, 0.2);
   transition:
-    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    height var(--motion-panel) var(--motion-ease),
     border-radius 180ms ease,
     transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
     left 280ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -790,17 +795,17 @@ button:disabled {
     width 280ms cubic-bezier(0.22, 1, 0.36, 1),
     max-width 280ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 180ms ease;
-  animation: answerSheetReveal 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: answerSheetReveal var(--motion-panel) var(--motion-ease);
 }
 
 @keyframes answerSheetReveal {
   from {
     opacity: 0;
-    clip-path: inset(24% 0 0 round 20px);
+    transform: var(--answer-sheet-x) translate3d(0, 44px, 0);
   }
   to {
     opacity: 1;
-    clip-path: inset(0 round 20px);
+    transform: var(--answer-sheet-x) translate3d(0, 0, 0);
   }
 }
 
@@ -879,7 +884,10 @@ button:disabled {
   height: 5px;
   border-radius: 999px;
   background: #b9c8d0;
+  transition: width var(--motion-ui) var(--motion-ease), background-color var(--motion-fast) ease;
 }
+
+.answer-sheet--dragging .answer-sheet__drag-handle { width: 44px; background: var(--ui-accent); }
 
 .answer-sheet--hidden .answer-sheet__drag-handle {
   width: 22px;
@@ -906,13 +914,13 @@ button:disabled {
   font-size: 22px;
   font-weight: 900;
   line-height: 1.1;
-  animation: answerResultReveal 300ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: answerResultReveal var(--motion-ui) 40ms var(--motion-ease) backwards;
 }
 
 @keyframes answerResultReveal {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.92);
+    transform: translateY(6px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -1438,7 +1446,7 @@ button:disabled {
   width: 100%;
   height: 100%;
   transform: translateX(0);
-  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--motion-panel) var(--motion-ease);
   will-change: transform;
 }
 
@@ -1928,8 +1936,10 @@ button:disabled {
 
 @media (prefers-reduced-motion: reduce) {
   .answer-sheet,
-  .answer-sheet__content-rail {
-    transition-duration: 1ms;
+  .answer-sheet__content-rail,
+  .answer-sheet__drag-handle,
+  .quiz-runner__progress-value {
+    transition: none;
   }
 
   .quiz-screen-transition,

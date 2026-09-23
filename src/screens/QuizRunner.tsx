@@ -722,7 +722,8 @@ export function AnswerPanel({
   const velocityYRef = useRef(0);
   const startHeightRef = useRef(320);
   const detailRailRef = useRef<HTMLDivElement | null>(null);
-  const detailSwipeStartRef = useRef<{ x: number; y: number; id: number; width: number; axis: 'x' | 'y' | null } | null>(null);
+  const detailSwipeStartRef = useRef<{ x: number; y: number; id: number; width: number; position: number; axis: 'x' | 'y' | null } | null>(null);
+  const detailSettleFrameRef = useRef<number | null>(null);
   const suppressSwipeClickRef = useRef(false);
   const wasDragGestureRef = useRef(false);
 
@@ -732,6 +733,11 @@ export function AnswerPanel({
     const frame = requestAnimationFrame(() => sheetRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [questionId]);
+
+  useEffect(() => () => {
+    if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current);
+    if (detailSettleFrameRef.current !== null) cancelAnimationFrame(detailSettleFrameRef.current);
+  }, []);
 
   useEffect(() => {
     setPanelPage('answer');
@@ -895,7 +901,7 @@ export function AnswerPanel({
   const openDetailPage = () => {
     if (state !== 'expanded') onExpand();
     setPanelPage('detail');
-    requestAnimationFrame(() => detailBackRef.current?.focus());
+    requestAnimationFrame(() => detailBackRef.current?.focus({ preventScroll: true }));
   };
 
   const handleDetailPointerDown = (event: PointerEvent<HTMLElement>) => {
@@ -903,14 +909,18 @@ export function AnswerPanel({
     suppressSwipeClickRef.current = false;
     const target = event.target;
     if (target instanceof Element && target.closest('input, textarea:not(.answer-sheet__detail-input), select, [contenteditable="true"], pre, table, [data-no-page-swipe]')) return;
-    detailSwipeStartRef.current = { x: event.clientX, y: event.clientY, id: event.pointerId, width: detailRailRef.current?.clientWidth || 1, axis: null };
+    detailSwipeStartRef.current = { x: event.clientX, y: event.clientY, id: event.pointerId, width: detailRailRef.current?.clientWidth || 1, position: 0, axis: null };
   };
 
   const settleDetailSwipe = () => {
     const rail = detailRailRef.current;
     if (!rail) return;
+    if (detailSettleFrameRef.current !== null) cancelAnimationFrame(detailSettleFrameRef.current);
     rail.style.removeProperty('transition');
-    requestAnimationFrame(() => rail.style.removeProperty('transform'));
+    detailSettleFrameRef.current = requestAnimationFrame(() => {
+      detailSettleFrameRef.current = null;
+      rail.style.removeProperty('transform');
+    });
   };
 
   const handleDetailPointerMove = (event: PointerEvent<HTMLElement>) => {
@@ -928,6 +938,13 @@ export function AnswerPanel({
           return;
         }
         if (draggingRef.current) resetDrag();
+        const rail = detailRailRef.current;
+        if (rail) {
+          if (detailSettleFrameRef.current !== null) cancelAnimationFrame(detailSettleFrameRef.current);
+          detailSettleFrameRef.current = null;
+          // Catch the visible page, not the destination of an unfinished transition.
+          start.position = new DOMMatrixReadOnly(getComputedStyle(rail).transform).m41;
+        }
         event.currentTarget.setPointerCapture(event.pointerId);
         suppressSwipeClickRef.current = true;
       }
@@ -937,7 +954,7 @@ export function AnswerPanel({
     event.stopPropagation();
     const rail = detailRailRef.current;
     if (rail) {
-      const position = (panelPage === 'detail' ? -start.width : 0) + deltaX;
+      const position = start.position + deltaX;
       rail.style.transition = 'none';
       rail.style.transform = `translateX(${Math.max(-start.width, Math.min(0, position))}px)`;
     }
@@ -975,7 +992,7 @@ export function AnswerPanel({
     if (isSavingDetail || !confirmDiscardDetail()) return;
 
     setPanelPage('answer');
-    requestAnimationFrame(() => detailOpenRef.current?.focus());
+    requestAnimationFrame(() => detailOpenRef.current?.focus({ preventScroll: true }));
   };
 
   const handleNextWithDraftCheck = () => {

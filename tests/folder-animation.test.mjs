@@ -9,6 +9,6 @@ test('folder content remains mounted for closing and is inert when collapsed', (
   const css = readFileSync(new URL('../src/screens/FolderScreen.css', import.meta.url), 'utf8');
   assert.match(css, /grid-template-rows: 0fr/);
   assert.match(css, /grid-template-rows: 1fr/);
-  assert.match(css, /transition: grid-template-rows 240ms/);
+  assert.match(css, /transition: grid-template-rows var\(--motion-expand\)/);
   assert.match(css, /prefers-reduced-motion: reduce/);
 });

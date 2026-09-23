@@ -6,8 +6,8 @@
 .study-activity__chart { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 .study-activity__day { min-width: 0; display: grid; gap: 6px; text-align: center; color: var(--ui-text-muted); font-size: 12px; }
 .study-activity__track { height: 72px; display: flex; align-items: flex-end; justify-content: center; }
-.study-activity__bar { display: block; width: 100%; max-width: 28px; min-height: 3px; background: var(--ui-accent); border-radius: 3px 3px 0 0; }
-.study-activity__bar--empty { background: var(--ui-border); }
+.study-activity__bar { display: block; width: 100%; max-width: 28px; min-height: 3px; background: var(--ui-accent); border-radius: 3px 3px 0 0; transform-origin: center bottom; animation: study-bar-reveal var(--motion-panel) var(--motion-ease) backwards; }
+.study-activity__bar--empty { background: var(--ui-border); animation: none; }
 .study-activity__daily-count { color: var(--ui-text); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .study-activity--compact .study-activity__count strong { font-size: 24px; }
 .study-activity--compact .study-activity__streak { font-size: 11px; }
@@ -15,3 +15,5 @@
 .study-activity--compact .study-activity__track { height: 25px; }
 .study-activity--compact .study-activity__day { font-size: 10px; gap: 3px; }
 .study-activity--compact .study-activity__bar { max-width: 12px; }
+@keyframes study-bar-reveal { from { transform: scaleY(.08); opacity: .5; } to { transform: scaleY(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .study-activity__bar { animation: none; } }

@@ -25,6 +25,11 @@ export function PrimaryBottomNav({ active, onSelect }: PrimaryBottomNavProps) {
   return (
     <nav className="primary-bottom-nav" aria-label="メインメニュー">
       <div className="primary-bottom-nav__inner">
+        <div
+          className="primary-bottom-nav__indicator"
+          aria-hidden="true"
+          style={{ transform: `translateX(${items.findIndex((item) => item.id === active) * 100}%)` }}
+        ><span /></div>
         {items.map((item) => {
           const Icon = item.icon;
           const selected = item.id === active;

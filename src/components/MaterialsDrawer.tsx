@@ -60,8 +60,12 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
   const openAt = async (target?: MaterialReference) => { try { await panel.current?.flush(); const next = target ?? firstReference; if (next) { setReference(next); setReferenceRequest(value => value + 1); } followedQuestion.current = `${questionId}/${firstReference?.materialId ?? ''}/${firstReference?.pageId ?? ''}`; setError(''); onOpenChange(true); } catch { setError('書き込みを保存できません。'); } };
   const beginDrag = (event: PointerEvent<HTMLButtonElement>) => {
     if (!event.isPrimary || event.button !== 0 || !drawer.current) return;
-    const width = drawer.current.getBoundingClientRect().width;
-    drag.current = { pointerId: event.pointerId, x: event.clientX, width, start: open ? width : 0 };
+    const bounds = drawer.current.getBoundingClientRect();
+    // Resume from the visible position if the user grabs a still-moving drawer.
+    const start = Math.max(0, Math.min(bounds.width, window.innerWidth - bounds.left));
+    drag.current = { pointerId: event.pointerId, x: event.clientX, width: bounds.width, start };
+    document.body.style.setProperty('--materials-reveal', `${start}px`);
+    setDragging(true);
     suppressClick.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -73,7 +77,6 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
     if (!suppressClick.current) {
       suppressClick.current = true;
       setKeepPanel(true);
-      setDragging(true);
     }
     pendingReveal.current = Math.max(0, Math.min(start.width, start.start + delta));
     // Move only the shared layout variable; do not rerender the PDF/canvas per pointer event.
