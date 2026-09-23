@@ -51,7 +51,7 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
   const renderSet = ({ problemSet, questionCount, correctRate, reviewCount }: ProblemSetOverview) => <div className="library-row-with-actions" key={problemSet.id}>
     <button type="button" className="library-row" onClick={() => onOpenProblemSet(problemSet.id)}>
       <span className="library-icon"><ProblemSetIcon size={18} /></span>
-      <span className="library-row__body"><strong>{problemSet.title}</strong><span>{questionCount}問 · 正答率 {correctRate}% {reviewCount > 0 ? <em>復習 {reviewCount}</em> : null}</span></span>
+      <span className="library-row__body"><strong>{problemSet.title}</strong><span>{questionCount}問 · 正答率 {correctRate}% {problemSet.isStudyCompleted ? <span className="library-row__done">学習済み</span> : reviewCount > 0 ? <em>復習 {reviewCount}</em> : null}</span></span>
       <ChevronRightIcon size={18} />
     </button>
     <LibraryItemActions data={data} kind="set" id={problemSet.id} onSave={onSave} onDelete={() => setDeleteSet(problemSet)} />

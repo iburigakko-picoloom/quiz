@@ -43,7 +43,7 @@ export type StudySummary = ReturnType<typeof getStudySummary>;
 
 export function getRecommendedReviewQuestions(data: AppData, now = new Date()) {
   const progressById = new Map(data.progress.map((progress) => [progress.questionId, progress]));
-  const setIds = new Set(data.problemSets.map((set) => set.id));
+  const setIds = new Set(data.problemSets.filter((set) => !set.isStudyCompleted).map((set) => set.id));
   const today = localDay(now).getTime();
   const candidates: { question: Question; priority: number; due: number; accuracy: number; needsCheck: boolean }[] = [];
   for (const question of data.questions) {

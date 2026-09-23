@@ -32,6 +32,8 @@ export interface ProblemSet {
   folderId: string;
   title: string;
   source: string;
+  /** Excludes the whole set from scheduled review without changing question progress. */
+  isStudyCompleted?: boolean;
   description?: string;
   subject?: string;
   audience?: string;

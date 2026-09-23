@@ -131,7 +131,7 @@ export function buildAppDataView(data: AppData): AppDataView {
     const progress = progressByQuestionId.get(question.id) ?? createInitialProgress(question.id);
     appendToMapList(questionsBySetId, question.setId, { question, number, progress });
 
-    const reviewTarget = isReviewTarget(progress, now);
+    const reviewTarget = !problemSet.isStudyCompleted && isReviewTarget(progress, now);
     setSummary.questionCount += 1;
     if (reviewTarget) setSummary.reviewCount += 1;
 

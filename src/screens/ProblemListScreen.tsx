@@ -191,6 +191,7 @@ export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', on
                   index={number}
                   question={question}
                   progress={progress}
+                  setStudyCompleted={problemSet.isStudyCompleted === true}
                   onClick={() => onOpenQuestion(question.id, sortMode)}
                   onStart={() => startFrom(question.id)}
                   onToggleStudyCompleted={() => onToggleStudyCompleted(question.id)}
@@ -208,6 +209,7 @@ function QuestionListCard({
   index,
   question,
   progress,
+  setStudyCompleted,
   onClick,
   onStart,
   onToggleStudyCompleted,
@@ -215,6 +217,7 @@ function QuestionListCard({
   index: number;
   question: Question;
   progress: QuestionProgress;
+  setStudyCompleted: boolean;
   onClick: () => void;
   onStart: () => void;
   onToggleStudyCompleted: () => Promise<boolean>;
@@ -223,7 +226,7 @@ function QuestionListCard({
   const [savingCompletion, setSavingCompletion] = useState(false);
   const [completionError, setCompletionError] = useState('');
   const dueAt = getReviewDueAt(progress);
-  const isWaiting = progress.answeredCount > 0 && (progress.isReview || progress.isAmbiguous) && !progress.isGraduated && !progress.isStudyCompleted && !isReviewTarget(progress);
+  const isWaiting = !setStudyCompleted && progress.answeredCount > 0 && (progress.isReview || progress.isAmbiguous) && !progress.isGraduated && !progress.isStudyCompleted && !isReviewTarget(progress);
   const toggleCompleted = async () => {
     if (savingCompletion) return;
     setSavingCompletion(true);
@@ -249,7 +252,7 @@ function QuestionListCard({
       <div className="quiz-list__badges">
         <span className="quiz-list__badge">{getProgressLevelLabel(progress)}</span>
         {progress.isAmbiguous ? <span className="quiz-list__badge quiz-list__badge--ambiguous">曖昧</span> : null}
-        {isReviewTarget(progress) ? <span className="quiz-list__badge quiz-list__badge--review">復習する時期</span> : null}
+        {!setStudyCompleted && isReviewTarget(progress) ? <span className="quiz-list__badge quiz-list__badge--review">復習する時期</span> : null}
         {isWaiting && dueAt !== null ? <span className="quiz-list__badge">次回 {new Date(dueAt).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })}</span> : null}
         {progress.lastAnsweredAt ? <span className="quiz-list__last">最終 {formatDisplayDate(progress.lastAnsweredAt)}</span> : null}
       </div>

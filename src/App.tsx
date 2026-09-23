@@ -53,6 +53,7 @@ import {
   getAnswerIndexes,
   recordAnswer,
   toggleAmbiguous,
+  toggleProblemSetStudyCompleted,
   toggleStudyCompleted,
   updateQuestionDetailedExplanation,
 } from './utils/quiz';
@@ -840,6 +841,7 @@ export default function App() {
         audience: submission.audience.trim(),
         difficulty: submission.difficulty,
         creationMethod: problemSet.creationMethod ?? submission.creationMethod,
+        isStudyCompleted: resetProgressIds.size > 0 ? false : problemSet.isStudyCompleted,
         updatedAt: timestamp,
       } : problemSet),
       questions: [...current.questions.filter((question) => question.setId !== setId), ...nextQuestions],
@@ -1052,6 +1054,10 @@ export default function App() {
 
   const handleToggleStudyCompleted = async (questionId: string) => {
     return persistThenCommitData(toggleStudyCompleted(dataRef.current, questionId));
+  };
+
+  const handleToggleProblemSetStudyCompleted = async (setId: string) => {
+    return persistThenCommitData(toggleProblemSetStudyCompleted(dataRef.current, setId));
   };
 
   const handleSaveDetailedExplanation = async (questionId: string, detailedExplanation: string): Promise<void> => {
@@ -1469,6 +1475,7 @@ export default function App() {
       <ProblemSetDetailScreen
         data={data}
         setId={screen.setId}
+        onToggleStudyCompleted={handleToggleProblemSetStudyCompleted}
         onBack={screen.backScreen ? () => goBackTo(screen.backScreen!) : problemSet && parentFolderExists
           ? () => goBackTo({ name: 'folder', folderId: problemSet.folderId })
           : goHome}

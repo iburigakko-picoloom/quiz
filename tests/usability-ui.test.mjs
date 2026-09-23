@@ -62,14 +62,14 @@ test('primary headers share one height and create returns to its launch context'
   assert.match(typesSource, /name: 'createProblemSet';[^{\n]*backScreen\?: AppScreen/);
 });
 
-test('review starts only from its problem set and the global review route is gone', () => {
+test('set-level review starts from its problem set and the global review route is gone', () => {
   assert.doesNotMatch(homeSource, /onOpenReview|quiz-home__review-card/);
   assert.doesNotMatch(appSource, /name: 'review'/);
   assert.doesNotMatch(typesSource, /name: 'review'/);
   assert.match(detailSource, /buildReviewQuestions\(data, questions\)/);
   assert.equal((detailSource.match(/reviewLevel: reviewFilter/g) ?? []).length, 2);
-  assert.equal((detailSource.match(/onStartSession\(\{/g) ?? []).length, 2);
-  assert.doesNotMatch(detailSource, /onClick=\{startReview\}/);
+  assert.equal((detailSource.match(/onStartSession\(\{/g) ?? []).length, 3);
+  assert.match(detailSource, /onClick=\{startReview\}/);
 });
 
 test('sync screen uses an eight-character pairing flow and keeps recovery details collapsed', () => {

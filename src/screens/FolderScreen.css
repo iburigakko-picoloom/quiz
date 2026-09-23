@@ -457,3 +457,4 @@
 .quiz-folder__header-action {
   top: calc(var(--safe-top) + 50px);
 }
+.quiz-folder .library-row__done { color: var(--ui-accent, #305da3); font-weight: 700; }

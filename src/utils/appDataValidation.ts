@@ -112,6 +112,7 @@ function normalizeProblemSets(
       folderId: value.folderId,
       title: typeof value.title === 'string' ? value.title : '',
       source: typeof value.source === 'string' ? value.source : '',
+      ...(value.isStudyCompleted === true ? { isStudyCompleted: true } : {}),
       createdAt,
       updatedAt: normalizeDate(value.updatedAt, createdAt),
     };

@@ -39,6 +39,7 @@ interface ProblemSetDetailScreenProps {
   onOpenNoteList: () => void;
   onOpenMaterials?: () => void;
   onShare: () => void;
+  onToggleStudyCompleted: (setId: string) => Promise<boolean>;
   onStartSession: (params: {
     questions: Question[];
     mode: 'quiz' | 'review';
@@ -59,6 +60,7 @@ export function ProblemSetDetailScreen({
   onOpenNoteList,
   onOpenMaterials,
   onShare,
+  onToggleStudyCompleted,
   onStartSession,
 }: ProblemSetDetailScreenProps) {
   const problemSet = data.problemSets.find((set) => set.id === setId);
@@ -67,6 +69,8 @@ export function ProblemSetDetailScreen({
   const allReviewQuestions = useMemo(() => buildReviewQuestions(data, questions), [data, questions, day]);
   const [startCategory, setStartCategory] = useState<CategoryFilter>('all');
   const [reviewFilter, setReviewFilter] = useState<ReviewLevelFilter>('all');
+  const [completionBusy, setCompletionBusy] = useState(false);
+  const [completionError, setCompletionError] = useState('');
 
   const categories = useMemo(() => buildProblemCategories(questions), [questions]);
   const startQuestions = useMemo(() => filterQuestionsByCategory(questions, startCategory), [questions, startCategory]);
@@ -74,6 +78,23 @@ export function ProblemSetDetailScreen({
     () => filterQuestionsByLevel(data, startQuestions, reviewFilter),
     [data, startQuestions, reviewFilter],
   );
+  const selectedReviewQuestions = useMemo(
+    () => buildReviewQuestions(data, startQuestions, reviewFilter),
+    [data, startQuestions, reviewFilter, day],
+  );
+
+  const toggleCompletion = async () => {
+    if (completionBusy) return;
+    setCompletionBusy(true);
+    setCompletionError('');
+    try {
+      if (!await onToggleStudyCompleted(setId)) setCompletionError('学習状態を保存できませんでした');
+    } catch {
+      setCompletionError('学習状態を保存できませんでした');
+    } finally {
+      setCompletionBusy(false);
+    }
+  };
 
   if (!problemSet) {
     return (
@@ -134,6 +155,17 @@ export function ProblemSetDetailScreen({
     });
   };
 
+  const startReview = () => {
+    if (selectedReviewQuestions.length === 0) return;
+    onStartSession({
+      questions: selectedReviewQuestions,
+      mode: 'review',
+      title: problemSet.title,
+      subtitle: [selectedLabel, reviewFilterLabel, '復習'].join(' / '),
+      setId,
+    });
+  };
+
   return (
     <Layout>
       <div className="quiz-detail">
@@ -155,6 +187,13 @@ export function ProblemSetDetailScreen({
                 <strong>{levelThreeRate}%</strong>
               </div>
             </section>
+            <div className="quiz-detail__completion-row" aria-label="問題セットの学習状態">
+              <span>{problemSet.isStudyCompleted ? '学習済み・復習対象外' : '学習中'}</span>
+              <button type="button" onClick={() => void toggleCompletion()} disabled={completionBusy} aria-pressed={problemSet.isStudyCompleted === true}>
+                {completionBusy ? '保存中…' : problemSet.isStudyCompleted ? '学習済みを解除' : '学習済みにする'}
+              </button>
+            </div>
+            {completionError ? <p className="quiz-detail__completion-error" role="alert">{completionError}</p> : null}
             <section className="quiz-detail__start-panel" aria-labelledby="quiz-detail-start-title">
               <h2 id="quiz-detail-start-title" className="sr-only">出題条件と学習開始</h2>
 
@@ -219,6 +258,16 @@ export function ProblemSetDetailScreen({
                   onClick={startRandom}
                 >
                   <strong>ランダムで解く</strong>
+                </button>
+                <button
+                  type="button"
+                  className="quiz-detail__start-action quiz-detail__start-action--review"
+                  disabled={selectedReviewQuestions.length === 0}
+                  onClick={startReview}
+                  aria-label={`復習する問題を${selectedReviewQuestions.length}問開始`}
+                >
+                  <strong>復習で解く</strong>
+                  <small>{selectedReviewQuestions.length}問</small>
                 </button>
               </div>
             </section>
@@ -305,8 +354,10 @@ function getStartQuestions({
 }
 
 export function buildReviewQuestions(data: AppData, questions: Question[], filter: ReviewLevelFilter = 'all') {
+  const completedSetIds = new Set(data.problemSets.filter((set) => set.isStudyCompleted).map((set) => set.id));
   if (filter !== 'all') {
     const filtered = questions.filter((question) => {
+      if (completedSetIds.has(question.setId)) return false;
       const progress = getProgress(data, question.id);
       return isReviewTarget(progress) && matchesReviewLevel(progress, filter);
     });

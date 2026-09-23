@@ -65,7 +65,9 @@ export function calculateStats(data: AppData): StudyStats {
   const correctCount = data.answerLogs.filter((log) => log.isCorrect).length;
   const todayCount = data.answerLogs.filter((log) => isToday(log.answeredAt)).length;
   const now = new Date();
-  const reviewCount = data.progress.filter((progress) => isReviewTarget(progress, now)).length;
+  const activeSetIds = new Set(data.problemSets.filter((set) => !set.isStudyCompleted).map((set) => set.id));
+  const activeQuestionIds = new Set(data.questions.filter((question) => activeSetIds.has(question.setId)).map((question) => question.id));
+  const reviewCount = data.progress.filter((progress) => activeQuestionIds.has(progress.questionId) && isReviewTarget(progress, now)).length;
   const ambiguousCount = data.progress.filter((progress) => progress.isAmbiguous).length;
 
   return {
@@ -209,7 +211,7 @@ export function recordAnswer(
     }
   }
 
-  const addedToReview = !isReviewMode && !wasReviewTarget && nextProgress.isReview && !nextProgress.isGraduated && !nextProgress.isStudyCompleted;
+  const addedToReview = !isReviewMode && !problemSet?.isStudyCompleted && !wasReviewTarget && nextProgress.isReview && !nextProgress.isGraduated && !nextProgress.isStudyCompleted;
 
   const nextProgressList = upsertProgress(data.progress, nextProgress);
   const nextLog = {
@@ -286,6 +288,17 @@ export function toggleAmbiguous(data: AppData, questionId: string): AppData {
   return { ...data, progress: upsertProgress(data.progress, nextProgress) };
 }
 
+export function toggleProblemSetStudyCompleted(data: AppData, setId: string): AppData {
+  if (!data.problemSets.some((set) => set.id === setId)) throw new Error('問題セットが見つかりません。');
+  const updatedAt = nowIso();
+  return {
+    ...data,
+    problemSets: data.problemSets.map((set) => set.id === setId
+      ? { ...set, isStudyCompleted: !set.isStudyCompleted, updatedAt }
+      : set),
+  };
+}
+
 export function toggleStudyCompleted(data: AppData, questionId: string): AppData {
   const existing = getProgress(data, questionId);
   const nextProgress: QuestionProgress = { ...existing, isStudyCompleted: !existing.isStudyCompleted };
@@ -302,6 +315,7 @@ export function updateQuestionDetailedExplanation(data: AppData, questionId: str
 
 export function groupReviewQuestionsByLevel(data: AppData, questions: Question[]) {
   const now = new Date();
+  const completedSetIds = new Set(data.problemSets.filter((set) => set.isStudyCompleted).map((set) => set.id));
   const groups: Record<'ambiguous' | 'level0' | 'level1' | 'level2' | 'level3', Question[]> = {
     ambiguous: [],
     level0: [],
@@ -311,6 +325,7 @@ export function groupReviewQuestionsByLevel(data: AppData, questions: Question[]
   };
 
   questions.forEach((question) => {
+    if (completedSetIds.has(question.setId)) return;
     const progress = getProgress(data, question.id);
     if (!isReviewTarget(progress, now)) return;
     if (progress.isAmbiguous) {

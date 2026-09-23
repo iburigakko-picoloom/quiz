@@ -70,6 +70,21 @@ test('recommendations include all eligible questions, break ties by lateness the
   assert.equal(result.dueCount + result.needsCheckCount, 12);
 });
 
+test('a completed problem set is excluded from review counts and recommendations, not from its question list', () => {
+  const folder = { id: 'folder', name: 'Folder', createdAt: timestamp, updatedAt: timestamp };
+  const set = { id: 'set', folderId: folder.id, title: 'Set', source: '', createdAt: timestamp, updatedAt: timestamp };
+  const question = createQuestion('question', set.id);
+  const progress = createProgress(question.id, { isReview: true });
+  const data = { version: 1, folders: [folder], problemSets: [set], questions: [question], progress: [progress], answerLogs: [] };
+  assert.equal(buildAppDataView(data).folders[0].reviewCount, 1);
+  const completed = { ...data, problemSets: [{ ...set, isStudyCompleted: true }] };
+  const view = buildAppDataView(completed);
+  assert.equal(view.folders[0].reviewCount, 0);
+  assert.equal(view.problemSetsByFolderId.get(folder.id)[0].reviewCount, 0);
+  assert.equal(view.questionsBySetId.get(set.id).length, 1);
+  assert.deepEqual(getRecommendedReviewQuestions(completed, new Date(2026, 8, 21)).questions, []);
+});
+
 const timestamp = '2026-08-15T00:00:00.000Z';
 
 function createQuestion(id, setId) {

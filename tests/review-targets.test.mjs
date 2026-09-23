@@ -11,7 +11,7 @@ const extensionHook = registerHooks({
     return nextResolve(isExtensionlessRelativeImport ? `${specifier}.ts` : specifier, context);
   },
 });
-const { recordAnswer, toggleAmbiguous, toggleStudyCompleted } = await import('../src/utils/quiz.ts');
+const { getReviewQuestions, recordAnswer, toggleAmbiguous, toggleProblemSetStudyCompleted, toggleStudyCompleted } = await import('../src/utils/quiz.ts');
 const { normalizeAppData } = await import('../src/utils/appDataValidation.ts');
 extensionHook.deregister();
 
@@ -157,6 +157,25 @@ test('manual study completion survives normalization and later answers until exp
   assert.equal(resumed.progress[0].isStudyCompleted, false);
   assert.equal(isReviewTarget(resumed.progress[0], new Date(2030, 0, 1)), true);
   assert.equal(toggleAmbiguous(completed, multipleAnswerQuestion.id).progress[0].isStudyCompleted, false);
+});
+
+test('set-level completion is reversible without rewriting individual progress', () => {
+  const completedUnanswered = toggleProblemSetStudyCompleted(createAnswerTestData(), 'set-1');
+  assert.equal(recordAnswer(completedUnanswered, multipleAnswerQuestion, [1], false).addedToReview, false);
+  const answered = recordAnswer(createAnswerTestData(), multipleAnswerQuestion, [1], false);
+  const due = { ...answered.data, progress: [{ ...answered.progress, lastAnsweredAt: timestamp }] };
+  assert.equal(getReviewQuestions(due).length, 1);
+  const completed = toggleProblemSetStudyCompleted(due, 'set-1');
+  assert.equal(completed.problemSets[0].isStudyCompleted, true);
+  assert.strictEqual(completed.progress, due.progress);
+  assert.deepEqual(getReviewQuestions(completed), []);
+  const restored = normalizeAppData(JSON.parse(JSON.stringify(completed)));
+  assert.equal(restored.ok, true);
+  assert.equal(restored.data.problemSets[0].isStudyCompleted, true);
+  const resumed = toggleProblemSetStudyCompleted(restored.data, 'set-1');
+  assert.equal(resumed.problemSets[0].isStudyCompleted, false);
+  assert.equal(getReviewQuestions(resumed).length, 1);
+  assert.deepEqual(resumed.progress, restored.data.progress);
 });
 
 test('correct answers only advance levels after the scheduled review day', () => {
