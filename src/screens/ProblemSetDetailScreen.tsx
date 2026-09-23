@@ -12,6 +12,7 @@ import {
   type ReviewLevelFilter,
 } from '../utils/quiz';
 import { isReviewTarget } from '../utils/reviewTargets';
+import { useLocalDay } from '../hooks/useLocalDay';
 import './ProblemSetDetailScreen.css';
 
 type CategoryFilter = 'all' | string;
@@ -61,7 +62,9 @@ export function ProblemSetDetailScreen({
   onStartSession,
 }: ProblemSetDetailScreenProps) {
   const problemSet = data.problemSets.find((set) => set.id === setId);
+  const day = useLocalDay();
   const questions = useMemo(() => getQuestionsBySet(data, setId), [data, setId]);
+  const allReviewQuestions = useMemo(() => buildReviewQuestions(data, questions), [data, questions, day]);
   const [startCategory, setStartCategory] = useState<CategoryFilter>('all');
   const [reviewFilter, setReviewFilter] = useState<ReviewLevelFilter>('all');
 
@@ -87,7 +90,6 @@ export function ProblemSetDetailScreen({
     );
   }
 
-  const allReviewQuestions = buildReviewQuestions(data, questions);
   const reachedLevelThree = questions.filter((question) => {
     const progress = getProgress(data, question.id);
     return progress.reviewLevel === 3 || progress.isGraduated;

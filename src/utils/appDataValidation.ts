@@ -251,6 +251,7 @@ function normalizeProgress(values: unknown[], questions: Question[]): QuestionPr
       isAmbiguous: typeof value.isAmbiguous === 'boolean' ? value.isAmbiguous : false,
       reviewLevel: value.reviewLevel === 1 || value.reviewLevel === 2 || value.reviewLevel === 3 ? value.reviewLevel : null,
       isGraduated: typeof value.isGraduated === 'boolean' ? value.isGraduated : false,
+      ...(value.isStudyCompleted === true ? { isStudyCompleted: true } : {}),
     };
     const existing = byQuestionId.get(question.id);
     if (!existing || progressFreshness(normalized) >= progressFreshness(existing)) byQuestionId.set(question.id, normalized);

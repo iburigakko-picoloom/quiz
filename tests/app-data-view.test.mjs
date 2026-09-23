@@ -42,17 +42,17 @@ test('recommendations preserve review semantics, prioritize uncertainty, and nev
   });
   const entries = [
     progress('future', 0), progress('today-l2', 3, { reviewLevel: 2 }),
-    progress('overdue', 9, { reviewLevel: 3 }), progress('wrong', 0, { lastAnswerCorrect: false }),
-    progress('ambiguous', 0, { isAmbiguous: true }), progress('graduated', 20, { isGraduated: true }),
+    progress('overdue', 9, { reviewLevel: 3 }), progress('wrong', 1, { lastAnswerCorrect: false }),
+    progress('ambiguous', 1, { isAmbiguous: true }), progress('graduated', 20, { isGraduated: true }),
     progress('not-review', 20, { isReview: false }), progress('invalid', 1, { lastAnsweredAt: 'invalid' }),
     progress('orphan', 20), progress('unanswered', 20, { answeredCount: 0 }),
   ];
   const data = { problemSets: [{ id: 'set' }], questions: entries.filter((p) => p.questionId !== 'orphan').map((p) => createQuestion(p.questionId, 'set')), progress: entries };
   const before = JSON.stringify(data);
   const selected = getRecommendedReviewQuestions(data, now);
-  assert.deepEqual(selected.questions.map((q) => q.id), ['ambiguous', 'wrong', 'overdue', 'today-l2']);
+  assert.deepEqual(selected.questions.map((q) => q.id), ['ambiguous', 'wrong', 'invalid', 'overdue', 'today-l2']);
   assert.equal(selected.needsCheckCount, 2);
-  assert.equal(selected.dueCount, 2);
+  assert.equal(selected.dueCount, 3);
   assert.equal(JSON.stringify(data), before);
   assert.equal(getRecommendedReviewQuestions({ ...data, progress: [] }, now).questions.length, 0);
 });

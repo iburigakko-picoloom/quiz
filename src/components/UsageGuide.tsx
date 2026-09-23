@@ -39,7 +39,7 @@ function MemoDemo({ stage }: { stage: Demo }) {
     <div className="usage-guide__demo-heading">練習用の問題 · 月の満ち欠け</div>
     <p className="usage-guide__demo-question">月が光って見えるのはなぜ？</p>
     <Suspense fallback={<p>問題画面を読み込み中…</p>}>
-      <AnswerPanel questionId="usage-guide-example" guidePage={stage} isCorrect relearned={false} answer="太陽の光を反射しているから" explanation="月は太陽の光を反射して光って見えます。" detailedExplanation="" savedLevelLabel="ガイド用の例・保存されません" answerSaveState="saved" readOnly={false} isAmbiguous={false} isLast={false} state="expanded" onExpand={noop} onDefault={noop} onHide={noop} onToggleAmbiguous={async () => true} onSaveDetailedExplanation={saveNothing} onDetailDirtyChange={noop} onNext={noop} />
+      <AnswerPanel questionId="usage-guide-example" guidePage={stage} isCorrect relearned={false} answer="太陽の光を反射しているから" explanation="月は太陽の光を反射して光って見えます。" detailedExplanation="" savedLevelLabel="ガイド用の例・保存されません" answerSaveState="saved" readOnly={false} isAmbiguous={false} isStudyCompleted={false} isLast={false} state="expanded" onExpand={noop} onDefault={noop} onHide={noop} onToggleAmbiguous={async () => true} onToggleStudyCompleted={async () => true} onSaveDetailedExplanation={saveNothing} onDetailDirtyChange={noop} onNext={noop} />
     </Suspense>
   </div>;
 }

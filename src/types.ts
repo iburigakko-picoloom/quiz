@@ -89,6 +89,8 @@ export interface QuestionProgress {
   isAmbiguous: boolean;
   reviewLevel: 1 | 2 | 3 | null;
   isGraduated: boolean;
+  /** Explicitly finished by the learner; unlike automatic graduation, this is reversible. */
+  isStudyCompleted?: boolean;
 }
 
 export interface AnswerLog {

@@ -94,6 +94,7 @@ export function buildAppDataView(data: AppData): AppDataView {
   const questionsBySetId = new Map<string, QuestionOverview[]>();
   const canonicalQuestionById = new Map<string, Question>();
   const questionCountBySetId = new Map<string, number>();
+  const now = new Date();
 
   for (const folder of data.folders) {
     if (!folderById.has(folder.id)) folderById.set(folder.id, folder);
@@ -130,7 +131,7 @@ export function buildAppDataView(data: AppData): AppDataView {
     const progress = progressByQuestionId.get(question.id) ?? createInitialProgress(question.id);
     appendToMapList(questionsBySetId, question.setId, { question, number, progress });
 
-    const reviewTarget = isReviewTarget(progress);
+    const reviewTarget = isReviewTarget(progress, now);
     setSummary.questionCount += 1;
     if (reviewTarget) setSummary.reviewCount += 1;
 
@@ -207,6 +208,7 @@ export function sortQuestionOverviews(
 }
 
 function getProblemListSortScore(progress: QuestionProgress) {
+  if (progress.isStudyCompleted) return 5;
   if (progress.isAmbiguous) return 0;
   if (progress.isGraduated) return 5;
   const level = getVirtualLevel(progress);

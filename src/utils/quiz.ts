@@ -1,7 +1,7 @@
 import type { AppData, Folder, ProblemSet, Question, QuestionProgress, QuizResult, StudyStats } from '../types';
 import { createId } from './id';
 import { isToday, nowIso } from './date';
-import { isReviewTarget } from './reviewTargets';
+import { isReviewCandidate, isReviewTarget } from './reviewTargets';
 import { folderSubtreeIds } from './folderHierarchy';
 
 export type ReviewLevelFilter = 'all' | 'level0' | 'level1' | 'level2' | 'level3' | 'ambiguous';
@@ -55,6 +55,7 @@ export function matchesReviewLevel(progress: QuestionProgress | undefined, selec
 }
 
 export function getProgressLevelLabel(progress: QuestionProgress | undefined): string {
+  if (progress?.isStudyCompleted) return '学習済み';
   if (progress?.isGraduated) return '卒業';
   return `Level ${getVirtualLevel(progress)}`;
 }
@@ -63,7 +64,8 @@ export function calculateStats(data: AppData): StudyStats {
   const totalCount = data.answerLogs.length;
   const correctCount = data.answerLogs.filter((log) => log.isCorrect).length;
   const todayCount = data.answerLogs.filter((log) => isToday(log.answeredAt)).length;
-  const reviewCount = data.progress.filter(isReviewTarget).length;
+  const now = new Date();
+  const reviewCount = data.progress.filter((progress) => isReviewTarget(progress, now)).length;
   const ambiguousCount = data.progress.filter((progress) => progress.isAmbiguous).length;
 
   return {
@@ -166,7 +168,7 @@ export function recordAnswer(
   const answerIndexes = getAnswerIndexes(question);
   const isCorrect = answerIndexes.length > 0 && areSameIndexSet(selectedIndexes, answerIndexes);
   const existing = getProgress(data, question.id);
-  const wasReviewTarget = existing.isReview && !existing.isGraduated;
+  const wasReviewTarget = isReviewCandidate(existing);
   const wasUnanswered = existing.answeredCount === 0;
   const currentLevel = getVirtualLevel(existing);
 
@@ -183,10 +185,15 @@ export function recordAnswer(
   if (wasUnanswered) {
     nextProgress.isReview = true;
     nextProgress.isGraduated = false;
-    nextProgress.reviewLevel = isCorrect ? 2 : 1;
+    nextProgress.reviewLevel = 1;
+  } else if (existing.isStudyCompleted || (existing.isGraduated && isCorrect)) {
+    // Explicit completion is sticky. A graduated answer only re-enters review if wrong.
   } else {
     if (isCorrect) {
-      if (currentLevel >= 3) {
+      if (isReviewCandidate(existing) && !isReviewTarget(existing)) {
+        // Repeating a question early must not skip a spacing interval.
+        nextProgress.reviewLevel = currentLevel || 1;
+      } else if (currentLevel >= 3) {
         nextProgress.isReview = false;
         nextProgress.isGraduated = true;
         nextProgress.reviewLevel = null;
@@ -202,7 +209,7 @@ export function recordAnswer(
     }
   }
 
-  const addedToReview = !isReviewMode && !wasReviewTarget && nextProgress.isReview && !nextProgress.isGraduated;
+  const addedToReview = !isReviewMode && !wasReviewTarget && nextProgress.isReview && !nextProgress.isGraduated && !nextProgress.isStudyCompleted;
 
   const nextProgressList = upsertProgress(data.progress, nextProgress);
   const nextLog = {
@@ -273,8 +280,15 @@ export function toggleAmbiguous(data: AppData, questionId: string): AppData {
     isAmbiguous: nextIsAmbiguous,
     isReview: nextIsAmbiguous ? true : (isUnanswered ? false : existing.isReview),
     isGraduated: nextIsAmbiguous ? false : existing.isGraduated,
+    isStudyCompleted: nextIsAmbiguous ? false : existing.isStudyCompleted,
     reviewLevel: nextIsAmbiguous ? (isUnanswered ? existing.reviewLevel : existing.reviewLevel ?? 1) : existing.reviewLevel,
   };
+  return { ...data, progress: upsertProgress(data.progress, nextProgress) };
+}
+
+export function toggleStudyCompleted(data: AppData, questionId: string): AppData {
+  const existing = getProgress(data, questionId);
+  const nextProgress: QuestionProgress = { ...existing, isStudyCompleted: !existing.isStudyCompleted };
   return { ...data, progress: upsertProgress(data.progress, nextProgress) };
 }
 
@@ -287,6 +301,7 @@ export function updateQuestionDetailedExplanation(data: AppData, questionId: str
 }
 
 export function groupReviewQuestionsByLevel(data: AppData, questions: Question[]) {
+  const now = new Date();
   const groups: Record<'ambiguous' | 'level0' | 'level1' | 'level2' | 'level3', Question[]> = {
     ambiguous: [],
     level0: [],
@@ -297,7 +312,7 @@ export function groupReviewQuestionsByLevel(data: AppData, questions: Question[]
 
   questions.forEach((question) => {
     const progress = getProgress(data, question.id);
-    if (!isReviewTarget(progress)) return;
+    if (!isReviewTarget(progress, now)) return;
     if (progress.isAmbiguous) {
       groups.ambiguous.push(question);
       return;

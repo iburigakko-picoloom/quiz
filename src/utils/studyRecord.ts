@@ -1,6 +1,6 @@
 import type { AnswerLog, AppData, Question } from '../types';
 import { toLocalDateKey } from './date';
-import { isReviewTarget } from './reviewTargets';
+import { getReviewDueAt, isReviewTarget } from './reviewTargets';
 
 export function getDailyAnswerCounts(logs: readonly AnswerLog[]): Map<string, number> {
   const counts = new Map<string, number>();
@@ -48,20 +48,15 @@ export function getRecommendedReviewQuestions(data: AppData, now = new Date()) {
   const candidates: { question: Question; priority: number; due: number; accuracy: number; needsCheck: boolean }[] = [];
   for (const question of data.questions) {
     const progress = progressById.get(question.id);
-    if (!setIds.has(question.setId) || !progress || !isReviewTarget(progress)) continue;
-    const last = progress.lastAnsweredAt ? new Date(progress.lastAnsweredAt) : null;
-    const validLast = last && Number.isFinite(last.getTime()) && last.getTime() <= now.getTime();
-    const interval = progress.reviewLevel === 3 ? 7 : progress.reviewLevel === 2 ? 3 : 1;
-    const due = validLast ? localDay(last, interval).getTime() : Infinity;
-    const isDue = progress.answeredCount > 0 && due <= today;
+    if (!setIds.has(question.setId) || !progress || !isReviewTarget(progress, now)) continue;
+    const due = getReviewDueAt(progress) ?? -1;
     const isWrong = progress.answeredCount > 0 && progress.lastAnswerCorrect === false;
-    if (!progress.isAmbiguous && !isWrong && !isDue) continue;
     candidates.push({
       question,
       priority: progress.isAmbiguous ? 0 : isWrong ? 1 : due < today ? 2 : 3,
       due,
       accuracy: progress.answeredCount > 0 ? progress.correctCount / Math.max(progress.answeredCount, progress.correctCount + progress.wrongCount) : 0,
-      needsCheck: progress.isAmbiguous || !isDue,
+      needsCheck: progress.isAmbiguous || isWrong,
     });
   }
   candidates.sort((a, b) => a.priority - b.priority || (a.due === b.due ? 0 : a.due - b.due) || a.accuracy - b.accuracy || a.question.id.localeCompare(b.question.id));

@@ -37,11 +37,11 @@ export function HomeScreen({
   onSave,
 }: HomeScreenProps) {
   const [folderName, setFolderName] = useState('');
-  const { summary } = useStudyRecord(data.answerLogs);
+  const { summary, day } = useStudyRecord(data.answerLogs);
   const editMode = false;
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Folder | null>(null);
-  const folders = useMemo(() => buildAppDataView(data).folders.filter(({ folder }) => !folder.parentFolderId), [data]);
+  const folders = useMemo(() => buildAppDataView(data).folders.filter(({ folder }) => !folder.parentFolderId), [data, day]);
 
   const handleCreateFolder = () => {
     const name = folderName.trim();

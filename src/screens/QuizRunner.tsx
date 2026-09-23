@@ -47,13 +47,14 @@ interface QuizRunnerProps {
   onBack: () => void;
   onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean) => AnswerHandlerResult;
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
+  onToggleStudyCompleted: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
   onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onLinkMaterialBatch?: (setId: string, links: ReferenceLink[]) => Promise<void>;
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
+export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onToggleStudyCompleted, onSaveDetailedExplanation, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
   const [currentIndex, setCurrentIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(questions.length - 1, 0)));
   const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
@@ -359,6 +360,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   };
 
   const handleAmbiguous = () => onToggleAmbiguous(currentQuestion.id);
+  const handleStudyCompleted = () => onToggleStudyCompleted(currentQuestion.id);
 
   return (
     <Layout>
@@ -472,12 +474,14 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             answerSaveState={answerSaveState}
             readOnly={readOnly}
             isAmbiguous={progress?.isAmbiguous ?? false}
+            isStudyCompleted={progress?.isStudyCompleted ?? false}
             isLast={currentIndex + 1 >= questions.length}
             state={answerSheetState}
             onExpand={() => setAnswerSheetState('expanded')}
             onDefault={() => setAnswerSheetState('default')}
             onHide={() => setAnswerSheetState('hidden')}
             onToggleAmbiguous={handleAmbiguous}
+            onToggleStudyCompleted={handleStudyCompleted}
             onSaveDetailedExplanation={(value) => onSaveDetailedExplanation(currentQuestion.id, value)}
             onDetailDirtyChange={onDetailDirtyChange}
             onRetryAnswerSave={answerRetryRef.current ? handleRetryAnswerSave : undefined}
@@ -663,12 +667,14 @@ export function AnswerPanel({
   answerSaveState,
   readOnly,
   isAmbiguous,
+  isStudyCompleted,
   isLast,
   state,
   onExpand,
   onDefault,
   onHide,
   onToggleAmbiguous,
+  onToggleStudyCompleted,
   onSaveDetailedExplanation,
   onDetailDirtyChange,
   onRetryAnswerSave,
@@ -685,12 +691,14 @@ export function AnswerPanel({
   answerSaveState: 'idle' | 'saving' | 'saved' | 'error';
   readOnly: boolean;
   isAmbiguous: boolean;
+  isStudyCompleted: boolean;
   isLast: boolean;
   state: AnswerSheetState;
   onExpand: () => void;
   onDefault: () => void;
   onHide: () => void;
   onToggleAmbiguous: () => Promise<boolean>;
+  onToggleStudyCompleted: () => Promise<boolean>;
   onSaveDetailedExplanation: (value: string) => Promise<void>;
   onDetailDirtyChange: (dirty: boolean) => void;
   onRetryAnswerSave?: () => void;
@@ -706,6 +714,8 @@ export function AnswerPanel({
   const [isSavingDetail, setIsSavingDetail] = useState(false);
   const handleDetailDirtyChange = useCallback((dirty: boolean) => { setIsSavingDetail(dirty); onDetailDirtyChange(dirty); }, [onDetailDirtyChange]);
   const [isSavingAmbiguous, setIsSavingAmbiguous] = useState(false);
+  const [isSavingCompleted, setIsSavingCompleted] = useState(false);
+  const [completionError, setCompletionError] = useState(false);
   const sheetRef = useRef<HTMLElement | null>(null);
   const detailOpenRef = useRef<HTMLButtonElement | null>(null);
   const detailBackRef = useRef<HTMLButtonElement | null>(null);
@@ -968,6 +978,19 @@ export function AnswerPanel({
     }
   };
 
+  const handleToggleCompleted = async () => {
+    if (isSavingCompleted) return;
+    setIsSavingCompleted(true);
+    setCompletionError(false);
+    try {
+      if (!await onToggleStudyCompleted()) setCompletionError(true);
+    } catch {
+      setCompletionError(true);
+    } finally {
+      setIsSavingCompleted(false);
+    }
+  };
+
   const hasUnsavedDetail = isSavingDetail;
   const confirmDiscardDetail = () => !isSavingDetail;
 
@@ -979,7 +1002,7 @@ export function AnswerPanel({
   };
 
   const handleNextWithDraftCheck = () => {
-    if (answerSaveState !== 'saved' || isSavingDetail || !confirmDiscardDetail()) return;
+    if (answerSaveState !== 'saved' || isSavingDetail || isSavingCompleted || !confirmDiscardDetail()) return;
     onNext();
   };
 
@@ -1030,6 +1053,10 @@ export function AnswerPanel({
         <p className="answer-sheet__label">{'\u89e3\u8aac'}</p>
         <ExplanationContent text={explanation} className="answer-sheet__explanation-text" />
       </div>
+      {!readOnly ? <button type="button" className="answer-sheet__study-complete" onClick={() => void handleToggleCompleted()} disabled={answerSaveState !== 'saved' || isSavingCompleted} aria-pressed={isStudyCompleted}>
+        {isSavingCompleted ? '保存中…' : isStudyCompleted ? '学習済みを解除' : '学習済みにする（復習から外す）'}
+      </button> : null}
+      {completionError ? <p className="answer-sheet__completion-error" role="alert">学習状態を保存できませんでした</p> : null}
     </div>
   );
 
@@ -1059,7 +1086,7 @@ export function AnswerPanel({
           {relearned ? <span className="answer-sheet__relearned">覚え直した</span> : null}
           <span className={'answer-sheet__hidden-result ' + (isCorrect ? 'answer-sheet__hidden-result--correct' : 'answer-sheet__hidden-result--wrong')}>{isCorrect ? '\u6b63\u89e3' : '\u4e0d\u6b63\u89e3'}</span>
           <button type="button" className="answer-sheet__hidden-open" onClick={onDefault}>{'\u89e3\u7b54\u3092\u898b\u308b'}</button>
-          <button type="button" className="answer-sheet__hidden-next" onClick={handleNextWithDraftCheck} disabled={answerSaveState !== 'saved' || isSavingDetail}>{isLast ? '\u7d50\u679c\u3078' : '\u6b21\u3078'}</button>
+          <button type="button" className="answer-sheet__hidden-next" onClick={handleNextWithDraftCheck} disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingCompleted}>{isLast ? '\u7d50\u679c\u3078' : '\u6b21\u3078'}</button>
         </div>
       </section>
     );
@@ -1085,7 +1112,7 @@ export function AnswerPanel({
           <div className={'answer-sheet__result ' + (isCorrect ? 'answer-sheet__result--correct' : 'answer-sheet__result--wrong')}>{isCorrect ? '\u6b63\u89e3' : '\u4e0d\u6b63\u89e3'}</div>
           {savedLevelLabel ? <p className="answer-sheet__saved">{savedLevelLabel}</p> : null}
         </div>
-          <button type="button" onClick={onHide} className="answer-sheet__hide-button" disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingAmbiguous}>{'\u3057\u307e\u3046'}</button>
+          <button type="button" onClick={onHide} className="answer-sheet__hide-button" disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingAmbiguous || isSavingCompleted}>{'\u3057\u307e\u3046'}</button>
       </div>
       <div className="answer-sheet__scroll answer-sheet__scroll--pages">
           <div ref={detailRailRef} className={'answer-sheet__content-rail ' + (panelPage === 'detail' ? 'answer-sheet__content-rail--detail' : '')}>
@@ -1098,11 +1125,11 @@ export function AnswerPanel({
       ) : null}
       <div className={'answer-sheet__actions' + (readOnly ? ' answer-sheet__actions--single' : '')}>
         {!readOnly ? (
-          <button type="button" onClick={() => void handleToggleAmbiguous()} disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingAmbiguous} className={'answer-sheet__action answer-sheet__action--secondary' + (isAmbiguous ? ' answer-sheet__action--ambiguous' : '')}>
+          <button type="button" onClick={() => void handleToggleAmbiguous()} disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingAmbiguous || isSavingCompleted} className={'answer-sheet__action answer-sheet__action--secondary' + (isAmbiguous ? ' answer-sheet__action--ambiguous' : '')}>
             {isSavingAmbiguous ? '\u4fdd\u5b58\u4e2d\u2026' : (isAmbiguous ? '\u66d6\u6627\u3092\u89e3\u9664' : '\u66d6\u6627\u3068\u3057\u3066\u767b\u9332')}
           </button>
         ) : null}
-        <button type="button" onClick={handleNextWithDraftCheck} disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingAmbiguous} className="answer-sheet__action answer-sheet__action--primary">{isLast ? '\u7d50\u679c\u3078' : '\u6b21\u3078'}</button>
+        <button type="button" onClick={handleNextWithDraftCheck} disabled={answerSaveState !== 'saved' || isSavingDetail || isSavingAmbiguous || isSavingCompleted} className="answer-sheet__action answer-sheet__action--primary">{isLast ? '\u7d50\u679c\u3078' : '\u6b21\u3078'}</button>
       </div>
     </section>
   );

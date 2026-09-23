@@ -8,6 +8,7 @@ import { LibraryItemActions } from '../components/LibraryItemActions';
 import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, PlusIcon } from '../components/UiIcons';
 import { buildAppDataView, type ProblemSetOverview } from '../utils/appDataView';
 import { addFolder } from '../utils/quiz';
+import { useLocalDay } from '../hooks/useLocalDay';
 import './FolderScreen.css';
 
 interface FolderScreenProps {
@@ -24,7 +25,8 @@ interface FolderScreenProps {
 const folderNavigation = new Map<string, { expanded: string | null; scroll: number }>();
 
 export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpenProblemSet, onDeleteProblemSet, onDeleteFolder, onSave }: FolderScreenProps) {
-  const view = useMemo(() => buildAppDataView(data), [data]);
+  const day = useLocalDay();
+  const view = useMemo(() => buildAppDataView(data), [data, day]);
   const requested = view.folderById.get(folderId);
   const parentId = requested?.parentFolderId ?? folderId;
   const folder = view.folderById.get(parentId);

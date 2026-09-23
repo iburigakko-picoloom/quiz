@@ -53,6 +53,7 @@ import {
   getAnswerIndexes,
   recordAnswer,
   toggleAmbiguous,
+  toggleStudyCompleted,
   updateQuestionDetailedExplanation,
 } from './utils/quiz';
 import { validateImportJson } from './utils/importValidator';
@@ -1049,6 +1050,10 @@ export default function App() {
     return persistThenCommitData(toggleAmbiguous(dataRef.current, questionId));
   };
 
+  const handleToggleStudyCompleted = async (questionId: string) => {
+    return persistThenCommitData(toggleStudyCompleted(dataRef.current, questionId));
+  };
+
   const handleSaveDetailedExplanation = async (questionId: string, detailedExplanation: string): Promise<void> => {
     const nextData = updateQuestionDetailedExplanation(dataRef.current, questionId, detailedExplanation);
     const saved = await persistThenCommitData(nextData);
@@ -1500,6 +1505,7 @@ export default function App() {
       <ProblemListScreen
         data={data}
         setId={screen.setId}
+        onToggleStudyCompleted={handleToggleStudyCompleted}
         initialSortMode={screen.sortMode}
         onBack={screen.backScreen ? () => goBackTo(screen.backScreen!) : problemSet ? () => goBackTo({ name: 'problemSetDetail', setId: screen.setId }) : goHome}
         onOpenQuestion={(questionId, sortMode) => navigate({
@@ -1562,6 +1568,7 @@ export default function App() {
             : goHome}
           onAnswer={handleAnswer}
           onToggleAmbiguous={handleToggleAmbiguous}
+          onToggleStudyCompleted={handleToggleStudyCompleted}
           onSaveDetailedExplanation={handleSaveDetailedExplanation}
           onLinkMaterialPage={handleLinkMaterialPage}
           onLinkMaterialBatch={handleLinkMaterialBatch}
@@ -1585,6 +1592,7 @@ export default function App() {
           onBack={() => goBackTo(screen.session.backScreen)}
           onAnswer={screen.session.isPreview ? handlePreviewAnswer : handleAnswer}
           onToggleAmbiguous={screen.session.isPreview ? async () => true : handleToggleAmbiguous}
+          onToggleStudyCompleted={screen.session.isPreview ? async () => true : handleToggleStudyCompleted}
           onSaveDetailedExplanation={screen.session.isPreview ? async () => undefined : handleSaveDetailedExplanation}
           onLinkMaterialPage={screen.session.isPreview ? undefined : handleLinkMaterialPage}
           onLinkMaterialBatch={screen.session.isPreview ? undefined : handleLinkMaterialBatch}
