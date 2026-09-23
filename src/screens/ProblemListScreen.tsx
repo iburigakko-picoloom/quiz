@@ -34,10 +34,9 @@ interface ProblemListScreenProps {
     setId: string;
     sortMode: ProblemSortMode;
   }) => void;
-  onToggleStudyCompleted: (questionId: string) => Promise<boolean>;
 }
 
-export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', onBack, onOpenQuestion, onStartFromQuestion, onToggleStudyCompleted }: ProblemListScreenProps) {
+export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', onBack, onOpenQuestion, onStartFromQuestion }: ProblemListScreenProps) {
   const day = useLocalDay();
   const contentView = useMemo(() => buildAppDataView(data), [data, day]);
   const problemSet = contentView.problemSetById.get(setId);
@@ -194,7 +193,6 @@ export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', on
                   setStudyCompleted={problemSet.isStudyCompleted === true}
                   onClick={() => onOpenQuestion(question.id, sortMode)}
                   onStart={() => startFrom(question.id)}
-                  onToggleStudyCompleted={() => onToggleStudyCompleted(question.id)}
                 />
               ))}
             </div>
@@ -212,7 +210,6 @@ function QuestionListCard({
   setStudyCompleted,
   onClick,
   onStart,
-  onToggleStudyCompleted,
 }: {
   index: number;
   question: Question;
@@ -220,25 +217,10 @@ function QuestionListCard({
   setStudyCompleted: boolean;
   onClick: () => void;
   onStart: () => void;
-  onToggleStudyCompleted: () => Promise<boolean>;
 }) {
   const status = progress.answeredCount === 0 ? '未解答' : `${progress.correctCount}/${progress.answeredCount}`;
-  const [savingCompletion, setSavingCompletion] = useState(false);
-  const [completionError, setCompletionError] = useState('');
   const dueAt = getReviewDueAt(progress);
-  const isWaiting = !setStudyCompleted && progress.answeredCount > 0 && (progress.isReview || progress.isAmbiguous) && !progress.isGraduated && !progress.isStudyCompleted && !isReviewTarget(progress);
-  const toggleCompleted = async () => {
-    if (savingCompletion) return;
-    setSavingCompletion(true);
-    setCompletionError('');
-    try {
-      if (!await onToggleStudyCompleted()) setCompletionError('学習状態を保存できませんでした');
-    } catch {
-      setCompletionError('学習状態を保存できませんでした');
-    } finally {
-      setSavingCompletion(false);
-    }
-  };
+  const isWaiting = !setStudyCompleted && progress.answeredCount > 0 && (progress.isReview || progress.isAmbiguous) && !progress.isGraduated && !isReviewTarget(progress);
 
   return (
     <article className="quiz-list__card">
@@ -258,10 +240,8 @@ function QuestionListCard({
       </div>
       </button>
       <div className="quiz-list__card-actions">
-        <button type="button" className="quiz-list__complete" onClick={() => void toggleCompleted()} disabled={savingCompletion} aria-pressed={progress.isStudyCompleted === true}>{savingCompletion ? '保存中…' : progress.isStudyCompleted ? '学習済みを解除' : '学習済みにする'}</button>
         <button type="button" className="quiz-list__start-here" onClick={onStart} aria-label={`Q${index}から解く`}>ここから解く <span aria-hidden="true">›</span></button>
       </div>
-      {completionError ? <p className="quiz-list__completion-error" role="alert">{completionError}</p> : null}
     </article>
   );
 }

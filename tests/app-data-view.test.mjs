@@ -85,7 +85,7 @@ test('a completed problem set is excluded from review counts and recommendations
   assert.deepEqual(getRecommendedReviewQuestions(completed, new Date(2026, 8, 21)).questions, []);
 });
 
-test('study record recommends only due reviews and resumes a set after study completion is cleared', () => {
+test('study record recommends only due reviews, ignores legacy question completion, and resumes a set', () => {
   const now = new Date(2026, 8, 21, 12);
   const dueProgress = (id, day, overrides = {}) => createProgress(id, {
     isReview: true,
@@ -106,9 +106,9 @@ test('study record recommends only due reviews and resumes a set after study com
     questions: progress.map((item) => createQuestion(item.questionId, item.questionId === 'finished-set' ? 'finished' : 'active')),
     progress,
   };
-  assert.deepEqual(getRecommendedReviewQuestions(data, now).questions.map((question) => question.id), ['due-level-3', 'due']);
+  assert.deepEqual(getRecommendedReviewQuestions(data, now).questions.map((question) => question.id), ['due-level-3', 'due', 'finished-question']);
   const resumed = { ...data, problemSets: [{ id: 'active' }, { id: 'finished', isStudyCompleted: false }] };
-  assert.deepEqual(getRecommendedReviewQuestions(resumed, now).questions.map((question) => question.id), ['due-level-3', 'due', 'finished-set']);
+  assert.deepEqual(getRecommendedReviewQuestions(resumed, now).questions.map((question) => question.id), ['due-level-3', 'due', 'finished-question', 'finished-set']);
   assert.deepEqual(data.progress, progress);
 });
 

@@ -208,7 +208,6 @@ export function sortQuestionOverviews(
 }
 
 function getProblemListSortScore(progress: QuestionProgress) {
-  if (progress.isStudyCompleted) return 5;
   if (progress.isAmbiguous) return 0;
   if (progress.isGraduated) return 5;
   const level = getVirtualLevel(progress);

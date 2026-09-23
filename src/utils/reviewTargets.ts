@@ -23,7 +23,6 @@ export function isReviewCandidate(progress: QuestionProgress | undefined): boole
     && progress.answeredCount > 0
     && (progress.isReview || progress.isAmbiguous)
     && !progress.isGraduated
-    && !progress.isStudyCompleted
   );
 }
 

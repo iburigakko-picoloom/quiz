@@ -11,7 +11,7 @@ const extensionHook = registerHooks({
     return nextResolve(isExtensionlessRelativeImport ? `${specifier}.ts` : specifier, context);
   },
 });
-const { getReviewQuestions, recordAnswer, toggleAmbiguous, toggleProblemSetStudyCompleted, toggleStudyCompleted } = await import('../src/utils/quiz.ts');
+const { getProgressLevelLabel, getReviewQuestions, recordAnswer, toggleAmbiguous, toggleProblemSetStudyCompleted } = await import('../src/utils/quiz.ts');
 const { normalizeAppData } = await import('../src/utils/appDataValidation.ts');
 extensionHook.deregister();
 
@@ -142,21 +142,23 @@ test('recordAnswer applies the same mutation id only once', () => {
   });
 });
 
-test('manual study completion survives normalization and later answers until explicitly undone', () => {
+test('legacy per-question completion stays in saved data but no longer hides review or blocks answers', () => {
   const first = recordAnswer(createAnswerTestData(), multipleAnswerQuestion, [0, 2], false);
-  const completed = toggleStudyCompleted(first.data, multipleAnswerQuestion.id);
-  assert.equal(completed.progress[0].isStudyCompleted, true);
-  assert.equal(isReviewTarget(completed.progress[0], new Date(2030, 0, 1)), false);
-  const restored = normalizeAppData(JSON.parse(JSON.stringify(completed)));
+  const legacy = {
+    ...first.data,
+    progress: [{ ...first.progress, reviewLevel: 2, lastAnsweredAt: timestamp, isStudyCompleted: true }],
+  };
+  const restored = normalizeAppData(JSON.parse(JSON.stringify(legacy)));
   assert.equal(restored.ok, true);
   assert.equal(restored.data.progress[0].isStudyCompleted, true);
-  const answeredAgain = recordAnswer(restored.data, multipleAnswerQuestion, [0, 2], false);
+  assert.equal(getProgressLevelLabel(restored.data.progress[0]), 'Level 2');
+  assert.equal(isReviewTarget(restored.data.progress[0], new Date(2030, 0, 1)), true);
+  assert.equal(getReviewQuestions(restored.data).length, 1);
+  const answeredAgain = recordAnswer(restored.data, multipleAnswerQuestion, [1], false);
   assert.equal(answeredAgain.progress.isStudyCompleted, true);
+  assert.equal(answeredAgain.progress.reviewLevel, 1);
   assert.equal(answeredAgain.addedToReview, false);
-  const resumed = toggleStudyCompleted(answeredAgain.data, multipleAnswerQuestion.id);
-  assert.equal(resumed.progress[0].isStudyCompleted, false);
-  assert.equal(isReviewTarget(resumed.progress[0], new Date(2030, 0, 1)), true);
-  assert.equal(toggleAmbiguous(completed, multipleAnswerQuestion.id).progress[0].isStudyCompleted, false);
+  assert.equal(toggleAmbiguous(restored.data, multipleAnswerQuestion.id).progress[0].isStudyCompleted, true);
 });
 
 test('set-level completion is reversible without rewriting individual progress', () => {

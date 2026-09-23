@@ -91,7 +91,7 @@ export interface QuestionProgress {
   isAmbiguous: boolean;
   reviewLevel: 1 | 2 | 3 | null;
   isGraduated: boolean;
-  /** Explicitly finished by the learner; unlike automatic graduation, this is reversible. */
+  /** Legacy per-question marker, kept in saved data for compatibility but no longer used. */
   isStudyCompleted?: boolean;
 }
 

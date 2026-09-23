@@ -55,7 +55,6 @@ export function matchesReviewLevel(progress: QuestionProgress | undefined, selec
 }
 
 export function getProgressLevelLabel(progress: QuestionProgress | undefined): string {
-  if (progress?.isStudyCompleted) return '学習済み';
   if (progress?.isGraduated) return '卒業';
   return `Level ${getVirtualLevel(progress)}`;
 }
@@ -188,8 +187,8 @@ export function recordAnswer(
     nextProgress.isReview = true;
     nextProgress.isGraduated = false;
     nextProgress.reviewLevel = 1;
-  } else if (existing.isStudyCompleted || (existing.isGraduated && isCorrect)) {
-    // Explicit completion is sticky. A graduated answer only re-enters review if wrong.
+  } else if (existing.isGraduated && isCorrect) {
+    // A graduated answer only re-enters review if wrong.
   } else {
     if (isCorrect) {
       if (isReviewCandidate(existing) && !isReviewTarget(existing)) {
@@ -211,7 +210,7 @@ export function recordAnswer(
     }
   }
 
-  const addedToReview = !isReviewMode && !problemSet?.isStudyCompleted && !wasReviewTarget && nextProgress.isReview && !nextProgress.isGraduated && !nextProgress.isStudyCompleted;
+  const addedToReview = !isReviewMode && !problemSet?.isStudyCompleted && !wasReviewTarget && nextProgress.isReview && !nextProgress.isGraduated;
 
   const nextProgressList = upsertProgress(data.progress, nextProgress);
   const nextLog = {
@@ -282,7 +281,6 @@ export function toggleAmbiguous(data: AppData, questionId: string): AppData {
     isAmbiguous: nextIsAmbiguous,
     isReview: nextIsAmbiguous ? true : (isUnanswered ? false : existing.isReview),
     isGraduated: nextIsAmbiguous ? false : existing.isGraduated,
-    isStudyCompleted: nextIsAmbiguous ? false : existing.isStudyCompleted,
     reviewLevel: nextIsAmbiguous ? (isUnanswered ? existing.reviewLevel : existing.reviewLevel ?? 1) : existing.reviewLevel,
   };
   return { ...data, progress: upsertProgress(data.progress, nextProgress) };
@@ -297,12 +295,6 @@ export function toggleProblemSetStudyCompleted(data: AppData, setId: string): Ap
       ? { ...set, isStudyCompleted: !set.isStudyCompleted, updatedAt }
       : set),
   };
-}
-
-export function toggleStudyCompleted(data: AppData, questionId: string): AppData {
-  const existing = getProgress(data, questionId);
-  const nextProgress: QuestionProgress = { ...existing, isStudyCompleted: !existing.isStudyCompleted };
-  return { ...data, progress: upsertProgress(data.progress, nextProgress) };
 }
 
 export function updateQuestionDetailedExplanation(data: AppData, questionId: string, detailedExplanation: string): AppData {
