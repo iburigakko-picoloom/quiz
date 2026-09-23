@@ -11,7 +11,8 @@ const extensionHook = registerHooks({
     return nextResolve(isExtensionlessRelativeImport ? `${specifier}.ts` : specifier, context);
   },
 });
-const { getProgressLevelLabel, getReviewQuestions, recordAnswer, toggleAmbiguous, toggleProblemSetStudyCompleted } = await import('../src/utils/quiz.ts');
+const { getProgressLevelLabel, getReviewQuestions, groupReviewQuestionsByLevel, indexProgress, recordAnswer, toggleAmbiguous, toggleProblemSetStudyCompleted } = await import('../src/utils/quiz.ts');
+const { buildProblemCategories, filterQuestionsByCategory } = await import('../src/utils/questionSelection.ts');
 const { normalizeAppData } = await import('../src/utils/appDataValidation.ts');
 extensionHook.deregister();
 
@@ -220,4 +221,42 @@ test('recordAnswer applies different mutation ids independently', () => {
   assert.equal(second.progress.correctCount, 1);
   assert.equal(second.progress.wrongCount, 1);
   assert.equal(second.progress.reviewLevel, 1);
+});
+
+test('category and level selection keeps review eligibility and leaves the original questions intact', () => {
+  const data = createAnswerTestData();
+  data.questions = ['l1', 'l2', 'ambiguous', 'future', 'completed'].map((id, index) => ({
+    ...multipleAnswerQuestion, id, category: index === 1 ? ' B ' : index === 2 ? '' : 'A',
+    setId: id === 'completed' ? 'done' : 'set-1',
+  }));
+  data.problemSets.push({ ...data.problemSets[0], id: 'done', isStudyCompleted: true });
+  data.progress = data.questions.map((question) => ({
+    ...initialProgress, questionId: question.id, answeredCount: 1, isReview: true,
+    lastAnswerCorrect: true, reviewLevel: question.id === 'l2' ? 2 : 1,
+    lastAnsweredAt: question.id === 'future' ? new Date().toISOString() : timestamp,
+    isAmbiguous: question.id === 'ambiguous',
+  }));
+  const before = JSON.stringify(data);
+  assert.deepEqual(buildProblemCategories(data.questions), ['すべて', 'A', 'B', '未分類']);
+  assert.deepEqual(filterQuestionsByCategory(data.questions, 'B').map(q => q.id), ['l2']);
+  assert.strictEqual(filterQuestionsByCategory(data.questions, 'all'), data.questions);
+  assert.deepEqual(getReviewQuestions(data, data.questions, 'level2').map(q => q.id), ['l2']);
+  assert.deepEqual(getReviewQuestions(data, data.questions, 'ambiguous').map(q => q.id), ['ambiguous']);
+  const all = getReviewQuestions(data);
+  assert.equal(all[0].id, 'ambiguous');
+  assert.deepEqual(all.map(q => q.id).sort(), ['ambiguous', 'l1', 'l2']);
+  assert.deepEqual(getReviewQuestions(data, filterQuestionsByCategory(data.questions, 'A')).map(q => q.id), ['l1']);
+  assert.equal(JSON.stringify(data), before);
+  assert.strictEqual(indexProgress([data.progress[0], { ...data.progress[0], isGraduated: true }]).get('l1'), data.progress[0]);
+});
+
+test('review grouping scans large progress collections once, not once per question', () => {
+  const data = createAnswerTestData();
+  data.questions = Array.from({ length: 5000 }, (_, index) => ({ ...multipleAnswerQuestion, id: `q${index}` }));
+  let reads = 0;
+  data.progress = new Proxy(data.questions.map(question => ({
+    ...initialProgress, questionId: question.id, answeredCount: 1, isReview: true, reviewLevel: 1, lastAnsweredAt: timestamp,
+  })), { get(target, key, receiver) { if (typeof key === 'string' && /^\d+$/.test(key)) reads++; return Reflect.get(target, key, receiver); } });
+  assert.equal(groupReviewQuestionsByLevel(data, data.questions).level1.length, 5000);
+  assert.ok(reads <= 10_000, `progress entries read ${reads} times`);
 });

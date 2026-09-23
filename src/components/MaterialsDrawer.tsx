@@ -20,7 +20,9 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
   const followedQuestion = useRef('');
   const drawer = useRef<HTMLElement>(null);
   const drag = useRef<{ pointerId: number; x: number; width: number; start: number } | null>(null);
-  const [dragReveal, setDragReveal] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragFrame = useRef<number | null>(null);
+  const pendingReveal = useRef(0);
   const suppressClick = useRef(false);
   const firstReference = references?.[0];
   useEffect(() => {
@@ -40,13 +42,19 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
   useEffect(() => { document.body.classList.toggle('quiz-material-visible', open); return () => document.body.classList.remove('quiz-material-visible'); }, [open]);
   useLayoutEffect(() => {
     document.body.classList.add('quiz-material-enabled');
-    document.body.classList.toggle('quiz-material-dragging', dragReveal !== null);
-    document.body.style.setProperty('--materials-reveal', dragReveal !== null ? `${dragReveal}px` : open ? 'var(--tablet-note-width)' : '0px');
-  }, [open, dragReveal]);
+    document.body.classList.toggle('quiz-material-dragging', dragging);
+    if (!dragging) document.body.style.setProperty('--materials-reveal', open ? 'var(--tablet-note-width)' : '0px');
+  }, [open, dragging]);
   useEffect(() => () => {
+    if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
     document.body.classList.remove('quiz-material-enabled', 'quiz-material-dragging');
     document.body.style.removeProperty('--materials-reveal');
   }, []);
+  const finishDrag = () => {
+    if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current);
+    dragFrame.current = null;
+    setDragging(false);
+  };
   const close = async () => { try { await panel.current?.flush(); onOpenChange(false); setError(''); return true; } catch { setError('保存できません。資料を閉じずに再度お試しください。'); return false; } };
   useImperativeHandle(ref, () => ({ close, flush: async () => { await panel.current?.flush(); } }));
   const openAt = async (target?: MaterialReference) => { try { await panel.current?.flush(); const next = target ?? firstReference; if (next) { setReference(next); setReferenceRequest(value => value + 1); } followedQuestion.current = `${questionId}/${firstReference?.materialId ?? ''}/${firstReference?.pageId ?? ''}`; setError(''); onOpenChange(true); } catch { setError('書き込みを保存できません。'); } };
@@ -62,31 +70,39 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
     if (!start || start.pointerId !== event.pointerId) return;
     const delta = start.x - event.clientX;
     if (Math.abs(delta) < 6 && !suppressClick.current) return;
-    suppressClick.current = true;
-    setKeepPanel(true);
-    setDragReveal(Math.max(0, Math.min(start.width, start.start + delta)));
+    if (!suppressClick.current) {
+      suppressClick.current = true;
+      setKeepPanel(true);
+      setDragging(true);
+    }
+    pendingReveal.current = Math.max(0, Math.min(start.width, start.start + delta));
+    // Move only the shared layout variable; do not rerender the PDF/canvas per pointer event.
+    if (dragFrame.current === null) dragFrame.current = requestAnimationFrame(() => {
+      dragFrame.current = null;
+      document.body.style.setProperty('--materials-reveal', `${pendingReveal.current}px`);
+    });
   };
   const endDrag = async (event: PointerEvent<HTMLButtonElement>) => {
     const start = drag.current;
     if (!start || start.pointerId !== event.pointerId) return;
     drag.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (event.type === 'pointercancel') { suppressClick.current = true; setDragReveal(null); return; }
+    if (event.type === 'pointercancel') { suppressClick.current = true; finishDrag(); return; }
     if (suppressClick.current) {
       const delta = start.x - event.clientX;
       if (!open && delta > Math.min(70, start.width * .2)) await openAt();
       else if (open && delta < -Math.min(90, start.width * .2)) await close();
     }
-    setDragReveal(null);
+    finishDrag();
   };
   return <>
     {linkDialog && onLinkBatch ? <ReferenceLinkDialog setIds={setIds} questions={questions} initialMaterialId={linkDialog.materialId} onSave={onLinkBatch} onClose={() => setLinkDialog(null)} /> : null}
     {launcherTarget && !open ? createPortal(<button className="materials-mobile-launcher" type="button" aria-label="資料を開く" aria-expanded={open} onClick={() => void openAt()}><span aria-hidden="true">▤</span> 資料</button>, launcherTarget) : null}
     {createPortal(<><button type="button" className={`materials-edge-tab${open ? ' is-open' : ''}`} aria-label={open ? '資料を閉じる' : '資料を開く'} aria-expanded={open}
       onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={event => void endDrag(event)} onPointerCancel={event => void endDrag(event)}
-      onLostPointerCapture={() => { if (drag.current) { drag.current = null; setDragReveal(null); } }}
+      onLostPointerCapture={() => { if (drag.current) { drag.current = null; suppressClick.current = true; finishDrag(); } }}
       onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } if (open) void close(); else void openAt(); }}><span aria-hidden="true">{open ? '›' : '‹'}</span><span className="materials-edge-tab__label">資料</span></button>
-    <aside ref={drawer} className={`materials-drawer${open ? ' is-open' : ''}${dragReveal !== null ? ' is-dragging' : ''}`} style={dragReveal !== null ? { transform: `translateX(calc(100% - ${dragReveal}px))` } : undefined} aria-label="資料ビューア" aria-hidden={!open} inert={!open}>
+    <aside ref={drawer} className={`materials-drawer${open ? ' is-open' : ''}${dragging ? ' is-dragging' : ''}`} aria-label="資料ビューア" aria-hidden={!open} inert={!open}>
       {error ? <p role="alert">{error}</p> : null}
       {open || keepPanel ? <MaterialsPanel ref={panel} setId={problemSetId} setIds={setIds} reference={reference} referenceRequest={referenceRequest} questionReferences={references} onOpenReference={target => void openAt(target)} onLinkPage={onLinkPage} onAdjustReferences={onLinkBatch ? materialId => setLinkDialog({ materialId }) : undefined} onClose={() => void close()} /> : null}
     </aside></>, document.body)}

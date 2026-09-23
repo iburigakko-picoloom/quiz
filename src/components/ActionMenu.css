@@ -1,0 +1,11 @@
+.action-menu[open] > :not(summary) {
+  transform-origin: top right;
+  animation: action-menu-reveal 160ms cubic-bezier(.22,1,.36,1);
+}
+@keyframes action-menu-reveal {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-menu[open] > :not(summary) { animation: none; }
+}

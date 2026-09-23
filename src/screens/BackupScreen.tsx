@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Layout } from '../components/Layout';
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ActionMenu } from '../components/ActionMenu';
 import { DownloadIcon } from '../components/UiIcons';
 import { exportQuizMakeData, validateSyncPayload } from '../utils/syncService';
 import { deleteSavedBackup, getSavedBackup, listSavedBackups, saveBackupPayload, type SavedBackupSummary } from '../utils/backupRepository';
@@ -31,11 +32,11 @@ export function BackupScreen({ onBack, onRestore }: { onBack: () => void; onRest
       const size = `${Math.max(1, Math.ceil(item.byteSize / 1024))} KB`;
       return <div key={item.id} className="library-row-with-actions">
         <div className="library-row"><span className="library-icon"><DownloadIcon size={18} /></span><span className="library-row__body"><strong>{new Date(item.createdAt).toLocaleString()}</strong><span>{kinds[item.kind]}・{size}</span></span></div>
-        <details className="library-actions"><summary aria-label={`${new Date(item.createdAt).toLocaleString()}の操作`}>…</summary><div className="library-actions__body">
+        <ActionMenu className="library-actions"><summary aria-label={`${new Date(item.createdAt).toLocaleString()}の操作`}>…</summary><div className="library-actions__body">
           <button disabled={busy} onClick={() => void run(async () => { const saved = await getSavedBackup(item.id); if (!saved) throw new Error('バックアップが見つかりません。'); const result = await onRestore(new File([saved.raw], `quiz-make-backup-${item.createdAt.replace(/[:.]/g,'-')}.json`, {type:'application/json'})); if (result) throw new Error(result); })}>復元</button>
           <button disabled={busy} onClick={() => void run(async () => { const saved = await getSavedBackup(item.id); if (!saved) throw new Error('バックアップが見つかりません。'); const parsed = validateSyncPayload(JSON.parse(saved.raw)); if (!parsed.ok) throw new Error('バックアップを検証できません。'); await saveJsonBackup(`quiz-make-backup-${item.createdAt.replace(/[:.]/g,'-')}.json`, saved.raw); })}>書き出し</button>
           <button disabled={busy} onClick={() => setDeleting(item)}>削除</button>
-        </div></details>
+        </div></ActionMenu>
       </div>;
     })}
     <ConfirmDialog open={Boolean(deleting)} title="このバックアップを削除しますか？" message={deleting ? `${new Date(deleting.createdAt).toLocaleString()}のバックアップだけを削除します。現在の学習データは残ります。` : ''} busy={busy} onCancel={() => setDeleting(null)} onConfirm={() => void run(async () => { if(deleting) await deleteSavedBackup(deleting.id); setDeleting(null); })} />

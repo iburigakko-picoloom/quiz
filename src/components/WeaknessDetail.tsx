@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PinchImage } from './PinchImage';
+import { ActionMenu } from './ActionMenu';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { changeWeaknessNotes, readWeaknessNotes, NOTES_EVENT, type WeaknessNote } from '../utils/weaknessNotes';
@@ -57,7 +58,7 @@ export function ExplanationReader({ text, onSave, disabled = false }: { text: st
     finally { lock.current = false; setBusy(false); }
   };
   return <div className="weakness-reader">
-    {onSave && !disabled && text.trim() ? <details className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></details> : null}
+    {onSave && !disabled && text.trim() ? <ActionMenu className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></ActionMenu> : null}
     {media.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">{media.map((m, i) => <section className={`weakness-media-card${m.startsWith('![') ? ' weakness-media-card--image' : ''}`} key={i}><Markdown text={m} /></section>)}</div> : null}
     {body.trim() ? <div className="weakness-markdown"><Markdown text={body} /></div> : null}
     {onSave && !disabled ? <div className="weakness-image-actions">

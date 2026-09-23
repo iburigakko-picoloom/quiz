@@ -15,7 +15,7 @@ import { useLocalDay } from '../hooks/useLocalDay';
 import {
   buildProblemCategories,
   normalizeProblemCategory,
-} from './ProblemSetDetailScreen';
+} from '../utils/questionSelection';
 import './ProblemListScreen.css';
 
 const EMPTY_QUESTION_OVERVIEWS: readonly QuestionOverview[] = [];

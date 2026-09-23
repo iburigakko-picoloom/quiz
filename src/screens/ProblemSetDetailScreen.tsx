@@ -1,24 +1,22 @@
 import { useMemo, useState } from 'react';
 import type { AppData, Question } from '../types';
 import { BackButton } from '../components/BackButton';
+import { ActionMenu } from '../components/ActionMenu';
 import { Layout } from '../components/Layout';
 import { MissingResourceState } from '../components/MissingResourceState';
 import {
-  getProgress,
   getQuestionsBySet,
-  groupReviewQuestionsByLevel,
+  getReviewQuestions,
+  indexProgress,
   matchesReviewLevel,
   shuffleArray,
   type ReviewLevelFilter,
 } from '../utils/quiz';
-import { isReviewTarget } from '../utils/reviewTargets';
+import { ALL_CATEGORIES, buildProblemCategories, filterQuestionsByCategory } from '../utils/questionSelection';
 import { useLocalDay } from '../hooks/useLocalDay';
 import './ProblemSetDetailScreen.css';
 
 type CategoryFilter = 'all' | string;
-
-const UNCATEGORIZED = '\u672a\u5206\u985e';
-const ALL_CATEGORIES = '\u3059\u3079\u3066';
 
 const REVIEW_FILTERS: { value: ReviewLevelFilter; label: string }[] = [
   { value: 'all', label: '\u5168Level' },
@@ -66,7 +64,8 @@ export function ProblemSetDetailScreen({
   const problemSet = data.problemSets.find((set) => set.id === setId);
   const day = useLocalDay();
   const questions = useMemo(() => getQuestionsBySet(data, setId), [data, setId]);
-  const allReviewQuestions = useMemo(() => buildReviewQuestions(data, questions), [data, questions, day]);
+  const progressById = useMemo(() => indexProgress(data.progress), [data.progress]);
+  const allReviewQuestions = useMemo(() => getReviewQuestions(data, questions), [data, questions, day]);
   const [startCategory, setStartCategory] = useState<CategoryFilter>('all');
   const [reviewFilter, setReviewFilter] = useState<ReviewLevelFilter>('all');
   const [completionBusy, setCompletionBusy] = useState(false);
@@ -75,11 +74,11 @@ export function ProblemSetDetailScreen({
   const categories = useMemo(() => buildProblemCategories(questions), [questions]);
   const startQuestions = useMemo(() => filterQuestionsByCategory(questions, startCategory), [questions, startCategory]);
   const filteredStartQuestions = useMemo(
-    () => filterQuestionsByLevel(data, startQuestions, reviewFilter),
-    [data, startQuestions, reviewFilter],
+    () => startQuestions.filter((question) => matchesReviewLevel(progressById.get(question.id), reviewFilter)),
+    [progressById, startQuestions, reviewFilter],
   );
   const selectedReviewQuestions = useMemo(
-    () => buildReviewQuestions(data, startQuestions, reviewFilter),
+    () => getReviewQuestions(data, startQuestions, reviewFilter),
     [data, startQuestions, reviewFilter, day],
   );
 
@@ -112,56 +111,22 @@ export function ProblemSetDetailScreen({
   }
 
   const reachedLevelThree = questions.filter((question) => {
-    const progress = getProgress(data, question.id);
-    return progress.reviewLevel === 3 || progress.isGraduated;
+    const progress = progressById.get(question.id);
+    return progress?.reviewLevel === 3 || progress?.isGraduated;
   }).length;
   const levelThreeRate = questions.length ? Math.round(reachedLevelThree / questions.length * 100) : 0;
   const selectedLabel = getCategoryLabel(startCategory);
   const reviewFilterLabel = getReviewFilterLabel(reviewFilter);
 
-  const startOrdered = () => {
-    const sessionQuestions = getStartQuestions({
-      data,
-      questions,
-      category: startCategory,
-      reviewLevel: reviewFilter,
-      random: false,
-    });
+  const start = (order: 'ordered' | 'random' | 'review') => {
+    const sessionQuestions = order === 'review' ? selectedReviewQuestions
+      : order === 'random' ? shuffleArray(filteredStartQuestions) : filteredStartQuestions;
     if (sessionQuestions.length === 0) return;
     onStartSession({
       questions: sessionQuestions,
-      mode: 'quiz',
+      mode: order === 'review' ? 'review' : 'quiz',
       title: problemSet.title,
-      subtitle: [selectedLabel, reviewFilterLabel, '\u767b\u9332\u9806'].join(' / '),
-      setId,
-    });
-  };
-
-  const startRandom = () => {
-    const sessionQuestions = getStartQuestions({
-      data,
-      questions,
-      category: startCategory,
-      reviewLevel: reviewFilter,
-      random: true,
-    });
-    if (sessionQuestions.length === 0) return;
-    onStartSession({
-      questions: sessionQuestions,
-      mode: 'quiz',
-      title: problemSet.title,
-      subtitle: [selectedLabel, reviewFilterLabel, '\u30e9\u30f3\u30c0\u30e0'].join(' / '),
-      setId,
-    });
-  };
-
-  const startReview = () => {
-    if (selectedReviewQuestions.length === 0) return;
-    onStartSession({
-      questions: selectedReviewQuestions,
-      mode: 'review',
-      title: problemSet.title,
-      subtitle: [selectedLabel, reviewFilterLabel, '復習'].join(' / '),
+      subtitle: [selectedLabel, reviewFilterLabel, { ordered: '登録順', random: 'ランダム', review: '復習' }[order]].join(' / '),
       setId,
     });
   };
@@ -247,7 +212,7 @@ export function ProblemSetDetailScreen({
                   type="button"
                   className="quiz-detail__start-action quiz-detail__start-action--primary"
                   disabled={filteredStartQuestions.length === 0}
-                  onClick={startOrdered}
+                  onClick={() => start('ordered')}
                 >
                   <strong>登録順で解く</strong>
                 </button>
@@ -255,7 +220,7 @@ export function ProblemSetDetailScreen({
                   type="button"
                   className="quiz-detail__start-action"
                   disabled={filteredStartQuestions.length === 0}
-                  onClick={startRandom}
+                  onClick={() => start('random')}
                 >
                   <strong>ランダムで解く</strong>
                 </button>
@@ -263,7 +228,7 @@ export function ProblemSetDetailScreen({
                   type="button"
                   className="quiz-detail__start-action quiz-detail__start-action--review"
                   disabled={selectedReviewQuestions.length === 0}
-                  onClick={startReview}
+                  onClick={() => start('review')}
                   aria-label={`復習する問題を${selectedReviewQuestions.length}問開始`}
                 >
                   <strong>復習で解く</strong>
@@ -309,83 +274,16 @@ function DetailHeader({ title, onBack, onEdit, onShare, onCopy }: { title: strin
       <div className="quiz-detail__header-slope" />
       <BackButton onClick={onBack} className="quiz-detail__back-button" />
       <h1 className="quiz-detail__title">{title}</h1>
-      {onEdit || onShare ? <details className="library-actions library-header-add">
+      {onEdit || onShare || onCopy ? <ActionMenu className="library-actions library-header-add">
         <summary aria-label="問題セットの操作">…</summary>
         <div className="library-actions__body">
           {onEdit ? <button type="button" onClick={onEdit}>問題セットを編集</button> : null}
           {onCopy ? <button type="button" onClick={onCopy}>問題セットをコピー</button> : null}
           {onShare ? <button type="button" onClick={onShare}>共有設定</button> : null}
         </div>
-      </details> : null}
+      </ActionMenu> : null}
     </header>
   );
-}
-
-export function normalizeProblemCategory(category: string | null | undefined) {
-  const value = category?.trim();
-  return value || UNCATEGORIZED;
-}
-
-export function filterQuestionsByCategory(questions: Question[], category: string) {
-  if (category === 'all' || category === ALL_CATEGORIES) return questions;
-  return questions.filter((question) => normalizeProblemCategory(question.category) === category);
-}
-
-function filterQuestionsByLevel(data: AppData, questions: Question[], reviewLevel: ReviewLevelFilter) {
-  return questions.filter((question) => matchesReviewLevel(getProgress(data, question.id), reviewLevel));
-}
-
-function getStartQuestions({
-  data,
-  questions,
-  category,
-  reviewLevel,
-  random,
-}: {
-  data: AppData;
-  questions: Question[];
-  category: string;
-  reviewLevel: ReviewLevelFilter;
-  random: boolean;
-}) {
-  const categoryFiltered = filterQuestionsByCategory(questions, category);
-  const levelFiltered = filterQuestionsByLevel(data, categoryFiltered, reviewLevel);
-  return random ? shuffleArray(levelFiltered) : levelFiltered;
-}
-
-export function buildReviewQuestions(data: AppData, questions: Question[], filter: ReviewLevelFilter = 'all') {
-  const completedSetIds = new Set(data.problemSets.filter((set) => set.isStudyCompleted).map((set) => set.id));
-  if (filter !== 'all') {
-    const filtered = questions.filter((question) => {
-      if (completedSetIds.has(question.setId)) return false;
-      const progress = getProgress(data, question.id);
-      return isReviewTarget(progress) && matchesReviewLevel(progress, filter);
-    });
-    return shuffleArray(filtered);
-  }
-
-  const groups = groupReviewQuestionsByLevel(data, questions);
-  return [
-    ...shuffleArray(groups.ambiguous),
-    ...shuffleArray(groups.level0),
-    ...shuffleArray(groups.level1),
-    ...shuffleArray(groups.level2),
-    ...shuffleArray(groups.level3),
-  ];
-}
-
-export function buildProblemCategories(questions: Question[]) {
-  const names = new Set<string>();
-  let hasUncategorized = false;
-  questions.forEach((question) => {
-    const value = normalizeProblemCategory(question.category);
-    if (value === UNCATEGORIZED) {
-      hasUncategorized = true;
-    } else {
-      names.add(value);
-    }
-  });
-  return [ALL_CATEGORIES, ...Array.from(names), ...(hasUncategorized ? [UNCATEGORIZED] : [])];
 }
 
 function getCategoryLabel(category: string) {

@@ -31,6 +31,13 @@ export function getProgress(data: AppData, questionId: string): QuestionProgress
   return findProgress(data, questionId) ?? createInitialProgress(questionId);
 }
 
+/** Keep the same first-match semantics as getProgress, without repeated linear scans. */
+export function indexProgress(progress: readonly QuestionProgress[]): ReadonlyMap<string, QuestionProgress> {
+  const byId = new Map<string, QuestionProgress>();
+  for (const item of progress) if (!byId.has(item.questionId)) byId.set(item.questionId, item);
+  return byId;
+}
+
 export function getVirtualLevel(progress: QuestionProgress | undefined): 0 | 1 | 2 | 3 {
   if (!progress || progress.answeredCount === 0) return 0;
   return progress.reviewLevel ?? 1;
@@ -86,8 +93,17 @@ export function getProblemSetsByFolder(data: AppData, folderId: string): Problem
   return data.problemSets.filter((set) => set.folderId === folderId);
 }
 
-export function getReviewQuestions(data: AppData): Question[] {
-  const groups = groupReviewQuestionsByLevel(data, data.questions);
+export function getReviewQuestions(data: AppData, questions = data.questions, filter: ReviewLevelFilter = 'all'): Question[] {
+  if (filter !== 'all') {
+    const progressById = indexProgress(data.progress);
+    const completedSetIds = new Set(data.problemSets.filter((set) => set.isStudyCompleted).map((set) => set.id));
+    const now = new Date();
+    return shuffleArray(questions.filter((question) => {
+      const progress = progressById.get(question.id);
+      return !completedSetIds.has(question.setId) && isReviewTarget(progress, now) && matchesReviewLevel(progress, filter);
+    }));
+  }
+  const groups = groupReviewQuestionsByLevel(data, questions);
   return [
     ...shuffleArray(groups.ambiguous),
     ...shuffleArray(groups.level0),
@@ -123,26 +139,26 @@ export function addFolder(data: AppData, name: string, parentFolderId?: string):
 
 export function deleteFolder(data: AppData, folderId: string): AppData {
   const folderIds = folderSubtreeIds(data.folders, folderId);
-  const setIds = data.problemSets.filter((set) => folderIds.has(set.folderId)).map((set) => set.id);
-  const questionIds = data.questions.filter((question) => setIds.includes(question.setId)).map((question) => question.id);
+  const setIds = new Set(data.problemSets.filter((set) => folderIds.has(set.folderId)).map((set) => set.id));
+  const questionIds = new Set(data.questions.filter((question) => setIds.has(question.setId)).map((question) => question.id));
 
   return {
     ...data,
     folders: data.folders.filter((folder) => !folderIds.has(folder.id)),
     problemSets: data.problemSets.filter((set) => !folderIds.has(set.folderId)),
-    questions: data.questions.filter((question) => !setIds.includes(question.setId)),
-    progress: data.progress.filter((progress) => !questionIds.includes(progress.questionId)),
-    answerLogs: data.answerLogs.filter((log) => !questionIds.includes(log.questionId) && !setIds.includes(log.setId) && !folderIds.has(log.folderId)),
+    questions: data.questions.filter((question) => !setIds.has(question.setId)),
+    progress: data.progress.filter((progress) => !questionIds.has(progress.questionId)),
+    answerLogs: data.answerLogs.filter((log) => !questionIds.has(log.questionId) && !setIds.has(log.setId) && !folderIds.has(log.folderId)),
   };
 }
 
 export function deleteProblemSet(data: AppData, setId: string): AppData {
-  const questionIds = data.questions.filter((question) => question.setId === setId).map((question) => question.id);
+  const questionIds = new Set(data.questions.filter((question) => question.setId === setId).map((question) => question.id));
   return {
     ...data,
     problemSets: data.problemSets.filter((set) => set.id !== setId),
     questions: data.questions.filter((question) => question.setId !== setId),
-    progress: data.progress.filter((progress) => !questionIds.includes(progress.questionId)),
+    progress: data.progress.filter((progress) => !questionIds.has(progress.questionId)),
     answerLogs: data.answerLogs.filter((log) => log.setId !== setId),
   };
 }
@@ -307,6 +323,7 @@ export function updateQuestionDetailedExplanation(data: AppData, questionId: str
 
 export function groupReviewQuestionsByLevel(data: AppData, questions: Question[]) {
   const now = new Date();
+  const progressById = indexProgress(data.progress);
   const completedSetIds = new Set(data.problemSets.filter((set) => set.isStudyCompleted).map((set) => set.id));
   const groups: Record<'ambiguous' | 'level0' | 'level1' | 'level2' | 'level3', Question[]> = {
     ambiguous: [],
@@ -318,8 +335,8 @@ export function groupReviewQuestionsByLevel(data: AppData, questions: Question[]
 
   questions.forEach((question) => {
     if (completedSetIds.has(question.setId)) return;
-    const progress = getProgress(data, question.id);
-    if (!isReviewTarget(progress, now)) return;
+    const progress = progressById.get(question.id);
+    if (!progress || !isReviewTarget(progress, now)) return;
     if (progress.isAmbiguous) {
       groups.ambiguous.push(question);
       return;

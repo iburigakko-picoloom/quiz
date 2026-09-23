@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { MaterialReference } from '../types';
+import { ActionMenu } from './ActionMenu';
 import { CategoryNotePanel, type CategoryNotePanelHandle, type NoteToolSettings } from './CategoryNoteDrawer';
 import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf } from '../utils/materialStorage';
 import { MaterialPreviewCache, type MaterialPagePreview } from '../utils/materialPreview';
@@ -225,14 +226,14 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
         {!material ? <option value="" disabled hidden>資料を選ぶ</option> : null}{index.materials.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
       </select> : <span className="materials-title" title={material?.title}>{material?.title ?? (index ? '資料' : '読み込み中…')}</span>}
       {material ? <div className="materials-pagination"><button aria-label="前のページ" disabled={busy || pagePending || pageIndex <= 0} onClick={() => goToPage(material.pages[pageIndex - 1].id)}>‹</button><select aria-label="ページ" value={pageId} disabled={busy || pagePending} onChange={event => goToPage(event.target.value)}>{material.pages.map((item, n) => <option key={item.id} value={item.id}>p{n + 1}</option>)}</select><button aria-label="次のページ" disabled={busy || pagePending || pageIndex >= material.pages.length - 1} onClick={() => goToPage(material.pages[pageIndex + 1].id)}>›</button></div> : null}
-      <details ref={menu} className="materials-menu"><summary aria-label="資料の操作" title="資料の操作">•••</summary><div>
+      <ActionMenu ref={menu} className="materials-menu"><summary aria-label="資料の操作" title="資料の操作">•••</summary><div>
         {onAdjustReferences ? <><button disabled={busy || pagePending || transitioning} onClick={() => run(async () => onAdjustReferences(material?.id))}>参照ページを調整</button><hr/></> : null}
         {onOpenReference && (questionReferences?.length ?? 0) > 1 ? <>{questionReferences?.map((item, i) => <button key={`${item.materialId}/${item.pageId}`} disabled={busy} onClick={() => { if (menu.current) menu.current.open = false; onOpenReference(item); }}>参照資料 {i + 1}へ移動</button>)}<hr/></> : null}
         {onLinkPage && material && page ? <><button disabled={busy || pagePending} onClick={() => run(async () => onLinkPage({ materialId, pageId }, !linked))}>{linked ? 'このページの紐付けを解除' : 'このページを問題に紐付け'}</button><hr/></> : null}
         <button type="button" disabled={!index || busy} onClick={() => { if (menu.current) menu.current.open = false; fileInput.current?.click(); }}>PDFを追加</button>
         <button type="button" disabled={!index || busy} onClick={() => run(async () => { if (!index) return; const added: StudyMaterial = { id: createId('material'), title: `白紙の資料 ${index.materials.length + 1}`, pages: [{ id: createId('page'), kind: 'blank' }] }; const next = { ...index, materials: [...index.materials, added] }; await saveMaterials(next); setIndex(next); setMaterialId(added.id); setPageId(added.pages[0].id); })}>白紙の資料を追加</button>
         {material ? <><hr/><button disabled={busy} onClick={() => addBlank(false)}>前に白紙ページ</button><button disabled={busy} onClick={() => addBlank(true)}>後ろに白紙ページ</button><hr/><button disabled={busy || pageIndex <= 0} onClick={() => move(-1)}>このページを前へ移動</button><button disabled={busy || pageIndex >= material.pages.length - 1} onClick={() => move(1)}>このページを後ろへ移動</button></> : null}
-      </div></details>
+      </div></ActionMenu>
       {onClose ? <button className="materials-close" type="button" aria-label="資料を閉じて問題に戻る" title="問題に戻る" disabled={busy} onClick={() => run(async () => onClose())}>×</button> : null}
       <input ref={fileInput} hidden type="file" accept="application/pdf,.pdf" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) addPdf(file); }} />
     </div>

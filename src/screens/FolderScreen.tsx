@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AppData, Folder, ProblemSet } from '../types';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ActionMenu } from '../components/ActionMenu';
 import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
 import { MissingResourceState } from '../components/MissingResourceState';
@@ -61,13 +62,13 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
   return <Layout><div className="quiz-folder" ref={rootRef}>
     <header className="quiz-folder__header">
       <BackButton onClick={onBack} /><h1 className="quiz-folder__title">{folder.name}</h1>
-      <details className="library-actions library-header-add">
+      <ActionMenu className="library-actions library-header-add">
         <summary aria-label="追加"><PlusIcon size={22} /></summary>
         <div className="library-actions__body">
-          <button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setAdding(true); }}>子フォルダを追加</button>
+          <button type="button" onClick={() => setAdding(true)}>子フォルダを追加</button>
           <button type="button" onClick={() => onCreateProblemSet(parentId)}>ここに問題セットを追加</button>
         </div>
-      </details>
+      </ActionMenu>
     </header>
     {adding ? <form className="library-form" onSubmit={async (event) => {
       event.preventDefault(); if (busy || !name.trim()) return;

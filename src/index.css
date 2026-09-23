@@ -2160,16 +2160,14 @@ body,
 
 /* Sheets, menus and dialogs */
 .quiz-home__overlay,
-.quiz-folder__overlay,
-.confirm-dialog {
+.quiz-folder__overlay {
   background: rgba(23, 48, 66, 0.38);
   backdrop-filter: blur(4px);
 }
 
 .quiz-home__sheet,
 .quiz-home__menu,
-.quiz-folder__start-sheet,
-.confirm-dialog__card {
+.quiz-folder__start-sheet {
   border: 1px solid var(--ui-border);
   background: var(--ui-surface);
   color: var(--ui-text);
@@ -2177,8 +2175,7 @@ body,
 }
 
 .quiz-home__sheet-title,
-.quiz-folder__start-title,
-.confirm-dialog__title {
+.quiz-folder__start-title {
   color: var(--ui-text);
 }
 
@@ -2194,8 +2191,7 @@ body,
 .quiz-home button.quiz-home__sheet-button,
 .quiz-home button.quiz-home__menu-item,
 .quiz-home button.quiz-home__menu-close,
-.quiz-folder button.quiz-folder__start-button,
-.confirm-dialog__button--cancel {
+.quiz-folder button.quiz-folder__start-button {
   border: 1px solid var(--ui-border);
   background: var(--ui-surface-muted);
   color: var(--ui-text);
@@ -2230,8 +2226,7 @@ body,
   color: var(--ui-accent-dark);
 }
 
-.quiz-folder__start-button--muted,
-.confirm-dialog__message {
+.quiz-folder__start-button--muted {
   color: var(--ui-text-muted);
 }
 

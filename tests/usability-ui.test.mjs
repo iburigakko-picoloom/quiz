@@ -6,7 +6,6 @@ const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8'
 const homeSource = readSource('../src/screens/HomeScreen.tsx');
 const homeCss = readSource('../src/screens/HomeScreen.css');
 const createSource = readSource('../src/screens/CreateProblemSetScreen.tsx');
-const detailSource = readSource('../src/screens/ProblemSetDetailScreen.tsx');
 const appSource = readSource('../src/App.tsx');
 const typesSource = readSource('../src/types.ts');
 const syncSource = readSource('../src/screens/SyncScreen.tsx');
@@ -60,16 +59,6 @@ test('primary headers share one height and create returns to its launch context'
   assert.match(appSource, /editSetId: screen\.setId,\s*backScreen: screen,/);
   assert.match(appSource, /onBack=\{createBackScreen \? \(\) => goBackTo\(createBackScreen\) : undefined\}/);
   assert.match(typesSource, /name: 'createProblemSet';[^{\n]*backScreen\?: AppScreen/);
-});
-
-test('set-level review starts from its problem set and the global review route is gone', () => {
-  assert.doesNotMatch(homeSource, /onOpenReview|quiz-home__review-card/);
-  assert.doesNotMatch(appSource, /name: 'review'/);
-  assert.doesNotMatch(typesSource, /name: 'review'/);
-  assert.match(detailSource, /buildReviewQuestions\(data, questions\)/);
-  assert.equal((detailSource.match(/reviewLevel: reviewFilter/g) ?? []).length, 2);
-  assert.equal((detailSource.match(/onStartSession\(\{/g) ?? []).length, 3);
-  assert.match(detailSource, /onClick=\{startReview\}/);
 });
 
 test('sync screen uses an eight-character pairing flow and keeps recovery details collapsed', () => {

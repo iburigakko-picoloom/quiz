@@ -59,10 +59,12 @@ export function ConfirmDialog({
       }
       const first = buttons[0];
       const last = buttons[buttons.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      const active = document.activeElement;
+      const onButton = buttons.some((button) => button === active);
+      if (event.shiftKey && (!onButton || active === first)) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (!onButton || active === last)) {
         event.preventDefault();
         first.focus();
       }
@@ -76,7 +78,9 @@ export function ConfirmDialog({
   }, [open]);
 
   useEffect(() => {
-    if (open && busy) cardRef.current?.focus();
+    if (!open) return;
+    if (busy) cardRef.current?.focus();
+    else if (document.activeElement === cardRef.current) cancelButtonRef.current?.focus();
   }, [busy, open]);
 
   if (!open) return null;
@@ -102,7 +106,7 @@ export function ConfirmDialog({
         <h2 id={titleId} className="confirm-dialog__title">{title}</h2>
         <p id={messageId} className="confirm-dialog__message">{message}</p>
         <div className="confirm-dialog__actions">
-          {alternateLabel && onAlternate ? <button type="button" className="confirm-dialog__button" style={{ gridColumn: '1 / -1', background: '#2563eb', color: '#fff', lineHeight: 1.5 }} onClick={onAlternate} disabled={busy}>{alternateLabel}</button> : null}
+          {alternateLabel && onAlternate ? <button type="button" className="confirm-dialog__button confirm-dialog__button--alternate" onClick={onAlternate} disabled={busy}>{alternateLabel}</button> : null}
           <button ref={cancelButtonRef} type="button" className="confirm-dialog__button confirm-dialog__button--cancel" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </button>

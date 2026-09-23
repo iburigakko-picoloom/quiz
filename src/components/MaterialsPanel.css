@@ -44,7 +44,7 @@
 .materials-drawer.is-open { transform:translateX(0); visibility:visible; }
 .materials-drawer { display:flex; flex-direction:column; }
 .materials-drawer > .materials-panel { flex:1; height:auto; min-height:0; }
-.materials-drawer.is-dragging { visibility:visible; transition:none; }
+.materials-drawer.is-dragging { visibility:visible; transition:none; transform:translateX(calc(100% - var(--materials-reveal,0px))); }
 .quiz-question-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:28px; margin-bottom:8px; }
 .quiz-question-heading .quiz-question-kicker { margin:0; }
 .quiz-question-material { flex-shrink:0; }

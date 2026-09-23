@@ -188,13 +188,6 @@
 .settings-screen .settings-row__icon svg, .settings-screen .settings-account__icon svg { width: 18px; height: 18px; }
 .settings-screen .settings-row__text strong { font-size: 14px; font-weight: 700; }
 .settings-row input[role=switch] { width: 42px; height: 24px; accent-color: var(--ui-accent); margin-left: auto; }
-.confirm-dialog.confirm-dialog--full-page { padding: 0; align-items: stretch; background: white; }
-.confirm-dialog--full-page .confirm-dialog__card { width: min(100%, 760px); max-width: 760px; max-height: 100dvh; min-height: 100dvh; margin: 0 auto; padding: calc(var(--safe-top, 0px) + 18px) 16px calc(var(--safe-bottom, 0px) + 24px); border: 0; border-radius: 0; box-shadow: none; overflow-y: auto; }
-.confirm-dialog--full-page .confirm-dialog__title { padding-bottom: 18px; border-bottom: 1px solid var(--ui-border); font-size: 16px; }
-.confirm-dialog--full-page .confirm-dialog__actions { display: flex; flex-direction: column-reverse; margin-top: 24px; }
-.confirm-dialog .confirm-dialog__card { border-radius: 12px; }
-.confirm-dialog--full-page .confirm-dialog__card { border-radius: 0; }
-.confirm-dialog .confirm-dialog__button { border-radius: 7px; min-height: 46px; }
 .sync-screen.sync-screen { background: white; }
 .sync-screen .sync-screen__header { min-height: calc(64px + var(--safe-top, 0px)); padding: var(--safe-top, 0px) 10px 0; background: white; }
 .sync-screen .sync-screen__header h1 { font-size: 16px; }
