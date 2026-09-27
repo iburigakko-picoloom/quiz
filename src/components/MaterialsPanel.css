@@ -10,6 +10,7 @@
 .materials-pagination { display:flex; align-items:center; flex:0 0 auto; border:1px solid #bdcbdc; border-radius:9px; overflow:hidden; }
 .materials-pagination select { flex:none; width:58px; text-align:center; border-radius:0; border-left:1px solid #dde4ec; border-right:1px solid #dde4ec; }
 .materials-controls .materials-pagination button,.materials-controls .materials-close { padding:4px; min-width:32px; border:0; background:transparent; font-size:25px; }
+.materials-close { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
 .materials-menu { flex:0 0 36px; font-size:14px; }
 .materials-menu > summary { list-style:none; cursor:pointer; min-height:40px; display:flex; align-items:center; justify-content:center; color:#305894; }
 .materials-menu > summary::-webkit-details-marker { display:none; }
