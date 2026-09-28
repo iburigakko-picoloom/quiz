@@ -159,7 +159,7 @@ test('share target rejects links, multiple files and unsupported types without f
   for(const [kind,expected] of [['url','missing'],['multiple','count'],['svg','type'],['large','size']]){
     const h=createWorkerHarness();const form=new FormData();
     if(kind==='url')form.append('text','https://example.com/image');
-    else {form.append('image',new Blob([kind==='large'?new Uint8Array(10_000_001):'image'],{type:kind==='svg'?'image/svg+xml':'image/png'}),'image');if(kind==='multiple')form.append('image',new Blob(['b'],{type:'image/png'}),'b.png');}
+    else {form.append('image',new Blob([kind==='large'?new Uint8Array(50*1024*1024+1):'image'],{type:kind==='svg'?'image/svg+xml':'image/png'}),'image');if(kind==='multiple')form.append('image',new Blob(['b'],{type:'image/png'}),'b.png');}
     const response=await h.api.receiveSharedImage(new Request(`${scope}share-image`,{method:'POST',body:form}));
     assert.equal(new URL(response.headers.get('location')).searchParams.get('sharedImageError'),expected);
     assert.equal(h.entries.size,0);assert.deepEqual(h.networkRequests,[]);
