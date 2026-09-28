@@ -11,7 +11,7 @@ import { runAfterSuccessfulNoteFlush } from '../components/noteExitGuard';
 import { Layout } from '../components/Layout';
 import { MissingResourceState } from '../components/MissingResourceState';
 import { getAnswerIndexes, getAnswerText, getChoiceLabel, getChoiceText, getProgress, getVirtualLevel, makeResult } from '../utils/quiz';
-import { resolveQuestionDetailedExplanation } from '../utils/questionView';
+import { resolveQuestionDetailedExplanation, resolveQuestionDetailedImageIds } from '../utils/questionView';
 import { WeaknessDetail } from '../components/WeaknessDetail';
 import { getAnswerFeedback, playAnswerFeedback, prepareAnswerAudio } from '../utils/answerFeedback';
 import { randomizeQuestionChoices } from '../utils/choiceRandomization';
@@ -167,6 +167,10 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   const currentQuestion = presentationRef.current.question;
   const currentDetailedExplanation = useMemo(
     () => resolveQuestionDetailedExplanation(data.questions, currentQuestion),
+    [currentQuestion, data.questions],
+  );
+  const currentDetailedImageIds = useMemo(
+    () => resolveQuestionDetailedImageIds(data.questions, currentQuestion),
     [currentQuestion, data.questions],
   );
   const visibleQuestionIdRef = useRef(currentQuestion?.id ?? '');
@@ -470,7 +474,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             explanation={currentQuestion.explanation}
             detailedExplanation={currentDetailedExplanation}
             questionId={currentQuestion.id}
-            imageIds={currentQuestion.detailedAnswer?.imageIds ?? []}
+            imageIds={currentDetailedImageIds}
             savedLevelLabel={savedLevelLabel}
             answerSaveState={answerSaveState}
             readOnly={readOnly}

@@ -10,3 +10,14 @@ export function resolveQuestionDetailedExplanation(
     ? persistedQuestion.detailedAnswer?.body ?? persistedQuestion.detailedExplanation ?? ''
     : sessionQuestion.detailedAnswer?.body ?? sessionQuestion.detailedExplanation ?? '';
 }
+
+export function resolveQuestionDetailedImageIds(
+  questions: Question[],
+  sessionQuestion: Question | undefined,
+): string[] {
+  if (!sessionQuestion) return [];
+  const persistedQuestion = questions.find((question) => question.id === sessionQuestion.id);
+  return persistedQuestion
+    ? persistedQuestion.detailedAnswer?.imageIds ?? []
+    : sessionQuestion.detailedAnswer?.imageIds ?? [];
+}

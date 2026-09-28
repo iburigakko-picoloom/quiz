@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveQuestionDetailedExplanation } from '../src/utils/questionView.ts';
+import { resolveQuestionDetailedExplanation, resolveQuestionDetailedImageIds } from '../src/utils/questionView.ts';
 
 const sessionQuestion = {
   id: 'question-1',
@@ -47,4 +47,12 @@ test('falls back to the session copy when the question no longer exists in AppDa
     resolveQuestionDetailedExplanation([], sessionQuestion),
     'old explanation',
   );
+});
+
+test('shows images added or removed during a frozen quiz session', () => {
+  const original = { ...sessionQuestion, detailedAnswer: { body: '', imageIds: ['old'], updatedAt: sessionQuestion.updatedAt } };
+  const updated = { ...original, detailedAnswer: { ...original.detailedAnswer, imageIds: ['new'] } };
+  assert.deepEqual(resolveQuestionDetailedImageIds([updated], original), ['new']);
+  assert.deepEqual(resolveQuestionDetailedImageIds([], original), ['old']);
+  assert.deepEqual(resolveQuestionDetailedImageIds([sessionQuestion], original), []);
 });
