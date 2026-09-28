@@ -634,6 +634,35 @@ test('sync preview checks unchanged revisions without downloading payloads, but 
   await assert.rejects(readSyncPreview(syncId), /denied|確認|取得/);
 });
 
+test('sync overview reads only metadata for known baselines and keeps unknown baselines conservative', async () => {
+  resetStorage(); sync.setStoredSyncId(syncId);
+  await storage.saveAppData(appDataWithFolder('base'));
+  const payload = await sync.exportQuizMakeData(timestamp);
+  sync.setLastSyncState({ lastSyncAt: timestamp, lastUploadHash: sync.computePayloadHash(payload), lastSyncDigest: await sync.computePayloadDigest(payload) });
+  const { readSyncOverview } = await vite.ssrLoadModule('/src/utils/syncPreview.ts');
+  const calls = [];
+  let remoteTime = timestamp;
+  globalThis.fetch = async url => {
+    calls.push(String(url));
+    return new Response(JSON.stringify([{ sync_id: syncId, updated_at: remoteTime, data: payload }]), { status: 200 });
+  };
+
+  assert.equal((await readSyncOverview(syncId)).state, 'same');
+  assert.deepEqual(calls.map(url => url.split('/').pop()), ['quiz_sync_meta']);
+  remoteTime = '2026-09-22T00:00:00.000Z'; calls.length = 0;
+  assert.equal((await readSyncOverview(syncId)).state, 'cloud');
+  assert.deepEqual(calls.map(url => url.split('/').pop()), ['quiz_sync_meta']);
+
+  await storage.saveAppData(appDataWithFolder('local-change')); calls.length = 0;
+  assert.equal((await readSyncOverview(syncId)).state, 'conflict');
+  assert.deepEqual(calls.map(url => url.split('/').pop()), ['quiz_sync_meta']);
+
+  sync.setLastSyncState({ lastSyncDigest: undefined }); calls.length = 0;
+  const legacy = await readSyncOverview(syncId);
+  assert.equal(legacy.state, 'conflict');
+  assert.ok(calls.some(url => url.endsWith('/quiz_sync_read')), 'unknown baseline downloads the remote body');
+});
+
 test('strong digests distinguish legacy hash collisions and ignore snapshot export times', async () => {
   const make = value => ({ version: 1, updatedAt: timestamp, localStorage: { example: value }, indexedDbNotes: {} });
   const left = make('Aa'); const right = make('BB');
