@@ -48,12 +48,14 @@ interface QuizRunnerProps {
   onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean) => AnswerHandlerResult;
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
+  onAddDetailedImage?: (questionId: string, file: File) => Promise<void>;
+  onRemoveDetailedImage?: (questionId: string, imageId: string) => Promise<void>;
   onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onLinkMaterialBatch?: (setId: string, links: ReferenceLink[]) => Promise<void>;
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
+export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
   const [currentIndex, setCurrentIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(questions.length - 1, 0)));
   const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
@@ -468,6 +470,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             explanation={currentQuestion.explanation}
             detailedExplanation={currentDetailedExplanation}
             questionId={currentQuestion.id}
+            imageIds={currentQuestion.detailedAnswer?.imageIds ?? []}
             savedLevelLabel={savedLevelLabel}
             answerSaveState={answerSaveState}
             readOnly={readOnly}
@@ -479,6 +482,8 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
             onHide={() => setAnswerSheetState('hidden')}
             onToggleAmbiguous={handleAmbiguous}
             onSaveDetailedExplanation={(value) => onSaveDetailedExplanation(currentQuestion.id, value)}
+            onAddDetailedImage={onAddDetailedImage ? file => onAddDetailedImage(currentQuestion.id, file) : undefined}
+            onRemoveDetailedImage={onRemoveDetailedImage ? imageId => onRemoveDetailedImage(currentQuestion.id, imageId) : undefined}
             onDetailDirtyChange={onDetailDirtyChange}
             onRetryAnswerSave={answerRetryRef.current ? handleRetryAnswerSave : undefined}
             onNext={handleNext}
@@ -659,6 +664,7 @@ export function AnswerPanel({
   answer,
   explanation,
   detailedExplanation,
+  imageIds,
   savedLevelLabel,
   answerSaveState,
   readOnly,
@@ -670,6 +676,8 @@ export function AnswerPanel({
   onHide,
   onToggleAmbiguous,
   onSaveDetailedExplanation,
+  onAddDetailedImage,
+  onRemoveDetailedImage,
   onDetailDirtyChange,
   onRetryAnswerSave,
   onNext,
@@ -681,6 +689,7 @@ export function AnswerPanel({
   answer: string;
   explanation: string;
   detailedExplanation: string;
+  imageIds: string[];
   savedLevelLabel: string;
   answerSaveState: 'idle' | 'saving' | 'saved' | 'error';
   readOnly: boolean;
@@ -692,6 +701,8 @@ export function AnswerPanel({
   onHide: () => void;
   onToggleAmbiguous: () => Promise<boolean>;
   onSaveDetailedExplanation: (value: string) => Promise<void>;
+  onAddDetailedImage?: (file: File) => Promise<void>;
+  onRemoveDetailedImage?: (imageId: string) => Promise<void>;
   onDetailDirtyChange: (dirty: boolean) => void;
   onRetryAnswerSave?: () => void;
   onNext: () => void;
@@ -908,7 +919,7 @@ export function AnswerPanel({
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
     suppressSwipeClickRef.current = false;
     const target = event.target;
-    if (target instanceof Element && target.closest('input, textarea:not(.answer-sheet__detail-input), select, [contenteditable="true"], pre, table, [data-no-page-swipe]')) return;
+    if (target instanceof Element && target.closest('button, a, input, textarea:not(.answer-sheet__detail-input), select, [role="button"], [contenteditable="true"], pre, table, [data-no-page-swipe]')) return;
     detailSwipeStartRef.current = { x: event.clientX, y: event.clientY, id: event.pointerId, width: detailRailRef.current?.clientWidth || 1, position: 0, axis: null };
   };
 
@@ -950,6 +961,8 @@ export function AnswerPanel({
       }
     }
     if (start.axis !== 'x') return;
+    const swipeThreshold = Math.max(44, start.width * 0.2);
+    if (!suppressSwipeClickRef.current && Math.abs(deltaX) < swipeThreshold) return;
     event.preventDefault();
     event.stopPropagation();
     const rail = detailRailRef.current;
@@ -1063,7 +1076,7 @@ export function AnswerPanel({
         </button>
         <h2>解説・メモ</h2>
       </div>
-      <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} onSave={onSaveDetailedExplanation} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} active={panelPage === 'detail' && state !== 'hidden'} guideExample={guidePage ? 'なぜ月の形は毎日変わって見えるの？ 図でも知りたい。' : undefined} />
+      <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} imageIds={imageIds} onSave={onSaveDetailedExplanation} onAddImage={onAddDetailedImage} onRemoveImage={onRemoveDetailedImage} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} active={panelPage === 'detail' && state !== 'hidden'} guideExample={guidePage ? 'なぜ月の形は毎日変わって見えるの？ 図でも知りたい。' : undefined} />
     </div>
   );
 

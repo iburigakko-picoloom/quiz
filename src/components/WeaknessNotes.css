@@ -21,6 +21,9 @@
 .weakness-media-card img{display:block;max-width:100%;max-height:190px;object-fit:contain;margin:auto}
 .weakness-media-card--image{padding:0;overflow:hidden}
 .weakness-media-card--image>p{margin:0}
+.weakness-media-card--local-image{display:grid;gap:8px;padding:10px}
+.weakness-local-image-remove{justify-self:end;min-height:36px;padding:6px 12px;border:1px solid #f2b9b9;border-radius:8px;background:#fff;color:#b42318;font:inherit;font-size:13px}
+.weakness-media-card--local-image>p{margin:0;padding:12px;color:#677587;font-size:13px}
 .weakness-media-card--image .weakness-pinch-image img{width:100%;height:auto;max-height:none;margin:0}
 .weakness-pinch-image{display:block;overflow:hidden;position:relative;touch-action:pan-x pan-y;user-select:none;-webkit-user-select:none}
 .weakness-pinch-image img{display:block;max-width:100%;margin:auto;transform-origin:center;will-change:transform}
@@ -34,6 +37,7 @@
 .weakness-image-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin:20px 0}
 .weakness-image-actions>.weakness-button{width:auto;min-width:130px;max-width:100%;padding:11px 16px}
 .weakness-reader .weakness-image-actions>button.weakness-button{border:1px solid #aebed2;border-radius:10px;background:#fff;min-height:46px;padding:11px 16px;color:#305da3}
+.weakness-image-actions>small{flex:1 0 100%;color:#677587;font-size:12px;text-align:center}
 .weakness-purpose-tabs{display:grid;grid-template-columns:1fr 1fr;position:relative;border-bottom:1px solid #dce3ed;margin:0 0 22px}
 .weakness-purpose-tabs:after{content:'';position:absolute;bottom:-1px;left:0;width:50%;height:2px;background:#305da3;transform:translateX(0);transition:transform .24s ease;pointer-events:none}
 .weakness-purpose-tabs[data-purpose=answer]:after{transform:translateX(100%)}

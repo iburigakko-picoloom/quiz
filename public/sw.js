@@ -68,8 +68,8 @@ async function receiveSharedImage(request) {
     const files = form.getAll('image').filter(value => typeof value !== 'string');
     if (files.length !== 1) throw new Error(files.length ? 'count' : 'missing');
     const file = files[0];
-    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error('type');
-    if (!file.size || file.size > 10_000_000) throw new Error('size');
+    if (!/^image\/(png|jpeg|webp|heic|heif)$/.test(file.type)) throw new Error('type');
+    if (!file.size || file.size > 50 * 1024 * 1024) throw new Error('size');
     const cache = await caches.open('quiz-make-shared-images-v1');
     const keys = await cache.keys();
     for (const key of keys) {

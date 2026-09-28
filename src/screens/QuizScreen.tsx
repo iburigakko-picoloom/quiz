@@ -12,12 +12,14 @@ interface QuizScreenProps {
   onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean) => AnswerHandlerResult;
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
+  onAddDetailedImage?: (questionId: string, file: File) => Promise<void>;
+  onRemoveDetailedImage?: (questionId: string, imageId: string) => Promise<void>;
   onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onLinkMaterialBatch?: (setId: string, links: ReferenceLink[]) => Promise<void>;
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizScreenProps) {
+export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizScreenProps) {
   const problemSet = data.problemSets.find((set) => set.id === setId);
   const allQuestions = getQuestionsBySet(data, setId);
   const [sessionQuestions] = useState<Question[]>(() => (mode === 'random' ? shuffleArray(allQuestions) : allQuestions));
@@ -39,6 +41,8 @@ export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbigu
       onAnswer={onAnswer}
       onToggleAmbiguous={onToggleAmbiguous}
       onSaveDetailedExplanation={onSaveDetailedExplanation}
+      onAddDetailedImage={onAddDetailedImage}
+      onRemoveDetailedImage={onRemoveDetailedImage}
       onLinkMaterialPage={onLinkMaterialPage}
       onLinkMaterialBatch={onLinkMaterialBatch}
       onFinish={onFinish}

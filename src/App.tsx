@@ -12,7 +12,8 @@ import {
 } from './storage';
 import { HomeScreen } from './screens/HomeScreen';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
-import { appendSharedImage, getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
+import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
+import { deleteLocalQuestionImage, deleteLocalQuestionImages, MAX_QUESTION_DETAIL_IMAGES, pruneLocalQuestionImages, saveLocalQuestionImage } from './utils/localQuestionImages';
 import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
@@ -136,6 +137,7 @@ export default function App() {
     dataRef.current = loaded;
     durableDataRef.current = loaded;
     setData(loaded);
+    void pruneLocalQuestionImages(loaded.questions.map(question => question.id)).catch(() => undefined);
   };
 
   const handleAutoImport = async (remote: RemoteSyncRecord, expectedLocalDigest: string): Promise<boolean> => {
@@ -290,6 +292,7 @@ export default function App() {
     const saved = await saveAppData(nextData);
     if (saved) {
       durableDataRef.current = nextData;
+      void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
       if (dataRevisionRef.current === revision) setStorageError('');
       return true;
     }
@@ -321,6 +324,7 @@ export default function App() {
       return false;
     }
     durableDataRef.current = nextData;
+    void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
     // A newer mutation may already contain this snapshot plus further changes.
     // Do not roll the UI back to this older snapshot when that happens.
     if (dataRevisionRef.current === revision) {
@@ -569,6 +573,7 @@ export default function App() {
     dataRef.current = result.data;
     durableDataRef.current = result.data;
     setData(result.data);
+    void pruneLocalQuestionImages(result.data.questions.map(question => question.id)).catch(() => undefined);
     setStorageError('');
     return true;
   };
@@ -1063,6 +1068,61 @@ export default function App() {
       setStorageError(message);
       throw new Error(message);
     }
+    if (!detailedExplanation.trim()) await deleteLocalQuestionImages(questionId);
+  };
+
+  const handleAddDetailedImage = async (questionId: string, file: Blob, imageId?: string, originalQuestion?: string): Promise<void> => {
+    const currentQuestion = dataRef.current.questions.find(question => question.id === questionId);
+    if (!currentQuestion || (originalQuestion !== undefined && currentQuestion.question !== originalQuestion)) {
+      throw new Error('画像の追加先が変更または削除されています。問題を確認してから追加してください。');
+    }
+    const existingImageIds = currentQuestion.detailedAnswer?.imageIds ?? [];
+    if (imageId && existingImageIds.includes(imageId)) return;
+    if (existingImageIds.length >= MAX_QUESTION_DETAIL_IMAGES) {
+      throw new Error(`この問題に追加できる画像は${MAX_QUESTION_DETAIL_IMAGES}枚までです。`);
+    }
+
+    const savedImageId = await saveLocalQuestionImage(questionId, file, imageId);
+    const latestData = dataRef.current;
+    const latestQuestion = latestData.questions.find(question => question.id === questionId);
+    if (!latestQuestion || (originalQuestion !== undefined && latestQuestion.question !== originalQuestion)) {
+      await deleteLocalQuestionImage(savedImageId);
+      throw new Error('問題が変更または削除されたため、画像を追加できませんでした。');
+    }
+    const latestImageIds = latestQuestion.detailedAnswer?.imageIds ?? [];
+    if (latestImageIds.includes(savedImageId)) return;
+    if (latestImageIds.length >= MAX_QUESTION_DETAIL_IMAGES) {
+      await deleteLocalQuestionImage(savedImageId);
+      throw new Error(`この問題に追加できる画像は${MAX_QUESTION_DETAIL_IMAGES}枚までです。`);
+    }
+    const body = latestQuestion.detailedAnswer?.body ?? latestQuestion.detailedExplanation ?? '';
+    const updatedAt = nowIso();
+    const updatedQuestion: Question = {
+      ...latestQuestion,
+      detailedAnswer: { body, imageIds: [...latestImageIds, savedImageId], updatedAt },
+      updatedAt,
+    };
+    const nextData = { ...latestData, questions: latestData.questions.map(question => question.id === questionId ? updatedQuestion : question) };
+    if (!await persistThenCommitData(nextData)) {
+      await deleteLocalQuestionImage(savedImageId);
+      throw new Error('画像の保存情報を端末に記録できませんでした。空き容量を確認して再試行してください。');
+    }
+  };
+
+  const handleRemoveDetailedImage = async (questionId: string, imageId: string): Promise<void> => {
+    const current = dataRef.current;
+    const question = current.questions.find(item => item.id === questionId);
+    if (!question) { await deleteLocalQuestionImage(imageId); return; }
+    const imageIds = (question.detailedAnswer?.imageIds ?? []).filter(id => id !== imageId);
+    const updatedAt = nowIso();
+    const updatedQuestion: Question = {
+      ...question,
+      detailedAnswer: { body: question.detailedAnswer?.body ?? question.detailedExplanation ?? '', imageIds, updatedAt },
+      updatedAt,
+    };
+    const nextData = { ...current, questions: current.questions.map(item => item.id === questionId ? updatedQuestion : item) };
+    if (!await persistThenCommitData(nextData)) throw new Error('画像の削除情報を端末に保存できませんでした。もう一度お試しください。');
+    await deleteLocalQuestionImage(imageId);
   };
 
   const handleLinkMaterialPage = async (questionId: string, reference: MaterialReference, linked: boolean): Promise<void> => {
@@ -1415,7 +1475,7 @@ export default function App() {
         const saved = await persistThenCommitData({ ...current, questions: current.questions.map((item) => item.id === next.id ? next : item), progress: reset ? current.progress.filter((item) => item.questionId !== next.id) : current.progress, answerLogs: reset ? current.answerLogs.filter((item) => item.questionId !== next.id) : current.answerLogs });
         if (!saved) return '保存できませんでした。入力内容を残しています。';
         finishEdit(); return null;
-      }} /> : <DetailedAnswerScreen question={question} editing={Boolean(screen.editing)} onBack={() => goBackTo(screen.backScreen)} onEdit={() => replaceScreen({ ...screen, editing: true })} onDirtyChange={setCreateDraftDirty} onSave={async (body, original) => {
+      }} /> : <DetailedAnswerScreen question={question} editing={Boolean(screen.editing)} onBack={() => goBackTo(screen.backScreen)} onEdit={() => replaceScreen({ ...screen, editing: true })} onDirtyChange={setCreateDraftDirty} onAddImage={handleAddDetailedImage} onRemoveImage={handleRemoveDetailedImage} onSave={async (body, original) => {
         const latest = dataRef.current.questions.find((item) => item.id === original.id);
         if (!latest || JSON.stringify(latest) !== JSON.stringify(original)) return '問題が別の操作で更新されました。入力内容を控えて開き直してください。';
         await handleSaveDetailedExplanation(original.id, body);
@@ -1570,6 +1630,8 @@ export default function App() {
           onAnswer={handleAnswer}
           onToggleAmbiguous={handleToggleAmbiguous}
           onSaveDetailedExplanation={handleSaveDetailedExplanation}
+          onAddDetailedImage={handleAddDetailedImage}
+          onRemoveDetailedImage={handleRemoveDetailedImage}
           onLinkMaterialPage={handleLinkMaterialPage}
           onLinkMaterialBatch={handleLinkMaterialBatch}
           onFinish={handleFinish}
@@ -1593,6 +1655,8 @@ export default function App() {
           onAnswer={screen.session.isPreview ? handlePreviewAnswer : handleAnswer}
           onToggleAmbiguous={screen.session.isPreview ? async () => true : handleToggleAmbiguous}
           onSaveDetailedExplanation={screen.session.isPreview ? async () => undefined : handleSaveDetailedExplanation}
+          onAddDetailedImage={screen.session.isPreview ? undefined : handleAddDetailedImage}
+          onRemoveDetailedImage={screen.session.isPreview ? undefined : handleRemoveDetailedImage}
           onLinkMaterialPage={screen.session.isPreview ? undefined : handleLinkMaterialPage}
           onLinkMaterialBatch={screen.session.isPreview ? undefined : handleLinkMaterialBatch}
           onFinish={handleFinish}
@@ -1661,8 +1725,7 @@ export default function App() {
         if (current.name === 'detailedAnswer' && current.questionId === questionId) return;
         navigate({name:'detailedAnswer',questionId,backScreen:current});
       }} onSave={async (questionId,originalQuestion,image,shareId)=>{
-        const next=appendSharedImage(dataRef.current,questionId,originalQuestion,image,shareId);
-        if(!await persistThenCommitData(next))throw new Error('画像を保存できませんでした。再読み込みして追加し直してください。');
+        await handleAddDetailedImage(questionId,image,shareId,originalQuestion);
       }}/>
       <WelcomeGuide active={!guideReturn && screen.name === 'home' && !waitingWorker && !storageError && !receivingSharedImage} onStartGuide={() => { setGuideReturn('home'); navigatePrimary('home'); }} />
       {guideReturn && <UsageGuide onNavigate={navigatePrimary} onClose={() => { navigatePrimary(guideReturn); setGuideReturn(null); }} />}

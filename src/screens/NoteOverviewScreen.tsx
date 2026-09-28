@@ -72,7 +72,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
               </section> : null}
               <section className="note-explanation-item__answer" aria-label="詳細解説">
                 <h4>解説</h4>
-                <ExplanationReader text={detailBody(question)}/>
+                <ExplanationReader questionId={question.id} text={detailBody(question)} imageIds={question.detailedAnswer?.imageIds ?? []}/>
               </section>
             </article>;
           })}

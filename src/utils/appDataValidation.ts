@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import { normalizeFolderHierarchy } from './folderHierarchy';
 import { isFolderColor } from './folderColors';
+import { MAX_QUESTION_DETAIL_IMAGES } from './imageLimits';
 
 export type AppDataNormalizationResult =
   | { ok: true; data: AppData }
@@ -190,7 +191,7 @@ function normalizeQuestions(
     if (value.detailedAnswer !== undefined) {
       const detail = value.detailedAnswer;
       if (!isRecord(detail) || typeof detail.body !== 'string' || !Array.isArray(detail.imageIds)
-        || detail.imageIds.length > 4 || !detail.imageIds.every(isNonEmptyString)) {
+        || detail.imageIds.length > MAX_QUESTION_DETAIL_IMAGES || !detail.imageIds.every(isNonEmptyString)) {
         return invalid(`questions[${index}].detailedAnswer が不正です。`);
       }
       item.detailedAnswer = { body: detail.body, imageIds: [...new Set(detail.imageIds as string[])], updatedAt: normalizeDate(detail.updatedAt, item.updatedAt) };

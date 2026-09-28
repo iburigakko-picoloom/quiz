@@ -45,6 +45,31 @@ type PenSize = (typeof PEN_WIDTHS)[number];
 type EraserSize = (typeof ERASER_WIDTHS)[number];
 type NoteTool = 'pen' | 'eraser' | 'marker';
 export interface NoteToolSettings { colorKey: NoteColorKey; penSize: PenSize; eraserSize: EraserSize; tool: NoteTool; markerColor: keyof typeof MARKER_COLORS; markerSize: number }
+// Keep this preference outside the Quiz make storage-key prefixes so it stays on this device.
+const NOTE_TOOL_SETTINGS_KEY = 'quizNoteToolSettingsV1';
+const DEFAULT_NOTE_TOOL_SETTINGS: NoteToolSettings = { colorKey: 'black', penSize: 1, eraserSize: 10, tool: 'pen', markerColor: 'yellow', markerSize: 15 };
+
+function loadNoteToolSettings(): NoteToolSettings | null {
+  try {
+    const raw = window.localStorage.getItem(NOTE_TOOL_SETTINGS_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<NoteToolSettings>;
+    if (!value || typeof value !== 'object'
+      || typeof value.colorKey !== 'string' || !Object.prototype.hasOwnProperty.call(NOTE_COLORS, value.colorKey)
+      || !(PEN_WIDTHS as readonly unknown[]).includes(value.penSize)
+      || !(ERASER_WIDTHS as readonly unknown[]).includes(value.eraserSize)
+      || !['pen', 'eraser', 'marker'].includes(value.tool ?? '')
+      || typeof value.markerColor !== 'string' || !Object.prototype.hasOwnProperty.call(MARKER_COLORS, value.markerColor)
+      || !(MARKER_WIDTHS as readonly unknown[]).includes(value.markerSize)) return null;
+    return value as NoteToolSettings;
+  } catch {
+    return null;
+  }
+}
+
+function saveNoteToolSettings(settings: NoteToolSettings): void {
+  try { window.localStorage.setItem(NOTE_TOOL_SETTINGS_KEY, JSON.stringify(settings)); } catch { /* Keep drawing even when local settings cannot be stored. */ }
+}
 type NoteLoadState = 'loading' | 'ready' | 'error';
 type NotePaintState = 'loading' | 'ready' | 'error';
 type NoteSaveQueueState = 'idle' | 'pending' | 'saved' | 'error';
@@ -281,13 +306,18 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 
   const [note, setNote] = useState<CategoryNote>(() => createEmptyNote(problemSetId ?? '', normalizedCategory));
   const [pageIndex, setPageIndex] = useState(0);
-  const [colorKey, setColorKey] = useState<NoteColorKey>(initialTools?.colorKey ?? 'black');
-  const [penSize, setPenSize] = useState<PenSize>(initialTools?.penSize ?? 1);
-  const [eraserSize, setEraserSize] = useState<EraserSize>(initialTools?.eraserSize ?? 10);
-  const [tool, setTool] = useState<NoteTool>(initialTools?.tool ?? 'pen');
-  const [markerColor, setMarkerColor] = useState<keyof typeof MARKER_COLORS>(initialTools?.markerColor ?? 'yellow');
-  const [markerSize, setMarkerSize] = useState<number>(initialTools?.markerSize ?? 15);
-  useEffect(() => { onToolsChange?.({ colorKey, penSize, eraserSize, tool, markerColor, markerSize }); }, [colorKey, penSize, eraserSize, tool, markerColor, markerSize, onToolsChange]);
+  const [restoredTools] = useState<NoteToolSettings>(() => loadNoteToolSettings() ?? initialTools ?? DEFAULT_NOTE_TOOL_SETTINGS);
+  const [colorKey, setColorKey] = useState<NoteColorKey>(restoredTools.colorKey);
+  const [penSize, setPenSize] = useState<PenSize>(restoredTools.penSize);
+  const [eraserSize, setEraserSize] = useState<EraserSize>(restoredTools.eraserSize);
+  const [tool, setTool] = useState<NoteTool>(restoredTools.tool);
+  const [markerColor, setMarkerColor] = useState<keyof typeof MARKER_COLORS>(restoredTools.markerColor);
+  const [markerSize, setMarkerSize] = useState<number>(restoredTools.markerSize);
+  useEffect(() => {
+    const settings = { colorKey, penSize, eraserSize, tool, markerColor, markerSize };
+    onToolsChange?.(settings);
+    saveNoteToolSettings(settings);
+  }, [colorKey, penSize, eraserSize, tool, markerColor, markerSize, onToolsChange]);
   const [toolOptions, setToolOptions] = useState<'color' | 'width' | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
