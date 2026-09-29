@@ -17,6 +17,9 @@ import { deleteLocalQuestionImage, deleteLocalQuestionImages, MAX_QUESTION_DETAI
 import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
+import { replayLocalStorageProjections } from './utils/localStorageRecords';
+import { withCoordinatedDataMutation } from './utils/dataCoordination';
+import type { RecordSyncGuards } from './utils/recordSyncEngine';
 import { QuestionEditScreen } from './screens/QuestionEditScreen';
 import { DetailedAnswerScreen } from './screens/DetailedAnswerScreen';
 import { NoteOverviewScreen } from './screens/NoteOverviewScreen';
@@ -171,12 +174,47 @@ export default function App() {
     }
   };
 
+  const applyRecordImport: RecordSyncGuards['apply'] = async (operation) => {
+    if (!canAutoImport()) return null;
+    autoImportBusyRef.current = true;
+    libraryMutationBusyRef.current = true;
+    setAutoImportBusy(true);
+    setLibraryMutationBusy(true);
+    try {
+      const result = await withCoordinatedDataMutation(['app','notes'], async () => {
+        if (!autoImportEligibleRef.current || screenRef.current.name !== 'home' || document.visibilityState !== 'visible') return null;
+        const applied = await operation();
+        if (applied.applied) {
+          await replayLocalStorageProjections();
+          if (applied.changed) {
+            if (!applied.data) throw new Error('差分読込後の問題データを確認できませんでした。');
+            dataRevisionRef.current += 1;
+            dataRef.current = applied.data;
+            durableDataRef.current = applied.data;
+            setData(applied.data);
+          }
+        }
+        return applied;
+      }, { requireCrossContext: true });
+      return result;
+    } catch (error) {
+      setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
+      throw error;
+    } finally {
+      autoImportBusyRef.current = false;
+      libraryMutationBusyRef.current = false;
+      setAutoImportBusy(false);
+      setLibraryMutationBusy(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     setStorageReady(false);
     setStorageLoadError('');
     void loadAppDataAsync()
-      .then((loadedData) => {
+      .then(async (loadedData) => {
+        await replayLocalStorageProjections();
         if (cancelled) return;
         dataRef.current = loadedData;
         durableDataRef.current = loadedData;
@@ -1717,7 +1755,8 @@ export default function App() {
   return (
     <>
       <AutoSyncController protectedWorkReason={protectedWorkReason} canAutoImport={canAutoImport}
-        autoImportReady={autoImportEligibleRef.current && !libraryMutationBusy && !autoImportBusy} onAutoImport={handleAutoImport} />
+        autoImportReady={autoImportEligibleRef.current && !libraryMutationBusy && !autoImportBusy} onAutoImport={handleAutoImport}
+        onRecordApply={applyRecordImport} />
       {autoImportBusy && <div className="quiz-sync-applying" role="status" aria-live="polite">クラウドの更新を反映中…</div>}
       <SharedImageReceiver data={data} onReceive={()=>setReceivingSharedImage(true)} onClose={()=>setReceivingSharedImage(false)} onOpenQuestion={questionId=>{
         const current = screenRef.current;

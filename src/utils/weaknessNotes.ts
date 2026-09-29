@@ -1,6 +1,7 @@
 import type { AppData, Question } from '../types';
 import { withCoordinatedDataMutation } from './dataCoordination';
 import { advanceLocalDataRevision } from './localDataRevision';
+import { saveSyncedLocalStorage } from './localStorageRecords';
 
 export const NOTES_KEY = 'quiz-make-creation-notes-v1';
 export const NOTES_EVENT = 'quiz-make-weakness-notes-changed';
@@ -44,8 +45,11 @@ export async function removeOrphanWeaknessNotes(questionIds: string[]) {
   // Keep a recovery copy before removing only notes whose source question is gone.
   const recoveryKey = `${NOTES_KEY}-removed-orphans`;
   const previous = parseNotes(localStorage.getItem(recoveryKey));
-  localStorage.setItem(recoveryKey, JSON.stringify([...previous.filter(n => !removed.some(r => r.id === n.id)), ...removed]));
-  return writeWeaknessNotes(notes.filter(note => !removed.some(r => r.id === note.id && r.questionId === note.questionId && r.body === note.body)));
+  const kept = notes.filter(note => !removed.some(r => r.id === note.id && r.questionId === note.questionId && r.body === note.body));
+  await saveSyncedLocalStorage({ [recoveryKey]: JSON.stringify([...previous.filter(n => !removed.some(r => r.id === n.id)), ...removed]), [NOTES_KEY]: JSON.stringify(kept) });
+  advanceLocalDataRevision();
+  window.dispatchEvent(new Event(NOTES_EVENT));
+  return kept;
   });
 }
 export function changeWeaknessNotes(change: (notes: WeaknessNote[]) => WeaknessNote[]) {
@@ -63,9 +67,9 @@ export function deleteWeaknessNote(note: WeaknessNote) {
     return notes.filter(item => item.id !== note.id);
   });
 }
-function writeWeaknessNotes(next: WeaknessNote[]) {
+async function writeWeaknessNotes(next: WeaknessNote[]) {
   const raw = JSON.stringify(next);
-  localStorage.setItem(NOTES_KEY, raw);
+  await saveSyncedLocalStorage({ [NOTES_KEY]: raw });
   if (localStorage.getItem(NOTES_KEY) !== raw) throw new Error('メモの保存を確認できませんでした。');
   advanceLocalDataRevision();
   window.dispatchEvent(new Event(NOTES_EVENT));
@@ -125,7 +129,7 @@ export function rememberExplanationRequest(request: ExplanationRequest) {
   assertWeaknessWritable();
   const raw = parseExplanationRequests(localStorage.getItem(REQUEST_KEY));
   const next = JSON.stringify([...raw.filter(r => r.id !== request.id), request]);
-  localStorage.setItem(REQUEST_KEY, next);
+  await saveSyncedLocalStorage({ [REQUEST_KEY]: next });
   if (localStorage.getItem(REQUEST_KEY) !== next) throw new Error('依頼履歴の保存を確認できませんでした。');
   advanceLocalDataRevision();
   window.dispatchEvent(new Event(NOTES_EVENT));

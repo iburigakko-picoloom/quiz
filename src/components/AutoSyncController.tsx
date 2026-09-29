@@ -7,6 +7,7 @@ import {
   exportQuizMakeData,
   getAutoSyncSettings,
   getLastSyncState,
+  isLocalSyncUnchanged,
   getRemoteSyncMeta,
   setLastSyncState,
   setLastSyncStateForConnection,
@@ -19,6 +20,9 @@ import { CLOUD_UPDATE_EVENT, isCloudUpdateDismissed } from '../utils/cloudUpdate
 import { createAutoSyncScheduler, isAutoUploadBlocked, type AutoSyncOutcome } from '../utils/autoSyncScheduler';
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { onCloudAuthStateChange } from '../utils/cloudService';
+import { runAppRecordSync } from '../utils/recordSyncCoordinator';
+import { RecordSyncRpcError } from '../utils/recordSyncNetwork';
+import type { RecordSyncGuards } from '../utils/recordSyncEngine';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 5000;
@@ -28,9 +32,10 @@ interface AutoSyncControllerProps {
   canAutoImport: () => boolean;
   autoImportReady: boolean;
   onAutoImport: (remote: RemoteSyncRecord, expectedLocalDigest: string) => Promise<boolean>;
+  onRecordApply: RecordSyncGuards['apply'];
 }
 
-export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImportReady, onAutoImport }: AutoSyncControllerProps) {
+export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImportReady, onAutoImport, onRecordApply }: AutoSyncControllerProps) {
   const uploadRunningRef = useRef(false);
   const remoteCheckRunningRef = useRef(false);
   const lastRemoteCheckAtRef = useRef(0);
@@ -38,13 +43,39 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
   const protectedWorkReasonRef = useRef(protectedWorkReason);
   const previousProtectedWorkReasonRef = useRef(protectedWorkReason);
   const resumeSyncRef = useRef<(() => void) | null>(null);
-  const importHandlersRef = useRef({ canAutoImport, onAutoImport });
-  importHandlersRef.current = { canAutoImport, onAutoImport };
+  const importHandlersRef = useRef({ canAutoImport, onAutoImport, onRecordApply });
+  importHandlersRef.current = { canAutoImport, onAutoImport, onRecordApply };
   protectedWorkReasonRef.current = protectedWorkReason;
   useEffect(() => {
     cleanupLegacySyncBackups();
     let disposed = false;
     let lastConflictKey = '';
+    let v2Unavailable = false;
+
+    const tryRecordSync = async (syncId: string): Promise<AutoSyncOutcome | null> => {
+      const state = getLastSyncState();
+      if (v2Unavailable || !state.lastSyncAt || !state.lastSyncDigest) return null;
+      try {
+        const result = await runAppRecordSync(syncId, operation => importHandlersRef.current.onRecordApply(operation));
+        if (result.status === 'more') return 'changed';
+        if (result.status === 'deferred') return 'paused';
+        if (result.status === 'conflict') {
+          setLastSyncState({ status: 'クラウドと端末の編集が競合しています', error: '両方の内容を保存しています。同期画面で確認してください。' });
+          window.dispatchEvent(new CustomEvent(CLOUD_UPDATE_EVENT, { detail: { syncId, updatedAt: getLastSyncState().lastRemoteUpdatedAt } }));
+          return 'paused';
+        }
+        setLastSyncState({ status: '同期済み', error: '' });
+        return 'done';
+      } catch (error) {
+        if (error instanceof RecordSyncRpcError && ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(error.code)) {
+          v2Unavailable = true;
+          return null;
+        }
+        if (disposed || getAutoSyncSettings().syncId !== syncId) return 'paused';
+        setLastSyncState({ status: '端末のデータを保持して再試行します', error: error instanceof Error ? error.message : '差分同期に失敗しました。' });
+        return error instanceof RecordSyncRpcError && error.code === 'rate_limited' ? 'rate_limited' : 'retry';
+      }
+    };
 
     const uploadIfChanged = async (): Promise<AutoSyncOutcome> => {
       const settings = getAutoSyncSettings();
@@ -62,6 +93,12 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       uploadRunningRef.current = true;
       let shouldCheckRemoteAfterUpload = false;
       try {
+        const recordResult = await tryRecordSync(settings.syncId);
+        if (recordResult) return recordResult;
+        if (await isLocalSyncUnchanged(getLastSyncState().lastSyncDigest)) {
+          setLastSyncState({ status: '自動同期: 待機中', error: '' });
+          return 'done';
+        }
         const payload = await exportQuizMakeData();
         const currentSettings = getAutoSyncSettings();
         if (disposed || !currentSettings.enabled || currentSettings.syncId !== settings.syncId) return 'paused';
@@ -69,7 +106,6 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
           setLastSyncState({ status: '自動同期: 作業終了後に保存します', error: '' });
           return 'paused';
         }
-        const hash = computePayloadHash(payload);
         const lastState = getLastSyncState();
         if (!lastState.lastSyncAt && !lastState.lastUploadHash) {
           setLastSyncState({ status: '自動同期: 初回は手動保存または読み込みをしてください', error: '' });
@@ -77,7 +113,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         }
         if (lastState.lastSyncDigest
           ? await computePayloadDigest(payload) === lastState.lastSyncDigest
-          : hash === lastState.lastUploadHash) {
+          : computePayloadHash(payload) === lastState.lastUploadHash) {
           setLastSyncState({ status: '自動同期: 待機中', error: '' });
           return 'done';
         }
@@ -163,6 +199,10 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         const lastState = getLastSyncState();
         setLastSyncState({ lastRemoteUpdatedAt: meta.value.updatedAt });
         const remoteHasChanged = meta.value.updatedAt !== lastState.lastSyncAt;
+        if (!v2Unavailable && lastState.lastSyncAt && lastState.lastSyncDigest && remoteHasChanged) {
+          uploadQueue.request(true);
+          return;
+        }
         const canReconcile = () => !disposed && getAutoSyncSettings().enabled
           && getAutoSyncSettings().syncId === settings.syncId
           && document.visibilityState === 'visible' && protectedWorkReasonRef.current === null
