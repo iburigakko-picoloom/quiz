@@ -1,0 +1,63 @@
+import { appRecordKey, type AppRecord, type AppRecordState, type AppOutboxOperation } from './appRecordStorage';
+
+export const NOTE_CURRENT_STORE = 'categoryNotes';
+export const NOTE_BACKUP_STORE = 'categoryNoteBackups';
+export const NOTE_RECORD_TRANSACTION_STORES = [NOTE_CURRENT_STORE, NOTE_BACKUP_STORE, 'appRecordMeta', 'appRecords', 'appRecordBackups', 'appOutbox'];
+const transactionStates = new WeakMap<IDBTransaction, { request: IDBRequest; changed: boolean }>();
+const activeTransactions = new Set<IDBTransaction>();
+let operationEpoch = 0;
+export const noteOperationEpoch = () => operationEpoch;
+export function assertNoteOperationEpoch(epoch: number): void {
+  if (epoch !== operationEpoch) throw new Error('ノート保存がタイムアウトしたため、遅れて到着した保存を中止しました。');
+}
+export function trackNoteTransaction(tx: IDBTransaction): void {
+  if (activeTransactions.has(tx)) return;
+  activeTransactions.add(tx);
+  const release = () => activeTransactions.delete(tx);
+  tx.addEventListener?.('complete', release, { once: true });
+  tx.addEventListener?.('abort', release, { once: true });
+}
+export function abortPendingNoteTransactions(): void {
+  operationEpoch++;
+  for (const tx of activeTransactions) { try { tx.abort(); } catch { /* Already completed. */ } }
+  activeTransactions.clear();
+}
+
+/** Queue one auxiliary value in the same transaction as its primary store write.
+ * The revision is shared by every note in this transaction.
+ */
+export function queueNoteRecordWrite(tx: IDBTransaction, id: string, raw: string | null): void {
+  queueAuxiliaryRecordWrite(tx, 'indexedDbNotes', id, raw);
+}
+export function queueAuxiliaryRecordWrite(tx: IDBTransaction, collection: 'indexedDbNotes' | 'localStorage' | 'questionImages', id: string, raw: string | null): void {
+  trackNoteTransaction(tx);
+  const meta = tx.objectStore('appRecordMeta');
+  let shared = transactionStates.get(tx);
+  if (!shared) { shared = { request: meta.get('state'), changed: false }; transactionStates.set(tx, shared); }
+  const stateRequest = shared.request;
+  const key = appRecordKey(collection, id);
+  const oldRequest = tx.objectStore('appRecords').get(key);
+  oldRequest.onsuccess = () => {
+    try {
+      const state = stateRequest.result as AppRecordState | undefined;
+      const old = oldRequest.result as AppRecord | undefined;
+      if (!state) throw new Error('問題データのレコード移行が完了していません。');
+      if (old?.raw === raw || (!old && raw === null)) return;
+      const revision = state.revision + 1;
+      if (!Number.isSafeInteger(revision)) throw new Error('保存Revisionの上限に達しました。');
+      const row: AppRecord = { key, collection, id, raw, position: 0, localRevision: revision, serverRevision: old?.serverRevision ?? 0 };
+      const operation: AppOutboxOperation = { ...row, operationId: crypto.randomUUID(), baseRevision: row.serverRevision };
+      if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, key);
+      tx.objectStore('appRecords').put(row, key);
+      tx.objectStore('appOutbox').put(operation, key);
+      if (collection === 'indexedDbNotes' && raw && /"kind"\s*:\s*"quiz-material-(?:remote-)?file"/u.test(raw)) {
+        meta.put(1, 'recordMediaPresent');
+      }
+      if (!shared.changed) {
+        meta.put(state, 'previousState');
+        meta.put({ ...state, revision, commitId: crypto.randomUUID(), savedAt: new Date().toISOString() }, 'state');
+        shared.changed = true;
+      }
+    } catch { tx.abort(); }
+  };
+}

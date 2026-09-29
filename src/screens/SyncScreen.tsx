@@ -46,6 +46,7 @@ import { isStrongSyncId } from '../utils/syncState';
 import { saveJsonBackup, writeClipboardText } from '../utils/nativePlatform';
 import { getCloudSession, onCloudAuthStateChange, sendMagicLink } from '../utils/cloudService';
 import { LineLoginButton } from '../components/LineLoginButton';
+import { RecordConflictPanel } from '../components/RecordConflictPanel';
 import './SyncScreen.css';
 
 interface SyncScreenProps {
@@ -1005,6 +1006,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
 
         {configured && authenticated && hasStrongConnection && syncIdConnected ? (
           <section className="sync-card sync-card--transfer">
+            <RecordConflictPanel syncId={normalizedSyncId} accountId={cloudAccount.id} onImported={onImported} />
             <SyncComparison syncId={normalizedSyncId} disabled={!canRun} onUpload={handleUpload} onDownload={handleDownload} />
 
             <div className="sync-auto-row">

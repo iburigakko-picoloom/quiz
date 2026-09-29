@@ -75,6 +75,7 @@ const coordination = await vite.ssrLoadModule('/src/utils/dataCoordination.ts');
 const storage = await vite.ssrLoadModule('/src/storage.ts');
 const notes = await vite.ssrLoadModule('/src/utils/noteStorage.ts');
 const sync = await vite.ssrLoadModule('/src/utils/syncService.ts');
+const metrics = await vite.ssrLoadModule('/src/utils/syncMetrics.ts');
 const weakness = await vite.ssrLoadModule('/src/utils/weaknessNotes.ts');
 sync.setSyncAccessTokenProviderForTests(async () => ({
   ok: true,
@@ -112,6 +113,80 @@ function appDataWithFolder(name) {
     }],
   };
 }
+
+test('idle sync skips export and hashing; edits, fallback changes and integrity markers invalidate it', async () => {
+  resetStorage();
+  const data = appDataWithFolder('idle');
+  data.folders = Array.from({ length: 10000 }, (_, i) => ({ ...data.folders[0], id: `folder-${i}`, name: `Folder ${i}` }));
+  assert.equal(await storage.saveAppData(data), true);
+  metrics.resetSyncMetrics();
+  const started = performance.now();
+  const payload = await sync.exportQuizMakeData();
+  const digest = await sync.computePayloadDigest(payload);
+  const initialMs = performance.now() - started;
+  assert.equal(await sync.computePayloadDigest(payload), digest);
+  assert.throws(() => { payload.localStorage.extra = 'mutated'; }, TypeError);
+  const idleStart = performance.now();
+  for (let i = 0; i < 100; i++) assert.equal(await sync.isLocalSyncUnchanged(digest), true);
+  const idleMs = performance.now() - idleStart;
+  const measured = metrics.getSyncMetrics();
+  assert.equal(measured.export.count, 1);
+  assert.equal(measured.digest.count, 1);
+  assert.equal(measured.idleExportSkipped.count, 100);
+  console.log(`sync benchmark: 10000 folders, initial ${initialMs.toFixed(2)} ms, 100 idle checks ${idleMs.toFixed(2)} ms; exports=1 digests=1`);
+  localStorage.setItem(storage.APP_DATA_RECOVERY_REQUIRED_KEY, 'test');
+  assert.equal(await sync.isLocalSyncUnchanged(digest), false);
+  localStorage.removeItem(storage.APP_DATA_RECOVERY_REQUIRED_KEY);
+  localStorage.setItem('quizMake:settings:test', 'changed outside revision API');
+  assert.equal(await sync.isLocalSyncUnchanged(digest), false);
+  localStorage.removeItem('quizMake:settings:test');
+  localStorage.setItem('quiz-make-app-data-v1:fallback-record', 'broken');
+  assert.equal(await sync.isLocalSyncUnchanged(digest), false);
+  assert.equal(await storage.saveAppData(appDataWithFolder('edited')), true);
+  assert.equal(await sync.isLocalSyncUnchanged(digest), false);
+});
+
+test('idle shortcut fails closed on storage read failures, other tabs and unfinished imports', async () => {
+  resetStorage();
+  assert.equal(await storage.saveAppData(appDataWithFolder('safe')), true);
+  const payload = await sync.exportQuizMakeData();
+  const digest = await sync.computePayloadDigest(payload);
+  localStorage.setItem('quizMake:sync:dataImportInProgress', '{}');
+  assert.equal(await sync.isLocalSyncUnchanged(digest), false);
+  localStorage.removeItem('quizMake:sync:dataImportInProgress');
+  localStorage.failReadsFor.add(storage.APP_DATA_EXPECTED_KEY);
+  await assert.rejects(sync.isLocalSyncUnchanged(digest), /storage read failed/);
+  localStorage.failReadsFor.clear();
+  localStorage.setItem('quizMake:coord:appEpoch', 'another-tab');
+  await assert.rejects(sync.isLocalSyncUnchanged(digest), /別のタブ/);
+});
+
+test('mutable external payloads never reuse a stale digest', async () => {
+  const payload = { version: 1, updatedAt: timestamp, localStorage: { 'quizMake:test': 'before' } };
+  const digest = await sync.computePayloadDigest(payload);
+  payload.localStorage['quizMake:test'] = 'after';
+  assert.notEqual(await sync.computePayloadDigest(payload), digest);
+});
+
+test('restart requires fresh verification and a failed save cannot take the idle shortcut', async () => {
+  resetStorage();
+  assert.equal(await storage.saveAppData(appDataWithFolder('durable')), true);
+  const payload = await sync.exportQuizMakeData();
+  const digest = await sync.computePayloadDigest(payload);
+  const restarted = await vite.ssrLoadModule('/src/utils/syncService.ts?restart-idle-test');
+  assert.equal(await restarted.isLocalSyncUnchanged(digest), false);
+  localStorage.failWrites = true;
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(await storage.saveAppData(appDataWithFolder('not saved')), false);
+    await assert.rejects(sync.isLocalSyncUnchanged(digest), /保存できていない/);
+  } finally {
+    localStorage.failWrites = false;
+    console.error = originalError;
+    assert.equal(await storage.saveAppData(appDataWithFolder('recovered')), true);
+  }
+});
 
 test('question memos and pending AI request IDs survive backup restore; old backups do not erase them', async () => {
   resetStorage();

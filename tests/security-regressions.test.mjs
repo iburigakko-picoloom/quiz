@@ -1,6 +1,40 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { validateClientEnvironment } from '../scripts/check-client-env.mjs';
+
+test('distribution guard rejects privileged keys and mismatched cutover projects without exposing keys', () => {
+  const ref = 'abcdefghijklmnopqrst';
+  const otherRef = 'bcdefghijklmnopqrstu0';
+  const jwt = (payload) => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'test_signature'].join('.');
+  const env = {
+    VITE_SUPABASE_URL: `https://${ref}.supabase.co`,
+    VITE_SUPABASE_ANON_KEY: jwt({ role: 'anon', ref }),
+    VITE_LINE_AUTH_PROVIDER: 'custom:quizmake-line',
+    QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF: ref,
+  };
+  assert.equal(validateClientEnvironment(env), null);
+  assert.equal(validateClientEnvironment({ ...env, VITE_SUPABASE_ANON_KEY: `sb_publishable_${'a'.repeat(24)}` }), null);
+  assert.equal(validateClientEnvironment({ ...env, QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF: '' }), null);
+  for (const override of [
+    { VITE_SUPABASE_ANON_KEY: jwt({ role: 'service_role', ref }) },
+    { VITE_SUPABASE_ANON_KEY: `sb_secret_${'a'.repeat(24)}` },
+    { VITE_SUPABASE_ANON_KEY: jwt({ role: 'anon', ref: otherRef }) },
+    { VITE_SUPABASE_ANON_KEY: 'invalid' },
+    { VITE_SUPABASE_ANON_KEY: '' },
+    { QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF: otherRef },
+    { VITE_SUPABASE_URL: `https://${ref}.supabase.co/?credential=hidden` },
+    { VITE_SUPABASE_URL: `https://hidden:credential@${ref}.supabase.co` },
+    { VITE_SUPABASE_URL: '' },
+    { VITE_LINE_AUTH_PROVIDER: 'custom:typo' },
+  ]) {
+    const candidate = { ...env, ...override };
+    const error = validateClientEnvironment(candidate);
+    assert.equal(typeof error, 'string');
+    if (candidate.VITE_SUPABASE_ANON_KEY) assert.ok(!error.includes(candidate.VITE_SUPABASE_ANON_KEY));
+    assert.ok(!error.includes('credential=hidden'));
+  }
+});
 
 const [
   baseCollaborationSql,
