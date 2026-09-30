@@ -23,7 +23,7 @@ import { onCloudAuthStateChange } from '../utils/cloudService';
 import { runAppRecordSync } from '../utils/recordSyncCoordinator';
 import { RecordSyncRpcError } from '../utils/recordSyncNetwork';
 import type { RecordSyncGuards } from '../utils/recordSyncEngine';
-import { isRecordSyncOptedIn } from '../utils/recordSyncOptIn';
+import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 5000;
@@ -70,6 +70,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       } catch (error) {
         if (error instanceof RecordSyncRpcError && ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(error.code)) {
           v2Unavailable = true;
+          setRecordSyncOptIn(syncId, false);
           return null;
         }
         if (disposed || getAutoSyncSettings().syncId !== syncId) return 'paused';
