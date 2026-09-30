@@ -47,6 +47,7 @@ import { saveJsonBackup, writeClipboardText } from '../utils/nativePlatform';
 import { getCloudSession, onCloudAuthStateChange, sendMagicLink } from '../utils/cloudService';
 import { LineLoginButton } from '../components/LineLoginButton';
 import { RecordConflictPanel } from '../components/RecordConflictPanel';
+import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
 import './SyncScreen.css';
 
 interface SyncScreenProps {
@@ -60,6 +61,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   const [syncId, setSyncId] = useState(() => getStoredSyncId());
   const [activeSyncId, setActiveSyncId] = useState(() => getStoredSyncId().trim());
   const [autoEnabled, setAutoEnabledState] = useState(() => getAutoSyncSettings().enabled);
+  const [recordSyncOptedIn, setRecordSyncOptedInState] = useState(() => isRecordSyncOptedIn(getStoredSyncId().trim()));
   const [lastState, setLastState] = useState<LastSyncState>(() => getLastSyncState());
   const [busy, setBusy] = useState(false);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
@@ -136,6 +138,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
     const refreshSyncState = () => {
       setLastState(getLastSyncState());
       setAutoEnabledState(getAutoSyncSettings().enabled);
+      setRecordSyncOptedInState(isRecordSyncOptedIn(getStoredSyncId().trim()));
     };
     const refreshExternalSyncState = (event: StorageEvent) => {
       if (event.storageArea && event.storageArea !== localStorage) return;
@@ -530,6 +533,40 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
     setAutoEnabledState(result.value);
     setLastState(getLastSyncState());
     setMessage(result.value ? '自動同期をONにしました。' : '自動同期をOFFにしました。');
+  };
+
+  const handleToggleRecordSync = async () => {
+    setMessage('');
+    setError('');
+    if (recordSyncOptedIn) {
+      const result = setRecordSyncOptIn(activeSyncId, false);
+      if (!result.ok) { setError(result.error); return; }
+      setRecordSyncOptedInState(false);
+      setMessage('高速同期をOFFにしました。従来の同期へ戻ります。');
+      return;
+    }
+    if (!autoCanRun || busy) {
+      setError('高速同期を始めるには、ログインと同期接続を確認し、自動同期をONにしてください。');
+      return;
+    }
+    setBusy(true);
+    try {
+      const payload = await exportQuizMakeRecoveryData();
+      await saveJsonBackup(`quiz-make-backup-${formatBackupFileDate(new Date())}.json`, JSON.stringify(payload, null, 2));
+      const current = getAutoSyncSettings();
+      const session = await getCloudSession();
+      if (!current.enabled || current.syncId.trim() !== activeSyncId || session?.user.id !== cloudAccount?.id) {
+        throw new Error('バックアップ作成中に同期接続が変わりました。');
+      }
+      const result = setRecordSyncOptIn(activeSyncId, true);
+      if (!result.ok) throw new Error(result.error);
+      setRecordSyncOptedInState(true);
+      setMessage('JSONバックアップを作成し、この端末で高速同期をONにしました。');
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : '高速同期をONにできませんでした。');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleDownloadBackup = async () => {
@@ -1025,6 +1062,25 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
                 disabled={!autoEnabled && (!configured || !authenticated || !syncIdConnected)}
               >
                 {autoEnabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            <div className="sync-auto-row">
+              <div>
+                <strong>高速同期（試験運用）</strong>
+                <small>変更した問題・回答だけを送受信します。ONにする前に、この端末のJSONバックアップを保存します。</small>
+                {!autoEnabled ? <small>自動同期をONにすると選べます。</small> : null}
+              </div>
+              <button
+                type="button"
+                className={`sync-toggle__button${recordSyncOptedIn ? ' sync-toggle__button--active' : ''}`}
+                onClick={() => void handleToggleRecordSync()}
+                role="switch"
+                aria-label="高速同期"
+                aria-checked={recordSyncOptedIn}
+                disabled={!recordSyncOptedIn && (busy || !autoCanRun)}
+              >
+                {recordSyncOptedIn ? 'ON' : 'OFF'}
               </button>
             </div>
 
