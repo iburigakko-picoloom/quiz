@@ -163,6 +163,47 @@ export function deleteProblemSet(data: AppData, setId: string): AppData {
   };
 }
 
+/** Shared deterministic transition for a saved answer and verified sync replay. */
+export function advanceAnswerProgress(
+  existing: QuestionProgress, selectedIndex: number, isCorrect: boolean, timestamp: string,
+): QuestionProgress {
+  const wasUnanswered = existing.answeredCount === 0;
+  const currentLevel = getVirtualLevel(existing);
+  const nextProgress: QuestionProgress = {
+    ...existing,
+    answeredCount: existing.answeredCount + 1,
+    correctCount: existing.correctCount + (isCorrect ? 1 : 0),
+    wrongCount: existing.wrongCount + (isCorrect ? 0 : 1),
+    lastSelectedIndex: selectedIndex,
+    lastAnswerCorrect: isCorrect,
+    lastAnsweredAt: timestamp,
+  };
+  if (wasUnanswered) {
+    nextProgress.isReview = true;
+    nextProgress.isGraduated = false;
+    nextProgress.reviewLevel = 1;
+  } else if (existing.isGraduated && isCorrect) {
+    // A graduated answer only re-enters review if wrong.
+  } else if (isCorrect) {
+    if (isReviewCandidate(existing) && !isReviewTarget(existing, new Date(timestamp))) {
+      nextProgress.reviewLevel = currentLevel || 1;
+    } else if (currentLevel >= 3) {
+      nextProgress.isReview = false;
+      nextProgress.isGraduated = true;
+      nextProgress.reviewLevel = null;
+    } else {
+      nextProgress.isReview = true;
+      nextProgress.isGraduated = false;
+      nextProgress.reviewLevel = (currentLevel + 1) as 2 | 3;
+    }
+  } else {
+    nextProgress.isReview = true;
+    nextProgress.isGraduated = false;
+    nextProgress.reviewLevel = Math.max(1, currentLevel - 1) as 1 | 2;
+  }
+  return nextProgress;
+}
+
 export function recordAnswer(
   data: AppData,
   question: Question,
@@ -186,45 +227,7 @@ export function recordAnswer(
   const isCorrect = answerIndexes.length > 0 && areSameIndexSet(selectedIndexes, answerIndexes);
   const existing = getProgress(data, question.id);
   const wasReviewTarget = isReviewCandidate(existing);
-  const wasUnanswered = existing.answeredCount === 0;
-  const currentLevel = getVirtualLevel(existing);
-
-  const nextProgress: QuestionProgress = {
-    ...existing,
-    answeredCount: existing.answeredCount + 1,
-    correctCount: existing.correctCount + (isCorrect ? 1 : 0),
-    wrongCount: existing.wrongCount + (isCorrect ? 0 : 1),
-    lastSelectedIndex: selectedIndexes[0] ?? -1,
-    lastAnswerCorrect: isCorrect,
-    lastAnsweredAt: timestamp,
-  };
-
-  if (wasUnanswered) {
-    nextProgress.isReview = true;
-    nextProgress.isGraduated = false;
-    nextProgress.reviewLevel = 1;
-  } else if (existing.isGraduated && isCorrect) {
-    // A graduated answer only re-enters review if wrong.
-  } else {
-    if (isCorrect) {
-      if (isReviewCandidate(existing) && !isReviewTarget(existing)) {
-        // Repeating a question early must not skip a spacing interval.
-        nextProgress.reviewLevel = currentLevel || 1;
-      } else if (currentLevel >= 3) {
-        nextProgress.isReview = false;
-        nextProgress.isGraduated = true;
-        nextProgress.reviewLevel = null;
-      } else {
-        nextProgress.isReview = true;
-        nextProgress.isGraduated = false;
-        nextProgress.reviewLevel = (currentLevel + 1) as 2 | 3;
-      }
-    } else {
-      nextProgress.isReview = true;
-      nextProgress.isGraduated = false;
-      nextProgress.reviewLevel = Math.max(1, currentLevel - 1) as 1 | 2;
-    }
-  }
+  const nextProgress = advanceAnswerProgress(existing, selectedIndexes[0] ?? -1, isCorrect, timestamp);
 
   const addedToReview = !isReviewMode && !problemSet?.isStudyCompleted && !wasReviewTarget && nextProgress.isReview && !nextProgress.isGraduated;
 

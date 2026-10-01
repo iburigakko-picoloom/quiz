@@ -12,6 +12,7 @@ import { PULL_IMAGE_STORE, parseQuestionImageDescriptor } from './recordQuestion
 import { storedQuestionImage, verifyQuestionImageBlob } from './questionImageCloud';
 import type { QuestionImageDescriptor, StoredQuestionImage } from './questionImageRecords';
 import { normalizeAppData } from './appDataValidation';
+import { createProgressSyncContext, verifiedBootstrapProgress } from './recordProgressAncestor';
 
 export type RemoteRecordChange = { key: string; collection: RecordCollection; id: string; raw: string | null; position: number; revision: number };
 export type RecordPullPage = { code: 'ok'; cursor: number; head: number; hasMore: boolean; batches: Array<{ revision: number; changes: RemoteRecordChange[] }> };
@@ -160,7 +161,7 @@ export async function applyStagedRecordPull(
   db: IDBDatabase, connection: RecordSyncConnection, decisions: RecordConflictDecision[] = [],
   options: RecordPullApplyOptions = {},
 ): Promise<{ applied: true; data?: AppData; cursor: number; changed: number; commitId: string }
-  | { applied: false; conflicts: RecordConflict[] } | { applied: false; deferred: true; commitId: string }> {
+  | { applied: false; conflicts: RecordConflict[] } | { applied: false; deferred: true; commitId: string; pushBlocked?: boolean }> {
   if (options.preserveLiveData && decisions.length) throw new Error('作業中は競合の選択を適用できません。');
   const startedAt = performance.now();
   const readTx = db.transaction(['appRecordMeta', 'appPullStage'], 'readonly');
@@ -202,28 +203,59 @@ export async function applyStagedRecordPull(
   const writes: AppRecord[] = [];
   const clearPending: string[] = [];
   const conflicts: RecordConflict[] = [];
-  const resolved: Array<{ conflict: RecordConflict; choice: 'local' | 'remote' }> = [];
+  const resolved: Array<{ conflict: RecordConflict; choice: 'local' | 'remote' | 'merged';
+    reason?: 'unchanged-ancestor' | 'bootstrap-answer-history'; eventIds?: string[] }> = [];
   const rebased: AppOutboxOperation[] = [];
+  const progressContext = incoming.some(row => row.collection === 'progress' && pending.has(row.key))
+    ? createProgressSyncContext(before.records, incoming) : null;
   for (const remote of incoming) {
     const local = before.records.get(remote.key);
     if (local && remote.revision < local.serverRevision) continue; // An acknowledged push can be newer than this page.
     const op = pending.get(remote.key);
-    const same = sameRecordContent(remote.collection, local?.raw ?? null, remote.raw) && (!local || local.position === remote.position);
+    const remoteAnswerChanged = op && remote.collection === 'progress'
+      && (progressContext?.hasDeletedHistory || progressContext?.remoteLogs.get(remote.id)?.some(row => row.revision > op.baseRevision));
+    const novelRemoteEvent = op && remote.collection === 'progress' && progressContext?.remoteLogs.get(remote.id)?.some(row =>
+      row.revision > op.baseRevision && !sameRecordContent('answerLogs', row.raw, before.records.get(row.key)?.raw ?? null));
+    const differentLocalEvent = op && novelRemoteEvent && progressContext?.localLogs.get(remote.id)?.some(row =>
+      row.serverRevision === 0 || row.serverRevision > op.baseRevision);
+    const same = !differentLocalEvent && sameRecordContent(remote.collection, local?.raw ?? null, remote.raw) && (!local || local.position === remote.position);
     if (op && !same) {
       // A pull of the unchanged remote ancestor leaves an unsent local edit alone.
       if (remote.revision <= op.baseRevision) continue;
       const conflict = { key: remote.key, connection, local: local ?? null, remote, operationId: op.operationId };
-      const decision = selected.get(remote.key);
-      if (!decision) { conflicts.push(conflict); continue; }
-      if (decision.operationId !== op.operationId || decision.remoteRevision !== remote.revision) throw new Error('競合の内容が更新されました。もう一度内容を確認してください。');
-      selected.delete(remote.key);
-      resolved.push({ conflict, choice: decision.choice });
-      if (decision.choice === 'local') {
-        if (!local) throw new Error('競合の端末データを確認できませんでした。');
-        const row = { ...local, localRevision: revision, serverRevision: remote.revision };
+      const unchangedAncestor = local && op.baseContent && !remoteAnswerChanged
+        && op.baseContent.position === remote.position
+        && sameRecordContent(remote.collection, op.baseContent.raw, remote.raw);
+      const bootstrap = !unchangedAncestor && local && progressContext ? verifiedBootstrapProgress(
+        local, remote, op, progressContext, stage.startCursor, sameRecordContent,
+      ) : null;
+      if (local && (unchangedAncestor || (bootstrap && bootstrap.choice !== 'remote'))) {
+        // Preserve the exact local values; only advance their verified CAS base.
+        // New operation IDs avoid rewriting an uncertain/idempotent request.
+        const row = { ...local, raw: bootstrap?.raw ?? local.raw, localRevision: revision, serverRevision: remote.revision };
         next.set(row.key, row); writes.push(row);
-        rebased.push({ ...op, operationId: crypto.randomUUID(), baseRevision: remote.revision, localRevision: revision });
+        rebased.push({ ...op, raw: row.raw, operationId: crypto.randomUUID(), baseRevision: remote.revision, localRevision: revision,
+          baseContent: { raw: remote.raw, position: remote.position } });
+        resolved.push({ conflict, choice: bootstrap?.choice ?? 'local', reason: unchangedAncestor ? 'unchanged-ancestor' : 'bootstrap-answer-history',
+          ...(bootstrap ? { eventIds: bootstrap.eventIds } : {}) });
         continue;
+      }
+      if (bootstrap) {
+        resolved.push({ conflict, choice: 'remote', reason: 'bootstrap-answer-history', eventIds: bootstrap.eventIds });
+      } else {
+        const decision = selected.get(remote.key);
+        if (!decision) { conflicts.push(conflict); continue; }
+        if (decision.operationId !== op.operationId || decision.remoteRevision !== remote.revision) throw new Error('競合の内容が更新されました。もう一度内容を確認してください。');
+        selected.delete(remote.key);
+        resolved.push({ conflict, choice: decision.choice });
+        if (decision.choice === 'local') {
+          if (!local) throw new Error('競合の端末データを確認できませんでした。');
+          const row = { ...local, localRevision: revision, serverRevision: remote.revision };
+          next.set(row.key, row); writes.push(row);
+          rebased.push({ ...op, operationId: crypto.randomUUID(), baseRevision: remote.revision, localRevision: revision,
+            baseContent: { raw: remote.raw, position: remote.position } });
+          continue;
+        }
       }
     }
     if (op) clearPending.push(remote.key);
@@ -296,6 +328,19 @@ export async function applyStagedRecordPull(
     const old = before.records.get(row.key);
     return row.raw !== (old?.raw ?? null) || (row.raw !== null && row.position !== old?.position);
   })));
+  const safeResolved = resolved.filter(item => item.choice === 'local' && item.reason);
+  const explicitKeys = new Set(resolved.filter(item => !item.reason).map(item => item.conflict.key));
+  const safeWrites = writes.filter(row => {
+    const old = before.records.get(row.key);
+    return old && !explicitKeys.has(row.key) && old.raw === row.raw && old.position === row.position;
+  });
+  const safeKeys = new Set(safeWrites.map(row => row.key));
+  const safeClearPending = clearPending.filter(key => {
+    const old = before.records.get(key), row = next.get(key);
+    return old && row && !explicitKeys.has(key) && old.raw === row.raw && old.position === row.position;
+  });
+  safeClearPending.forEach(key => safeKeys.add(key));
+  const safeState = safeWrites.length ? { ...before.state, revision, commitId: crypto.randomUUID(), savedAt: nextState.savedAt } : before.state;
   const preparedAt = performance.now();
   const stores = deferLiveChanges
     ? ['appRecordMeta', 'appRecordConflicts']
@@ -305,6 +350,9 @@ export async function applyStagedRecordPull(
     if (writes.some(row => row.collection === 'indexedDbNotes')) stores.push(NOTE_CURRENT_STORE, NOTE_BACKUP_STORE);
     if (writes.some(row => row.collection === 'localStorage')) stores.push(LOCAL_PROJECTION_STORE);
     if (touchesImages) stores.push(PULL_IMAGE_STORE, 'questionImageBlobs');
+  } else {
+    if (safeWrites.length) stores.push('appRecords', 'appRecordBackups');
+    if (safeClearPending.length || rebased.some(op => safeKeys.has(op.key))) stores.push('appOutbox');
   }
   const tx = db.transaction(stores, 'readwrite');
   const completion = done(tx);
@@ -315,11 +363,41 @@ export async function applyStagedRecordPull(
   currentPush.onsuccess = () => {
     try {
       if (current.result?.commitId !== before.state.commitId || JSON.stringify(currentStage.result) !== JSON.stringify(stage) || currentPush.result) throw new Error('差分読込中に端末が更新されました。');
-      if (conflicts.length) {
-        conflicts.forEach(conflict => tx.objectStore('appRecordConflicts').put(conflict, conflict.key));
-        return;
+      const archiveActive = (key: string, replacement?: RecordConflict) => {
+        const old = tx.objectStore('appRecordConflicts').get(key);
+        old.onsuccess = () => {
+          if (old.result && JSON.stringify(old.result) !== JSON.stringify(replacement)) {
+            tx.objectStore('appRecordConflicts').put({ conflict: old.result, archivedAt: nextState.savedAt,
+              reason: 'superseded' }, `resolved:${crypto.randomUUID()}`);
+          }
+        };
+      };
+      if (conflicts.length || deferLiveChanges) {
+        // Verified ancestor rebases can commit independently of staged visible
+        // changes. Raw values, positions, blobs and projections stay unchanged.
+        safeWrites.forEach(row => {
+          tx.objectStore('appRecordBackups').put({ ...before.records.get(row.key)!, replacedAt: revision }, row.key);
+          tx.objectStore('appRecords').put(row, row.key);
+        });
+        rebased.filter(op => safeKeys.has(op.key)).forEach(op => tx.objectStore('appOutbox').put(op, op.key));
+        safeClearPending.forEach(key => tx.objectStore('appOutbox').delete(key));
+        if (safeWrites.length) {
+          tx.objectStore('appRecordMeta').put(before.state, 'previousState');
+          tx.objectStore('appRecordMeta').put(safeState, 'state');
+        }
+        safeKeys.forEach(key => {
+          archiveActive(key);
+          tx.objectStore('appRecordConflicts').delete(key);
+        });
+        safeResolved.forEach(item => {
+          tx.objectStore('appRecordConflicts').put({ ...item, resolvedAt: nextState.savedAt }, `resolved:${crypto.randomUUID()}`);
+        });
+        conflicts.forEach(conflict => {
+          archiveActive(conflict.key, conflict);
+          tx.objectStore('appRecordConflicts').put(conflict, conflict.key);
+        });
+        return; // Retain the full stage and committed cursor for Home/restart.
       }
-      if (deferLiveChanges) return; // Keep the full stage and committed cursor for Home/restart.
       writes.forEach(row => {
         const old = before.records.get(row.key);
         if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, row.key);
@@ -347,15 +425,26 @@ export async function applyStagedRecordPull(
       tx.objectStore('appRecordMeta').delete('pullStage');
       tx.objectStore('appPullStage').clear();
       if (touchesImages) tx.objectStore(PULL_IMAGE_STORE).clear();
-      incoming.forEach(row => tx.objectStore('appRecordConflicts').delete(row.key));
+      incoming.forEach(row => {
+        archiveActive(row.key);
+        tx.objectStore('appRecordConflicts').delete(row.key);
+      });
       // Keep both versions after an explicit decision, including the remote version
       // when the user retains the local edit. Never discard a rejected version.
       resolved.forEach(item => tx.objectStore('appRecordConflicts').put({ ...item, resolvedAt: nextState.savedAt }, `resolved:${crypto.randomUUID()}`));
     } catch (error) { failure = error; tx.abort(); }
   };
   try { await completion; } catch (error) { throw failure ?? error; }
+  if ((conflicts.length || deferLiveChanges) && safeWrites.length) {
+    const safeRecords = new Map(before.records);
+    safeWrites.forEach(row => safeRecords.set(row.key, row));
+    rememberAppRecordSnapshot(db, { state: safeState, records: safeRecords });
+    const cached = readCachedAppRecordData(db, before.state.commitId);
+    if (cached) rememberAppRecordData(db, safeState.commitId, cached);
+  }
   if (conflicts.length) return { applied: false, conflicts };
-  if (deferLiveChanges) return { applied: false, deferred: true, commitId: before.state.commitId };
+  if (deferLiveChanges) return { applied: false, deferred: true, commitId: safeState.commitId,
+    ...(resolved.some(item => item.reason && item.choice !== 'local') ? { pushBlocked: true } : {}) };
   if (writes.length) {
     rememberAppRecordSnapshot(db, { state: nextState, records: next });
     rememberAppRecordData(db, nextState.commitId, data!);

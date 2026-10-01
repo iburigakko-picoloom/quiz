@@ -137,7 +137,8 @@ export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordS
       try {
         const cursor = pending.result;
         if (!cursor) { persist(); return; }
-        const operation = cursor.value as AppOutboxOperation;
+        // Ancestor evidence stays local; the wire request needs only the CAS revision.
+        const { baseContent: _baseContent, ...operation } = cursor.value as AppOutboxOperation;
         // A new attachment can arrive after asynchronous Storage preparation.
         // Abort before persisting a batch so preparation can retry next run.
         options.validateOperation?.(operation);
@@ -204,7 +205,9 @@ export async function acknowledgeRecordPushBatch(
           if (pending.operationId === ack.operationId) tx.objectStore('appOutbox').delete(ack.key);
           else {
             // The remote now contains the sent ancestor of this newer edit.
-            tx.objectStore('appOutbox').put({ ...pending, baseRevision: Math.max(pending.baseRevision, ack.revision) }, ack.key);
+            const sent = batch.operations.find(operation => operation.key === ack.key)!;
+            tx.objectStore('appOutbox').put({ ...pending, baseRevision: Math.max(pending.baseRevision, ack.revision),
+              baseContent: { raw: sent.raw, position: sent.position } }, ack.key);
           }
         };
       }
