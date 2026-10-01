@@ -1,5 +1,6 @@
-import type { AppOutboxOperation, AppRecord } from './appRecordStorage';
+import type { AppOutboxOperation } from './appRecordStorage';
 import { appRecordKey } from './appRecordStorage';
+import { commitPreparedRecordMedia } from './recordSyncOutbox';
 import { remoteQuestionImageDescriptor, storedQuestionImage, verifyQuestionImageBlob, type QuestionImageTransport } from './questionImageCloud';
 import { validQuestionImageDescriptor, type QuestionImageDescriptor, type StoredQuestionImage } from './questionImageRecords';
 import type { RemoteRecordChange } from './recordSyncPull';
@@ -25,7 +26,7 @@ export async function prepareQuestionImageOutbox(db: IDBDatabase, transport: Que
     const cursor = read.objectStore('appOutbox').openCursor();
     let source: AppOutboxOperation | undefined;
     cursor.onsuccess = () => {
-      const current = cursor.result; if (!current) return;
+      const current = cursor.result; if (!current || frozen.result) return;
       const op = current.value as AppOutboxOperation;
       if (op.collection === 'questionImages' && op.raw !== null) {
         const value = parseQuestionImageDescriptor(op.raw);
@@ -45,18 +46,7 @@ export async function prepareQuestionImageOutbox(db: IDBDatabase, transport: Que
     await assertCurrent();
     if (!await transport.exists(remote)) { await transport.upload(remote, body.blob); recordSyncMetric('questionImageUpload', 0, body.blob.size); }
     await assertCurrent();
-    const change = db.transaction(['appRecords', 'appOutbox'], 'readwrite'); const changed = done(change);
-    const currentOp = change.objectStore('appOutbox').get(sourceOp.key);
-    const currentRow = change.objectStore('appRecords').get(sourceOp.key);
-    currentRow.onsuccess = () => {
-      const op = currentOp.result as AppOutboxOperation | undefined;
-      const row = currentRow.result as AppRecord | undefined;
-      if (!op || op.operationId !== sourceOp.operationId || op.raw !== sourceOp.raw || row?.raw !== sourceOp.raw) { change.abort(); return; }
-      const raw = JSON.stringify(remote);
-      change.objectStore('appOutbox').put({ ...op, raw }, sourceOp.key);
-      change.objectStore('appRecords').put({ ...row, raw }, sourceOp.key);
-    };
-    await changed;
+    await commitPreparedRecordMedia(db, sourceOp, JSON.stringify(remote));
   }
   return { prepared, more: true };
 }

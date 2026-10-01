@@ -9,6 +9,37 @@ export const sameRecordSyncConnection = (a: RecordSyncConnection, b: RecordSyncC
 
 const MAX_BATCH_BYTES = 900 * 1024; // Leave room for JSON and RPC parameter framing.
 
+export class RecordSyncLocalChangedError extends Error {
+  constructor() { super('差分の検証後に端末データが更新されました。最新の変更を再確認します。'); }
+}
+
+/** Change only the wire representation of an unsent edit. Invalidate cached
+ * snapshots atomically; never rewrite a request with an uncertain receipt.
+ * The primary local bytes remain available for recovery.
+ */
+export async function commitPreparedRecordMedia(db: IDBDatabase, source: AppOutboxOperation, raw: string): Promise<boolean> {
+  const tx = db.transaction(['appRecordMeta', 'appRecords', 'appOutbox'], 'readwrite');
+  const completion = done(tx);
+  let changed = false;
+  const opRequest = tx.objectStore('appOutbox').get(source.key);
+  const rowRequest = tx.objectStore('appRecords').get(source.key);
+  const stateRequest = tx.objectStore('appRecordMeta').get('state');
+  const frozen = tx.objectStore('appRecordMeta').get('pushBatch');
+  frozen.onsuccess = () => {
+    const op = opRequest.result as AppOutboxOperation | undefined;
+    const row = rowRequest.result as AppRecord | undefined;
+    const state = stateRequest.result as AppRecordState | undefined;
+    if (frozen.result || !state || !op || op.operationId !== source.operationId
+      || op.raw !== source.raw || row?.raw !== source.raw) return;
+    tx.objectStore('appOutbox').put({ ...op, raw }, source.key);
+    tx.objectStore('appRecords').put({ ...row, raw }, source.key);
+    tx.objectStore('appRecordMeta').put({ ...state, commitId: crypto.randomUUID() }, 'state');
+    changed = true;
+  };
+  await completion;
+  return changed;
+}
+
 /** Server revisions are meaningful only within one account/project/sync ID. */
 export async function bindRecordSyncConnection(db: IDBDatabase, connection: RecordSyncConnection): Promise<void> {
   if (!connection.project || !connection.userId || !connection.syncId) throw new Error('同期先の認証情報を確認できませんでした。');
@@ -69,14 +100,18 @@ function done(tx: IDBTransaction): Promise<void> {
 }
 
 /** Persist the exact request before network I/O; retries after restart reuse its IDs and bytes. */
-export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordSyncConnection): Promise<RecordPushBatch | null> {
+export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordSyncConnection, options: {
+  expectedCommitId?: string;
+  validateOperation?: (operation: AppOutboxOperation) => void;
+} = {}): Promise<RecordPushBatch | null> {
   await bindRecordSyncConnection(db, connection);
   const tx = db.transaction(['appRecordMeta', 'appOutbox'], 'readwrite');
   const completion = done(tx);
   let batch: RecordPushBatch | null = null;
   let failure: Error | undefined;
   const existing = tx.objectStore('appRecordMeta').get('pushBatch');
-  existing.onsuccess = () => {
+  const state = tx.objectStore('appRecordMeta').get('state');
+  state.onsuccess = () => {
     if (existing.result) {
       const saved = existing.result as RecordPushBatch;
       if (!sameRecordSyncConnection(saved.connection, connection)) {
@@ -84,6 +119,9 @@ export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordS
       }
       batch = saved;
       return;
+    }
+    if (options.expectedCommitId && state.result?.commitId !== options.expectedCommitId) {
+      failure = new RecordSyncLocalChangedError(); tx.abort(); return;
     }
     const operations: AppOutboxOperation[] = [];
     let bytes = 2;
@@ -100,6 +138,9 @@ export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordS
         const cursor = pending.result;
         if (!cursor) { persist(); return; }
         const operation = cursor.value as AppOutboxOperation;
+        // A new attachment can arrive after asynchronous Storage preparation.
+        // Abort before persisting a batch so preparation can retry next run.
+        options.validateOperation?.(operation);
         const size = new TextEncoder().encode(JSON.stringify(operation)).byteLength + 1;
         if (size > MAX_BATCH_BYTES) {
           failure = new Error('1レコードの同期サイズが大きすぎます。データは端末に保持しています。'); tx.abort(); return;

@@ -1,4 +1,5 @@
-import type { AppOutboxOperation, AppRecord } from './appRecordStorage';
+import type { AppOutboxOperation } from './appRecordStorage';
+import { commitPreparedRecordMedia } from './recordSyncOutbox';
 import { materialFileEntry } from './materialModel';
 import { prepareMaterialUpload, type MaterialTransport } from './materialCloud';
 
@@ -11,16 +12,18 @@ function done(tx: IDBTransaction): Promise<void> { return new Promise((resolve,r
 export async function prepareRecordMaterialOutbox(db: IDBDatabase, transport: MaterialTransport, assertCurrent: ()=>Promise<void>, limit=20): Promise<{prepared:number;more:boolean}> {
   let prepared=0;
   for(;prepared<limit;prepared++){
-    const tx=db.transaction('appOutbox','readonly');const completion=done(tx);
+    const tx=db.transaction(['appOutbox','appRecordMeta'],'readonly');const completion=done(tx);
+    const frozen=tx.objectStore('appRecordMeta').get('pushBatch');
     const cursor=tx.objectStore('appOutbox').openCursor();
     let candidate:AppOutboxOperation|undefined;
     cursor.onsuccess=()=>{
-      const current=cursor.result;if(!current)return;
+      const current=cursor.result;if(!current||frozen.result)return;
       const op=current.value as AppOutboxOperation;
       if(op.collection==='indexedDbNotes'&&typeof op.raw==='string'&&materialFileEntry(op.id,op.raw)?.kind==='quiz-material-file') candidate=op;
       else current.continue();
     };
     await completion;
+    if(frozen.result)return {prepared,more:false};
     if(!candidate)return {prepared,more:false};
     await assertCurrent();
     const source=candidate;
@@ -28,17 +31,7 @@ export async function prepareRecordMaterialOutbox(db: IDBDatabase, transport: Ma
     const remote=payload.indexedDbNotes?.[source.id];
     if(!remote||materialFileEntry(source.id,remote)?.kind!=='quiz-material-remote-file')throw new Error('PDFのクラウド参照を確認できませんでした。');
     await assertCurrent();
-    const change=db.transaction(['appRecords','appOutbox'],'readwrite');const changed=done(change);
-    const currentOp=change.objectStore('appOutbox').get(source.key);
-    const currentRow=change.objectStore('appRecords').get(source.key);
-    currentRow.onsuccess=()=>{
-      const operation=currentOp.result as AppOutboxOperation|undefined;
-      const row=currentRow.result as AppRecord|undefined;
-      if(!operation||operation.operationId!==source.operationId||operation.raw!==source.raw||row?.raw!==source.raw){change.abort();return;}
-      change.objectStore('appOutbox').put({...operation,raw:remote},source.key);
-      change.objectStore('appRecords').put({...row,raw:remote},source.key);
-    };
-    await changed;
+    await commitPreparedRecordMedia(db,source,remote);
   }
   return {prepared,more:true};
 }
