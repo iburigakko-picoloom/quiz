@@ -612,7 +612,7 @@
 .quiz-home__folder-tools input, .quiz-home__folder-tools select { min-width: 0; min-height: 44px; border: 1px solid #dce5ef; background: white; color: #173042; border-radius: 12px; font: inherit; font-size: .8rem; padding: 10px; }
 .quiz-home__folder-tools input { flex: 1; width: 0; }
 .quiz-home__folder-tools select { flex: 0 1 95px; }
-.quiz-home.quiz-home--plans .quiz-home__folder-list { overflow: visible; margin: 0; padding: 0; flex: none; }
+.quiz-home.quiz-home--plans .quiz-home__folder-list { overflow: visible; max-height: none; margin: 0; padding: 0; flex: none; }
 .quiz-home.quiz-home--plans .quiz-home__folder-card { min-height: 72px; margin-bottom: 0; }
 .quiz-home.quiz-home--plans .quiz-home__folder-main { min-height: 72px; padding: 10px 12px; }
 .quiz-home__no-results { font-size: .82rem; color: #64778a; }
