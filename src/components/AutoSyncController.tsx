@@ -23,7 +23,9 @@ import { onCloudAuthStateChange } from '../utils/cloudService';
 import { runAppRecordSync } from '../utils/recordSyncCoordinator';
 import { RecordSyncRpcError } from '../utils/recordSyncNetwork';
 import type { RecordSyncGuards } from '../utils/recordSyncEngine';
-import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
+import { isRecordSyncOptedIn } from '../utils/recordSyncOptIn';
+import { SYNC_RETRY_EVENT, runSelectedSync, finishManualSync } from '../utils/syncRequest';
+import { isSyncInteractionProtected } from '../utils/syncInteraction';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 5000;
@@ -51,15 +53,13 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     cleanupLegacySyncBackups();
     let disposed = false;
     let lastConflictKey = '';
-    let v2Unavailable = false;
+    let manualRequest = false;
 
-    const tryRecordSync = async (syncId: string): Promise<AutoSyncOutcome | null> => {
-      const state = getLastSyncState();
-      if (!isRecordSyncOptedIn(syncId) || v2Unavailable || !state.lastSyncAt || !state.lastSyncDigest) return null;
+    const tryRecordSync = async (syncId: string, manual: boolean): Promise<AutoSyncOutcome> => {
       try {
-        const result = await runAppRecordSync(syncId, operation => importHandlersRef.current.onRecordApply(operation));
+        const result = await runAppRecordSync(syncId, operation => importHandlersRef.current.onRecordApply(operation), manual);
         if (result.status === 'more') return 'changed';
-        if (result.status === 'deferred') return 'paused';
+        if (result.status === 'deferred') { setLastSyncState({ status: '変更の反映を待っています', error: '' }); return 'paused'; }
         if (result.status === 'conflict') {
           setLastSyncState({ status: 'クラウドと端末の編集が競合しています', error: '両方の内容を保存しています。同期画面で確認してください。' });
           window.dispatchEvent(new CustomEvent(CLOUD_UPDATE_EVENT, { detail: { syncId, updatedAt: getLastSyncState().lastRemoteUpdatedAt } }));
@@ -68,65 +68,66 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         setLastSyncState({ status: '同期済み', error: '' });
         return 'done';
       } catch (error) {
-        if (error instanceof RecordSyncRpcError && ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(error.code)) {
-          v2Unavailable = true;
-          setRecordSyncOptIn(syncId, false);
-          return null;
-        }
         if (disposed || getAutoSyncSettings().syncId !== syncId) return 'paused';
-        setLastSyncState({ status: '端末のデータを保持して再試行します', error: error instanceof Error ? error.message : '差分同期に失敗しました。' });
+        if (error instanceof RecordSyncRpcError && ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(error.code)) {
+          setLastSyncState({ status: '高速同期の確認が必要です', error: error.message });
+          return 'paused';
+        }
+        setLastSyncState({ status: error instanceof RecordSyncRpcError && error.code === 'authentication_required' ? 'ログインが必要です' : '端末のデータを保持して再試行します', error: error instanceof Error ? error.message : '差分同期に失敗しました。' });
         return error instanceof RecordSyncRpcError && error.code === 'rate_limited' ? 'rate_limited' : 'retry';
       }
     };
 
     const uploadIfChanged = async (): Promise<AutoSyncOutcome> => {
       const settings = getAutoSyncSettings();
-      if (disposed || !settings.enabled || !settings.syncId || !settings.configured) return 'paused';
+      const manual = manualRequest;
+      if (disposed || (!settings.enabled && !manual) || !settings.syncId || !settings.configured) return 'paused';
       if (navigator.onLine === false) {
         setLastSyncState({ status: '端末に保存済み・接続後に自動保存します', error: '' });
         return 'paused';
       }
-      if (isAutoUploadBlocked(protectedWorkReasonRef.current)) {
+      if ((isAutoUploadBlocked(protectedWorkReasonRef.current) || isSyncInteractionProtected())) {
         setLastSyncState({ status: '自動同期: 作業終了後に保存します', error: '' });
         return 'paused';
       }
       if (uploadRunningRef.current || remoteCheckRunningRef.current) return 'busy';
 
       uploadRunningRef.current = true;
-      let shouldCheckRemoteAfterUpload = false;
+      let shouldCheckRemoteAfterUpload = manual && !isRecordSyncOptedIn(settings.syncId);
       try {
-        const recordResult = await tryRecordSync(settings.syncId);
-        if (recordResult) return recordResult;
-        if (await isLocalSyncUnchanged(getLastSyncState().lastSyncDigest)) {
-          setLastSyncState({ status: '自動同期: 待機中', error: '' });
-          return 'done';
-        }
-        const payload = await exportQuizMakeData();
-        const currentSettings = getAutoSyncSettings();
-        if (disposed || !currentSettings.enabled || currentSettings.syncId !== settings.syncId) return 'paused';
-        if (isAutoUploadBlocked(protectedWorkReasonRef.current)) {
-          setLastSyncState({ status: '自動同期: 作業終了後に保存します', error: '' });
-          return 'paused';
-        }
-        const lastState = getLastSyncState();
-        if (!lastState.lastSyncAt && !lastState.lastUploadHash) {
-          setLastSyncState({ status: '自動同期: 初回は手動保存または読み込みをしてください', error: '' });
-          return 'paused';
-        }
-        if (lastState.lastSyncDigest
-          ? await computePayloadDigest(payload) === lastState.lastSyncDigest
-          : computePayloadHash(payload) === lastState.lastUploadHash) {
-          setLastSyncState({ status: '自動同期: 待機中', error: '' });
-          return 'done';
-        }
+        const outcome = await runSelectedSync<AutoSyncOutcome>(isRecordSyncOptedIn(settings.syncId),
+          () => tryRecordSync(settings.syncId, manual), async () => {
+            if (await isLocalSyncUnchanged(getLastSyncState().lastSyncDigest)) {
+              setLastSyncState({ status: '自動同期: 待機中', error: '' });
+              return 'done';
+            }
+            const payload = await exportQuizMakeData();
+            const currentSettings = getAutoSyncSettings();
+            if (disposed || (!currentSettings.enabled && !manual) || currentSettings.syncId !== settings.syncId) return 'paused';
+            if ((isAutoUploadBlocked(protectedWorkReasonRef.current) || isSyncInteractionProtected())) {
+              setLastSyncState({ status: '自動同期: 作業終了後に保存します', error: '' });
+              return 'paused';
+            }
+            const lastState = getLastSyncState();
+            if (isRecordSyncOptedIn(settings.syncId)) return 'changed';
+            if (!lastState.lastSyncAt && !lastState.lastUploadHash) {
+              setLastSyncState({ status: '自動同期: 初回は手動保存または読み込みをしてください', error: '' });
+              return 'paused';
+            }
+            if (lastState.lastSyncDigest
+              ? await computePayloadDigest(payload) === lastState.lastSyncDigest
+              : computePayloadHash(payload) === lastState.lastUploadHash) {
+              setLastSyncState({ status: '自動同期: 待機中', error: '' });
+              return 'done';
+            }
 
-        setLastSyncState({ status: '自動保存中...', error: '' });
-        const result = await uploadSyncData(settings.syncId, payload, {
-          expectedRemoteUpdatedAt: lastState.lastSyncAt || null,
-          force: false,
+            setLastSyncState({ status: '自動保存中...', error: '' });
+            const result = await uploadSyncData(settings.syncId, payload, {
+              expectedRemoteUpdatedAt: lastState.lastSyncAt || null,
+              force: false,
         });
         const latestSettings = getAutoSyncSettings();
-        if (disposed || !latestSettings.enabled || latestSettings.syncId !== settings.syncId) return 'paused';
+        if (disposed || (!latestSettings.enabled && !manual) || latestSettings.syncId !== settings.syncId) return 'paused';
         if (!result.ok) {
           if (result.code === 'local_changed') {
             setLastSyncState({ status: '自動同期: 最新の変更を再確認中...', error: '' });
@@ -152,16 +153,21 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         }
         setLastSyncState({ status: '自動保存しました', error: '' });
         return 'done';
+        });
+        if (outcome === 'done' && isRecordSyncOptedIn(settings.syncId)) { manualRequest = false; finishManualSync(settings.syncId); }
+        return outcome;
       } catch (error) {
         const latestSettings = getAutoSyncSettings();
-        if (disposed || !latestSettings.enabled || latestSettings.syncId !== settings.syncId) return 'paused';
+        if (disposed || (!latestSettings.enabled && !manual) || latestSettings.syncId !== settings.syncId) return 'paused';
         const message = error instanceof Error ? error.message : '自動保存に失敗しました。';
         console.warn('Auto sync upload failed.', error);
         setLastSyncState({ status: '端末のデータを保持して再試行します', error: message });
         return 'retry';
       } finally {
         uploadRunningRef.current = false;
-        if (!disposed && shouldCheckRemoteAfterUpload) void checkRemote(true);
+        if (!disposed && shouldCheckRemoteAfterUpload) void checkRemote(true).finally(() => {
+          if (manual) { manualRequest = false; finishManualSync(settings.syncId); }
+        });
       }
     };
 
@@ -182,6 +188,10 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       remoteCheckRunningRef.current = true;
 
       try {
+        if (isRecordSyncOptedIn(settings.syncId)) {
+          if (settings.enabled || manualRequest) uploadQueue.request(true);
+          return;
+        }
         const meta = await getRemoteSyncMeta(settings.syncId);
         const latestSettings = getAutoSyncSettings();
         if (disposed || latestSettings.syncId !== settings.syncId) return;
@@ -201,12 +211,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         const lastState = getLastSyncState();
         setLastSyncState({ lastRemoteUpdatedAt: meta.value.updatedAt });
         const remoteHasChanged = meta.value.updatedAt !== lastState.lastSyncAt;
-        if (isRecordSyncOptedIn(settings.syncId) && !v2Unavailable && lastState.lastSyncAt && lastState.lastSyncDigest && remoteHasChanged) {
-          uploadQueue.request(true);
-          return;
-        }
-        const canReconcile = () => !disposed && getAutoSyncSettings().enabled
-          && getAutoSyncSettings().syncId === settings.syncId
+        const canReconcile = () => !disposed && (getAutoSyncSettings().enabled || manualRequest)
+          && getAutoSyncSettings().syncId === settings.syncId && !isRecordSyncOptedIn(settings.syncId)
           && document.visibilityState === 'visible' && protectedWorkReasonRef.current === null
           && importHandlersRef.current.canAutoImport();
         // A one-time full comparison establishes a strong ancestor for older
@@ -280,16 +286,31 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       uploadQueue.request(true);
       void checkRemote(true);
     };
+    const handleRetry = (event: Event) => {
+      if ((event as CustomEvent<{ syncId: string }>).detail?.syncId !== getAutoSyncSettings().syncId) return;
+      manualRequest = true;
+      uploadQueue.request(true);
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key.startsWith('quizMake:sync:')) {
+        manualRequest = false;
+        handleSettingsChange();
+      }
+    };
     const handleLocalSave = () => uploadQueue.request(document.visibilityState === 'hidden');
     const handlePageHide = () => uploadQueue.request(true);
     // Supabase's auth callback holds a session lock; the queue defers Auth calls.
     let authCheckTimer: number | undefined;
     const unsubscribeAuth = onCloudAuthStateChange(() => {
+      manualRequest = false;
+      finishManualSync(getAutoSyncSettings().syncId);
       uploadQueue.request(true);
       window.clearTimeout(authCheckTimer);
       authCheckTimer = window.setTimeout(() => void checkRemote(true), 0);
     });
 
+    window.addEventListener(SYNC_RETRY_EVENT, handleRetry);
+    window.addEventListener('storage', handleStorage);
     window.addEventListener('focus', handleFocus);
     window.addEventListener('online', handleFocus);
     window.addEventListener('pageshow', handleFocus);
@@ -308,6 +329,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       window.clearInterval(intervalId);
       window.clearTimeout(initialCheckTimer);
       window.clearTimeout(authCheckTimer);
+      window.removeEventListener(SYNC_RETRY_EVENT, handleRetry);
+      window.removeEventListener('storage', handleStorage);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleFocus);
       window.removeEventListener('pageshow', handleFocus);

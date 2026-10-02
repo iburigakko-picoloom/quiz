@@ -28,6 +28,8 @@ export interface Folder {
 }
 
 export interface ProblemSet {
+  sourceVersionId?: string;
+  sourceManifest?: { logicalId: string; contentRevision: string }[];
   id: string;
   folderId: string;
   title: string;
@@ -58,6 +60,8 @@ export interface DetailedAnswer {
 export interface MaterialReference { materialId: string; pageId: string }
 
 export interface Question {
+  logicalId?: string;
+  origin?: { setId: string; logicalId: string; publicationVersionId: string; contentRevision: string; importedContent: string };
   materialReferences?: MaterialReference[];
   distractors?: string[];
   shuffleChoices?: boolean;
@@ -96,6 +100,9 @@ export interface QuestionProgress {
 }
 
 export interface AnswerLog {
+  questionRevision?: string;
+  studyDay?: string;
+  studyTimeZone?: string;
   presentedChoices?: string[];
   id: string;
   questionId: string;
@@ -175,6 +182,9 @@ export interface QuizSession {
 
 export type AppScreen =
   | { name: 'home' }
+  | { name: 'plans' }
+  | { name: 'planDetail'; planId: string }
+  | { name: 'planEditor'; planId?: string; setId?: string; backScreen: AppScreen }
   | { name: 'studyRecord' }
   | { name: 'search' }
   | { name: 'backupComplete'; folderCount: number; setCount: number; questionCount: number }

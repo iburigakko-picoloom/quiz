@@ -39,6 +39,7 @@ export function QuestionEditScreen({ question, onBack, onDirtyChange, onSave }: 
       setDraft({...draft, choices, answerIndex:next[0] ?? -1, answerIndexes:next});
     }}>{draft.choices.length === 4 ? '＋ 5番目の選択肢' : '5番目の選択肢を削除'}</button></fieldset>
     <label>解説<textarea value={draft.explanation} disabled={busy} onChange={(event) => setDraft({...draft, explanation:event.target.value})} /></label>
+    {dirty ? <p className="plan-warning">内容を変えると現在版の復習状態を初期化します。旧版の保存済み回答は保持します。固定した計画の対象・分母は変わらず、この問題は版の更新確認が必要になります。自分で編集した問題は共通の公開版進捗に含めません。</p> : null}
     {error ? <p role="alert" className="qm-wrong">{error}</p> : null}
     <button className="qm-primary" disabled={!valid || !dirty || busy} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button>
     <button className="qm-secondary" disabled={busy} onClick={onBack}>キャンセル</button>

@@ -7,6 +7,7 @@ import { DownloadIcon } from '../components/UiIcons';
 import { exportQuizMakeData, validateSyncPayload } from '../utils/syncService';
 import { deleteSavedBackup, getSavedBackup, listSavedBackups, saveBackupPayload, type SavedBackupSummary } from '../utils/backupRepository';
 import { saveJsonBackup } from '../utils/nativePlatform';
+import { RecordConflictRecovery } from '../components/RecordConflictRecovery';
 
 const kinds = { manual:'手動', 'before-import':'読み込み前に自動作成', 'before-sync':'同期前に自動作成', 'before-logout':'ログアウト前に自動作成' };
 export function BackupScreen({ onBack, onRestore }: { onBack: () => void; onRestore: (file: File) => Promise<string | null> }) {
@@ -40,5 +41,6 @@ export function BackupScreen({ onBack, onRestore }: { onBack: () => void; onRest
       </div>;
     })}
     <ConfirmDialog open={Boolean(deleting)} title="このバックアップを削除しますか？" message={deleting ? `${new Date(deleting.createdAt).toLocaleString()}のバックアップだけを削除します。現在の学習データは残ります。` : ''} busy={busy} onCancel={() => setDeleting(null)} onConfirm={() => void run(async () => { if(deleting) await deleteSavedBackup(deleting.id); setDeleting(null); })} />
+    <RecordConflictRecovery onCreated={refresh} />
   </main></Layout>;
 }

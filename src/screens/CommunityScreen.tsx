@@ -44,6 +44,7 @@ import {
   unpublishCloudProblemSet,
 } from '../utils/cloudService';
 import './CommunityScreen.css';
+import { GroupProgress } from '../components/GroupProgress';
 
 export type CommunityTab = 'mine' | 'groups' | 'discover';
 
@@ -85,6 +86,7 @@ export function CommunityScreen({
   onUnpublished,
 }: CommunityScreenProps) {
   const [tab, setTab] = useState<CommunityTab>(shareToken ? 'discover' : initialTab);
+  const [progressOpen, setProgressOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -668,7 +670,7 @@ export function CommunityScreen({
         : tab === 'discover'
           ? '見つける'
           : isDirectShare ? '共有設定' : '共有の管理';
-  const handleHeaderBack = isGroupSetDetail ? () => setDirectSet(null) : onBack;
+  const handleHeaderBack = isGroupSetDetail ? () => { setProgressOpen(false); setDirectSet(null); } : onBack;
 
   return (
     <Layout>
@@ -688,9 +690,10 @@ export function CommunityScreen({
             {!isGroupSetDetail && !shareToken ? <button type="button" onClick={() => { setDirectSet(null); setTab(detailBackTab); }}>‹ 一覧へ戻る</button> : <span />}
             {directSet.ownerId === session?.user.id ? <div><span>自分の公開</span><PublicationMenu title={directSet.title} busy={busy} onRemove={() => requestRemove([directSet], directSet.title)} /></div> : null}
           </div> : null}
-          {isGroupDetail ? (
+           {progressOpen && isGroupSetDetail && directSet && session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onClose={() => setProgressOpen(false)} /> : isGroupDetail ? (
             isGroupSetDetail && directSet ? (
               <section className="community-section" aria-label="グループの問題セット詳細">
+                <button type="button" className="community-primary" disabled={!session || busy} onClick={() => setProgressOpen(true)}>みんなの進捗</button>
                 <ProblemSetCards
                   sets={[directSet]}
                   busy={busy}

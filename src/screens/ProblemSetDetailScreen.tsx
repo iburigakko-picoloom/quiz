@@ -37,6 +37,7 @@ interface ProblemSetDetailScreenProps {
   onOpenNoteList: () => void;
   onOpenMaterials?: () => void;
   onShare: () => void;
+  onCreatePlan: () => void;
   onToggleStudyCompleted: (setId: string) => Promise<boolean>;
   onStartSession: (params: {
     questions: Question[];
@@ -58,6 +59,7 @@ export function ProblemSetDetailScreen({
   onOpenNoteList,
   onOpenMaterials,
   onShare,
+  onCreatePlan,
   onToggleStudyCompleted,
   onStartSession,
 }: ProblemSetDetailScreenProps) {
@@ -241,6 +243,7 @@ export function ProblemSetDetailScreen({
 
             <section className="quiz-detail__body">
               <div className="quiz-detail__entry-grid">
+                <button type="button" className="quiz-detail__list-entry" onClick={onCreatePlan}><strong>この問題セットで計画を作成</strong><b aria-hidden="true">›</b></button>
                 {onOpenMaterials ? <button type="button" className="quiz-detail__list-entry" onClick={onOpenMaterials}><strong>資料</strong><b aria-hidden="true">›</b></button> : null}
                 <button type="button" className="quiz-detail__list-entry" onClick={onOpenProblemList}>
                   <span>

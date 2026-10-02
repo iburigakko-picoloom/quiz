@@ -14,8 +14,13 @@ import {
 import { buildAppDataView } from '../utils/appDataView';
 import './HomeScreen.css';
 import { StudyCompanion } from '../components/StudyCompanion';
-import { StudyActivity } from '../components/StudyActivity';
 import { useStudyRecord } from '../hooks/useStudyRecord';
+import { useStudyPlans } from '../hooks/useStudyPlans';
+import { aggregatePlanToday } from '../utils/studyPlans';
+import { HOME_PREFERENCES_KEY, getStudyTimeZone } from '../utils/studyPlanStorage';
+import { saveSyncedLocalStorage } from '../utils/localStorageRecords';
+import { withCoordinatedDataMutation } from '../utils/dataCoordination';
+import { PlanSummary } from './PlansScreen';
 
 interface HomeScreenProps {
   data: AppData;
@@ -24,6 +29,8 @@ interface HomeScreenProps {
   onDeleteFolder: (folderId: string) => void;
   onOpenFolder: (folderId: string) => void;
   onOpenStudyRecord: () => void;
+  onOpenPlans: () => void;
+  onOpenPlan: (id: string) => void;
   onSave: (data: AppData) => Promise<boolean>;
 }
 
@@ -34,14 +41,26 @@ export function HomeScreen({
   onDeleteFolder,
   onOpenFolder,
   onOpenStudyRecord,
+  onOpenPlans,
+  onOpenPlan,
   onSave,
 }: HomeScreenProps) {
   const [folderName, setFolderName] = useState('');
   const { summary, day } = useStudyRecord(data.answerLogs);
+  const { entries, error: planError } = useStudyPlans(data.answerLogs);
+  const planToday = aggregatePlanToday(entries, data);
+  const [collapsed, setCollapsed] = useState(() => { try { return JSON.parse(localStorage.getItem(HOME_PREFERENCES_KEY) ?? '{}').collapsed === true; } catch { return false; } });
+  const [preferencesError, setPreferencesError] = useState('');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('recent');
+  const toggleCollapsed = async () => {
+    try { await withCoordinatedDataMutation(['notes'], () => saveSyncedLocalStorage({ [HOME_PREFERENCES_KEY]: JSON.stringify({ collapsed: !collapsed }) })); setCollapsed(!collapsed); setPreferencesError(''); }
+    catch { setPreferencesError('表示設定を保存できませんでした。'); }
+  };
   const editMode = false;
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Folder | null>(null);
-  const folders = useMemo(() => buildAppDataView(data).folders.filter(({ folder }) => !folder.parentFolderId), [data, day]);
+  const folders = useMemo(() => buildAppDataView(data).folders.filter(({ folder }) => !folder.parentFolderId).filter(({ folder }) => folder.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a, b) => sort === 'name' ? a.folder.name.localeCompare(b.folder.name, 'ja') : b.folder.updatedAt.localeCompare(a.folder.updatedAt)), [data, day, query, sort]);
 
   const handleCreateFolder = () => {
     const name = folderName.trim();
@@ -53,14 +72,39 @@ export function HomeScreen({
 
   return (
     <Layout>
-      <div className="quiz-home">
+      <div className={`quiz-home quiz-home--plans${collapsed ? ' quiz-home--compact' : ''}`}>
         <header className="quiz-home__header">
           <h1 className="quiz-home__title">Quiz Make</h1>
-          <HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} />
+          <button type="button" className="quiz-home__plans-link" onClick={onOpenPlans}>学習計画</button>
         </header>
 
+        <div className="quiz-home__content">
+        <section className="quiz-home__today" aria-label="今日のがんばりと計画達成">
+          <div className="quiz-home__section-heading"><h2>今日のがんばりと計画達成</h2><button type="button" aria-expanded={!collapsed} aria-label={collapsed ? '今日のがんばりを開く' : '今日のがんばりを折りたたむ'} onClick={() => void toggleCollapsed()}>{collapsed ? '開く' : '畳む'}</button></div>
+          <StudyCompanion scene="home" compact={collapsed}>
+            <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
+              <span className="quiz-home__study-title">今日の全回答 <ChevronRightIcon size={14} /></span>
+              <span className="quiz-home__activity"><strong>{summary.todayCount}<small>回</small></strong><span>連続 <b>{summary.streak}</b>日</span></span>
+              <span className="quiz-home__plan-total">今日の計画 <b>{planToday.done}/{planToday.goal}</b>問</span>
+              {!collapsed ? <small className="quiz-home__activity-help">全回答には反復・計画外の学習も含みます</small> : null}
+            </button>
+          </StudyCompanion>
+          {!collapsed ? <p className="quiz-home__timezone">学習日：{getStudyTimeZone()} · 詳細は学習記録へ</p> : null}
+          {preferencesError ? <p role="alert">{preferencesError}</p> : null}
+        </section>
+
+        <section className="quiz-home__plans" aria-label="学習計画">
+          <div className="quiz-home__section-heading"><h2>学習計画</h2><button type="button" onClick={onOpenPlans}>一覧・作成{collapsed && entries.length > 1 ? `（${entries.length}件）` : ''} ›</button></div>
+          {planError ? <p role="alert">{planError}</p> : null}
+          {entries.length ? <div className="quiz-home__plan-list">{entries.slice(0, collapsed ? 1 : 2).map(({ plan, daily }) => <button key={plan.id} type="button" className="quiz-home__plan-card" onClick={() => onOpenPlan(plan.id)}><PlanSummary plan={plan} daily={daily} data={data} /><ChevronRightIcon size={18} /></button>)}{!collapsed && entries.length > 2 ? <button type="button" className="quiz-home__more-plans" onClick={onOpenPlans}>ほか{entries.length - (collapsed ? 1 : 2)}件の計画</button> : null}</div> : <button className="quiz-home__no-plans" type="button" onClick={onOpenPlans}>期限型・習慣型の計画を作成 ＋</button>}
+        </section>
+
+        <section className="quiz-home__library" aria-label="学習フォルダ">
+          <div className="quiz-home__section-heading"><h2>学習フォルダ</h2><HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} /></div>
+          <div className="quiz-home__folder-tools"><input type="search" aria-label="フォルダを検索" placeholder="フォルダを検索" value={query} onChange={e => setQuery(e.target.value)} /><select aria-label="フォルダの並び順" value={sort} onChange={e => setSort(e.target.value)}><option value="recent">更新順</option><option value="name">名前順</option></select></div>
+
         <section className="quiz-home__folder-list" aria-label="フォルダ一覧">
-          {folders.length === 0 ? (
+          {folders.length === 0 && !query ? (
             <div className="quiz-home__empty">
               <div className="quiz-home__empty-icon" aria-hidden="true"><PlusIcon size={24} /></div>
               <h2>学習フォルダを作りましょう</h2>
@@ -87,13 +131,9 @@ export function HomeScreen({
             );
           })}
         </section>
-
-        <StudyCompanion scene="home">
-          <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
-            <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
-            <StudyActivity summary={summary} compact />
-          </button>
-        </StudyCompanion>
+        {!folders.length && query ? <p className="quiz-home__no-results">該当するフォルダがありません</p> : null}
+        </section>
+        </div>
 
         {createOpen ? (
           <CreateFolderDialog

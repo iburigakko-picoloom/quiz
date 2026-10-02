@@ -5,7 +5,7 @@ import { saveBackupPayload } from '../utils/backupRepository';
 import { readSyncOverview, readSyncPreview, type SyncOverview } from '../utils/syncPreview';
 
 type Comparison = SyncOverview;
-export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syncId: string; disabled: boolean; onUpload: (payload?: SyncPayload, confirmedRemoteUpdatedAt?: string) => Promise<void>; onDownload: () => Promise<void> }) {
+export function SyncComparison({ syncId, disabled, onUpload, onDownload, onRetry }: { syncId: string; disabled: boolean; onUpload: (payload?: SyncPayload, confirmedRemoteUpdatedAt?: string) => Promise<void>; onDownload: () => Promise<void>; onRetry: () => void }) {
   const [value,setValue] = useState<Comparison | null>(null);
   const [pending,setPending] = useState<Comparison | null>(null);
   const [error,setError] = useState('');
@@ -59,21 +59,6 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
     } catch(reason) { setError(reason instanceof Error ? reason.message : '同期を完了できませんでした。'); setPending(null); }
     finally {lock.current = false; setLoading(false);}
   };
-  const syncNormally = async () => {
-    if (!value || lock.current || disabled) return;
-    lock.current = true; setLoading(true); setError('');
-    try {
-      if (value.state === 'conflict') {
-        setError('両方に変更があります。残す内容を選んでください。');
-        return;
-      }
-      if (value.state === 'same') { setAttempt((n) => n + 1); return; }
-      if (value.state === 'cloud') await onDownload();
-      else await onUpload();
-      setAttempt((n) => n + 1);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '同期できませんでした。'); }
-    finally { lock.current = false; setLoading(false); }
-  };
   const local = useMemo(() => value && summarizeSyncPayload(value.local), [value]);
   const remote = useMemo(() => value?.detailed?.remote && summarizeSyncPayload(value.detailed.remote.payload), [value]);
   const last = getLastSyncState();
@@ -89,7 +74,7 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload }: { syn
     </div> : null}
     {value && local ? <SyncComparisonView state={value.state} local={local} remote={remote || null} remoteExists={Boolean(value.remote)} disabled={disabled || loading}
       detailsLoading={detailsLoading} detailsError={detailsError} onOpenDetails={() => void loadDetails()}
-      onSync={() => void syncNormally()} onUpload={() => setPending(value)} onDownload={() => void onDownload()} /> : null}
+      onSync={onRetry} onUpload={() => setPending(value)} onDownload={() => void onDownload()} /> : null}
     <ConfirmDialog fullPage open={Boolean(pending)} title="端末の内容でクラウドを置き換えますか？" message={pending ? `残す内容：端末の${local?.questionCount ?? 0}問\n上書きする側：クラウド${pending.remote ? `（${new Date(pending.remote.updatedAt).toLocaleString()}）` : '（未登録）'}\n\n両方の復元用バックアップを作成・読み戻し確認してから実行します。` : ''} confirmLabel={loading ? '処理中…' : 'バックアップしてクラウドを置き換える'} busy={loading} onCancel={() => setPending(null)} onConfirm={() => void confirm()} />
   </section>;
 }

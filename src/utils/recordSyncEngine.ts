@@ -83,6 +83,7 @@ export async function runRecordSync(
     if (!applied) return { status: 'deferred', uploaded, downloaded };
     if (!applied.applied && 'conflicts' in applied) return { status: 'conflict', conflicts: applied.conflicts, uploaded, downloaded };
     if (!applied.applied) {
+      if (applied.pushBlocked) return { status: 'deferred', uploaded, downloaded };
       // A complete, validated, conflict-free Pull is staged for later display.
       // Send one CAS batch, then re-inspect before sending any subsequent edits.
       // The receipt never advances the Pull cursor or the Snapshot baseline.

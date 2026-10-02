@@ -199,6 +199,7 @@ test('response loss/restart reuses frozen operations; edits during upload surviv
   assert.equal(pending.length, 1);
   assert.equal(pending[0].collection, 'questions');
   assert.equal(pending[0].baseRevision, 1);
+  assert.equal(pending[0].baseContent.raw, batch.operations.find(operation => operation.key === pending[0].key).raw);
   assert.equal(JSON.parse(pending[0].raw).question, 'Answered while offline');
   const secondBatch = await syncOutbox.freezeRecordPushBatch(reopened, connection);
   assert.notEqual(secondBatch.id, batch.id);

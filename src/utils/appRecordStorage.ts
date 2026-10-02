@@ -25,6 +25,8 @@ export type AppOutboxOperation = {
   position: number;
   baseRevision: number;
   localRevision: number;
+  /** Exact acknowledged ancestor, retained while unsent changes coalesce. */
+  baseContent?: { raw: string | null; position: number };
 };
 export type AppRecordState = {
   schema: 1;
@@ -249,7 +251,16 @@ export async function saveAppRecords(
       tx.objectStore('appRecords').put(row, row.key);
       // Coalesce unsent changes. A transport must durably freeze a batch before
       // sending and only acknowledge the exact operationId it sent.
-      tx.objectStore('appOutbox').put(operations[index], row.key);
+      const pending = tx.objectStore('appOutbox').get(row.key);
+      pending.onsuccess = () => {
+        try {
+          const prior = pending.result as AppOutboxOperation | undefined;
+          const baseContent = prior
+            ? (prior.baseRevision === row.serverRevision ? prior.baseContent : undefined)
+            : old && old.serverRevision > 0 ? { raw: old.raw, position: old.position } : undefined;
+          tx.objectStore('appOutbox').put({ ...operations[index], ...(baseContent ? { baseContent } : {}) }, row.key);
+        } catch (error) { writeFailure = error; tx.abort(); }
+      };
       rows.set(row.key, row);
     });
     tx.objectStore('appRecordMeta').put(nextState, 'state');

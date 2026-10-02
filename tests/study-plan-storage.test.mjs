@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import { after, test } from 'node:test';
+import { createServer } from 'vite';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+const items = new Map();let deny=false;
+globalThis.localStorage={get length(){return items.size}, key:i=>[...items.keys()][i]??null,getItem:k=>items.get(k)??null,removeItem:k=>items.delete(k),setItem(k,v){if(deny&&k.startsWith('quizMake:plan:'))throw new Error('quota');items.set(k,String(v));}};
+globalThis.window={dispatchEvent(){},addEventListener(){},removeEventListener(){},setTimeout,clearTimeout};
+globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
+const vite=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});after(()=>vite.close());
+const storage=await vite.ssrLoadModule('/src/storage.ts');const plans=await vite.ssrLoadModule('/src/utils/studyPlans.ts');const planStorage=await vite.ssrLoadModule('/src/utils/studyPlanStorage.ts');
+const records=await vite.ssrLoadModule('/src/utils/appRecordStorage.ts');const projections=await vite.ssrLoadModule('/src/utils/localStorageRecords.ts');const sync=await vite.ssrLoadModule('/src/utils/syncService.ts');
+const q={id:'q',setId:'set',question:'What?',choices:['A','B','C','D'],answerIndex:0,answerText:'A',explanation:'',sourcePage:'',category:'',difficulty:'basic',createdAt:'2026-10-01T00:00:00Z',updatedAt:'2026-10-01T00:00:00Z'};
+const app={version:1,folders:[{id:'f',name:'Folder',createdAt:q.createdAt,updatedAt:q.updatedAt}],problemSets:[{id:'set',folderId:'f',title:'English',source:'',createdAt:q.createdAt,updatedAt:q.updatedAt}],questions:[q],progress:[],answerLogs:[]};
+const plan={schema:1,id:'p',title:'English',setId:'set',setTitle:'English',timeZone:'Asia/Tokyo',createdAt:q.createdAt,updatedAt:q.updatedAt,targets:plans.snapshotTargets([q],[]),schedules:[{effectiveDay:'2026-10-01',kind:'habit',deadline:'2026-10-31',weekdays:[0,1,2,3,4,5,6],holidays:[],dailyCounts:[1,1,1,1,1,1,1],paused:false}]};
+test('plan, fixed days and timezone persist to the atomic record outbox, replay after projection failure, and reject concurrent overwrite',async()=>{
+  assert.equal(await storage.saveAppData(app),true);deny=true;
+  await assert.rejects(planStorage.savePlan(plan,null),/quota/);
+  deny=false;await projections.replayLocalStorageProjections();assert.deepEqual(planStorage.readPlans(),[plan]);
+  const db=await storage.openAppDb();const outbox=await records.readAppOutbox(db);assert.ok(outbox.some(o=>o.id===planStorage.PLAN_PREFIX+'p'&&o.collection==='localStorage'));
+  await assert.rejects(planStorage.savePlan({...plan,title:'stale'},null),/別の操作/);
+  await planStorage.ensurePlanDays([],new Date('2026-10-02T03:00:00Z'));const day=planStorage.readPlanDay(plan,new Date('2026-10-02T03:00:00Z'));assert.equal(day.goal,1);
+  const log={id:'answer',questionId:'q',setId:'set',folderId:'f',selectedIndex:0,isCorrect:true,answeredAt:'2026-10-01T03:00:00Z',questionRevision:plans.questionRevision(q)};
+  await planStorage.ensurePlanDays([log],new Date('2026-10-02T10:00:00Z'));assert.deepEqual(planStorage.readPlanDay(plan,new Date('2026-10-02T10:00:00Z')),day);
+});
+test('full backup roundtrip restores plans and fixed days; malformed plan backups are rejected without replacing current data',async()=>{
+  const backup=await sync.exportQuizMakeData();assert.ok(backup.localStorage[planStorage.PLAN_PREFIX+'p']);assert.equal(sync.validateSyncPayload(backup).ok,true);
+  await planStorage.deletePlan(plan,localStorage.getItem(planStorage.PLAN_PREFIX+'p'));assert.deepEqual(planStorage.readPlans(),[]);
+  const restored=await sync.importQuizMakeData(backup);assert.equal(restored.ok,true,restored.error);assert.equal(planStorage.readPlans()[0].id,'p');
+  const bad={...backup,localStorage:{...backup.localStorage,[planStorage.PLAN_PREFIX+'p']:'{}'}};assert.equal(sync.validateSyncPayload(bad).ok,false);assert.equal((await sync.importQuizMakeData(bad)).ok,false);assert.equal(planStorage.readPlans()[0].id,'p');
+});

@@ -1,4 +1,4 @@
-import { getCloudAccessToken } from './cloudService';
+import { getCloudAccessToken, getCloudSession } from './cloudService';
 import { withCoordinatedDataRead } from './dataCoordination';
 import { captureSyncedLocalStorage, replayLocalStorageProjections } from './localStorageRecords';
 import { openCoLocatedNoteDb } from './noteRecordMigration';
@@ -11,21 +11,38 @@ import { prepareQuestionImageOutbox, prepareStagedQuestionImages } from './recor
 import { runRecordSync, type RecordSyncGuards, type RecordSyncOutcome } from './recordSyncEngine';
 import { isRecordSyncOptedIn } from './recordSyncOptIn';
 import {
-  getAutoSyncSettings, getLastSyncState, getRemoteSyncConfig, getRemoteSyncMeta,
-  isQuizMakeStorageKey, setLastSyncStateForConnection, waitForLocalPersistence,
+  getAutoSyncSettings, getRemoteSyncConfig, getRemoteSyncMeta,
+  isQuizMakeStorageKey, waitForLocalPersistence,
 } from './syncService';
 
-export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply']): Promise<RecordSyncOutcome> {
+import { withRecordSyncLease } from './syncRequest';
+import { writeRecordSyncReceipt } from './recordSyncStatus';
+import { isAutoUploadBlocked } from './autoSyncScheduler';
+import { getActiveProtectedWorkReason } from './protectedWork';
+import { isSyncInteractionProtected } from './syncInteraction';
+
+export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false): Promise<RecordSyncOutcome> {
+  return await withRecordSyncLease(navigator.locks, () => runAppRecordSyncLocked(syncId, apply, manual))
+    ?? { status: 'more', uploaded: 0, downloaded: 0 };
+}
+
+async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['apply'], manual: boolean): Promise<RecordSyncOutcome> {
   const config = getRemoteSyncConfig();
   if (!config) throw new Error('クラウド同期が設定されていません。');
   const started = getAutoSyncSettings();
-  if (!started.enabled || started.syncId !== syncId) throw new Error('同期先が変わりました。');
+  if ((!started.enabled && !manual) || started.syncId !== syncId) throw new Error('同期先が変わりました。');
   const initialAccess = await getCloudAccessToken();
   if (!initialAccess.ok) throw new RecordSyncRpcError('authentication_required', initialAccess.message);
   const connection = { project: new URL(config.url).origin, userId: initialAccess.userId, syncId };
   const assertCurrent = async () => {
+    if (isSyncInteractionProtected() || isAutoUploadBlocked(getActiveProtectedWorkReason())) throw new Error('内容の確認が終わってから同期を再開します。');
+    // The RPC adapter verifies the exact JWT before every network request.
+    // This local guard detects account changes without extra Auth round trips.
+    const session = await getCloudSession();
+    if (!session || session.user.is_anonymous || session.user.id !== initialAccess.userId) throw new RecordSyncRpcError('authentication_required', 'ログイン状態が変わりました。未送信の変更は保持しています。');
+    if (getRemoteSyncConfig()?.url !== config.url || getRemoteSyncConfig()?.anonKey !== config.anonKey) throw new Error('接続設定が変わりました。');
     const current = getAutoSyncSettings();
-    if (!current.enabled || current.syncId !== syncId) throw new Error('同期先が変わりました。');
+    if ((!current.enabled && !manual) || current.syncId !== syncId) throw new Error('同期先が変わりました。');
     if (!isRecordSyncOptedIn(syncId)) throw new Error('高速同期がOFFになりました。');
     const saved = await waitForLocalPersistence();
     if (!saved.ok) throw new Error(saved.error);
@@ -41,8 +58,9 @@ export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['
       return current;
     },
     assertCurrent() {
+      if (isSyncInteractionProtected() || isAutoUploadBlocked(getActiveProtectedWorkReason()) || !isRecordSyncOptedIn(syncId) || getRemoteSyncConfig()?.url !== config.url || getRemoteSyncConfig()?.anonKey !== config.anonKey) throw new Error('同期の接続または操作状態が変わりました。');
       const current = getAutoSyncSettings();
-      if (!current.enabled || current.syncId !== syncId) throw new Error('同期先が変わりました。');
+      if ((!current.enabled && !manual) || current.syncId !== syncId) throw new Error('同期先が変わりました。');
     },
   });
   await rpc.open(expected);
@@ -59,13 +77,7 @@ export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['
   if(images.more)return {status:'more',uploaded:0,downloaded:0};
   await assertCurrent();
   const result = await runRecordSync(db,connection,rpc,{assertCurrent,apply,prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent)});
-  if (result.status === 'done' && result.uploaded) {
-    const latest = await getRemoteSyncMeta(syncId);
-    if (!latest.ok || !latest.value) throw new Error(latest.ok ? '保存後の同期先を確認できませんでした。' : latest.error);
-    if (!setLastSyncStateForConnection(syncId,{lastSyncAt:latest.value.updatedAt,lastRemoteUpdatedAt:latest.value.updatedAt,status:'同期済み',error:''})) throw new Error('保存後に同期先が変わりました。');
-  } else if (result.status === 'done') {
-    const last = getLastSyncState();
-    if (last.lastSyncAt !== expected) setLastSyncStateForConnection(syncId,{lastSyncAt:expected,lastRemoteUpdatedAt:expected,status:'同期済み',error:''});
-  }
+  await assertCurrent();
+  await writeRecordSyncReceipt(db, connection, result);
   return result;
 }
