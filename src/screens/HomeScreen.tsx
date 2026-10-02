@@ -29,6 +29,7 @@ interface HomeScreenProps {
   onOpenFolder: (folderId: string) => void;
   onOpenStudyRecord: () => void;
   onOpenPlans: () => void;
+  onOpenSearch: () => void;
   onOpenPlan: (id: string) => void;
   onSave: (data: AppData) => Promise<boolean>;
 }
@@ -41,6 +42,7 @@ export function HomeScreen({
   onOpenFolder,
   onOpenStudyRecord,
   onOpenPlans,
+  onOpenSearch,
   onOpenPlan,
   onSave,
 }: HomeScreenProps) {
@@ -98,7 +100,7 @@ export function HomeScreen({
         </section>
 
         <section className="quiz-home__library" aria-label="学習フォルダ">
-          <div className="quiz-home__section-heading"><h2>学習フォルダ</h2><HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} /></div>
+          <div className="quiz-home__section-heading"><h2>学習フォルダ</h2><button type="button" className="quiz-home__search-entry" onClick={onOpenSearch}>教材検索</button><HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} /></div>
           <div className="quiz-home__folder-tools"><input type="search" aria-label="フォルダを検索" placeholder="フォルダを検索" value={query} onChange={e => setQuery(e.target.value)} /><select aria-label="フォルダの並び順" value={sort} onChange={e => setSort(e.target.value)}><option value="recent">更新順</option><option value="name">名前順</option></select></div>
 
         <section className="quiz-home__folder-list" aria-label="フォルダ一覧">

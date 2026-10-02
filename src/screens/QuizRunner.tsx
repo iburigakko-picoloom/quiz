@@ -1,6 +1,8 @@
 import { Children, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
+import { PinchImage } from '../components/PinchImage';
+import { FullText } from '../components/FullText';
 import remarkGfm from 'remark-gfm';
 import type { AppData, Question, QuizResult, MaterialReference } from '../types';
 import { BackButton } from '../components/BackButton';
@@ -399,7 +401,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
         <main key={currentQuestion.id} className="quiz-runner__main quiz-runner__question-stage flex min-h-0 flex-1 flex-col">
           <section className="quiz-runner__question-panel flex h-[clamp(104px,17dvh,132px)] shrink-0 items-center justify-center overflow-hidden px-5 py-3 text-center">
             <div className="min-h-0 w-full">
-              <div className="quiz-question-heading"><div className="quiz-question-kicker" aria-hidden="true">QUESTION {registeredQuestionNumber}</div><span className="quiz-question-material" ref={setMaterialLauncherTarget} /></div>
+              <div className="quiz-question-heading"><div className="quiz-question-kicker" aria-hidden="true">QUESTION {registeredQuestionNumber}</div><span className="quiz-question-material" ref={setMaterialLauncherTarget} />{currentQuestion.question.length > 90 || currentQuestion.choices.some(choice => choice.length > 60) ? <FullText key={currentQuestion.id} text={[currentQuestion.question, ...currentQuestion.choices.map((choice, index) => `${getChoiceLabel(index)}. ${choice}`)].join('\n\n')} /> : null}</div>
               {currentQuestion.category ? (
                 <div className="quiz-runner__question-category mb-1 truncate text-xs font-semibold">{currentQuestion.category}</div>
               ) : null}
@@ -1052,8 +1054,8 @@ export function AnswerPanel({
     >
       <div className="answer-sheet__page-navigation">
         <h2>解答</h2>
-        <button ref={detailOpenRef} type="button" className={'answer-sheet__detail-open' + (hasUnsavedDetail ? ' answer-sheet__detail-open--unsaved' : '')} onClick={openDetailPage} aria-label="右側の解説・メモへ">
-          <span>解説・メモ</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6" /></svg>
+        <button ref={detailOpenRef} type="button" className={'answer-sheet__detail-open' + (hasUnsavedDetail ? ' answer-sheet__detail-open--unsaved' : '')} onClick={openDetailPage} aria-label="右側の追加解説・メモへ">
+          <span>追加解説・メモ</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6" /></svg>
         </button>
       </div>
       <div className="answer-sheet__answer-box">
@@ -1078,7 +1080,7 @@ export function AnswerPanel({
         <button ref={detailBackRef} type="button" className="answer-sheet__detail-back" onClick={handleLeaveDetailPage} disabled={isSavingDetail} aria-label="左側の解答に戻る">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5m6-6-6 6 6 6" /></svg><span>解答に戻る</span>
         </button>
-        <h2>解説・メモ</h2>
+        <h2>追加解説・メモ</h2>
       </div>
       <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} imageIds={imageIds} onSave={onSaveDetailedExplanation} onAddImage={onAddDetailedImage} onRemoveImage={onRemoveDetailedImage} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} active={panelPage === 'detail' && state !== 'hidden'} guideExample={guidePage ? 'なぜ月の形は毎日変わって見えるの？ 図でも知りたい。' : undefined} />
     </div>
@@ -1166,7 +1168,7 @@ function ExplanationContent({ text, className }: { text: string; className: stri
           ) : <span>{children}</span>,
           input: ({ node: _node, ...props }) => <input {...props} disabled data-no-page-swipe />,
           img: ({ src, alt }) => src
-            ? <img src={src} alt={alt ?? ''} loading="lazy" data-no-page-swipe />
+            ? <PinchImage src={src} alt={alt ?? ''} />
             : <span>{alt ?? ''}</span>,
         }}
       >

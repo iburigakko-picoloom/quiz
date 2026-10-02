@@ -161,7 +161,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
       <div className="settings-screen">
         <header className="settings-screen__header">
           {page ? <BackButton onClick={onBack} /> : null}
-          <h1>{page === 'account' ? 'アカウント' : page === 'transfer' ? 'インポート・エクスポート' : page === 'backups' ? 'バックアップ' : page === 'logout' ? 'ログアウト' : '設定'}</h1>
+          <h1>{page === 'account' ? 'アカウント' : page === 'transfer' ? '端末データの削除' : page === 'backups' ? 'バックアップ・復元' : page === 'logout' ? 'ログアウト' : '設定'}</h1>
         </header>
 
         <main className="settings-screen__body">
@@ -173,8 +173,8 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
             </section>
             <section className="settings-section"><div className="settings-section__heading"><h2>データ</h2></div>
               <SettingsRow icon={<SettingsIcon kind="sync" />} title="同期" arrow onClick={onOpenSync} />
-              <SettingsRow icon={<SettingsIcon kind="backup" />} title="バックアップ" arrow onClick={() => onNavigate('backups')} />
-              <SettingsRow icon={<SettingsIcon kind="transfer" />} title="インポート・エクスポート" arrow onClick={() => onNavigate('transfer')} />
+              <SettingsRow icon={<SettingsIcon kind="backup" />} title="バックアップ・復元" arrow onClick={() => onNavigate('backups')} />
+              <SettingsRow icon={<TrashIcon />} title="端末データの削除" arrow onClick={() => onNavigate('transfer')} />
             </section>
           </> : null}
           {page === 'account' ? <>
@@ -215,7 +215,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
           <SettingsRow icon={<SettingsIcon kind="sync" />} title="同期" arrow onClick={onOpenSync} />
           </> : null}
 
-          {page === 'transfer' || page === 'backups' ? <>
+          {page === 'backups' ? <>
           <section className="settings-section" aria-labelledby="settings-data-title">
             <div className="settings-section__heading"><h2 id="settings-data-title">データ管理</h2></div>
             <SettingsRow icon={<UploadIcon />} title="アプリデータを読み込む" onClick={() => fileInputRef.current?.click()} />
@@ -250,7 +250,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
         <ConfirmDialog
           open={clearConfirmOpen}
           title="端末の学習データを削除しますか？"
-          message="フォルダ、問題、回答記録、復習状態、詳細解説、苦手メモ、AIへの依頼履歴、カテゴリーノートをこの端末から削除します。自動同期はOFFになります。クラウドデータと保存済みバックアップは残ります。バックアップも消す場合は別途削除してください。"
+          message="フォルダ、問題、回答記録、復習状態、追加解説・メモ、苦手メモ、AIへの依頼履歴、カテゴリーノートをこの端末から削除します。自動同期はOFFになります。クラウドデータと保存済みバックアップは残ります。バックアップも消す場合は別途削除してください。"
           confirmLabel={clearBusy ? '削除中…' : '学習データを削除'}
           busy={clearBusy}
           onCancel={() => setClearConfirmOpen(false)}

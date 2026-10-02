@@ -72,6 +72,7 @@
 }
 .community-notice--warning { border-color: #f3d99e; background: #fff9e9; color: #795a16; }
 .community-notice--error { border-color: #f0baba; background: #fff3f3; color: #a23838; }
+.community-notice--error button { display: block; min-height: 44px; min-width: 44px; margin-top: 8px; padding: 8px 14px; border: 1px solid currentColor; border-radius: 8px; background: white; color: inherit; font: inherit; }
 .community-notice button { border: 0; background: transparent; color: inherit; font-weight: 800; }
 
 .community-account,

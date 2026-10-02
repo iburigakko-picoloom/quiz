@@ -44,7 +44,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
     finally { copyLock.current = false; setCopying(false); }
   };
   return <Layout><main className="library-page note-overview">
-    <header className="library-page__header"><BackButton onClick={onBack} /><h1>詳細解説一覧</h1></header>
+    <header className="library-page__header"><BackButton onClick={onBack} /><h1>追加解説・メモ一覧</h1></header>
     {set ? <>
       <h2 className="note-overview-title">{set.title}</h2>
       <div className="note-overview-copy">
@@ -70,14 +70,14 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpen, onOpenDetail, 
               {memos.length ? <section className="note-explanation-item__memos" aria-label="メモ">
                 <WeaknessMemoList notes={memos}/>
               </section> : null}
-              <section className="note-explanation-item__answer" aria-label="詳細解説">
+              <section className="note-explanation-item__answer" aria-label="追加解説・メモ">
                 <h4>解説</h4>
                 <ExplanationReader questionId={question.id} text={detailBody(question)} imageIds={question.detailedAnswer?.imageIds ?? []}/>
               </section>
             </article>;
           })}
         </div>
-        {!detailedQuestions.length ? <p>詳細解説はまだありません</p> : null}
+        {!detailedQuestions.length ? <p>追加解説・メモはまだありません</p> : null}
       </>
       {!phone ? <div className="note-overview-tablet-notes"><button className="library-row" onClick={() => onOpen('__materials')}>
         <span className="library-icon"><StudyIcon size={18} /></span>

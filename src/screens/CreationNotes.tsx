@@ -55,7 +55,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   const apply=async()=>{if(!batch||busy)return;setBusy(true);setError('');try{const verified=readExplanationBatch(paste);await onApplyBatch(verified);await finishExplanationBatch(verified);setPaste('');setBatch(null);setMessage(`${verified.replies.length}件を反映しました`);setHistory(setId?['list']:[]);setStage('paste');setView(importOnly?'import':setId?'set':'list');}catch(e){setError(e instanceof Error?e.message:'保存できませんでした。回答を残しています。');}finally{setBusy(false);}};
   const visibleNotes=purpose==='questions'?notes.filter(n=>hasAnsweredMemo(n,data)):notes;
   const inSet=visibleNotes.filter(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===setId)&&n.body.trim());
-  const title=view==='set'?data.problemSets.find(s=>s.id===setId)?.title:view==='prompt'?'AIへの依頼':view==='import'?'回答を取り込む':view==='question'?'解説・メモ':null;
+  const title=view==='set'?data.problemSets.find(s=>s.id===setId)?.title:view==='prompt'?'AIへの依頼':view==='import'?'回答を取り込む':view==='question'?'追加解説・メモ':null;
   const chooseAll=(id:string)=>{setSetId(id);const ns=visibleNotes.filter(n=>n.questionId&&n.body.trim()&&!n.draft&&(purpose==='questions'||n.resolvedBody!==n.body)&&data.questions.some(q=>q.id===n.questionId&&q.setId===id));setSelected(ns.map(n=>n.id));go('set');};
   return <section key={view} className={`weakness-workspace weakness-workspace--${direction}${view==='list'?' weakness-workspace--list':''}`} aria-label="苦手メモ">
     {title&&!importOnly?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}

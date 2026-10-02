@@ -7,7 +7,7 @@ export function WeaknessMemoList({ notes, disabled = false, onDeleted }: { notes
   const [error, setError] = useState('');
   const lock = useRef(false);
   const remove = async (note: WeaknessNote) => {
-    if (disabled || lock.current || !window.confirm(`このメモを削除しますか？\n\n${note.body.slice(0,120)}\n\n詳細解説と画像は残ります。`)) return;
+    if (disabled || lock.current || !window.confirm(`このメモを削除しますか？\n\n${note.body.slice(0,120)}\n\n追加解説・メモと画像は残ります。`)) return;
     lock.current = true; setDeleting(note.id); setError('');
     try { await deleteWeaknessNote(note); onDeleted?.(note.id); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'メモを削除できませんでした。'); }

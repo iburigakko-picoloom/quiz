@@ -9,8 +9,12 @@ import {
 } from '../utils/importValidator';
 import { readClipboardText } from '../utils/nativePlatform';
 import './ImportScreen.css';
+import { runImportQueue } from '../utils/importQueue';
+import { readImportSession, storeImportSession, type ImportDraft, type ImportFileItem } from '../utils/importDraftSessions';
 
 interface ImportScreenProps {
+  sessionKey: string;
+  registerExitGuard: (guard: ((proceed: () => void) => Promise<boolean>) | null) => void;
   folderName: string;
   onBack: () => void;
   onImport: (titleOverride: string, jsonText: string, stayOnScreen?: boolean) => Promise<string | null>;
@@ -22,23 +26,13 @@ interface ImportResult {
   failures: { fileName: string; error: string }[];
 }
 
-interface ImportFileItem {
-  id: string;
-  fileName: string;
-  fallbackTitle: string;
-  detectedSetTitle: string;
-  editableSetTitle: string;
-  userEditedTitle: boolean;
-  size: number;
-  rawText: string;
-  readError?: string;
-}
-
-export function ImportScreen({ folderName, onBack, onImport, onImportComplete }: ImportScreenProps) {
-  const [title, setTitle] = useState('');
-  const [titleEdited, setTitleEdited] = useState(false);
-  const [jsonText, setJsonText] = useState('');
-  const [importFiles, setImportFiles] = useState<ImportFileItem[]>([]);
+export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack, onImport, onImportComplete }: ImportScreenProps) {
+  const initial = readImportSession(sessionKey);
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [titleEdited, setTitleEdited] = useState(initial?.titleEdited ?? false);
+  const [jsonText, setJsonText] = useState(initial?.jsonText ?? '');
+  const [importFiles, setImportFiles] = useState<ImportFileItem[]>(initial?.files ?? []);
+  const [savedCount, setSavedCount] = useState(initial?.savedCount ?? 0);
   const [error, setError] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [isPreparingFiles, setIsPreparingFiles] = useState(false);
@@ -46,18 +40,37 @@ export function ImportScreen({ folderName, onBack, onImport, onImportComplete }:
   const [importProgress, setImportProgress] = useState('');
   const [notice, setNotice] = useState('');
   const [pendingClipboardText, setPendingClipboardText] = useState<string | null>(null);
-  const completionTimeoutRef = useRef<number | null>(null);
+  const activeRef = useRef(true), stopRef = useRef(false), preparingRef = useRef(false);
+  const runningRef = useRef<Promise<void> | null>(null);
+  const draftRef = useRef<ImportDraft>({ title, titleEdited, jsonText, files: importFiles, savedCount });
+  draftRef.current = { title, titleEdited, jsonText, files: importFiles, savedCount };
+  const exitResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  const [exitOpen, setExitOpen] = useState(false);
+  const [exitWaiting, setExitWaiting] = useState(false);
 
-  useEffect(() => () => {
-    if (completionTimeoutRef.current !== null) window.clearTimeout(completionTimeoutRef.current);
-  }, []);
-
-  const scheduleImportComplete = () => {
-    if (completionTimeoutRef.current !== null) window.clearTimeout(completionTimeoutRef.current);
-    completionTimeoutRef.current = window.setTimeout(() => {
-      completionTimeoutRef.current = null;
-      onImportComplete();
-    }, 700);
+  useEffect(() => { storeImportSession(sessionKey, draftRef.current); }, [sessionKey, title, titleEdited, jsonText, importFiles, savedCount]);
+  useEffect(() => {
+    activeRef.current = true;
+    registerExitGuard(async proceed => {
+      if (preparingRef.current) { setError('ファイルの読み込みが完了してから戻れます。'); return false; }
+      if (exitResolver.current) return false;
+      if (runningRef.current) {
+        const confirmed = await new Promise<boolean>(resolve => { exitResolver.current = resolve; setExitOpen(true); });
+        if (!confirmed) return false;
+      }
+      storeImportSession(sessionKey, draftRef.current); proceed(); return true;
+    });
+    return () => { activeRef.current = false; stopRef.current = true; registerExitGuard(null); storeImportSession(sessionKey, draftRef.current); exitResolver.current?.(false); exitResolver.current = null; };
+  }, [sessionKey, registerExitGuard]);
+  useEffect(() => {
+    if (!isImporting && !isPreparingFiles && !jsonText.trim() && !importFiles.length) return;
+    const protect = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', protect); return () => window.removeEventListener('beforeunload', protect);
+  }, [isImporting, isPreparingFiles, jsonText, importFiles.length]);
+  const resolveExit = async (confirmed: boolean) => {
+    if (confirmed) { stopRef.current = true; setExitWaiting(true); await runningRef.current; }
+    const resolve = exitResolver.current; exitResolver.current = null;
+    setExitWaiting(false); setExitOpen(false); resolve?.(confirmed);
   };
 
   const handleReadClipboard = async () => {
@@ -110,6 +123,7 @@ export function ImportScreen({ folderName, onBack, onImport, onImportComplete }:
       return;
     }
     setIsPreparingFiles(true);
+    preparingRef.current = true;
     const items = await Promise.all(files.map(async (file) => {
       const fallbackTitle = getFileBaseName(file.name);
       try {
@@ -144,6 +158,7 @@ export function ImportScreen({ folderName, onBack, onImport, onImportComplete }:
       return [...current.filter((item) => !nextIds.has(item.id)), ...items];
     });
     setIsPreparingFiles(false);
+    preparingRef.current = false;
   };
   const handleJsonTextChange = (value: string) => {
     setJsonText(value);
@@ -173,104 +188,42 @@ export function ImportScreen({ folderName, onBack, onImport, onImportComplete }:
   };
 
   const handleImport = async () => {
-    setError('');
-    setImportResult(null);
-    setNotice('');
-
-    const hasFiles = importFiles.length > 0;
-    const hasPastedJson = jsonText.trim().length > 0;
-    const totalItems = importFiles.length + (hasPastedJson ? 1 : 0);
-
-    setIsImporting(true);
-    setImportProgress(hasFiles ? `取り込み中... 0 / ${totalItems}` : '取り込み中...');
-    await yieldToUi();
-
-    if (!hasFiles) {
-      const normalizedJsonText = normalizeJsonText(jsonText);
-      const pastedTitle = title.trim() || extractSetTitle(jsonText) || '無題の問題セット';
-      const result = await onImport(pastedTitle, normalizedJsonText, true);
-      if (result) {
-        setError(result);
-        setIsImporting(false);
+    if (runningRef.current || preparingRef.current) return;
+    const files = [...importFiles];
+    const queue = [
+      ...(jsonText.trim() ? [{ id: '__paste__', fileName: '貼り付けJSON', rawText: normalizeJsonText(jsonText), finalTitle: title.trim() || extractSetTitle(jsonText) || '無題の問題セット', readError: undefined as string | undefined }] : []),
+      ...files.map(file => ({ ...file, finalTitle: getFinalFileTitle(file, files.length === 1 ? title.trim() : '') })),
+    ];
+    if (!queue.length) return;
+    stopRef.current = false;
+    setIsImporting(true); setError(''); setNotice(''); setImportResult(null);
+    const work = (async () => {
+      await yieldToUi();
+      const result = await runImportQueue(queue, {
+        stopped: () => stopRef.current,
+        progress: (item, index) => { if (activeRef.current) setImportProgress(item.fileName + ' を取り込み中… ' + (index + 1) + ' / ' + queue.length); },
+        save: item => item.readError ? Promise.resolve(item.readError) : onImport(item.finalTitle, item.rawText, true),
+        saved: item => {
+          const state = { ...draftRef.current, jsonText: item.id === '__paste__' ? '' : draftRef.current.jsonText, files: draftRef.current.files.filter(file => file.id !== item.id), savedCount: draftRef.current.savedCount + 1 };
+          draftRef.current = state; storeImportSession(sessionKey, state);
+          if (activeRef.current) { setJsonText(state.jsonText); setImportFiles(state.files); setSavedCount(state.savedCount); }
+        },
+      });
+      if (activeRef.current) {
+        setImportResult({ successCount: result.saved, failures: result.failures.map(f => ({ fileName: queue.find(item => item.id === f.id)?.fileName ?? f.id, error: f.error })) });
         setImportProgress('');
-        return;
+        setNotice(result.stopped ? '取り込みを中断しました。保存済みの教材は残り、残りだけ再開できます。' : result.failures.length ? '未保存の項目を残しています。内容を確認して再試行できます。' : '取り込み完了。保存先を開けます。');
       }
-      setImportResult({ successCount: 1, failures: [] });
-      setImportProgress('取り込み完了');
-      setNotice('取り込み完了。問題セット一覧へ戻ります');
-      scheduleImportComplete();
-      return;
-    }
-
-    let successCount = 0;
-    const failures: ImportResult['failures'] = [];
-    const successfulFileIds = new Set<string>();
-    let pastedJsonSucceeded = false;
-    let processedCount = 0;
-
-    if (hasPastedJson) {
-      setImportProgress(`貼り付けJSONを取り込み中... ${processedCount + 1} / ${totalItems}`);
-      await yieldToUi();
-      const normalizedJsonText = normalizeJsonText(jsonText);
-      const pastedTitle = title.trim() || extractSetTitle(jsonText) || '無題の問題セット';
-      const result = await onImport(pastedTitle, normalizedJsonText, true);
-      if (result) {
-        failures.push({ fileName: '貼り付けJSON', error: result });
-      } else {
-        successCount += 1;
-        pastedJsonSucceeded = true;
-      }
-      processedCount += 1;
-      setImportProgress(`取り込み中... ${processedCount} / ${totalItems}`);
-    }
-
-    for (const file of importFiles) {
-      setImportProgress(`${file.fileName} を取り込み中... ${processedCount + 1} / ${totalItems}`);
-      await yieldToUi();
-      if (file.readError) {
-        failures.push({ fileName: file.fileName, error: file.readError });
-        processedCount += 1;
-        continue;
-      }
-      const fileTitle = getFinalFileTitle(file, importFiles.length === 1 ? title.trim() : '');
-      if (!fileTitle) {
-        failures.push({ fileName: file.fileName, error: '問題セット名を入力してください。' });
-        processedCount += 1;
-        continue;
-      }
-      const result = await onImport(fileTitle, file.rawText, true);
-      if (result) {
-        failures.push({ fileName: file.fileName, error: result });
-      } else {
-        successCount += 1;
-        successfulFileIds.add(file.id);
-      }
-      processedCount += 1;
-      setImportProgress(`取り込み中... ${processedCount} / ${totalItems}`);
-    }
-
-    if (pastedJsonSucceeded) {
-      setJsonText('');
-    }
-    if (successfulFileIds.size > 0) {
-      setImportFiles((items) => items.filter((item) => !successfulFileIds.has(item.id)));
-    }
-    setImportResult({ successCount, failures });
-    if (successCount > 0 && failures.length === 0) {
-      setImportProgress('取り込み完了');
-      setNotice('取り込み完了。問題セット一覧へ戻ります');
-      scheduleImportComplete();
-      return;
-    }
-    setIsImporting(false);
-    setImportProgress('');
+    })();
+    runningRef.current = work;
+    try { await work; } finally { runningRef.current = null; if (activeRef.current) setIsImporting(false); }
   };
 
   return (
     <Layout>
       <div className="quiz-import">
         <header className="quiz-import__header">
-          <BackButton onClick={onBack} className="quiz-import__back" disabled={isImporting || isPreparingFiles} />
+          <BackButton onClick={onBack} className="quiz-import__back" />
           <div className="quiz-import__title-wrap">
             <h1 className="quiz-import__title">問題セット追加</h1>
             <p className="quiz-import__subtitle">{folderName}</p>
@@ -279,6 +232,7 @@ export function ImportScreen({ folderName, onBack, onImport, onImportComplete }:
         </header>
 
         <main className="quiz-import__content">
+          <fieldset disabled={isImporting || isPreparingFiles} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <section className="quiz-import__title-card">
             <div className="quiz-import__card-heading">
               <span>1</span>
@@ -374,6 +328,9 @@ export function ImportScreen({ folderName, onBack, onImport, onImportComplete }:
           ) : null}
 
           {error ? <div className="quiz-import__error" role="alert">{error}</div> : null}
+          {savedCount ? <p role="status">保存済み：{savedCount}件。再開時は未保存の項目だけ取り込みます。</p> : null}
+          </fieldset>
+          {!isImporting && !jsonText.trim() && !importFiles.length && savedCount ? <button type="button" className="quiz-import__clipboard-button" onClick={onImportComplete}>保存先を開く</button> : null}
         </main>
 
         <button
@@ -382,9 +339,10 @@ export function ImportScreen({ folderName, onBack, onImport, onImportComplete }:
           disabled={isImporting || isPreparingFiles || (!jsonText.trim() && importFiles.length === 0)}
           className="quiz-import__submit"
         >
-          {isImporting ? '取り込み中...' : '取り込む'}
+          {isImporting ? '取り込み中…' : savedCount && (jsonText.trim() || importFiles.length) ? '残りを取り込む' : '取り込む'}
         </button>
       </div>
+      <ConfirmDialog open={exitOpen} title="取込を中断して戻りますか？" message="今保存している1件の完了を待って戻ります。保存済みの教材は残り、未保存の入力はこの画面に戻ると再開できます。アプリを閉じる前に元のファイルを保管してください。" busy={exitWaiting} confirmLabel={exitWaiting ? '今の1件を保存中…' : '中断して戻る'} onCancel={() => void resolveExit(false)} onConfirm={() => void resolveExit(true)} />
       <ConfirmDialog
         open={pendingClipboardText !== null}
         title="入力内容を置き換えますか？"

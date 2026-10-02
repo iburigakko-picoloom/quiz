@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppData, ProblemSortMode, Question, QuestionProgress } from '../types';
 import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
@@ -17,6 +17,8 @@ import {
   normalizeProblemCategory,
 } from '../utils/questionSelection';
 import './ProblemListScreen.css';
+import { readListView } from '../utils/listViewMemory';
+import { useListViewMemory } from '../hooks/useListViewMemory';
 
 const EMPTY_QUESTION_OVERVIEWS: readonly QuestionOverview[] = [];
 
@@ -43,9 +45,13 @@ export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', on
   const questionOverviews = contentView.questionsBySetId.get(setId) ?? EMPTY_QUESTION_OVERVIEWS;
   const allQuestions = useMemo(() => questionOverviews.map((item) => item.question), [questionOverviews]);
   const categories = useMemo(() => buildProblemCategories(allQuestions), [allQuestions]);
-  const [sortMode, setSortMode] = useState<ProblemSortMode>(initialSortMode);
-  const [activeCategory, setActiveCategory] = useState('all');
+  const memoryKey = `questions:${setId}`;
+  const savedView = readListView<{ sortMode: ProblemSortMode; activeCategory: string }>(memoryKey);
+  const [sortMode, setSortMode] = useState<ProblemSortMode>(savedView?.state.sortMode ?? initialSortMode);
+  const [activeCategory, setActiveCategory] = useState(savedView?.state.activeCategory ?? 'all');
   const listRef = useRef<HTMLDivElement | null>(null);
+  const remember = useListViewMemory(memoryKey, { sortMode, activeCategory }, listRef);
+  useEffect(() => { if (activeCategory !== 'all' && !categories.includes(activeCategory)) setActiveCategory('all'); }, [activeCategory, categories]);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const groupedSections = useMemo(() => {
@@ -191,8 +197,8 @@ export function ProblemListScreen({ data, setId, initialSortMode = 'ordered', on
                   question={question}
                   progress={progress}
                   setStudyCompleted={problemSet.isStudyCompleted === true}
-                  onClick={() => onOpenQuestion(question.id, sortMode)}
-                  onStart={() => startFrom(question.id)}
+                  onClick={() => { remember(question.id); onOpenQuestion(question.id, sortMode); }}
+                  onStart={() => { remember(question.id); startFrom(question.id); }}
                 />
               ))}
             </div>
@@ -223,7 +229,7 @@ function QuestionListCard({
   const isWaiting = !setStudyCompleted && progress.answeredCount > 0 && (progress.isReview || progress.isAmbiguous) && !progress.isGraduated && !isReviewTarget(progress);
 
   return (
-    <article className="quiz-list__card">
+    <article className="quiz-list__card" data-item-id={question.id}>
       <button type="button" className="quiz-list__card-content" onClick={onClick} aria-label={`Q${index}の詳細を開く`}>
       <div className="quiz-list__card-top">
         <span className="quiz-list__number">Q{index}</span>

@@ -12,7 +12,7 @@ export function getScreenKey(screen: AppScreen): string {
   if (screen.name === 'folder') return `folder-${screen.folderId}`;
   if (screen.name === 'community') return `community-${screen.tab ?? 'mine'}-${screen.groupPage ?? ''}-${screen.groupId ?? ''}-${screen.shareSetId ?? ''}`;
   if (screen.name === 'problemSetDetail') return `detail-${screen.setId}`;
-  if (screen.name === 'problemList') return `problem-list-${screen.setId}-${screen.sortMode ?? 'ordered'}`;
+  if (screen.name === 'problemList') return `problem-list-${screen.setId}`;
   if (screen.name === 'noteList') return `note-list-${screen.setId}`;
   if (screen.name === 'noteDetail') return `note-detail-${screen.setId}-${screen.category}`;
   if (screen.name === 'import') return `import-${screen.folderId}`;
