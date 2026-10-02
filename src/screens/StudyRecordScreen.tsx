@@ -5,6 +5,7 @@ import { Layout } from '../components/Layout';
 import { StudyActivity } from '../components/StudyActivity';
 import { useStudyRecord } from '../hooks/useStudyRecord';
 import { getRecommendedReviewQuestions } from '../utils/studyRecord';
+import { getStudyTimeZone } from '../utils/studyPlanStorage';
 import './StudyRecordScreen.css';
 
 export function StudyRecordScreen({ data, onBack, onStart }: { data: AppData; onBack: () => void; onStart: (session: QuizSession) => void }) {
@@ -29,6 +30,8 @@ export function StudyRecordScreen({ data, onBack, onStart }: { data: AppData; on
       </section>
       <section className="study-record__card study-record__card--today" aria-labelledby="study-today-title">
         <h2 id="study-today-title">今日のがんばり</h2><StudyActivity summary={summary} />
+        <p className="study-record__muted">全回答には反復・計画外の学習も含みます。計画の達成は、同日の同じ対象問題を1問として別に数えます。</p>
+        <p className="study-record__muted">学習日：{getStudyTimeZone()}（固定）</p>
       </section>
       <section className="study-record__card study-record__card--calendar" aria-labelledby="study-month-title">
         <h2 id="study-month-title">{summary.month}月の学習カレンダー</h2>
