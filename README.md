@@ -49,6 +49,8 @@ npm run build
 npm run build:native
 ```
 
+通常の修正では関係するテストファイルだけを実行し、配布前には `npm test` を実行します。保存・復元・同期競合・認証／権限・取り込みの互換性を優先し、文言・CSSクラス・固定ピクセル値だけのテストは追加しません。見た目、スクロール、スワイプは変更した画面をスマホ幅で確認します。削除したテストと理由は [テスト整理記録](tests/AUDIT.md) にあります。
+
 ネイティブプロジェクトへ最新のWeb資産を反映する場合は、次を実行します。
 
 ```bash
@@ -67,6 +69,10 @@ VITE_SUPABASE_ANON_KEY
 ```
 
 未設定でも、端末内での問題作成・学習・JSONバックアップは利用できます。データベース変更は `supabase/migrations`、回帰検証用SQLは `supabase/tests` にあります。
+
+Web/Androidの配布CIでは公開キーの検査を行います。リポジトリ変数 `QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF` を設定すると接続先も固定検査します。これはアプリへ埋め込む環境変数ではありません。キーの権限・URLとの不一致は配布前に停止しますが、ログインの実機検証は別に必要です。
+
+専用Supabaseへの移行準備は [分離手順](docs/supabase-separation-runbook.md) を参照してください。現在のmigrationフォルダを新環境へ一括適用しないでください。
 
 ## GitHub Pages
 

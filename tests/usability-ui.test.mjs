@@ -3,77 +3,17 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
-const homeSource = readSource('../src/screens/HomeScreen.tsx');
-const homeCss = readSource('../src/screens/HomeScreen.css');
-const createSource = readSource('../src/screens/CreateProblemSetScreen.tsx');
-const appSource = readSource('../src/App.tsx');
-const typesSource = readSource('../src/types.ts');
 const syncSource = readSource('../src/screens/SyncScreen.tsx');
-const globalCss = readSource('../src/index.css');
-const layoutSource = readSource('../src/components/Layout.tsx');
-const createCss = readSource('../src/screens/CreateProblemSetScreen.css');
-const communitySource = readSource('../src/screens/CommunityScreen.tsx');
-const communityCss = readSource('../src/screens/CommunityScreen.css');
-const quizRunnerSource = readSource('../src/screens/QuizRunner.tsx');
-const resultSource = readSource('../src/screens/ResultScreen.tsx');
-const resultCss = readSource('../src/screens/ResultScreen.css');
-const noteDrawerSource = readSource('../src/components/CategoryNoteDrawer.tsx');
 
-test('shared layout scrolls long screens and create actions never float over form controls', () => {
-  assert.match(layoutSource, /overflow-y-auto/);
-  assert.doesNotMatch(layoutSource, /flex-col overflow-hidden/);
-  assert.match(createCss, /\.create-set \{[^}]*flex:\s*0 0 auto[^}]*padding:\s*0/);
-  assert.match(createCss, /\.create-set::after \{[^}]*height:\s*calc\(var\(--primary-nav-height\) \+ var\(--safe-bottom\) \+ 24px\)/);
-  assert.match(createCss, /\.create-set__save-bar \{[^}]*position:\s*static/);
-  assert.doesNotMatch(createCss, /\.create-set__save-bar \{[^}]*bottom:/);
-  assert.match(createSource, /reviewedDrafts\.length > 0 \? <SaveBar/);
-});
-
-test('folder creation dialog is portaled above the fixed primary navigation', () => {
-  assert.match(homeSource, /import \{ createPortal \} from 'react-dom'/);
-  assert.match(homeSource, /return createPortal\([\s\S]*?quiz-home__overlay[\s\S]*?document\.body/);
-  assert.match(homeCss, /\.quiz-home__sheet-button \{[^}]*background:\s*var\(--ui-surface-muted/);
-  assert.match(homeCss, /\.quiz-home__sheet-button--primary \{[^}]*background:\s*var\(--ui-accent/);
-});
-
-test('community dialogs stay above navigation and support keyboard focus', () => {
-  assert.match(communitySource, /return createPortal\(/);
-  assert.match(communitySource, /event\.key === 'Escape'/);
-  assert.match(communitySource, /event\.key !== 'Tab'/);
-  assert.match(communitySource, /previouslyFocused\?\.focus\(\)/);
-  assert.match(communityCss, /\.community-overlay \{[^}]*z-index:\s*100100/);
-});
-
-test('material split is available from 768px including portrait', () => {
-  assert.match(quizRunnerSource, /TABLET_LANDSCAPE_QUERY = '\(min-width: 768px\)'/);
-  assert.match(globalCss, /@media \(min-width: 768px\) and \(orientation: landscape\) \{[\s\S]*?body\.quiz-note-open \.quiz-runner__answer-actions/);
-});
-
-test('primary headers share one height and create returns to its launch context', () => {
-  assert.match(globalCss, /\.quiz-home__header \{[\s\S]*?height:\s*calc\(72px \+ var\(--safe-top\)\)/);
-  assert.match(createCss, /min-height:\s*calc\(72px \+ var\(--safe-top\)\)/);
-  assert.match(globalCss, /--app-header-height:\s*72px/);
-  assert.match(globalCss, /\.quiz-runner \.quiz-runner__header/);
-  assert.match(createSource, /onBack \? <BackButton onClick=\{onBack\} label="前の画面へ戻る" \/> : null/);
-  assert.match(appSource, /backScreen:\s*\{ name: 'folder', folderId \}/);
-  assert.match(appSource, /editSetId: screen\.setId,\s*backScreen: screen,/);
-  assert.match(appSource, /onBack=\{createBackScreen \? \(\) => goBackTo\(createBackScreen\) : undefined\}/);
-  assert.match(typesSource, /name: 'createProblemSet';[^{\n]*backScreen\?: AppScreen/);
-});
-
-test('sync screen uses an eight-character pairing flow and keeps recovery details collapsed', () => {
+test('manual sync preserves backups and checks the remote revision before replacement', () => {
   const comparisonSource = readSource('../src/components/SyncComparison.tsx');
   assert.match(syncSource, /<SyncComparison/);
   assert.match(comparisonSource, /saveBackupPayload\(local,'before-sync'\)/);
+  assert.match(comparisonSource, /saveBackupPayload\(remote.value.payload,'before-sync'\)/);
   assert.match(comparisonSource, /remote.value\?\.updatedAt !== pending.remote\?\.updatedAt/);
-  assert.match(syncSource, /<details className="sync-advanced">/);
-  assert.match(syncSource, /復旧用の同期ID/);
   assert.match(syncSource, /setStoredSyncId\(''\)/);
-  assert.match(syncSource, /同期接続を解除しました/);
   assert.match(syncSource, /getPendingLegacySyncUpgrade\(\)/);
   assert.match(syncSource, /resumePendingLegacySyncUpgrade\(\)/);
-  assert.match(syncSource, /現在の同期先は変更せず、移行先への切り替えを確認します/);
-  assert.doesNotMatch(syncSource, /Supabase設定済み|VITE_SUPABASE_URL/);
 });
 
 test('sync id edits stay as a draft until the user explicitly connects', () => {
@@ -82,10 +22,8 @@ test('sync id edits stay as a draft until the user explicitly connects', () => {
   assert.match(draftHandler[1], /setSyncId\(value\)/);
   assert.doesNotMatch(draftHandler[1], /setStoredSyncId/);
   assert.match(syncSource, /const applyConnectedSyncId[\s\S]*?setStoredSyncId\(normalizedNextId\)/);
-  assert.match(syncSource, /['"]このIDへ接続['"]/);
   assert.match(syncSource, /if \(!autoEnabled && \(!configured \|\| !syncIdConnected\)\)/);
   assert.match(syncSource, /disabled=\{!autoEnabled && \(!configured \|\| !authenticated \|\| !syncIdConnected\)\}/);
-  assert.match(syncSource, /同期にはログインが必要です/);
   assert.match(syncSource, /sendMagicLink\(normalizedEmail, \{ name: 'sync' \}\)/);
 });
 
@@ -95,11 +33,4 @@ test('legacy upgrade reconciliation never overwrites a connection changed by ano
   assert.match(legacyHandler[1], /getStoredSyncId\(\)\.trim\(\) !== result\.value\.syncId/);
   assert.match(legacyHandler[1], /setLastSyncStateForConnection\(result\.value\.syncId/);
   assert.doesNotMatch(legacyHandler[1], /setStoredSyncId\(result\.value\.syncId\)/);
-});
-
-test('result actions do not overlay landscape stats and labels render as Japanese', () => {
-  assert.match(resultCss, /\.result-actions \{[^}]*position:\s*static/);
-  assert.match(resultCss, /@media \(min-width: 700px\) and \(orientation: landscape\)[\s\S]*?grid-template-columns:\s*repeat\(4,/);
-  assert.doesNotMatch(resultSource, /(?:aria-label|label|title)="\\u[0-9a-fA-F]{4}/);
-  assert.doesNotMatch(noteDrawerSource, /(?:aria-label|label|title)="\\u[0-9a-fA-F]{4}/);
 });

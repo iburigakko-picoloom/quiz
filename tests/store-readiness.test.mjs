@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -12,29 +12,6 @@ test('native store projects use the stable QuizMake application id', () => {
   assert.match(capacitor, new RegExp(appId.replaceAll('.', '\\.')));
   assert.match(android, new RegExp(appId.replaceAll('.', '\\.')));
   assert.match(ios, new RegExp(appId.replaceAll('.', '\\.')));
-});
-
-test('Android adaptive launchers use the QuizMake artwork at every density', () => {
-  const expectedMinimumSizes = {
-    ldpi: 3_000,
-    mdpi: 5_000,
-    hdpi: 10_000,
-    xhdpi: 20_000,
-    xxhdpi: 40_000,
-    xxxhdpi: 80_000,
-  };
-
-  for (const [density, minimumSize] of Object.entries(expectedMinimumSizes)) {
-    const foreground = new URL(
-      `../android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png`,
-      import.meta.url,
-    );
-    assert.equal(existsSync(foreground), true, `${density} adaptive foreground should exist`);
-    assert.ok(
-      statSync(foreground).size > minimumSize,
-      `${density} adaptive foreground should contain the detailed QuizMake artwork`,
-    );
-  }
 });
 
 test('Windows sync leaves iOS Swift package paths usable on macOS', () => {
@@ -50,13 +27,6 @@ test('native builds use relative assets and skip the web service worker', () => 
   assert.match(serviceWorker, /Capacitor\.isNativePlatform\(\)/);
 });
 
-test('detailed explanation pages use a full-width mobile carousel', () => {
-  const styles = readSource('../src/index.css');
-  assert.match(styles, /\.answer-sheet__content-rail\s*\{[\s\S]*?width:\s*100%/);
-  assert.match(styles, /\.answer-sheet__content-rail--detail\s*\{[\s\S]*?translateX\(-100%\)/);
-  assert.match(styles, /\.answer-sheet__content-page\s*\{[\s\S]*?flex:\s*0 0 100%/);
-});
-
 test('privacy policy, support page, deletion path and iOS privacy manifest exist', () => {
   const settings = readSource('../src/screens/SettingsScreen.tsx');
   const sync = readSource('../src/screens/SyncScreen.tsx');
@@ -69,16 +39,6 @@ test('privacy policy, support page, deletion path and iOS privacy manifest exist
   assert.match(privacyManifest, /C617\.1/);
   assert.equal(existsSync(new URL('../public/privacy.html', import.meta.url)), true);
   assert.equal(existsSync(new URL('../public/support.html', import.meta.url)), true);
-});
-
-test('store review can exercise the app without an external account', () => {
-  const sample = readSource('../src/utils/sampleData.ts');
-  const notes = readSource('../store/review-notes.md');
-  assert.match(sample, /detailedExplanation/);
-  assert.match(sample, /\| --- \| --- \| --- \|/);
-  assert.match(sample, /英語サンプル/);
-  assert.match(notes, /問題作成・学習・端末内バックアップは、アカウント登録やログインなしで利用できます/);
-  assert.match(notes, /クラウド同期と共有は任意機能で、利用時のみメールアドレスのMagic Linkでログインします/);
 });
 
 test('root render failures show recovery actions instead of a blank screen', () => {
