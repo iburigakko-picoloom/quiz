@@ -1,6 +1,8 @@
 import type { AppData, AppScreen, QuizResult } from '../types';
 
 export function getScreenKey(screen: AppScreen): string {
+  if (screen.name === 'planDetail') return `plan-${screen.planId}`;
+  if (screen.name === 'planEditor') return `plan-editor-${screen.planId ?? screen.setId ?? 'new'}`;
   if (screen.name === 'createProblemSet' && screen.importExplanations) return `explanation-import-${screen.backScreen?.name === 'noteList' ? screen.backScreen.setId : ''}`;
   if (screen.name === 'settings') return `settings-${screen.page ?? 'main'}`;
   if (screen.name === 'questionDetail') return `question-${screen.questionId}`;
@@ -69,6 +71,7 @@ export function getResultReturnScreen(result: QuizResult, data: AppData): AppScr
 }
 
 export function getResultReturnLabel(target: AppScreen): string {
+  if (target.name === 'planDetail') return '計画の詳細へ戻る';
   if (target.name === 'studyRecord') return '学習記録へ戻る';
   if (target.name === 'problemSetDetail') return '問題セットへ戻る';
   if (target.name === 'problemList') return '問題一覧へ戻る';

@@ -3,6 +3,8 @@ import { createId } from './id';
 import { isToday, nowIso } from './date';
 import { isReviewCandidate, isReviewTarget } from './reviewTargets';
 import { folderSubtreeIds } from './folderHierarchy';
+import { questionRevision, studyDay } from './studyPlans';
+import { getStudyTimeZone } from './studyPlanStorage';
 
 export type ReviewLevelFilter = 'all' | 'level0' | 'level1' | 'level2' | 'level3' | 'ambiguous';
 export type EffectiveReviewLevel = 0 | 1 | 2 | 3 | 'graduated';
@@ -210,6 +212,7 @@ export function recordAnswer(
   selectedIndexes: number[],
   isReviewMode: boolean,
   answerLogId = createId('log'),
+  sourceQuestion: Question = question,
 ): { data: AppData; isCorrect: boolean; addedToReview: boolean; progress: QuestionProgress } {
   const existingLog = data.answerLogs.find((log) => log.id === answerLogId);
   if (existingLog) {
@@ -233,6 +236,9 @@ export function recordAnswer(
 
   const nextProgressList = upsertProgress(data.progress, nextProgress);
   const nextLog = {
+    questionRevision: questionRevision(sourceQuestion),
+    studyDay: studyDay(timestamp, getStudyTimeZone()),
+    studyTimeZone: getStudyTimeZone(),
     id: answerLogId,
     questionId: question.id,
     setId: question.setId,

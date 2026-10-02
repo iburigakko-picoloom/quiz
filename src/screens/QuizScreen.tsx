@@ -9,7 +9,7 @@ interface QuizScreenProps {
   setId: string;
   mode: QuizMode;
   onBack: () => void;
-  onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean) => AnswerHandlerResult;
+  onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean, sourceQuestion: Question) => AnswerHandlerResult;
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
   onAddDetailedImage?: (questionId: string, file: File) => Promise<void>;

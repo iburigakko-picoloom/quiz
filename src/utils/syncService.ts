@@ -45,6 +45,7 @@ import { materialFileEntry, materialMetadataOnly } from './materialModel';
 import { createMaterialTransport, hasMaterialFiles, hasRemoteMaterialFiles, hydrateMaterialDownload, prepareMaterialUpload } from './materialCloud';
 import { NOTES_KEY, REQUEST_KEY, WEAKNESS_STORAGE_KEYS, NOTES_EVENT, parseNotes, parseExplanationRequests } from './weaknessNotes';
 import { recordSyncMetric } from './syncMetrics';
+import { validatePlanStorage } from './studyPlanStorage';
 export type SyncPayload = {
   version: 1;
   updatedAt: string;
@@ -1199,6 +1200,8 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
 
   const invalidKey = Object.keys(value.localStorage).find((key) => !isQuizMakeStorageKey(key));
   if (invalidKey) return { ok: false, error: 'Quiz make以外のキーが含まれています: ' + invalidKey };
+  try { Object.entries(value.localStorage).forEach(([key, raw]) => validatePlanStorage(key, raw as string)); }
+  catch { return { ok: false, code: 'invalid', error: '学習計画の形式が正しくありません。現在のデータは変更していません。' }; }
   try {
     for (const key of WEAKNESS_STORAGE_KEYS) {
       const raw = value.localStorage[key];

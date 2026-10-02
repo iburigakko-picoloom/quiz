@@ -39,6 +39,8 @@ export { onNativeAuthResult };
 export type { NativeAuthResultEvent, NativeAuthReturnTarget };
 
 export interface CloudQuestion {
+  logicalId?: string;
+  contentRevision?: string;
   distractors?: string[];
   shuffleChoices?: boolean;
   question: string;
@@ -53,6 +55,7 @@ export interface CloudQuestion {
 }
 
 export interface CloudProblemSet {
+  versionId?: string;
   folderPath?: SharedFolderPart[];
   id: string;
   localSetId: string;
@@ -88,6 +91,7 @@ export interface CloudGroupMember {
 }
 
 export interface CloudPublishResult {
+  versionId?: string;
   id: string;
   shareToken: string;
   visibility: ProblemSetVisibility;
@@ -282,7 +286,7 @@ export async function publishLocalProblemSet(params: {
   const questions = params.data.questions.filter((item) => item.setId === params.setId);
   if (questions.length === 0) throw new Error('問題がないセットは共有できません。');
 
-  const { data, error } = await client.rpc('publish_problem_set', {
+  const payload = {
     p_set: {
       local_set_id: problemSet.id,
       ...(params.folderPath !== undefined ? { folder_path: params.folderPath } : params.includeFolder ? { folder_path: localFolderPath(params.data.folders, problemSet.folderId) } : {}),
@@ -299,6 +303,7 @@ export async function publishLocalProblemSet(params: {
       add_destinations: params.addDestinations ?? false,
     },
     p_questions: questions.map((question, position) => ({
+      logical_id: question.logicalId ?? question.origin?.logicalId ?? question.id,
       position,
       question: question.question,
       choices: question.choices,
@@ -312,14 +317,20 @@ export async function publishLocalProblemSet(params: {
       category: question.category,
       difficulty: question.difficulty,
     })),
-  });
+  };
+  let response = await client.rpc('publish_problem_set_versioned', payload);
+  // An unprepared server retains existing publication behavior. Such copies
+  // carry no version and cannot participate in common-version progress.
+  if (response.error?.code === 'PGRST202' || response.error?.code === '42883') response = await client.rpc('publish_problem_set', payload);
+  const { data, error } = response;
   if (error) throw new Error(toFriendlyCloudError(error.message));
-  const value = data as { id?: unknown; share_token?: unknown; visibility?: unknown } | null;
+  const value = data as { id?: unknown; share_token?: unknown; visibility?: unknown; version_id?: unknown } | null;
   if (!value || typeof value.id !== 'string' || typeof value.share_token !== 'string') {
     throw new Error('共有結果を確認できませんでした。');
   }
   return {
     id: value.id,
+    versionId: typeof value.version_id === 'string' ? value.version_id : undefined,
     shareToken: value.share_token,
     visibility: normalizeVisibility(value.visibility),
   };
@@ -382,10 +393,13 @@ export async function unpublishCloudProblemSet(setId: string): Promise<void> {
 
 export async function getSharedProblemSet(setId: string, shareToken = ''): Promise<CloudProblemSet> {
   const client = requireCloudClient();
-  const { data, error } = await client.rpc('get_shared_problem_set', {
+  const payload = {
     p_set_id: setId,
     p_share_token: shareToken || null,
-  });
+  };
+  let response = await client.rpc('get_shared_problem_set_versioned', payload);
+  if (response.error?.code === 'PGRST202' || response.error?.code === '42883') response = await client.rpc('get_shared_problem_set', payload);
+  const { data, error } = response;
   if (error) throw new Error(toFriendlyCloudError(error.message));
   const value = data as Record<string, unknown> | null;
   if (!value || typeof value.id !== 'string') throw new Error('問題セットを表示できません。リンクを確認してください。');
@@ -466,6 +480,18 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
+export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
+  const access = await getCloudAccessToken();
+  if (!access.ok || access.userId !== expectedUserId) throw new Error('アカウントが変更されています。開き直してください。');
+  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, { method: 'POST', headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${access.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(params), redirect: 'error', signal: controller.signal });
+    if ((await getCloudSession())?.user.id !== expectedUserId) throw new Error('アカウントが変更されています。');
+    if (!response.ok) throw new Error(response.status === 404 ? '共有進捗はサーバーの準備待ちです。個人の回答は共有されていません。' : '共有進捗を確認できません。共有状態・会員資格・公開版を開き直して確認してください。');
+    return response.json();
+  } finally { clearTimeout(timeout); }
+}
+
 export async function renameCloudGroup(groupId: string, name: string, previousName: string): Promise<string> {
   const nextName = name.trim();
   if (!groupId || !nextName || nextName.length > 60) throw new Error('グループ名は1〜60文字で入力してください。');
@@ -521,12 +547,15 @@ function mapProblemSetRow(row: Record<string, unknown>): CloudProblemSet {
 
 function mapProblemSetJson(value: Record<string, unknown>): CloudProblemSet {
   const result = mapProblemSetRow(value);
+  result.versionId = typeof value.version_id === 'string' ? value.version_id : undefined;
   const questions = value.questions;
   if (Array.isArray(questions)) {
     result.questions = questions.map((item) => {
       const row = item as Record<string, unknown>;
       const answerIndexes = row.answer_indexes ?? row.answerIndexes;
       return {
+        logicalId: typeof row.logical_id === 'string' ? row.logical_id : undefined,
+        contentRevision: typeof row.content_revision === 'string' ? row.content_revision : undefined,
         question: String(row.question ?? ''),
         choices: Array.isArray(row.choices) ? row.choices.map(String) : [],
         distractors: Array.isArray(row.distractors) ? row.distractors.filter((text): text is string => typeof text === 'string') : undefined,

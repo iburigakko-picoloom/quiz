@@ -13,6 +13,7 @@ import { storedQuestionImage, verifyQuestionImageBlob } from './questionImageClo
 import type { QuestionImageDescriptor, StoredQuestionImage } from './questionImageRecords';
 import { normalizeAppData } from './appDataValidation';
 import { createProgressSyncContext, verifiedBootstrapProgress } from './recordProgressAncestor';
+import { validatePlanStorage } from './studyPlanStorage';
 
 export type RemoteRecordChange = { key: string; collection: RecordCollection; id: string; raw: string | null; position: number; revision: number };
 export type RecordPullPage = { code: 'ok'; cursor: number; head: number; hasMore: boolean; batches: Array<{ revision: number; changes: RemoteRecordChange[] }> };
@@ -64,6 +65,7 @@ export function validateRecordPullPage(value: unknown, fromCursor: number): Reco
         if (!parsed || typeof parsed !== 'object' || (row.collection === 'progress' ? parsed.questionId : parsed.id) !== row.id) throw new Error('差分読込のレコードIDが一致しません。');
       }
       seen.add(row.key);
+      if (row.collection === 'localStorage' && row.raw !== null) validatePlanStorage(row.id, row.raw);
       return { key: row.key, collection: row.collection, id: row.id, raw: row.raw, position: row.position, revision: row.revision };
     });
     return { revision: batch.revision, changes };
@@ -190,14 +192,21 @@ export async function applyStagedRecordPull(
     return { applied: true, cursor: stage.cursor, changed: 0, commitId: initialState.commitId };
   }
   const pendingTx = db.transaction('appOutbox', 'readonly'); const pendingDone = done(pendingTx);
-  const allPending = request<AppOutboxOperation[]>(pendingTx.objectStore('appOutbox').getAll());
   const operations = await Promise.all(incoming.map(row => request<AppOutboxOperation | undefined>(pendingTx.objectStore('appOutbox').get(row.key))));
-  const outbox = await allPending;
   await pendingDone;
   const before = await readAppRecordSnapshotForCommit(db, initialState.commitId);
   if (!before || before.state.commitId !== initialState.commitId) throw new Error('差分読込中に端末が更新されました。');
   const readAt = performance.now();
   const pending = new Map(operations.filter((op): op is AppOutboxOperation => Boolean(op)).map(op => [op.key, op]));
+  // A complete history is needed only to reconcile competing progress. An
+  // ordinary remote answer has no local candidate and uses keyed reads.
+  const needsProgressHistory = incoming.some(row => row.collection === 'progress' && pending.has(row.key));
+  let outbox: AppOutboxOperation[] = [];
+  if (needsProgressHistory) {
+    const historyTx = db.transaction('appOutbox', 'readonly'); const historyDone = done(historyTx);
+    outbox = await request<AppOutboxOperation[]>(historyTx.objectStore('appOutbox').getAll());
+    await historyDone;
+  }
   const selected = new Map(decisions.map(decision => [decision.key, decision]));
   if (selected.size !== decisions.length || decisions.some(decision => !['local', 'remote'].includes(decision.choice))) throw new Error('競合の選択が不正です。');
   const revision = before.state.revision + 1;
@@ -208,7 +217,7 @@ export async function applyStagedRecordPull(
   const resolved: Array<{ conflict: RecordConflict; choice: 'local' | 'remote' | 'merged';
     reason?: 'unchanged-ancestor' | 'bootstrap-answer-history'; eventIds?: string[] }> = [];
   const rebased: AppOutboxOperation[] = [];
-  const progressContext = incoming.some(row => row.collection === 'progress' && pending.has(row.key))
+  const progressContext = needsProgressHistory
     ? createProgressSyncContext(before.records, incoming, outbox) : null;
   for (const remote of incoming) {
     const local = before.records.get(remote.key);

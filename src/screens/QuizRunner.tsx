@@ -45,7 +45,7 @@ interface QuizRunnerProps {
     actionLabel?: string;
   };
   onBack: () => void;
-  onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean) => AnswerHandlerResult;
+  onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean, sourceQuestion: Question) => AnswerHandlerResult;
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
   onAddDetailedImage?: (questionId: string, file: File) => Promise<void>;
@@ -270,7 +270,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
     submittedQuestionRef.current = currentQuestion.id;
     const normalizedIndexes = Array.from(new Set(indexes)).sort((a, b) => a - b);
     const previousCorrect = progress?.lastAnswerCorrect;
-    const result = onAnswer(currentQuestion, normalizedIndexes, mode === 'review');
+    const result = onAnswer(currentQuestion, normalizedIndexes, mode === 'review', sourceQuestion);
     const kind = getAnswerFeedback(previousCorrect, result.isCorrect);
     setFeedback(kind);
     playAnswerFeedback(kind);

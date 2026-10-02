@@ -27,13 +27,17 @@ const pdfAssetsPlugin: Plugin = {
 };
 
 const buildId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+const sourceRevision = process.env.GITHUB_SHA ?? 'local';
 const buildVersionPlugin: Plugin = {
   name: "quiz-build-version",
   transformIndexHtml(html: string) {
     return html.replace(
       "<head>",
-      `<head>\n    <meta name="quiz-build-id" content="${buildId}" />`,
+      `<head>\n    <meta name="quiz-build-id" content="${buildId}" />\n    <meta name="quiz-source-revision" content="${sourceRevision}" />`,
     );
+  },
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'build-info.json', source: JSON.stringify({ commit: sourceRevision, buildId }) + '\n' });
   },
 };
 

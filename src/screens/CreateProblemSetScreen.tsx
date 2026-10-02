@@ -362,8 +362,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     if (!problemSet) return;
     const copiedQuestions = data.questions
       .filter((question) => question.setId === setId)
-      .map((question, index) => refreshIssues({
-        id: `copy-${index + 1}`,
+      .map((question) => refreshIssues({
+        id: question.id,
         question: question.question,
         choices: [...question.choices],
         distractors: question.distractors,
@@ -462,6 +462,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               </button>
             </section>
             <DraftList drafts={reviewedDrafts} onEdit={editQuestion} onDelete={deleteQuestion} />
+            {editingProblemSet ? <p className="plan-warning">内容が変わった問題の現在版の復習状態は初期化します。旧版の保存済み回答は残り、固定した計画の分母は変わりません。削除する問題の回答履歴は従来どおり削除対象です。</p> : null}
             {reviewedDrafts.length > 0 ? <SaveBar count={reviewedDrafts.length} busy={busy} disabled={false} label={editingProblemSet ? '変更を保存' : '問題セットを保存'} onSave={() => void submit()} /> : null}
           </div>
         ) : null}

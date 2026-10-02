@@ -11,6 +11,9 @@ import {
   waitForPendingAppDataSaves,
 } from './storage';
 import { HomeScreen } from './screens/HomeScreen';
+import { PlansScreen } from './screens/PlansScreen';
+import { PlanEditorScreen } from './screens/PlanEditorScreen';
+import { questionRevision } from './utils/studyPlans';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
 import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
 import { deleteLocalQuestionImage, deleteLocalQuestionImages, MAX_QUESTION_DETAIL_IMAGES, pruneLocalQuestionImages, saveLocalQuestionImage } from './utils/localQuestionImages';
@@ -719,17 +722,17 @@ export default function App() {
     return null;
   };
 
-  const handleAnswer = (question: Question, selectedIndexes: number[], isReviewMode: boolean) => {
+  const handleAnswer = (question: Question, selectedIndexes: number[], isReviewMode: boolean, sourceQuestion: Question) => {
     const answerLogId = createId('log');
-    const answerResult = recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId);
-    const savePromise = commitData(answerResult.data);
+    const answerResult = recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId, sourceQuestion);
+    const savePromise = persistThenCommitData(answerResult.data);
     const levelLabel = answerResult.progress.isGraduated ? '卒業' : `Level ${answerResult.progress.reviewLevel ?? 1}`;
     return {
       isCorrect: answerResult.isCorrect,
       addedToReview: answerResult.addedToReview,
       levelLabel,
       savePromise,
-      retrySave: () => commitData(recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId).data),
+      retrySave: () => persistThenCommitData(recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId, sourceQuestion).data),
     };
   };
 
@@ -766,9 +769,12 @@ export default function App() {
 
     const setId = createId('set');
     const questions: Question[] = submission.questions.map((question) => {
+      const sourceQuestion = submission.sourceSetId ? current.questions.find(q => q.id === question.id && q.setId === submission.sourceSetId) : undefined;
       const choices = question.choices.map((choice) => choice.trim()) as Question['choices'];
       const answerIndexes = getDraftAnswerIndexes({ ...question, choices });
       return {
+        logicalId: sourceQuestion?.logicalId ?? sourceQuestion?.id,
+        origin: sourceQuestion?.origin,
         id: createId('q'),
         setId,
         question: question.question.trim(),
@@ -801,7 +807,9 @@ export default function App() {
       difficulty: submission.difficulty,
       creationMethod: submission.creationMethod,
       visibility: 'private',
-      sourceSetId: submission.sourceSetId,
+      sourceSetId: current.problemSets.find(s => s.id === submission.sourceSetId)?.sourceSetId ?? submission.sourceSetId,
+      sourceVersionId: current.problemSets.find(s => s.id === submission.sourceSetId)?.sourceVersionId,
+      sourceManifest: current.problemSets.find(s => s.id === submission.sourceSetId)?.sourceManifest,
       copiedAt: submission.sourceSetId ? timestamp : undefined,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -862,6 +870,8 @@ export default function App() {
       const answerIndexes = getDraftAnswerIndexes({ ...draft, choices });
       const id = previous?.id ?? createId('q');
       const nextQuestion: Question = {
+        logicalId: previous?.logicalId ?? previous?.id ?? id,
+        origin: previous?.origin,
         id,
         setId,
         question: draft.question.trim(),
@@ -922,7 +932,7 @@ export default function App() {
           isGraduated: false,
         })),
       ],
-      answerLogs: current.answerLogs.filter((log) => !clearedQuestionIds.has(log.questionId)),
+      answerLogs: current.answerLogs.filter((log) => !removedQuestionIds.has(log.questionId)).map(log => !log.questionRevision && previousById.has(log.questionId) ? { ...log, questionRevision: questionRevision(previousById.get(log.questionId)!) } : log),
     });
     if (!saved) return '変更を端末へ保存できませんでした。入力内容を残したまま、空き容量や保存設定を確認してください。';
     if (screenRef.current.name === 'createProblemSet' && screenRef.current.editSetId === setId) {
@@ -951,6 +961,8 @@ export default function App() {
       return null;
     }
     const folders = current.folders.map((folder) => folder.id === targetFolderId ? { ...folder, updatedAt: timestamp } : folder);
+    const existingCopy = sharedSet.versionId ? current.problemSets.find(set => set.sourceSetId === sharedSet.id && set.sourceVersionId === sharedSet.versionId && set.folderId === targetFolderId) : undefined;
+    if (existingCopy && current.questions.filter(q => q.setId === existingCopy.id).length === importedQuestions.length && current.questions.filter(q => q.setId === existingCopy.id).every(q => q.origin && questionRevision(q) === q.origin.importedContent)) return existingCopy.id;
     const setId = createId('set');
     const problemSet: ProblemSet = {
       id: setId,
@@ -964,6 +976,8 @@ export default function App() {
       creationMethod: 'public-copy',
       visibility: 'private',
       sourceSetId: sharedSet.id,
+      sourceVersionId: sharedSet.versionId,
+      sourceManifest: sharedSet.versionId && importedQuestions.every(q => q.logicalId && q.contentRevision) ? importedQuestions.map(q => ({ logicalId: q.logicalId!, contentRevision: q.contentRevision! })) : undefined,
       sourceOwnerId: sharedSet.ownerId,
       sourceOwnerName: sharedSet.authorName,
       copiedAt: timestamp,
@@ -972,7 +986,8 @@ export default function App() {
     };
     const questions: Question[] = importedQuestions.map((question) => {
       const answerIndexes = [...new Set(question.answerIndexes)].filter((index) => index >= 0 && index < question.choices.length);
-      return {
+      const imported: Question = {
+        logicalId: question.logicalId,
         id: createId('q'),
         setId,
         question: question.question,
@@ -990,6 +1005,8 @@ export default function App() {
         createdAt: timestamp,
         updatedAt: timestamp,
       };
+      if (sharedSet.versionId && question.logicalId && question.contentRevision) imported.origin = { setId: sharedSet.id, logicalId: question.logicalId, publicationVersionId: sharedSet.versionId, contentRevision: question.contentRevision, importedContent: questionRevision(imported) };
+      return imported;
     });
     const saved = await persistThenCommitData({
       ...current,
@@ -1479,7 +1496,18 @@ export default function App() {
 
   let content;
 
-  if (screen.name === 'createProblemSet') {
+  if (screen.name === 'plans' || screen.name === 'planDetail') {
+    content = <PlansScreen data={data} planId={screen.name === 'planDetail' ? screen.planId : undefined}
+      onBack={() => goBackTo(screen.name === 'plans' ? { name: 'home' } : { name: 'plans' })}
+      onCreate={setId => navigate({ name: 'planEditor', setId, backScreen: screen })}
+      onOpen={planId => navigate({ name: 'planDetail', planId })}
+      onEdit={planId => navigate({ name: 'planEditor', planId, backScreen: screen })}
+      onStart={(questions, plan) => navigate({ name: 'quizSession', session: { title: plan.setTitle, subtitle: `${plan.title} · 固定版 ${questions.length}問`, questions, mode: 'quiz', setId: plan.setId, backScreen: screen } })} />;
+  } else if (screen.name === 'planEditor') {
+    content = <PlanEditorScreen data={data} planId={screen.planId} initialSetId={screen.setId}
+      onBack={() => goBackTo(screen.backScreen)} onDirtyChange={setCreateDraftDirty}
+      onSaved={planId => { setCreateDraftDirty(false); createDraftDirtyRef.current = false; confirmedProtectedExitRef.current = true; replaceScreen({ name: 'planDetail', planId }); }} />;
+  } else if (screen.name === 'createProblemSet') {
     const createBackScreen = getCreateProblemSetBackScreen(screen);
     content = (
       <Suspense fallback={<div className="quiz-app-loading">作成画面を読み込み中...</div>}>
@@ -1529,7 +1557,7 @@ export default function App() {
         if (!draft.question.trim() || choices.some((choice) => !choice) || !answers.length) return '問題文、選択肢、正解を確認してください。';
         const next = { ...latest, question: draft.question.trim(), choices, answerIndex: answers[0], answerIndexes: answers.length > 1 ? answers : undefined, answerText: answers.map((index) => choices[index]).join(' / '), explanation: draft.explanation, category: draft.category.trim() || '未分類', updatedAt: nowIso() };
         const reset = hasQuestionLearningContentChanged(latest, next);
-        const saved = await persistThenCommitData({ ...current, questions: current.questions.map((item) => item.id === next.id ? next : item), progress: reset ? current.progress.filter((item) => item.questionId !== next.id) : current.progress, answerLogs: reset ? current.answerLogs.filter((item) => item.questionId !== next.id) : current.answerLogs });
+        const saved = await persistThenCommitData({ ...current, questions: current.questions.map((item) => item.id === next.id ? next : item), progress: reset ? current.progress.filter((item) => item.questionId !== next.id) : current.progress, answerLogs: current.answerLogs.map(log => !log.questionRevision && log.questionId === latest.id ? { ...log, questionRevision: questionRevision(latest) } : log) });
         if (!saved) return '保存できませんでした。入力内容を残しています。';
         finishEdit(); return null;
       }} /> : <DetailedAnswerScreen question={question} editing={Boolean(screen.editing)} onBack={() => goBackTo(screen.backScreen)} onEdit={() => replaceScreen({ ...screen, editing: true })} onDirtyChange={setCreateDraftDirty} onAddImage={handleAddDetailedImage} onRemoveImage={handleRemoveDetailedImage} onSave={async (body, original) => {
@@ -1587,6 +1615,7 @@ export default function App() {
       <ProblemSetDetailScreen
         data={data}
         setId={screen.setId}
+        onCreatePlan={() => navigate({ name: 'planEditor', setId: screen.setId, backScreen: screen })}
         onToggleStudyCompleted={handleToggleProblemSetStudyCompleted}
         onBack={screen.backScreen ? () => goBackTo(screen.backScreen!) : problemSet && parentFolderExists
           ? () => goBackTo({ name: 'folder', folderId: problemSet.folderId })
@@ -1767,6 +1796,8 @@ export default function App() {
       onDeleteFolder={handleDeleteFolder}
       onOpenFolder={(folderId) => navigate({ name: 'folder', folderId })}
       onOpenStudyRecord={() => navigate({ name: 'studyRecord' })}
+      onOpenPlans={() => navigate({ name: 'plans' })}
+      onOpenPlan={planId => navigate({ name: 'planDetail', planId })}
       onSave={commitData}
     />
   );
@@ -1884,7 +1915,7 @@ function isQuizInProgressScreen(screen: AppScreen) {
 
 function getProtectedExitReason(screen: AppScreen, createDraftDirty: boolean): 'quiz' | 'create' | null {
   if (isQuizInProgressScreen(screen)) return 'quiz';
-  if ((screen.name === 'createProblemSet' || screen.name === 'questionEdit' || (screen.name === 'detailedAnswer' && screen.editing)) && createDraftDirty) return 'create';
+  if ((screen.name === 'planEditor' || screen.name === 'createProblemSet' || screen.name === 'questionEdit' || (screen.name === 'detailedAnswer' && screen.editing)) && createDraftDirty) return 'create';
   return null;
 }
 
@@ -1897,6 +1928,7 @@ function getSyncProtectedWorkReason(
   if (libraryMutationActive) return 'library' as const;
   if (backupImportActive) return 'backup' as const;
   if (screen.name === 'import') return 'import' as const;
+  if (screen.name === 'planEditor') return 'create' as const;
   if (screen.name === 'noteList' || screen.name === 'noteDetail') return 'notes' as const;
   if (screen.name === 'sync' && isSyncInteractionProtected()) return 'sync' as const;
   if (screen.name === 'settings' && screen.page === 'backups') return 'backup' as const;
