@@ -1,0 +1,4 @@
+.library-page.own-library-search { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.own-library-search .library-page__header { flex-wrap: wrap; gap: 8px; }
+.own-library-search button, .own-library-search input, .own-library-search select { min-height: 44px; }
+.own-library-search .library-row__body strong { overflow-wrap: anywhere; }

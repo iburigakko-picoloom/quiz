@@ -16,6 +16,7 @@ export function BackupScreen({ onBack, onRestore }: { onBack: () => void; onRest
   const [error,setError] = useState('');
   const [deleting,setDeleting] = useState<SavedBackupSummary | null>(null);
   const lock = useRef(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const refresh = () => listSavedBackups().then(setItems).catch(() => setError('バックアップを読み込めませんでした。'));
   useEffect(() => { void refresh(); }, []);
   const run = async (action: () => Promise<void>) => {
@@ -25,10 +26,16 @@ export function BackupScreen({ onBack, onRestore }: { onBack: () => void; onRest
     finally { lock.current = false; setBusy(false); }
   };
   return <Layout><main className="library-page">
-    <header className="library-page__header"><BackButton onClick={onBack} disabled={busy} /><h1>バックアップ</h1></header>
-    <button className="qm-primary" disabled={busy} onClick={() => void run(async () => { await saveBackupPayload(await exportQuizMakeData(),'manual'); })}>{busy ? '処理中…' : 'バックアップを作成'}</button>
+    <header className="library-page__header"><BackButton onClick={onBack} disabled={busy} /><h1>バックアップ・復元</h1></header>
+    <section aria-label="ファイル保存と復元"><h2>ファイルで保管</h2><p>端末の故障・紛失に備え、別の場所へファイルを保管してください。</p>
+      <button className="qm-primary" disabled={busy} onClick={() => void run(async () => { const raw = JSON.stringify(await exportQuizMakeData()); await saveJsonBackup(`quiz-make-${new Date().toISOString().replace(/[:.]/g,'-')}.json`, raw); })}>ファイルに保存</button>
+      <button className="qm-secondary" disabled={busy} onClick={() => fileInput.current?.click()}>ファイルから復元</button>
+      <input ref={fileInput} hidden type="file" accept=".json,application/json" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run(async () => { const issue = await onRestore(file); if (issue) throw new Error(issue); }); }} />
+    </section>
+    <h2>この端末の復旧コピー</h2><p>同じ端末内に保存します。端末の故障・紛失に備えるには、上のファイル保存も必要です。</p>
+    <button className="qm-secondary" disabled={busy} onClick={() => void run(async () => { await saveBackupPayload(await exportQuizMakeData(),'manual'); })}>{busy ? '処理中…' : '端末内コピーを作成'}</button>
     {error ? <p className="qm-wrong" role="alert">{error}<button onClick={() => void refresh()}>再試行</button></p> : null}
-    {!items.length && !error ? <p>{busy ? '作成中…' : 'バックアップはありません'}</p> : null}
+    {!items.length && !error ? <p>{busy ? '処理中…' : '端末内コピーはありません'}</p> : null}
     {items.map((item) => {
       const size = `${Math.max(1, Math.ceil(item.byteSize / 1024))} KB`;
       return <div key={item.id} className="library-row-with-actions">

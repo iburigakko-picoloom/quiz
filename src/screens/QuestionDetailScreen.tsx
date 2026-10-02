@@ -5,6 +5,7 @@ import { getAnswerIndexes, getProgressLevelLabel } from '../utils/quiz';
 import { resolveQuestionDetailedExplanation } from '../utils/questionView';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PinchImage } from '../components/PinchImage';
 
 export function QuestionDetailScreen({ data, questionId, onBack, onEdit, onDetail, onNote }: { data: AppData; questionId: string; onBack: () => void; onEdit: () => void; onDetail: (editing: boolean) => void; onNote: (setId: string, category: string) => void }) {
   const question = data.questions.find((item) => item.id === questionId);
@@ -16,8 +17,8 @@ export function QuestionDetailScreen({ data, questionId, onBack, onEdit, onDetai
     <p>{question.category} · {getProgressLevelLabel(data.progress.find((item) => item.questionId === question.id))}</p>
     <h2>{question.question}</h2>
     <ol className="question-detail-choices">{question.choices.map((choice, index) => <li key={index} className={answers.includes(index) ? 'is-correct' : ''}>{choice}{answers.includes(index) ? <span> ✓ 正解</span> : null}</li>)}</ol>
-    <section className="question-detail-markdown"><h2>正解と解説</h2><ReactMarkdown remarkPlugins={[remarkGfm]}>{question.explanation}</ReactMarkdown></section>
-    <section className="question-detail-markdown"><h2>解説・メモ</h2><button className="qm-detail-preview" onClick={() => onDetail(false)}><span>{detail ? '詳しい解説を読む・追加の疑問' : '詳しく知りたいことをメモ'}</span><span aria-hidden="true">›</span></button></section>
+    <section className="question-detail-markdown"><h2>正解・解説</h2><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ src, alt }) => src ? <PinchImage src={src} alt={alt ?? ''} /> : <span>{alt}</span> }}>{question.explanation}</ReactMarkdown></section>
+    <section className="question-detail-markdown"><h2>追加解説・メモ</h2><button className="qm-detail-preview" onClick={() => onDetail(false)}><span>{detail ? '追加解説を読む・メモ' : '詳しく知りたいことをメモ'}</span><span aria-hidden="true">›</span></button></section>
     <button className="library-row" onClick={() => onNote(question.setId, question.category || '未分類')}>分類ノートへ <span aria-hidden="true">›</span></button>
   </main></Layout>;
 }

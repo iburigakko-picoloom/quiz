@@ -4,6 +4,9 @@
 .create-set::after { content: ''; display: block; height: calc(var(--primary-nav-height) + var(--safe-bottom) + 24px); }
 .create-set__header { position: sticky; z-index: 6; top: 0; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; align-items: center; width: 100%; min-height: calc(72px + var(--safe-top)); max-width: none; margin: 0 0 14px; padding: var(--safe-top) 14px 0; border-bottom: 1px solid #dce5ef; background: #fff; }
 .create-set__header--root { grid-template-columns: minmax(0, 1fr); padding-right: 18px; padding-left: 18px; }
+.create-set__header.create-set__header--action { grid-template-columns: 48px minmax(0, 1fr) auto; }
+.create-set__header--action .create-set__header-action { min-height: 44px; min-width: 44px; padding: 8px; max-width: 100px; }
+.create-set__header--action > div { min-width: 0; overflow-wrap: anywhere; }
 .create-set__header h1 { margin: 2px 0 0; font-size: clamp(1.35rem, 5vw, 1.85rem); }
 .create-set__methods,.create-set__flow { width: min(calc(100% - 24px), 760px); margin-right: auto; margin-left: auto; }
 .create-set__panel { width: min(100%, 760px); margin-right: auto; margin-left: auto; }
@@ -181,3 +184,6 @@
 .create-set__memo-workspace .create-set__memo-paste { width: 100%; min-height: 260px; height: 42dvh; resize: vertical; border: 1px solid #cbd3de; border-radius: 12px; background: #fff; font-size: 16px; padding: 14px; }
 .create-set__memo-import { display: flex; justify-content: flex-end; }
 .create-set__memo-import .create-set__primary { width: auto; min-width: 130px; }
+.create-set__review-jump, .create-set__undo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border: 1px solid #dce5ef; border-radius: 12px; background: #eff5ff; color: #173042; }
+.create-set__review-jump button, .create-set__undo button { min-height: 44px; padding: 8px 12px; color: #2467bc; border: 1px solid #ccdbef; border-radius: 10px; background: #fff; }
+.create-set__undo { position: fixed; bottom: calc(var(--primary-nav-height, 76px) + var(--safe-bottom, 0px) + 72px); left: 12px; right: 12px; z-index: 22; margin: auto; max-width: 720px; box-shadow: 0 4px 16px #17304222; }

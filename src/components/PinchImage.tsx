@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import './FullText.css';
 
 /** Local image zoom; a single finger still scrolls normally at the original size. */
 export function PinchImage({ src, alt }: { src: string; alt: string }) {
@@ -22,6 +23,7 @@ export function PinchImage({ src, alt }: { src: string; alt: string }) {
         distance: touches.length > 1 ? Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) : 0 };
     };
     const start = (event: TouchEvent) => {
+      if (event.target instanceof Element && event.target.closest('button')) return;
       if (event.touches.length > 1 || scale > 1) {
         if (event.cancelable) event.preventDefault();
         event.stopPropagation();
@@ -63,5 +65,6 @@ export function PinchImage({ src, alt }: { src: string; alt: string }) {
   return <span ref={frame} className="weakness-pinch-image" data-no-page-swipe tabIndex={0}
     role="group" aria-label={`${alt || '画像'}：2本指で拡大・縮小。キーボードは＋・−、0で元に戻す`}>
     <img ref={image} src={src} alt={alt} loading="lazy" draggable={false}/>
+    <span className="weakness-pinch-image__controls">{[['+','拡大'],['-','縮小'],['0','元に戻す']].map(([key,label]) => <button key={key} type="button" aria-label={`${alt || '画像'}を${label}`} onClick={() => frame.current?.dispatchEvent(new KeyboardEvent('keydown', { key }))}>{label}</button>)}</span>
   </span>;
 }

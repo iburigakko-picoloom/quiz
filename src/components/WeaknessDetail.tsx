@@ -70,14 +70,14 @@ export function ExplanationReader({ text, questionId = '', imageIds = [], onSave
     } catch (e) { setError(e instanceof Error && e.name !== 'NotAllowedError' ? e.message : '貼り付けを許可するか、写真に保存して「画像を追加」から選んでください。'); }
   };
   const remove = async () => {
-    if (!onSave || disabled || lock.current || (!text.trim() && !imageIds.length) || !window.confirm('詳細解説と添付画像を削除しますか？通常の解説と苦手メモは残ります。')) return;
+    if (!onSave || disabled || lock.current || (!text.trim() && !imageIds.length) || !window.confirm('追加解説・メモと添付画像を削除しますか？通常の解説と苦手メモは残ります。')) return;
     lock.current = true; setBusy(true); setError('');
     try { await onSave(''); }
     catch { setError('削除できませんでした。もう一度お試しください。'); }
     finally { lock.current = false; setBusy(false); }
   };
   return <div className="weakness-reader">
-    {onSave && !disabled && (text.trim() || imageIds.length) ? <ActionMenu className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></ActionMenu> : null}
+    {onSave && !disabled && (text.trim() || imageIds.length) ? <ActionMenu className="weakness-reader-menu"><summary aria-label="追加解説・メモの操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>追加解説・メモを削除</button></ActionMenu> : null}
     {media.length || imageIds.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">
       {media.map((m, i) => <section className={`weakness-media-card${m.startsWith('![') ? ' weakness-media-card--image' : ''}`} key={`media-${i}`}><Markdown text={m} /></section>)}
       {imageIds.map((imageId, index) => {

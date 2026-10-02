@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { AppData, AppScreen, Folder, ProblemSet, Question, QuizResult, QuizSession, MaterialReference } from './types';
 import { linkQuestionMaterialPage } from './utils/materialModel';
 import { applyReferenceLinks, type ReferenceLink } from './utils/referenceLinking';
@@ -11,6 +11,9 @@ import {
   waitForPendingAppDataSaves,
 } from './storage';
 import { HomeScreen } from './screens/HomeScreen';
+import { SearchScreen } from './screens/SearchScreen';
+import { tryCloseTransientDialog } from './utils/transientDialog';
+import { hasPendingImportSession } from './utils/importDraftSessions';
 import { PlansScreen } from './screens/PlansScreen';
 import { PlanEditorScreen } from './screens/PlanEditorScreen';
 import { questionRevision } from './utils/studyPlans';
@@ -120,6 +123,10 @@ export default function App() {
   const [storageError, setStorageError] = useState('');
   const navigationStackRef = useRef<AppScreen[]>(lineLinkReturn ? [{ name: 'home' }, { name: 'settings', page: 'account' }] : [{ name: 'home' }]);
   const noteExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
+  const importExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
+  const importHistoryPendingRef = useRef(false);
+  const newImportTargetRef = useRef<{ name: string; folderId: string } | null>(null);
+  const registerImportExitGuard = useCallback((guard: ((proceed: () => void) => Promise<boolean>) | null) => { importExitGuardRef.current = guard; }, []);
   const noteHistoryPendingRef = useRef(false);
   const browserDepthRef = useRef(0);
   const pendingBackTargetRef = useRef<AppScreen | null>(null);
@@ -291,6 +298,7 @@ export default function App() {
     window.history.replaceState({ quizMake: true }, '');
 
     const handlePopState = () => {
+      if (tryCloseTransientDialog()) { window.history.pushState({ quizMake: true }, ''); return; }
       if (autoImportBusyRef.current) {
         window.history.pushState({ quizMake: true }, '');
         return;
@@ -300,6 +308,15 @@ export default function App() {
       const historySteps = pendingBackStepsRef.current;
       pendingBackTargetRef.current = null;
       pendingBackStepsRef.current = 1;
+
+      if (current.name === 'import' && importExitGuardRef.current) {
+        if (importHistoryPendingRef.current) { window.history.pushState({ quizMake: true }, ''); return; }
+        importHistoryPendingRef.current = true;
+        void importExitGuardRef.current(() => applyBackNavigation(target, historySteps)).then(completed => {
+          if (!completed) window.history.pushState({ quizMake: true }, '');
+        }).finally(() => { importHistoryPendingRef.current = false; });
+        return;
+      }
 
       if (current.name === 'noteDetail' && noteExitGuardRef.current) {
         if (noteHistoryPendingRef.current) {
@@ -442,6 +459,8 @@ export default function App() {
   };
 
   const goBackTo = (next: AppScreen) => {
+    if (tryCloseTransientDialog()) return;
+    if (screenRef.current.name === 'import' && importExitGuardRef.current) { void importExitGuardRef.current(() => performBackNavigation(next)); return; }
     const exitReason = getProtectedExitReason(screenRef.current, createDraftDirtyRef.current);
     if (exitReason) {
       pendingExitTargetRef.current = next;
@@ -1117,11 +1136,15 @@ export default function App() {
 
   const handleOpenLegacyImport = (target: LegacyImportTarget) => {
     const existingFolder = dataRef.current.folders.some((folder) => folder.id === target.folderId);
-    const folderId = existingFolder ? target.folderId : createId('folder');
+    const name = target.newFolderName.trim() || 'マイ問題セット';
+    const pending = newImportTargetRef.current;
+    const folderId = existingFolder ? target.folderId : pending?.name === name && hasPendingImportSession(pending.folderId) ? pending.folderId : createId('folder');
+    if (!existingFolder) newImportTargetRef.current = { name, folderId };
+    const folderCreated = dataRef.current.folders.some(folder => folder.id === folderId);
     navigate({
       name: 'import',
       folderId,
-      ...(existingFolder ? {} : { newFolderName: target.newFolderName.trim() || 'マイ問題セット' }),
+      ...(folderCreated ? {} : { newFolderName: name }),
       backScreen: screenRef.current,
     });
   };
@@ -1138,7 +1161,7 @@ export default function App() {
     const nextData = updateQuestionDetailedExplanation(dataRef.current, questionId, detailedExplanation);
     const saved = await persistThenCommitData(nextData);
     if (!saved) {
-      const message = '詳細解説を端末へ保存できませんでした。入力内容は残っているので、空き容量や保存設定を確認して再試行してください。';
+      const message = '追加解説・メモを端末へ保存できませんでした。入力内容は残っているので、空き容量や保存設定を確認して再試行してください。';
       setStorageError(message);
       throw new Error(message);
     }
@@ -1566,8 +1589,13 @@ export default function App() {
         await handleSaveDetailedExplanation(original.id, body);
         return null;
       }} />;
-  } else if (screen.name === 'community' || screen.name === 'search') {
-    const communityScreen: Extract<AppScreen, { name: 'community' }> = screen.name === 'search' ? { name: 'community', tab: 'discover' } : screen;
+  } else if (screen.name === 'search') {
+    content = <SearchScreen data={data} onBack={goHome}
+      onOpenSet={setId => navigate({ name: 'problemSetDetail', setId, backScreen: screen })}
+      onOpenQuestion={questionId => navigate({ name: 'questionDetail', questionId, backScreen: screen })}
+      onDiscover={() => navigate({ name: 'community', tab: 'discover', backScreen: screen })} />;
+  } else if (screen.name === 'community') {
+    const communityScreen = screen;
     const communityBackScreen = getCommunityBackScreen(communityScreen);
     content = (
       <Suspense fallback={<div className="quiz-app-loading">共有機能を読み込み中...</div>}>
@@ -1688,6 +1716,8 @@ export default function App() {
     const folder = data.folders.find((item) => item.id === screen.folderId);
     content = (
       <ImportScreen
+        sessionKey={screen.folderId}
+        registerExitGuard={registerImportExitGuard}
         folderName={folder?.name ?? screen.newFolderName ?? '新しいフォルダ'}
         onBack={() => goBackTo(screen.backScreen ?? { name: 'folder', folderId: screen.folderId })}
         onImport={(titleOverride, jsonText, stayOnScreen) => handleImportProblemSet(
@@ -1697,7 +1727,7 @@ export default function App() {
           jsonText,
           stayOnScreen,
         )}
-        onImportComplete={() => replaceScreen({ name: 'folder', folderId: screen.folderId })}
+        onImportComplete={() => { if (screenRef.current.name === 'import' && screenRef.current.folderId === screen.folderId) replaceScreen({ name: 'folder', folderId: screen.folderId }); }}
       />
     );
   } else if (screen.name === 'quiz') {
@@ -1797,6 +1827,7 @@ export default function App() {
       onOpenFolder={(folderId) => navigate({ name: 'folder', folderId })}
       onOpenStudyRecord={() => navigate({ name: 'studyRecord' })}
       onOpenPlans={() => navigate({ name: 'plans' })}
+      onOpenSearch={() => navigate({ name: 'search' })}
       onOpenPlan={planId => navigate({ name: 'planDetail', planId })}
       onSave={commitData}
     />
@@ -1846,7 +1877,7 @@ export default function App() {
         title={pendingExitReason === 'create' ? '作成途中の内容を破棄しますか？' : '演習を終了しますか？'}
         message={pendingExitReason === 'create'
           ? '入力した問題や貼り付け内容はまだ保存されていません。この画面を離れると破棄されます。'
-          : '途中の演習を終了して前の画面へ戻ります。\n詳細解説に未保存の入力がある場合、その入力も破棄されます。'}
+          : '途中の演習を終了して前の画面へ戻ります。\n追加解説・メモに未保存の入力がある場合、その入力も破棄されます。'}
         confirmLabel={pendingExitReason === 'create' ? '破棄して移動' : '終了する'}
         onCancel={cancelProtectedExit}
         onConfirm={confirmProtectedExit}
@@ -1888,7 +1919,7 @@ export default function App() {
 }
 
 function getScreenLoadingMessage(screen: AppScreen) {
-  if (screen.name === 'noteList') return '詳細解説を読み込み中…';
+  if (screen.name === 'noteList') return '追加解説・メモを読み込み中…';
   if (screen.name === 'noteDetail') return '資料を読み込み中…';
   if (screen.name === 'import') return '問題の取り込み画面を読み込み中…';
   if (screen.name === 'settings') return '設定画面を読み込み中…';
@@ -1947,7 +1978,6 @@ function getUpdateBlockedMessage(reason: ProtectedWorkReason) {
 }
 
 function getPrimaryNavItem(screen: AppScreen): PrimaryNavItem | null {
-  if (screen.name === 'search') return 'discover';
   if (screen.name === 'home') return 'home';
   if (screen.name === 'settings' && !screen.page) return 'settings';
   if (screen.name === 'createProblemSet') return 'create';

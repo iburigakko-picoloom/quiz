@@ -1033,6 +1033,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
         {configured && authenticated && hasStrongConnection ? (
           <section className="sync-card sync-card--transfer">
             <SyncStatus onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id} recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={busy || diagnosticBusy || interactionProtected} />
+            <p className="sync-card__compact-note">変更ごとの同期：{recordSyncOptedIn ? 'ON' : 'OFF'}（教材・回答・ノートなどの変更を個別に保存）。全体コピー同期：{autoEnabled ? 'ON' : 'OFF'}（全データをまとめて保存・比較して取り込み）。設定は「詳細・復旧」で変更できます。</p>
             {recordSyncOptedIn ? <RecordConflictPanel syncId={activeSyncId} accountId={cloudAccount.id} onImported={onImported}
               open={reviewOpen} onOpenChange={setReviewOpen} onOpenBackups={onOpenBackups} /> : null}
           </section>
@@ -1199,8 +1200,9 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
               {storageUsage ? <p className="sync-card__compact-note">端末ストレージ使用量：{storageUsage}</p> : null}
             </section>
 
-            <section className="sync-advanced__section">
-              <h2>接続診断</h2>
+            <details className="sync-advanced__section">
+              <summary>接続診断</summary>
+              <p>クラウドURL：{environmentStatus.hasUrl ? '設定済み' : '未設定'}／接続キー：{environmentStatus.hasAnonKey ? '設定済み' : '未設定'}</p>
               <button type="button" className="sync-button sync-button--secondary" onClick={handleDiagnostic} disabled={diagnosticBusy}>
                 {diagnosticBusy ? '診断中...' : '接続を診断する'}
               </button>
@@ -1226,7 +1228,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
                   </div>
                 </div>
               ) : null}
-            </section>
+            </details>
 
             <section className="sync-advanced__section">
               <h2>同期の詳細</h2>
@@ -1242,14 +1244,6 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
                 <div className="sync-meta-item sync-meta-item--wide">
                   <span>状態</span>
                   <strong>{lastState.status || '待機中'}</strong>
-                </div>
-                <div className="sync-meta-item">
-                  <span>クラウドURL</span>
-                  <strong>{environmentStatus.hasUrl ? '設定済み' : '未設定'}</strong>
-                </div>
-                <div className="sync-meta-item">
-                  <span>接続キー</span>
-                  <strong>{environmentStatus.hasAnonKey ? '設定済み' : '未設定'}</strong>
                 </div>
               </div>
               {lastState.error ? <p className="sync-card__error-text">{lastState.error}</p> : null}

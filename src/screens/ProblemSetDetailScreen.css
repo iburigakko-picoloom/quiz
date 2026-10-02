@@ -253,6 +253,18 @@
   min-width: 0;
 }
 
+.quiz-detail summary.quiz-detail__conditions-summary {
+  display: list-item;
+  min-height: 44px;
+  padding: 12px 4px;
+  cursor: pointer;
+  color: var(--ui-text, #173042);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .quiz-detail .quiz-detail__segment-caption {
   margin: 0 0 7px;
   color: var(--ui-text-muted, #607586);

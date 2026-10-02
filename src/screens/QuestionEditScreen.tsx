@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Question } from '../types';
 import { Layout } from '../components/Layout';
 import { getAnswerIndexes } from '../utils/quiz';
+import { BackButton } from '../components/BackButton';
+import { QuestionEditNotice } from '../components/QuestionEditNotice';
 
 export function QuestionEditScreen({ question, onBack, onDirtyChange, onSave }: {
   question: Question; onBack: () => void; onDirtyChange: (dirty: boolean) => void;
@@ -24,7 +26,7 @@ export function QuestionEditScreen({ question, onBack, onDirtyChange, onSave }: 
     finally { busyRef.current = false; setBusy(false); }
   };
   return <Layout><main className="library-page qm-editor">
-    <header className="library-page__header"><button onClick={onBack} disabled={busy}>閉じる</button><h1>問題を編集</h1></header>
+    <header className="library-page__header"><BackButton onClick={onBack} disabled={busy} /><h1>問題を編集</h1><button disabled={!valid || !dirty || busy} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button></header>
     <label>分類<input value={draft.category} disabled={busy} onChange={(event) => setDraft({...draft, category:event.target.value})} /></label>
     <label>問題文<textarea value={draft.question} disabled={busy} onChange={(event) => setDraft({...draft, question:event.target.value})} /></label>
     <fieldset disabled={busy}><legend>選択肢と正解（複数選択可）</legend>{draft.choices.map((choice,index) => <div className="qm-choice-edit" key={index}>
@@ -39,9 +41,10 @@ export function QuestionEditScreen({ question, onBack, onDirtyChange, onSave }: 
       setDraft({...draft, choices, answerIndex:next[0] ?? -1, answerIndexes:next});
     }}>{draft.choices.length === 4 ? '＋ 5番目の選択肢' : '5番目の選択肢を削除'}</button></fieldset>
     <label>解説<textarea value={draft.explanation} disabled={busy} onChange={(event) => setDraft({...draft, explanation:event.target.value})} /></label>
-    {dirty ? <p className="plan-warning">内容を変えると現在版の復習状態を初期化します。旧版の保存済み回答は保持します。固定した計画の対象・分母は変わらず、この問題は版の更新確認が必要になります。自分で編集した問題は共通の公開版進捗に含めません。</p> : null}
+    {dirty ? <QuestionEditNotice original={original.current} next={draft} /> : null}
+    {!valid ? <p role="status">保存するには、問題文・すべての選択肢・1つ以上の正解が必要です。</p> : null}
     {error ? <p role="alert" className="qm-wrong">{error}</p> : null}
     <button className="qm-primary" disabled={!valid || !dirty || busy} onClick={() => void save()}>{busy ? '保存中…' : '保存'}</button>
-    <button className="qm-secondary" disabled={busy} onClick={onBack}>キャンセル</button>
+    <button className="qm-secondary" disabled={busy} onClick={onBack}>戻る</button>
   </main></Layout>;
 }

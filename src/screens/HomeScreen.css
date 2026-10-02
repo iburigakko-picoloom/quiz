@@ -618,3 +618,5 @@
 .quiz-home__no-results { font-size: .82rem; color: #64778a; }
 .quiz-home--plans button:focus-visible { outline: 3px solid #246ddb; outline-offset: 2px; }
 @media (max-height: 700px), (max-width: 374px) { .quiz-home__content { gap: 6px; } .quiz-home--plans .study-companion__dog .study-companion__bubble { display: none; } .quiz-home--plans .study-companion--summary > button { min-height: 58px; } .quiz-home--plans .study-companion--compact > button { min-height: 44px; } }
+
+.quiz-home.quiz-home--plans .quiz-home__search-entry { min-height: 44px; min-width: 44px; padding: 6px 8px; color: var(--ui-accent, #2467bc); font-size: .78rem; border-radius: 8px; }

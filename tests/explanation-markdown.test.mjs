@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractExplanationMedia, normalizeExplanationMarkdown } from '../src/utils/explanationMarkdown.ts';
-import { explanationPrompt } from '../src/utils/weaknessNotes.ts';
+import { registerHooks } from 'node:module';
+const hook = registerHooks({ resolve(specifier, context, next) {
+  return next(/^\.\.?\//.test(specifier) && !/\.[cm]?[jt]sx?$/.test(specifier) && context.parentURL?.endsWith('.ts') ? `${specifier}.ts` : specifier, context);
+} });
+const { extractExplanationMedia, normalizeExplanationMarkdown } = await import('../src/utils/explanationMarkdown.ts');
+const { explanationPrompt } = await import('../src/utils/weaknessNotes.ts');
+hook.deregister();
 
 test('tables with short separators, alignment and CRLF are extracted', () => {
   for (const separator of ['| - | - |', '| :-- | --: |', '| --- | --- |']) {
