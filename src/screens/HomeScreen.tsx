@@ -16,11 +16,10 @@ import './HomeScreen.css';
 import { StudyCompanion } from '../components/StudyCompanion';
 import { useStudyRecord } from '../hooks/useStudyRecord';
 import { useStudyPlans } from '../hooks/useStudyPlans';
-import { aggregatePlanToday } from '../utils/studyPlans';
-import { HOME_PREFERENCES_KEY, getStudyTimeZone } from '../utils/studyPlanStorage';
+import { aggregatePlanToday, planStatus } from '../utils/studyPlans';
+import { HOME_PREFERENCES_KEY } from '../utils/studyPlanStorage';
 import { saveSyncedLocalStorage } from '../utils/localStorageRecords';
 import { withCoordinatedDataMutation } from '../utils/dataCoordination';
-import { PlanSummary } from './PlansScreen';
 
 interface HomeScreenProps {
   data: AppData;
@@ -49,7 +48,13 @@ export function HomeScreen({
   const { summary, day } = useStudyRecord(data.answerLogs);
   const { entries, error: planError } = useStudyPlans(data.answerLogs);
   const planToday = aggregatePlanToday(entries, data);
-  const [collapsed, setCollapsed] = useState(() => { try { return JSON.parse(localStorage.getItem(HOME_PREFERENCES_KEY) ?? '{}').collapsed === true; } catch { return false; } });
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(HOME_PREFERENCES_KEY) ?? '{}').collapsed;
+      if (typeof saved === 'boolean') return saved;
+      return window.matchMedia('(max-height: 700px)').matches || Number.parseFloat(getComputedStyle(document.documentElement).fontSize) >= 20;
+    } catch { return false; }
+  });
   const [preferencesError, setPreferencesError] = useState('');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('recent');
@@ -80,23 +85,26 @@ export function HomeScreen({
 
         <div className="quiz-home__content">
         <section className="quiz-home__today" aria-label="今日のがんばりと計画達成">
-          <div className="quiz-home__section-heading"><h2>今日のがんばりと計画達成</h2><button type="button" aria-expanded={!collapsed} aria-label={collapsed ? '今日のがんばりを開く' : '今日のがんばりを折りたたむ'} onClick={() => void toggleCollapsed()}>{collapsed ? '開く' : '畳む'}</button></div>
+          <h2 className="sr-only">今日のがんばりと計画達成</h2>
           <StudyCompanion scene="home" compact={collapsed}>
             <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
-              <span className="quiz-home__study-title">今日の全回答 <ChevronRightIcon size={14} /></span>
-              <span className="quiz-home__activity"><strong>{summary.todayCount}<small>回</small></strong><span>連続 <b>{summary.streak}</b>日</span></span>
-              <span className="quiz-home__plan-total">今日の計画 <b>{planToday.done}/{planToday.goal}</b>問</span>
-              {!collapsed ? <small className="quiz-home__activity-help">全回答には反復・計画外の学習も含みます</small> : null}
+              <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
+              <span className="quiz-home__activity"><span>全回答 <strong>{summary.todayCount}<small>回</small></strong></span><span>連続 <b>{summary.streak}</b>日</span></span>
+              <span className="quiz-home__plan-total">計画 <b>{planToday.done}/{planToday.goal}</b>問</span>
             </button>
           </StudyCompanion>
-          {!collapsed ? <p className="quiz-home__timezone">学習日：{getStudyTimeZone()} · 詳細は学習記録へ</p> : null}
+          <button type="button" className="quiz-home__fold-toggle" aria-expanded={!collapsed} aria-label={collapsed ? '今日のがんばりを開く' : '今日のがんばりを折りたたむ'} onClick={() => void toggleCollapsed()}>{collapsed ? '開く' : '畳む'}</button>
           {preferencesError ? <p role="alert">{preferencesError}</p> : null}
         </section>
 
         <section className="quiz-home__plans" aria-label="学習計画">
-          <div className="quiz-home__section-heading"><h2>学習計画</h2><button type="button" onClick={onOpenPlans}>一覧・作成{collapsed && entries.length > 1 ? `（${entries.length}件）` : ''} ›</button></div>
+          <div className="quiz-home__section-heading"><h2>学習計画</h2><button type="button" onClick={collapsed ? () => void toggleCollapsed() : onOpenPlans}>{collapsed ? `${entries.length}件・開く` : '一覧・作成'} ›</button></div>
           {planError ? <p role="alert">{planError}</p> : null}
-          {entries.length ? <div className="quiz-home__plan-list">{entries.slice(0, collapsed ? 1 : 2).map(({ plan, daily }) => <button key={plan.id} type="button" className="quiz-home__plan-card" onClick={() => onOpenPlan(plan.id)}><PlanSummary plan={plan} daily={daily} data={data} /><ChevronRightIcon size={18} /></button>)}{!collapsed && entries.length > 2 ? <button type="button" className="quiz-home__more-plans" onClick={onOpenPlans}>ほか{entries.length - (collapsed ? 1 : 2)}件の計画</button> : null}</div> : <button className="quiz-home__no-plans" type="button" onClick={onOpenPlans}>期限型・習慣型の計画を作成 ＋</button>}
+          {!collapsed && (entries.length ? <div className="quiz-home__plan-list">{entries.slice(0, 2).map(({ plan, daily }) => {
+            const status = planStatus(plan, data, daily);
+            const label = status.paused ? '休止中' : status.expired ? '期限超過' : status.todayComplete ? '今日の目標達成' : `今日あと${status.remaining}問`;
+            return <button key={plan.id} type="button" className="quiz-home__plan-card" aria-label={`${plan.title}：${plan.setTitle}、${label}、${status.done}/${status.goal}問`} onClick={() => onOpenPlan(plan.id)}><span className="quiz-home__plan-target"><strong>{plan.setTitle}</strong><span>{label}</span></span><span className="quiz-home__plan-count">{status.done}/{status.goal}問</span><ChevronRightIcon size={16} /></button>;
+          })}{entries.length > 2 ? <button type="button" className="quiz-home__more-plans" onClick={onOpenPlans}>ほか{entries.length - 2}件の計画</button> : null}</div> : <button className="quiz-home__no-plans" type="button" onClick={onOpenPlans}>期限型・習慣型の計画を作成 ＋</button>)}
         </section>
 
         <section className="quiz-home__library" aria-label="学習フォルダ">
