@@ -20,6 +20,8 @@ import { applyQuestionExplanations } from './utils/weaknessNotes';
 import { replayLocalStorageProjections } from './utils/localStorageRecords';
 import { withCoordinatedDataMutation, withCoordinatedDataRead } from './utils/dataCoordination';
 import { isAutoUploadBlocked } from './utils/autoSyncScheduler';
+import { isManualSyncRequested } from './utils/syncRequest';
+import { isSyncDisplaySafe, isSyncInteractionProtected } from './utils/syncInteraction';
 import type { RecordSyncGuards } from './utils/recordSyncEngine';
 import { QuestionEditScreen } from './screens/QuestionEditScreen';
 import { DetailedAnswerScreen } from './screens/DetailedAnswerScreen';
@@ -128,9 +130,10 @@ export default function App() {
   const libraryMutationBusyRef = useRef(false);
   const autoImportEligibleRef = useRef(false);
   const recordCheckEligibleRef = useRef(false);
-  // Import on the home screen only. Quiz/editor/viewer state stays untouched;
+  const [, setSyncInteractionActive] = useState(false);
+  // Home and the normal sync display can apply data. Quiz/editor/viewer state stays untouched;
   // downloading in the background never blocks interaction.
-  autoImportEligibleRef.current = screen.name === 'home' && !guideReturn && !waitingWorker
+  autoImportEligibleRef.current = isSyncDisplaySafe(screen.name) && !guideReturn && !waitingWorker
     && !receivingSharedImage && !pendingBackupImport && !backupImportBusy
     && !pendingExitTarget && !storageError && !storageLoadError;
   recordCheckEligibleRef.current = storageReady && !guideReturn && !waitingWorker
@@ -139,7 +142,7 @@ export default function App() {
   const canCheckRecordImport = () => recordCheckEligibleRef.current
     && !libraryMutationBusyRef.current && !autoImportBusyRef.current
     && !isAutoUploadBlocked(getSyncProtectedWorkReason(screenRef.current, createDraftDirtyRef.current, false, false));
-  const canAutoImport = () => autoImportEligibleRef.current && screenRef.current.name === 'home'
+  const canAutoImport = () => autoImportEligibleRef.current && isSyncDisplaySafe(screenRef.current.name)
     && !libraryMutationBusyRef.current && !autoImportBusyRef.current;
 
   const refreshImportedData = async () => {
@@ -160,8 +163,8 @@ export default function App() {
     try {
       const result = await importQuizMakeData(remote.payload, {
         expectedSyncId: remote.syncId, authoritativeUpdatedAt: remote.updatedAt, expectedLocalDigest,
-        canApply: () => autoImportEligibleRef.current && screenRef.current.name === 'home'
-          && document.visibilityState === 'visible' && getAutoSyncSettings().enabled
+        canApply: () => autoImportEligibleRef.current && isSyncDisplaySafe(screenRef.current.name)
+          && document.visibilityState === 'visible' && (getAutoSyncSettings().enabled || isManualSyncRequested(remote.syncId))
           && getAutoSyncSettings().syncId === remote.syncId,
       });
       if (!result.ok) {
@@ -198,7 +201,7 @@ export default function App() {
     setLibraryMutationBusy(true);
     try {
       const result = await withCoordinatedDataMutation(['app','notes'], async () => {
-        if (!autoImportEligibleRef.current || screenRef.current.name !== 'home' || document.visibilityState !== 'visible') return null;
+        if (!autoImportEligibleRef.current || !isSyncDisplaySafe(screenRef.current.name) || document.visibilityState !== 'visible') return null;
         const applied = await operation();
         if (applied.applied) {
           await replayLocalStorageProjections();
@@ -1749,7 +1752,8 @@ export default function App() {
       />
     );
   } else if (screen.name === 'sync') {
-    content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} onImported={refreshImportedData} />;
+    content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} onImported={refreshImportedData}
+      onProtectionChange={setSyncInteractionActive} onOpenBackups={() => navigate({ name: 'settings', page: 'backups' })} />;
   } else if (screen.name === 'privacy') {
     content = <PrivacyScreen onBack={() => goBackTo({ name: 'settings' })} />;
   } else if (screen.name === 'studyRecord') {
@@ -1894,7 +1898,8 @@ function getSyncProtectedWorkReason(
   if (backupImportActive) return 'backup' as const;
   if (screen.name === 'import') return 'import' as const;
   if (screen.name === 'noteList' || screen.name === 'noteDetail') return 'notes' as const;
-  if (screen.name === 'sync') return 'sync' as const;
+  if (screen.name === 'sync' && isSyncInteractionProtected()) return 'sync' as const;
+  if (screen.name === 'settings' && screen.page === 'backups') return 'backup' as const;
   return getProtectedExitReason(screen, createDraftDirty);
 }
 

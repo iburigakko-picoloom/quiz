@@ -8,16 +8,22 @@ type EventRow = { id: string; raw: string | null; position: number };
 export type ProgressSyncContext = {
   records: Map<string, AppRecord>; incomingByKey: Map<string, Incoming>;
   localLogs: Map<string, AppRecord[]>; remoteLogs: Map<string, Incoming[]>; hasDeletedHistory: boolean;
+  pending: Map<string, AppOutboxOperation>;
 };
 
 /** Build per-question history once, including large initial migrations. */
-export function createProgressSyncContext(records: Map<string, AppRecord>, incoming: Incoming[]): ProgressSyncContext {
+export function createProgressSyncContext(records: Map<string, AppRecord>, incoming: Incoming[], outbox: AppOutboxOperation[] = []): ProgressSyncContext {
   const context: ProgressSyncContext = { records, incomingByKey: new Map(incoming.map(row => [row.key, row])),
-    localLogs: new Map(), remoteLogs: new Map(), hasDeletedHistory: false };
+    localLogs: new Map(), remoteLogs: new Map(), hasDeletedHistory: false, pending: new Map(outbox.map(row => [row.key, row])) };
   for (const row of records.values()) if (row.collection === 'answerLogs') {
     if (!row.raw) { context.hasDeletedHistory = true; continue; }
     const id = JSON.parse(row.raw).questionId;
     const logs = context.localLogs.get(id) ?? []; logs.push(row); context.localLogs.set(id, logs);
+    // Only immutable, acknowledged events can complete a later remote delta.
+    if (row.serverRevision > 0 && !context.pending.has(row.key) && !context.incomingByKey.has(row.key)) {
+      const remote = context.remoteLogs.get(id) ?? [];
+      remote.push({ ...row, revision: row.serverRevision }); context.remoteLogs.set(id, remote);
+    }
   }
   for (const row of incoming) if (row.collection === 'answerLogs') {
     if (!row.raw) context.hasDeletedHistory = true;
@@ -49,35 +55,43 @@ function replayHistory(question: { setId: string; choices: string[] }, questionI
   return { progress, eventIds: [...eventIds] };
 }
 
-/** Reconcile the first V2 Pull using the pristine initial progress as a common
- * ancestor. Every field on each branch must replay exactly from distinct saved
- * events. A count alone never authorizes a merge. Later resets, deleted/missing
- * history, manual flags and differing event payloads remain genuine conflicts.
+/** Every field on both branches and the acknowledged ancestor must replay
+ * exactly. Missing/deleted/edited history and manual flags remain conflicts.
  */
 export function verifiedBootstrapProgress(
   local: AppRecord, remote: Incoming, operation: AppOutboxOperation,
   context: ProgressSyncContext, startCursor: number,
   same: (collection: 'progress' | 'questions' | 'answerLogs', left: string | null, right: string | null) => boolean,
 ): { raw: string; choice: 'local' | 'remote' | 'merged'; eventIds: string[] } | null {
-  if (remote.collection !== 'progress' || startCursor !== 0 || operation.baseRevision !== 0
-    || local.serverRevision !== 0 || !local.raw || !remote.raw || operation.raw !== local.raw) return null;
+  if (remote.collection !== 'progress' || !local.raw || !remote.raw || operation.raw !== local.raw) return null;
+  const bootstrap = startCursor === 0 && operation.baseRevision === 0 && local.serverRevision === 0;
+  if (!bootstrap && (!operation.baseContent?.raw || operation.baseRevision < 1)) return null;
   const questionKey = appRecordKey('questions', remote.id);
   const localQuestion = context.records.get(questionKey);
-  const remoteQuestion = context.incomingByKey.get(questionKey);
+  const remoteQuestion = context.incomingByKey.get(questionKey)
+    ?? (!bootstrap && localQuestion?.serverRevision && !context.pending.has(questionKey) ? localQuestion : null);
   if (!localQuestion?.raw || !remoteQuestion?.raw
     || !same('questions', localQuestion.raw, remoteQuestion.raw)) return null;
   // A tombstone may be a reset whose original question ID is no longer known.
   if (context.hasDeletedHistory) return null;
   const localLogs = context.localLogs.get(remote.id) ?? [];
   const remoteLogs = context.remoteLogs.get(remote.id) ?? [];
-  if (localLogs.some(row => row.serverRevision !== 0)
+  if (bootstrap && (localLogs.some(row => row.serverRevision !== 0)
     || (!localLogs.length && (local.localRevision !== 1 || operation.localRevision !== 1))
-    || (!remoteLogs.length && remote.revision !== 1)) return null;
+    || (!remoteLogs.length && remote.revision !== 1))) return null;
+  if (!bootstrap && localLogs.some(row => context.pending.get(row.key)?.baseRevision)) return null;
   const question = JSON.parse(localQuestion.raw);
   const localReplay = replayHistory(question, remote.id, localLogs);
   const remoteReplay = replayHistory(question, remote.id, remoteLogs);
   if (!localReplay || !remoteReplay || !same('progress', local.raw, JSON.stringify(localReplay.progress))
     || !same('progress', remote.raw, JSON.stringify(remoteReplay.progress))) return null;
+  if (!bootstrap) {
+    const baseLogs = localLogs.filter(row => row.serverRevision > 0 && row.serverRevision <= operation.baseRevision);
+    const baseReplay = replayHistory(question, remote.id, baseLogs);
+    if (!baseReplay || !same('progress', operation.baseContent!.raw, JSON.stringify(baseReplay.progress))) return null;
+    const remoteById = new Map(remoteLogs.map(row => [row.id, row]));
+    if (baseLogs.some(row => !same('answerLogs', row.raw, remoteById.get(row.id)?.raw ?? null))) return null;
+  }
   const events = new Map<string, EventRow>();
   for (const event of [...localLogs, ...remoteLogs]) {
     const old = events.get(event.id);

@@ -42,7 +42,7 @@ export function describeRecordConflictValue(raw: string | null): string {
 }
 
 export const recordConflictIdentity = (item: RecordConflict): string => JSON.stringify([
-  item.key, item.operationId, item.remote.revision, item.local?.raw, item.remote.raw, item.local?.position, item.remote.position,
+  item.connection, item.key, item.operationId, item.remote.revision, item.local?.raw, item.remote.raw, item.local?.position, item.remote.position,
 ]);
 
 /** Never carry a radio selection over to a newly edited competing version. */

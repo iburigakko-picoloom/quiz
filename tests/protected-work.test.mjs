@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createAutoSyncScheduler, isAutoUploadBlocked } from '../src/utils/autoSyncScheduler.ts';
 import { getSyncDecision } from '../src/utils/syncDecision.ts';
+import { runSelectedSync, requestSyncRetry, SYNC_RETRY_EVENT, withRecordSyncLease } from '../src/utils/syncRequest.ts';
+import { isSyncDisplaySafe, setSyncInteractionProtected } from '../src/utils/syncInteraction.ts';
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const appSource = readSource('../src/App.tsx');
@@ -17,15 +19,15 @@ test('automatic cloud imports wait until local work is no longer protected', () 
   assert.match(autoSyncSource, /getRemoteSyncMeta\(settings.syncId\)/);
   assert.doesNotMatch(autoSyncSource, /lastSyncAt:\s*meta/);
   assert.match(autoSyncSource, /protectedWorkReasonRef.current === null[\s\S]*?canAutoImport/);
-  assert.match(appSource, /expectedLocalDigest,[\s\S]*?canApply:[\s\S]*?screenRef.current.name === 'home'/);
+  assert.match(appSource, /expectedLocalDigest,[\s\S]*?canApply:[\s\S]*?isSyncDisplaySafe\(screenRef.current.name\)/);
   assert.match(appSource, /inert=\{autoImportBusy\}/);
-  assert.match(autoSyncSource, /if \(isAutoUploadBlocked\(protectedWorkReasonRef\.current\)\)[\s\S]*?自動同期: 作業終了後に保存します/);
+  assert.match(autoSyncSource, /isAutoUploadBlocked\(protectedWorkReasonRef\.current\) \|\| isSyncInteractionProtected\(\)/);
   assert.match(autoSyncSource, /uploadRunningRef\.current \|\| remoteCheckRunningRef\.current/);
   assert.match(autoSyncSource, /remoteCheckRunningRef\.current \|\| uploadRunningRef\.current/);
   assert.match(autoSyncSource, /shouldCheckRemoteAfterUpload[\s\S]*?uploadRunningRef\.current = false;[\s\S]*?checkRemote\(true\)/);
   assert.match(appSource, /screen\.name === 'noteList' \|\| screen\.name === 'noteDetail'\) return 'notes'/);
   assert.match(appSource, /screen\.name === 'import'\) return 'import'/);
-  assert.match(appSource, /screen\.name === 'sync'\) return 'sync'/);
+  assert.match(appSource, /screen\.name === 'sync' && isSyncInteractionProtected\(\)\) return 'sync'/);
   assert.match(appSource, /backupImportActive\) return 'backup'/);
   assert.match(autoSyncSource, /previousReason !== protectedWorkReason && !isAutoUploadBlocked\(protectedWorkReason\)/);
   assert.match(syncServiceSource, /waitForPendingCategoryNoteSaves\(\)[\s\S]*?withCoordinatedDataMutation[\s\S]*?importQuizMakeDataUnlocked\(payload/);
@@ -142,7 +144,7 @@ test('saved answers and memos may upload during study; imports and destructive w
     assert.ok(autoSyncSource.includes(`addEventListener(${event}`));
     assert.ok(autoSyncSource.includes(`removeEventListener(${event}`));
   }
-  assert.match(autoSyncSource, /onCloudAuthStateChange\(\(\) => \{\s*uploadQueue.request\(true\)/);
+  assert.match(autoSyncSource, /onCloudAuthStateChange\(\(\) => \{[\s\S]*?uploadQueue.request\(true\)/);
   assert.match(autoSyncSource, /expectedRemoteUpdatedAt: lastState.lastSyncAt \|\| null,\s*force: false/);
 });
 
@@ -173,4 +175,59 @@ test('manual sync never reports an older snapshot as the latest saved state', ()
   assert.match(syncScreenSource, /result\.value\.localChangesPending[\s\S]*?return;/);
   assert.match(syncScreenSource, /expectedRemoteUpdatedAt: result\.remoteUpdatedAt/);
   assert.match(syncScreenSource, /target\.expectedRemoteUpdatedAt/);
+});
+
+test('automatic work, manual retry and conflict resolution join one queue and retain the selected method after errors', async () => {
+  const previous = globalThis.window;
+  const target = new EventTarget();
+  globalThis.window = target;
+  let recordCalls = 0, legacyCalls = 0, concurrent = 0, maximum = 0, release;
+  const h = queueHarness(async () => runSelectedSync(true, async () => {
+    recordCalls++; concurrent++; maximum = Math.max(maximum, concurrent);
+    try {
+      if (recordCalls === 1) await new Promise(resolve => { release = resolve; });
+      if (recordCalls === 2) throw new Error('unavailable');
+      return 'done';
+    } finally { concurrent--; }
+  }, async () => { legacyCalls++; return 'done'; }));
+  const retry = event => { if (event.detail.syncId === 'active') h.queue.request(true); };
+  target.addEventListener(SYNC_RETRY_EVENT, retry);
+  try {
+    h.queue.request(true); await h.advance(0);
+    requestSyncRetry('other'); requestSyncRetry('active'); requestSyncRetry('active');
+    await h.advance(1000); assert.equal(recordCalls, 1);
+    release(); await h.settle(); await h.advance(0);
+    assert.equal(recordCalls, 2); assert.equal(legacyCalls, 0);
+    await h.advance(5000); assert.equal(recordCalls, 3); assert.equal(maximum, 1);
+    assert.doesNotMatch(autoSyncSource, /lastSyncDigest\) return null|setRecordSyncOptIn\(syncId, false\)/);
+    const comparison = readSource('../src/components/SyncComparison.tsx');
+    assert.match(comparison, /onSync=\{onRetry\}/);
+    assert.doesNotMatch(comparison, /syncNormally/);
+  } finally { h.queue.dispose(); globalThis.window = previous; }
+});
+
+test('a normal sync display permits apply; editing, study and review/recovery interactions stay protected', () => {
+  try {
+    setSyncInteractionProtected(false);
+    for (const name of ['home', 'sync']) assert.equal(isSyncDisplaySafe(name), true);
+    for (const name of ['quiz', 'questionEdit', 'detailedAnswer', 'noteDetail', 'import', 'settings']) assert.equal(isSyncDisplaySafe(name), false);
+    setSyncInteractionProtected(true);
+    assert.equal(isSyncDisplaySafe('sync'), false); assert.equal(isSyncDisplaySafe('home'), true);
+  } finally { setSyncInteractionProtected(false); }
+});
+
+test('the record network lease excludes another tab and releases on failure', async () => {
+  let held = false, release;
+  const locks = { async request(_name, options, callback) {
+    assert.equal(options.ifAvailable, true);
+    if (held) return callback(null);
+    held = true;
+    try { return await callback({ name: 'sync' }); } finally { held = false; }
+  } };
+  const first = withRecordSyncLease(locks, () => new Promise(resolve => { release = resolve; }));
+  assert.equal(await withRecordSyncLease(locks, () => assert.fail('overlapping tab')), null);
+  release('done'); assert.equal(await first, 'done');
+  await assert.rejects(withRecordSyncLease(locks, async () => { throw new Error('storage'); }), /storage/);
+  assert.equal(await withRecordSyncLease(locks, async () => 'retry'), 'retry');
+  await assert.rejects(withRecordSyncLease(undefined, () => assert.fail()), /複数タブ/);
 });

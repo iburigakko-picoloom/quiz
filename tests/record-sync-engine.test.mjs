@@ -20,6 +20,9 @@ const { remoteQuestionImageDescriptor } = await import('../src/utils/questionIma
 const { prepareRecordMaterialOutbox } = await import('../src/utils/recordMaterialSync.ts');
 const { normalizeAppData } = await import('../src/utils/appDataValidation.ts');
 const { recordAnswer } = await import('../src/utils/quiz.ts');
+const { readRecordSyncStatus, writeRecordSyncReceipt, recordSyncSummary } = await import('../src/utils/recordSyncStatus.ts');
+const { runSelectedSync } = await import('../src/utils/syncRequest.ts');
+const { readArchivedRecordConflicts, createConflictRecoveryCopy } = await import('../src/utils/recordConflictRecovery.ts');
 const pg = await createRecordProtocolDatabase();
 after(() => pg.close());
 const timestamp = '2026-09-28T01:00:00.000Z';
@@ -319,17 +322,104 @@ test('a shared answer event ID is acknowledged once while different payloads und
   }
 });
 
-test('identical progress counters from distinct post-bootstrap answers still require verified ancestry', async () => {
+test('identical progress counters with incomplete post-bootstrap history still require a choice', async () => {
   const f = await fixture(); const [a,b] = f.devices;
   try {
     const left = recordAnswer(f.initial, f.initial.questions[0], [0], false, 'same-count-a').data;
     const right = structuredClone(left); right.answerLogs[0].id = 'same-count-b';
+    right.answerLogs = [];
     await records.saveAppRecords(a, left, timestamp); await records.saveAppRecords(b, right, timestamp);
     await runRecordSync(a, f.connection, f.transport, guards);
     const result = await runRecordSync(b, f.connection, f.transport, guards);
     assert.equal(result.status, 'conflict'); assert.equal(result.uploaded, 0);
     assert.ok(result.conflicts.some(item => item.remote.collection === 'progress'));
     assert.deepEqual(await read(b), right);
+  } finally { a.close(); b.close(); }
+});
+
+test('complete later histories verify the shared ancestor, retain distinct events, and defer a live quiz merge', async () => {
+  const f = await fixture(); const [a, b] = f.devices;
+  const answerAt = (data, id, selected, at) => {
+    const next = recordAnswer(data, data.questions[0], [selected], false, id).data;
+    next.answerLogs.at(-1).answeredAt = at; next.progress[0].lastAnsweredAt = at;
+    return next;
+  };
+  try {
+    const shared = answerAt(f.initial, 'shared-later', 0, '2026-10-02T03:00:00.000Z');
+    await records.saveAppRecords(a, shared, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+    await runRecordSync(b, f.connection, f.transport, guards);
+    const left = answerAt(await read(a), 'later-remote', 0, '2026-10-02T03:01:00.000Z');
+    const right = answerAt(await read(b), 'later-local', 1, '2026-10-02T03:02:00.000Z');
+    await records.saveAppRecords(a, left, timestamp); await records.saveAppRecords(b, right, timestamp);
+    await runRecordSync(a, f.connection, f.transport, guards);
+    const pushes = f.pushed.length;
+    const protectedResult = await runRecordSync(b, f.connection, f.transport, editingGuards);
+    assert.equal(protectedResult.status, 'deferred'); assert.equal(f.pushed.length, pushes);
+    assert.deepEqual(await read(b), right);
+    const merged = await runRecordSync(b, f.connection, f.transport, guards);
+    assert.equal(merged.status, 'done');
+    const data = await read(b);
+    assert.equal(data.progress[0].answeredCount, 3); assert.equal(data.progress[0].correctCount, 2); assert.equal(data.progress[0].wrongCount, 1);
+    assert.deepEqual(new Set(data.answerLogs.map(log => log.id)), new Set(['shared-later', 'later-remote', 'later-local']));
+    assert.equal((await readActiveRecordConflicts(b, f.connection)).length, 0);
+    await runRecordSync(a, f.connection, f.transport, guards);
+    assert.deepEqual((await read(a)).progress, data.progress);
+  } finally { a.close(); b.close(); }
+});
+
+test('V2 success and second sync retain their method and receipt without altering the legacy ancestor', async () => {
+  const f = await fixture(); const [a, b] = f.devices;
+  try {
+    const legacy = { lastSyncAt: timestamp, lastSyncDigest: 'verified-snapshot' };
+    const before = structuredClone(legacy);
+    const execute = () => runSelectedSync(true, async () => {
+      const result = await runRecordSync(a, f.connection, f.transport, guards);
+      await writeRecordSyncReceipt(a, f.connection, result, '2026-10-02T04:00:00.000Z');
+      return result;
+    }, () => assert.fail('opted-in V2 must never route to Snapshot'));
+    let local = recordAnswer(await read(a), f.initial.questions[0], [0], false, 'receipt-one').data;
+    await records.saveAppRecords(a, local, timestamp); assert.equal((await execute()).status, 'done');
+    let status = await readRecordSyncStatus(a, f.connection);
+    assert.equal(status.pending, 0); assert.equal(status.lastSuccessAt, '2026-10-02T04:00:00.000Z'); assert.equal(recordSyncSummary(status), '同期済み');
+    assert.deepEqual(legacy, before);
+    local = recordAnswer(await read(a), f.initial.questions[0], [1], false, 'receipt-two').data;
+    await records.saveAppRecords(a, local, timestamp); assert.equal((await readRecordSyncStatus(a, f.connection)).pending, 2);
+    assert.equal((await execute()).status, 'done'); assert.deepEqual(legacy, before);
+    status = await readRecordSyncStatus(a, f.connection);
+    await writeRecordSyncReceipt(a, f.connection, { status: 'deferred', uploaded: 0, downloaded: 0 }, '2026-10-02T05:00:00.000Z');
+    assert.equal((await readRecordSyncStatus(a, f.connection)).lastSuccessAt, status.lastSuccessAt);
+    await assert.rejects(readRecordSyncStatus(a, { ...f.connection, userId: 'another-account' }), /別の接続/);
+    assert.equal(recordSyncSummary({ ...status, phase: 'conflict', conflicts: 1, pending: 2 }), '確認が必要です。同期は完了していません');
+  } finally { a.close(); b.close(); }
+});
+
+test('explicit conflict choices archive both originals and create validated separate recovery copies', async () => {
+  const f = await fixture(); const [a, b] = f.devices;
+  try {
+    const left = await read(a), right = await read(b);
+    left.questions[0].explanation = 'Cloud edit'; right.questions[0].explanation = 'Local edit';
+    await records.saveAppRecords(a, left, timestamp); await records.saveAppRecords(b, right, timestamp);
+    await runRecordSync(a, f.connection, f.transport, guards);
+    const result = await runRecordSync(b, f.connection, f.transport, guards);
+    assert.equal(result.status, 'conflict');
+    const item = result.conflicts[0];
+    const chosen = await applyStagedRecordPull(b, f.connection, [{ key: item.key, operationId: item.operationId, remoteRevision: item.remote.revision, choice: 'remote' }]);
+    assert.equal(chosen.applied, true);
+    const archives = await readArchivedRecordConflicts(b, f.connection);
+    const saved = archives.find(archive => archive.conflict.local.raw === item.local.raw && archive.conflict.remote.raw === item.remote.raw);
+    assert.ok(saved); const original = structuredClone(saved);
+    const current = await read(b);
+    for (const side of ['local', 'remote']) {
+      const copy = createConflictRecoveryCopy(current, saved.conflict, side, timestamp);
+      assert.equal(copy.questions.length, current.questions.length + 1);
+      assert.deepEqual(copy.questions[0], current.questions[0]);
+      assert.equal(copy.questions.at(-1).explanation, side === 'local' ? 'Local edit' : 'Cloud edit');
+      assert.notEqual(copy.questions.at(-1).id, current.questions[0].id);
+      assert.equal(copy.problemSets.at(-1).visibility, 'private');
+      assert.ok(normalizeAppData(copy).ok);
+    }
+    assert.deepEqual(saved, original); assert.deepEqual(await read(b), current);
+    assert.deepEqual(await readArchivedRecordConflicts(b, { ...f.connection, userId: 'another-account' }), []);
   } finally { a.close(); b.close(); }
 });
 

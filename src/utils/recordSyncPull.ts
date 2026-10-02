@@ -190,7 +190,9 @@ export async function applyStagedRecordPull(
     return { applied: true, cursor: stage.cursor, changed: 0, commitId: initialState.commitId };
   }
   const pendingTx = db.transaction('appOutbox', 'readonly'); const pendingDone = done(pendingTx);
+  const allPending = request<AppOutboxOperation[]>(pendingTx.objectStore('appOutbox').getAll());
   const operations = await Promise.all(incoming.map(row => request<AppOutboxOperation | undefined>(pendingTx.objectStore('appOutbox').get(row.key))));
+  const outbox = await allPending;
   await pendingDone;
   const before = await readAppRecordSnapshotForCommit(db, initialState.commitId);
   if (!before || before.state.commitId !== initialState.commitId) throw new Error('差分読込中に端末が更新されました。');
@@ -207,7 +209,7 @@ export async function applyStagedRecordPull(
     reason?: 'unchanged-ancestor' | 'bootstrap-answer-history'; eventIds?: string[] }> = [];
   const rebased: AppOutboxOperation[] = [];
   const progressContext = incoming.some(row => row.collection === 'progress' && pending.has(row.key))
-    ? createProgressSyncContext(before.records, incoming) : null;
+    ? createProgressSyncContext(before.records, incoming, outbox) : null;
   for (const remote of incoming) {
     const local = before.records.get(remote.key);
     if (local && remote.revision < local.serverRevision) continue; // An acknowledged push can be newer than this page.
@@ -218,7 +220,9 @@ export async function applyStagedRecordPull(
       row.revision > op.baseRevision && !sameRecordContent('answerLogs', row.raw, before.records.get(row.key)?.raw ?? null));
     const differentLocalEvent = op && novelRemoteEvent && progressContext?.localLogs.get(remote.id)?.some(row =>
       row.serverRevision === 0 || row.serverRevision > op.baseRevision);
-    const same = !differentLocalEvent && sameRecordContent(remote.collection, local?.raw ?? null, remote.raw) && (!local || local.position === remote.position);
+    // Equal counters cannot acknowledge a competing answer whose local history
+    // is missing. The complete-history proof below must account for that event.
+    const same = !differentLocalEvent && !novelRemoteEvent && sameRecordContent(remote.collection, local?.raw ?? null, remote.raw) && (!local || local.position === remote.position);
     if (op && !same) {
       // A pull of the unchanged remote ancestor leaves an unsent local edit alone.
       if (remote.revision <= op.baseRevision) continue;

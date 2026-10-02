@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { SyncStatus } from '../components/SyncStatus';
+import { requestSyncRetry } from '../utils/syncRequest';
+import { setSyncInteractionProtected } from '../utils/syncInteraction';
 import { SyncComparison } from '../components/SyncComparison';
 import { saveBackupPayload } from '../utils/backupRepository';
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ChevronDownIcon, CopyIcon, DownloadIcon, SyncIcon, UploadIcon } from '../components/UiIcons';
 import {
-  clearSyncLocalBackups,
   computePayloadHash,
   createSyncPairingCode,
   deleteRemoteSyncData,
@@ -53,9 +55,11 @@ import './SyncScreen.css';
 interface SyncScreenProps {
   onBack: () => void;
   onImported?: () => Promise<void>;
+  onProtectionChange?: (value: boolean) => void;
+  onOpenBackups?: () => void;
 }
 
-export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
+export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBackups }: SyncScreenProps) {
   const configured = useMemo(() => isSyncConfigured(), []);
   const environmentStatus = useMemo(() => getSyncEnvironmentStatus(), []);
   const [syncId, setSyncId] = useState(() => getStoredSyncId());
@@ -64,6 +68,8 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   const [recordSyncOptedIn, setRecordSyncOptedInState] = useState(() => isRecordSyncOptedIn(getStoredSyncId().trim()));
   const [lastState, setLastState] = useState<LastSyncState>(() => getLastSyncState());
   const [busy, setBusy] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   const [diagnosticResult, setDiagnosticResult] = useState<SyncDiagnosticResult | null>(null);
   const [storageUsage, setStorageUsage] = useState('');
@@ -73,7 +79,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   const [cloudAccount, setCloudAccount] = useState<{ id: string; label: string } | null>(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
-  const [clearBackupsConfirmOpen, setClearBackupsConfirmOpen] = useState(false);
+  const [loginRequested, setLoginRequested] = useState(false);
   const [pendingCloudDelete, setPendingCloudDelete] = useState<{
     syncId: string;
     expectedUpdatedAt: string | null;
@@ -96,6 +102,14 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
     summary: SyncPayloadSummary;
     expectedRemoteUpdatedAt: string;
   } | null>(null);
+
+  const interactionProtected = busy || diagnosticBusy || reviewOpen || detailsOpen || Boolean(pendingCloudImport || pendingCloudOverwrite || pendingCloudDelete || pendingGeneratedSyncId || pendingConnectSyncId);
+  useLayoutEffect(() => {
+    setSyncInteractionProtected(interactionProtected);
+    onProtectionChange?.(interactionProtected);
+    return () => { setSyncInteractionProtected(false); onProtectionChange?.(false); };
+  }, [interactionProtected, onProtectionChange]);
+  useEffect(() => { setReviewOpen(false); }, [activeSyncId, cloudAccount?.id]);
 
   const normalizedSyncId = syncId.trim();
   const syncIdValid = isStrongSyncId(normalizedSyncId);
@@ -271,23 +285,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   }, [message, error]);
 
   const updateSyncIdDraft = (value: string) => {
-    if (autoEnabled && value.trim() !== activeSyncId) {
-      const result = setAutoSyncEnabled(false);
-      if (!result.ok) {
-        setMessage('');
-        setError(`同期IDの編集中に自動同期を停止できませんでした: ${result.error}`);
-        return;
-      }
-      setSyncId(value);
-      setAutoEnabledState(false);
-      setLastState(getLastSyncState());
-      setError('');
-      setMessage('同期IDの入力内容が変わったため、自動同期をOFFにしました。');
-      return;
-    }
-    setSyncId(value);
-    setMessage('');
-    setError('');
+    setSyncId(value); setMessage(''); setError('');
   };
 
   const applyConnectedSyncId = (nextId: string): boolean => {
@@ -669,16 +667,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
     }
   };
 
-  const handleClearSyncBackups = () => {
-    setClearBackupsConfirmOpen(true);
-  };
 
-  const confirmClearSyncBackups = () => {
-    setClearBackupsConfirmOpen(false);
-    const count = clearSyncLocalBackups();
-    setError('');
-    setMessage(count > 0 ? `\u540c\u671f\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092${count}\u4ef6\u6574\u7406\u3057\u307e\u3057\u305f\u3002` : '\u6574\u7406\u5bfe\u8c61\u306e\u540c\u671f\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u306f\u3042\u308a\u307e\u305b\u3093\u3002');
-  };
 
   const uploadAndVerify = async (
     operationSyncId: string,
@@ -989,7 +978,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   return (
     <div className="sync-screen sync-screen--simple">
       <header className="sync-screen__header">
-        <BackButton onClick={onBack} label="戻る" className="sync-screen__back" disabled={busy || diagnosticBusy} />
+        <BackButton onClick={() => reviewOpen ? setReviewOpen(false) : onBack()} label="戻る" className="sync-screen__back" disabled={busy || diagnosticBusy} />
         <div className="sync-screen__header-text">
           <h1>同期</h1>
         </div>
@@ -1006,7 +995,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
           <div className="sync-alert sync-alert--message" role="status">ログイン状態を確認しています…</div>
         ) : null}
 
-        {configured && authReady && !authenticated ? (
+        {configured && authReady && (!authenticated || loginRequested) ? (
           <section className="sync-auth-gate" aria-labelledby="sync-auth-title">
             <div>
               <h2 id="sync-auth-title">同期にはログインが必要です</h2>
@@ -1034,59 +1023,18 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
         {configured && authenticated ? (
           <div className="sync-account-line" role="status">
             <span>ログイン中</span>
-            <strong>{cloudAccount.label}</strong>
+            <strong>{cloudAccount.label.length > 28 ? `${cloudAccount.label.slice(0, 25)}…` : cloudAccount.label}</strong>
           </div>
         ) : null}
 
-        {message ? <div className="sync-alert sync-alert--message" role="status" aria-live="polite">{message}</div> : null}
-        {error ? <div className="sync-alert sync-alert--error" role="alert">{error}</div> : null}
+        {message ? <div className="sync-alert sync-alert--message" role="status" aria-live="polite">{detailsOpen ? message : '操作結果があります。詳細で確認できます'}</div> : null}
+        {error ? <div className="sync-alert sync-alert--error" role="alert">操作を完了できません。変更は端末に保持しています<details><summary>詳細</summary>{error}</details></div> : null}
 
-        {configured && authenticated && hasStrongConnection && syncIdConnected ? (
+        {configured && authenticated && hasStrongConnection ? (
           <section className="sync-card sync-card--transfer">
-            <RecordConflictPanel syncId={normalizedSyncId} accountId={cloudAccount.id} onImported={onImported} />
-            <SyncComparison syncId={normalizedSyncId} disabled={!canRun} onUpload={handleUpload} onDownload={handleDownload} />
-
-            <div className="sync-auto-row">
-              <div>
-                <strong>自動同期</strong>
-                <small>端末の変更を保存し、ホームでクラウドの更新を取り込みます。両方に変更があるときだけ確認します。</small>
-                {autoEnabled && !autoCanRun ? <small>接続設定を確認してください</small> : null}
-              </div>
-              <button
-                type="button"
-                className={`sync-toggle__button${autoEnabled ? ' sync-toggle__button--active' : ''}`}
-                onClick={handleToggleAutoSync}
-                role="switch"
-                aria-label="自動同期"
-                aria-checked={autoEnabled}
-                disabled={!autoEnabled && (!configured || !authenticated || !syncIdConnected)}
-              >
-                {autoEnabled ? 'ON' : 'OFF'}
-              </button>
-            </div>
-
-            <div className="sync-auto-row">
-              <div>
-                <strong>高速同期（試験運用）</strong>
-                <small>変更した問題・回答だけを送受信します。ONにする前に、この端末のJSONバックアップを保存します。</small>
-                {!autoEnabled ? <small>自動同期をONにすると選べます。</small> : null}
-              </div>
-              <button
-                type="button"
-                className={`sync-toggle__button${recordSyncOptedIn ? ' sync-toggle__button--active' : ''}`}
-                onClick={() => void handleToggleRecordSync()}
-                role="switch"
-                aria-label="高速同期"
-                aria-checked={recordSyncOptedIn}
-                disabled={!recordSyncOptedIn && (busy || !autoCanRun)}
-              >
-                {recordSyncOptedIn ? 'ON' : 'OFF'}
-              </button>
-            </div>
-
-            <div className="sync-last-state" aria-label="現在の同期状態">
-              <span>最終同期 {formatDateTime(lastState.lastSyncAt) || '未実行'}</span>
-            </div>
+            <SyncStatus onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id} recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={busy || diagnosticBusy || interactionProtected} />
+            {recordSyncOptedIn ? <RecordConflictPanel syncId={activeSyncId} accountId={cloudAccount.id} onImported={onImported}
+              open={reviewOpen} onOpenChange={setReviewOpen} onOpenBackups={onOpenBackups} /> : null}
           </section>
         ) : null}
 
@@ -1161,7 +1109,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
           </div>
         </details> : null}
 
-        <details className="sync-advanced">
+        <details className="sync-advanced" open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)}>
           <summary>
             <span>
               <strong>詳細・復旧</strong>
@@ -1170,6 +1118,49 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
           </summary>
 
           <div className="sync-advanced__body">
+            <section className="sync-advanced__section">
+              <h2>同期設定</h2>
+            <div className="sync-auto-row">
+              <div>
+                <strong>自動同期</strong>
+                <small>端末の変更を保存し、ホームでクラウドの更新を取り込みます。両方に変更があるときだけ確認します。</small>
+                {autoEnabled && !autoCanRun ? <small>接続設定を確認してください</small> : null}
+              </div>
+              <button
+                type="button"
+                className={`sync-toggle__button${autoEnabled ? ' sync-toggle__button--active' : ''}`}
+                onClick={handleToggleAutoSync}
+                role="switch"
+                aria-label="自動同期"
+                aria-checked={autoEnabled}
+                disabled={!autoEnabled && (!configured || !authenticated || !syncIdConnected)}
+              >
+                {autoEnabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            <div className="sync-auto-row">
+              <div>
+                <strong>高速同期（試験運用）</strong>
+                <small>変更した問題・回答だけを送受信します。ONにする前に、この端末のJSONバックアップを保存します。</small>
+                {!autoEnabled ? <small>自動同期をONにすると選べます。</small> : null}
+              </div>
+              <button
+                type="button"
+                className={`sync-toggle__button${recordSyncOptedIn ? ' sync-toggle__button--active' : ''}`}
+                onClick={() => void handleToggleRecordSync()}
+                role="switch"
+                aria-label="高速同期"
+                aria-checked={recordSyncOptedIn}
+                disabled={!recordSyncOptedIn && (busy || !autoCanRun)}
+              >
+                {recordSyncOptedIn ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+
+              {detailsOpen && configured && authenticated && hasStrongConnection && syncIdConnected && !recordSyncOptedIn ? <details><summary>全体を置き換える・初回同期</summary><SyncComparison syncId={normalizedSyncId} disabled={!canRun} onUpload={handleUpload} onDownload={handleDownload} onRetry={() => { setDetailsOpen(false); window.setTimeout(() => requestSyncRetry(activeSyncId), 0); }} /></details> : null}
+            </section>
             <section className="sync-advanced__section">
               <h2>復旧用の同期ID</h2>
               <p>通常は8文字コードを使います。コードを発行できない場合にだけ、このIDを保管・入力してください。</p>
@@ -1203,16 +1194,8 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
             </section>
 
             <section className="sync-advanced__section">
-              <h2>端末内バックアップ</h2>
-              <div className="sync-actions">
-                <button type="button" className="sync-button sync-button--secondary" onClick={handleDownloadBackup} disabled={busy}>
-                  <DownloadIcon size={18} />
-                  <span>JSONバックアップを保存</span>
-                </button>
-                <button type="button" className="sync-button sync-button--secondary" onClick={handleClearSyncBackups} disabled={busy}>
-                  同期前の一時バックアップを整理
-                </button>
-              </div>
+              <h2>バックアップ・復旧コピー</h2>
+              {onOpenBackups ? <button type="button" className="sync-button sync-button--secondary" onClick={onOpenBackups} disabled={busy}>バックアップ管理を開く</button> : <button type="button" className="sync-button sync-button--secondary" onClick={handleDownloadBackup} disabled={busy}><DownloadIcon size={18} />JSONバックアップを保存</button>}
               {storageUsage ? <p className="sync-card__compact-note">端末ストレージ使用量：{storageUsage}</p> : null}
             </section>
 
@@ -1322,14 +1305,6 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
         confirmLabel="強制上書き"
         onCancel={cancelCloudOverwrite}
         onConfirm={() => void confirmCloudOverwrite()}
-      />
-      <ConfirmDialog
-        open={clearBackupsConfirmOpen}
-        title={'\u540c\u671f\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3092\u6574\u7406\u3057\u307e\u3059\u304b\uff1f'}
-        message={'\u540c\u671f\u8aad\u307f\u8fbc\u307f\u524d\u306b\u4f5c\u6210\u3055\u308c\u305f\u4e00\u6642\u30d0\u30c3\u30af\u30a2\u30c3\u30d7\u3060\u3051\u3092\u524a\u9664\u3057\u307e\u3059\u3002\n\u554f\u984c\u30c7\u30fc\u30bf\u3084\u30ce\u30fc\u30c8\u672c\u4f53\u306f\u524a\u9664\u3055\u308c\u307e\u305b\u3093\u3002'}
-        confirmLabel={'\u6574\u7406\u3059\u308b'}
-        onCancel={() => setClearBackupsConfirmOpen(false)}
-        onConfirm={confirmClearSyncBackups}
       />
       <ConfirmDialog
         open={pendingCloudDelete !== null}

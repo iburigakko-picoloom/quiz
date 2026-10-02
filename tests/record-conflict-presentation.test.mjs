@@ -46,6 +46,7 @@ test('a chosen version is retained only while the operation, remote revision and
   const choices = { [conflict.key]: 'local' };
   assert.deepEqual(retainRecordConflictChoices(previous, [conflict], choices), choices);
   for (const changed of [{ ...conflict, operationId: 'new-operation' },
+    { ...conflict, connection: { project: 'another-project', userId: 'another-user', syncId: 'another-sync' } },
     { ...conflict, remote: { ...conflict.remote, revision: 3 } },
     { ...conflict, local: { ...conflict.local, raw: '{"answeredCount":2}' } }]) {
     assert.deepEqual(retainRecordConflictChoices(previous, [changed], choices), {});
