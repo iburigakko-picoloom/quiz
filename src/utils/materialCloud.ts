@@ -1,5 +1,35 @@
 import { MATERIAL_BUCKET, materialFileEntry, type MaterialFile, type RemoteMaterialFile } from './materialModel';
 import type { SyncPayload } from './syncService';
+import { recordSyncMetric } from './syncMetrics';
+
+// Key by exact immutable content, never ID/timestamp. Bound retained base64 text.
+const pdfDigests = new Map<string, Promise<{ sha256: string; size: number }>>();
+const MAX_DIGEST_CHARACTERS = 48 * 1024 * 1024;
+let digestCharacters = 0;
+async function describePdf(dataUrl: string): Promise<{ sha256: string; size: number }> {
+  const cached = pdfDigests.get(dataUrl);
+  if (cached) { recordSyncMetric('pdfDigestReused'); return cached; }
+  const pending = (async () => {
+    const started = performance.now();
+    const bytes = decodePdf(dataUrl);
+    const sha256 = await digest(bytes);
+    recordSyncMetric('pdfDigest', performance.now() - started, bytes.byteLength);
+    return { sha256, size: bytes.byteLength };
+  })();
+  if (dataUrl.length <= MAX_DIGEST_CHARACTERS) {
+    while (digestCharacters + dataUrl.length > MAX_DIGEST_CHARACTERS) {
+      const oldest = pdfDigests.keys().next().value!;
+      pdfDigests.delete(oldest);
+      digestCharacters -= oldest.length;
+    }
+    pdfDigests.set(dataUrl, pending);
+    digestCharacters += dataUrl.length;
+    void pending.catch(() => {
+      if (pdfDigests.get(dataUrl) === pending) { pdfDigests.delete(dataUrl); digestCharacters -= dataUrl.length; }
+    });
+  }
+  return pending;
+}
 
 export interface MaterialTransport {
   userId: string;
@@ -59,7 +89,7 @@ export async function materialComparisonPayload(payload: SyncPayload): Promise<S
     for (const [key, raw] of Object.entries(entries)) {
       const file = materialFileEntry(key, raw);
       if (!file) continue;
-      const sha256 = file.kind === 'quiz-material-file' ? await digest(decodePdf(file.dataUrl)) : file.sha256;
+      const sha256 = file.kind === 'quiz-material-file' ? (await describePdf(file.dataUrl)).sha256 : file.sha256;
       result[key] = JSON.stringify({ kind: 'quiz-material-comparison', materialId: file.materialId, updatedAt: file.updatedAt, sha256 });
     }
     return result;
@@ -89,12 +119,14 @@ export async function prepareMaterialUpload(payload: SyncPayload, transport: Mat
   const checked = new Set<string>();
   return mapFiles(payload, async file => {
     if (file.kind !== 'quiz-material-file') throw new Error('PDF本体が未取得のため保存を中止しました。先にクラウドから読み込んでください。');
-    const bytes = decodePdf(file.dataUrl);
-    const sha256 = await digest(bytes);
+    const { sha256, size } = await describePdf(file.dataUrl);
     const remote: RemoteMaterialFile = { kind: 'quiz-material-remote-file', version: 1, materialId: file.materialId,
-      updatedAt: file.updatedAt, bucket: MATERIAL_BUCKET, path: `${transport.userId}/${sha256}.pdf`, sha256, size: bytes.byteLength };
+      updatedAt: file.updatedAt, bucket: MATERIAL_BUCKET, path: `${transport.userId}/${sha256}.pdf`, sha256, size };
     if (!checked.has(remote.path)) {
-      if (!await transport.exists(remote)) await transport.upload(remote, bytes);
+      if (!await transport.exists(remote)) {
+        await transport.upload(remote, decodePdf(file.dataUrl));
+        recordSyncMetric('pdfUpload', 0, size);
+      }
       checked.add(remote.path);
     }
     return remote;
@@ -115,8 +147,8 @@ export async function hydrateMaterialDownload(payload: SyncPayload, transport: M
     if (!dataUrl && localFile) {
       // Reuse durable local PDFs across app launches, but never trust the ID or
       // timestamp alone: verify the exact content against the cloud digest.
-      const bytes = decodePdf(localFile.dataUrl);
-      if (bytes.byteLength === file.size && await digest(bytes) === file.sha256) dataUrl = localFile.dataUrl;
+      const described = await describePdf(localFile.dataUrl);
+      if (described.size === file.size && described.sha256 === file.sha256) dataUrl = localFile.dataUrl;
     }
     if (!dataUrl) {
       const bytes = await transport.download(file);

@@ -3,7 +3,8 @@ import { validMaterialRecord } from './materialModel';
 import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './dataCoordination';
 import { hasPersistedSyncHistory } from './syncState';
 
-const NOTE_DB_NAME = 'quiz-make-notes-v1';
+import { openCoLocatedNoteDb } from './noteRecordMigration';
+import { NOTE_RECORD_TRANSACTION_STORES, queueNoteRecordWrite, abortPendingNoteTransactions } from './auxiliaryRecordStorage';
 const NOTE_STORE_NAME = 'categoryNotes';
 const NOTE_BACKUP_STORE_NAME = 'categoryNoteBackups';
 const NOTE_STORAGE_OPERATION_TIMEOUT_MS = 4_500;
@@ -18,7 +19,6 @@ export class CategoryNoteStorageTimeoutError extends Error {
   }
 }
 
-let dbPromise: Promise<IDBDatabase> | null = null;
 let persistenceRequested = false;
 let noteSaveQueue: Promise<unknown> = Promise.resolve();
 
@@ -521,39 +521,15 @@ function markCategoryNotesRecoveryRequiredBestEffort(
   }
 }
 
-function openNoteDb(): Promise<IDBDatabase> {
+function openNoteDb(forWrite = false): Promise<IDBDatabase> {
   if (!isIndexedDbAvailable()) return Promise.reject(new Error('IndexedDB is not available.'));
-  if (dbPromise) return dbPromise;
-
-  dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(NOTE_DB_NAME, 2);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(NOTE_STORE_NAME)) db.createObjectStore(NOTE_STORE_NAME);
-      if (!db.objectStoreNames.contains(NOTE_BACKUP_STORE_NAME)) db.createObjectStore(NOTE_BACKUP_STORE_NAME);
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Failed to open note database.'));
-    request.onblocked = () => reject(new Error('Note database is blocked by another tab.'));
-  });
-
-  const opening = dbPromise;
-  opening.catch(() => {
-    if (dbPromise === opening) dbPromise = null;
-  });
-
-  return opening;
+  return openCoLocatedNoteDb(forWrite);
 }
 
 function abandonNoteDbConnection(): void {
-  const abandoned = dbPromise;
-  dbPromise = null;
-  void abandoned?.then(
-    (db) => db.close(),
-    () => undefined,
-  );
+  // Abort writes without closing the shared AppData connection. The epoch also
+  // prevents a delayed migration read from starting a new write after timeout.
+  abortPendingNoteTransactions();
 }
 
 export async function waitForCategoryNoteStorage<T>(
@@ -591,9 +567,9 @@ async function getBackupRawFromIndexedDb(key: string): Promise<string | null> {
   });
 }
 async function setRawToIndexedDb(key: string, raw: string): Promise<void> {
-  const db = await openNoteDb();
+  const db = await openNoteDb(true);
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([NOTE_STORE_NAME, NOTE_BACKUP_STORE_NAME], 'readwrite');
+    const transaction = db.transaction(NOTE_RECORD_TRANSACTION_STORES, 'readwrite');
     const store = transaction.objectStore(NOTE_STORE_NAME);
     const backupStore = transaction.objectStore(NOTE_BACKUP_STORE_NAME);
     const currentRequest = store.get(key);
@@ -602,6 +578,7 @@ async function setRawToIndexedDb(key: string, raw: string): Promise<void> {
         backupStore.put(currentRequest.result, key);
       }
       store.put(raw, key);
+      queueNoteRecordWrite(transaction, key, raw);
     };
     currentRequest.onerror = () => reject(currentRequest.error ?? new Error('Failed to read note before saving.'));
     transaction.oncomplete = () => resolve();
@@ -676,10 +653,10 @@ async function exportIndexedDbNoteBackups(allowInvalid = false): Promise<Record<
 }
 
 async function deleteIndexedDbNotesWhere(predicate: (key: string) => boolean): Promise<Set<string>> {
-  const db = await openNoteDb();
+  const db = await openNoteDb(true);
   return new Promise((resolve, reject) => {
     const deletedKeys = new Set<string>();
-    const transaction = db.transaction([NOTE_STORE_NAME, NOTE_BACKUP_STORE_NAME], 'readwrite');
+    const transaction = db.transaction(NOTE_RECORD_TRANSACTION_STORES, 'readwrite');
 
     [NOTE_STORE_NAME, NOTE_BACKUP_STORE_NAME].forEach((storeName) => {
       const request = transaction.objectStore(storeName).openCursor();
@@ -689,6 +666,7 @@ async function deleteIndexedDbNotesWhere(predicate: (key: string) => boolean): P
         const key = String(cursor.key);
         if (predicate(key)) {
           cursor.delete();
+          if (storeName === NOTE_STORE_NAME) queueNoteRecordWrite(transaction, key, null);
           deletedKeys.add(key);
         }
         cursor.continue();
@@ -703,32 +681,34 @@ async function deleteIndexedDbNotesWhere(predicate: (key: string) => boolean): P
 }
 
 async function replaceIndexedDbNotes(notes: Record<string, string>, onlyChanged = false): Promise<void> {
-  const db = await openNoteDb();
+  const db = await openNoteDb(true);
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([NOTE_STORE_NAME, NOTE_BACKUP_STORE_NAME], 'readwrite');
+    const transaction = db.transaction(NOTE_RECORD_TRANSACTION_STORES, 'readwrite');
     const store = transaction.objectStore(NOTE_STORE_NAME);
     const backupStore = transaction.objectStore(NOTE_BACKUP_STORE_NAME);
-    if (onlyChanged) {
-      backupStore.clear();
-      const remaining = new Set(Object.keys(notes));
-      const request = store.openCursor();
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor) {
-          remaining.forEach(key => store.put(notes[key], key));
-          return;
-        }
-        const key = String(cursor.key);
+    // Preserve previous note versions and mutate only changed values. Even a
+    // recovery import must leave tombstones for records absent from its snapshot.
+    // Record backups retain rejected values; the legacy timestamp-selected backup
+    // must not supersede an explicitly imported older version.
+    backupStore.clear();
+    const remaining = new Set(Object.keys(notes));
+    const request = store.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        remaining.forEach(key => { store.put(notes[key], key); queueNoteRecordWrite(transaction, key, notes[key]); });
+        return;
+      }
+      const key = String(cursor.key);
+      if (!(key in notes) || cursor.value !== notes[key]) {
         if (!(key in notes)) cursor.delete();
-        else if (cursor.value !== notes[key]) cursor.update(notes[key]);
-        remaining.delete(key);
-        cursor.continue();
-      };
-    } else {
-      store.clear();
-      backupStore.clear();
-      Object.entries(notes).forEach(([key, value]) => store.put(value, key));
-    }
+        else cursor.update(notes[key]);
+        queueNoteRecordWrite(transaction, key, key in notes ? notes[key] : null);
+      }
+      remaining.delete(key);
+      cursor.continue();
+    };
+    void onlyChanged;
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error('Failed to import notes.'));
     transaction.onabort = () => reject(transaction.error ?? new Error('Failed to import notes.'));

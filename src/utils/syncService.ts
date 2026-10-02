@@ -44,6 +44,7 @@ import { saveBackupPayload } from './backupRepository';
 import { materialFileEntry, materialMetadataOnly } from './materialModel';
 import { createMaterialTransport, hasMaterialFiles, hasRemoteMaterialFiles, hydrateMaterialDownload, prepareMaterialUpload } from './materialCloud';
 import { NOTES_KEY, REQUEST_KEY, WEAKNESS_STORAGE_KEYS, NOTES_EVENT, parseNotes, parseExplanationRequests } from './weaknessNotes';
+import { recordSyncMetric } from './syncMetrics';
 export type SyncPayload = {
   version: 1;
   updatedAt: string;
@@ -167,6 +168,42 @@ const REMOTE_REQUEST_TIMEOUT_MS = 15_000;
 const DATA_TRANSFER_TIMEOUT_MS = 60_000;
 let syncDataOperationQueue: Promise<void> = Promise.resolve();
 const recoveryOnlyPayloads = new WeakSet<object>();
+const immutableExports = new WeakSet<object>();
+const payloadDigests = new WeakMap<object, Promise<string>>();
+const payloadHashes = new WeakMap<object, string>();
+let idleWitness: { payload: SyncPayload; revision: number; values: Map<string, string>; digest: string } | undefined;
+
+// Compare exact values, not a collision-prone hash. Include fallback/authority
+// markers and persistent epochs, but exclude frequently changing sync status.
+function readIdleWitnessValues(): Map<string, string> {
+  const values = new Map<string, string>();
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !(key.startsWith('quizMake:') || key.startsWith('quiz-make'))) continue;
+    if (key.startsWith('quizMake:sync:') && key !== SYNC_ID_STORAGE_KEY && key !== DATA_IMPORT_IN_PROGRESS_KEY) continue;
+    const value = localStorage.getItem(key);
+    if (value !== null) values.set(key, value);
+  }
+  return values;
+}
+
+/** Only skips an idle check; uploads/imports still require a fresh export. */
+export async function isLocalSyncUnchanged(digest: string | undefined): Promise<boolean> {
+  if (!digest || !idleWitness || idleWitness.digest !== digest) return false;
+  const saved = await waitForLocalPersistence();
+  if (!saved.ok) throw new Error(saved.error);
+  return withCoordinatedDataRead(['app', 'notes'], async () => {
+    const witness = idleWitness;
+    if (!witness || witness.digest !== digest || witness.revision !== saved.value || isDataImportInProgress()) return false;
+    assertDataEpochSnapshotCurrent(witness.payload, ['app', 'notes']);
+    const current = readIdleWitnessValues();
+    if (current.size !== witness.values.size || [...current].some(([key, value]) => witness.values.get(key) !== value)) return false;
+    recordSyncMetric('idleExportSkipped');
+    return true;
+  }, { requireCrossContext: true });
+}
+
+const exportWitnessValues = new WeakMap<object, Map<string, string>>();
 type SyncAccessTokenProvider = () => Promise<CloudAccessTokenResult>;
 const defaultSyncAccessTokenProvider: SyncAccessTokenProvider = async () => {
   const { getCloudAccessToken } = await import('./cloudService');
@@ -397,7 +434,7 @@ export function isValidPairingCode(value: string): boolean {
   return /^[0-9A-HJKMNP-TV-Z]{8}$/u.test(normalizePairingCode(value));
 }
 
-async function waitForLocalPersistence(): Promise<SyncResult<number>> {
+export async function waitForLocalPersistence(): Promise<SyncResult<number>> {
   try {
     const [appDataSaved] = await Promise.all([
       waitForPendingAppDataSaves(),
@@ -444,6 +481,7 @@ export function exportQuizMakeData(
   options: { mode?: 'authoritative' | 'recovery' } = {},
 ): Promise<SyncPayload> {
   return runSyncDataOperation(async () => {
+    const started = performance.now();
     if (options.mode !== 'recovery' && isDataImportInProgress()) {
       throw new Error('前回のデータ読込が完了したことを確認できないため、クラウドへの保存を中止しました。先にクラウドまたはJSONバックアップから読み込み直してください。');
     }
@@ -486,6 +524,14 @@ export function exportQuizMakeData(
         beforeSnapshot.value,
       );
       if (options.mode === 'recovery') recoveryOnlyPayloads.add(result);
+      if (options.mode !== 'recovery') {
+        Object.freeze(result.localStorage);
+        Object.freeze(result.indexedDbNotes);
+        Object.freeze(result);
+        immutableExports.add(result);
+        exportWitnessValues.set(result, readIdleWitnessValues());
+      }
+      recordSyncMetric('export', performance.now() - started);
       return result;
     }, { requireCrossContext: true });
   });
@@ -746,7 +792,7 @@ export async function uploadSyncData(
       );
       if (!uploaded.ok) return uploaded;
 
-      const uploadDigest = await computePayloadDigest(validation.value);
+      const uploadDigest = await computePayloadDigest(payload);
       const afterUpload = await waitForLocalPersistence();
       let localChangesPending = !afterUpload.ok || afterUpload.value !== beforeUpload.value;
       try {
@@ -758,7 +804,7 @@ export async function uploadSyncData(
       const uploadPayload = { ...validation.value, updatedAt: uploaded.value.payload.updatedAt };
       if (!setLastSyncStateForConnection(normalizedSyncId, {
         lastSyncAt: uploaded.value.updatedAt,
-        lastUploadHash: localChangesPending ? '' : computePayloadHash(uploadPayload),
+        lastUploadHash: localChangesPending ? '' : computePayloadHash(payload),
         lastSyncDigest: localChangesPending ? undefined : uploadDigest,
         lastRemoteUpdatedAt: uploaded.value.updatedAt,
         status: localChangesPending
@@ -1055,17 +1101,38 @@ function canonicalPayloadText(payload: SyncPayload): string {
 }
 
 export async function computePayloadDigest(payload: SyncPayload): Promise<string> {
-  const bytes = new TextEncoder().encode(canonicalPayloadText(payload));
-  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+  const cached = payloadDigests.get(payload);
+  if (cached) { recordSyncMetric('digestReused'); return cached; }
+  const pending = (async () => {
+    const started = performance.now();
+    const bytes = new TextEncoder().encode(canonicalPayloadText(payload));
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+    recordSyncMetric('digest', performance.now() - started, bytes.byteLength);
+    const values = exportWitnessValues.get(payload);
+    const revision = getAssociatedLocalDataRevision(payload);
+    if (values && revision !== undefined) idleWitness = { payload, revision, values, digest };
+    return digest;
+  })();
+  if (immutableExports.has(payload)) {
+    payloadDigests.set(payload, pending);
+    void pending.catch(() => payloadDigests.delete(payload));
+  }
+  return pending;
 }
 
 export function computePayloadHash(payload: SyncPayload): string {
+  const cached = payloadHashes.get(payload);
+  if (cached !== undefined) { recordSyncMetric('hashReused'); return cached; }
+  const started = performance.now();
   const text = canonicalPayloadText(payload);
   let hash = 0;
   for (let index = 0; index < text.length; index += 1) {
     hash = (hash * 31 + text.charCodeAt(index)) | 0;
   }
-  return String(hash);
+  const result = String(hash);
+  if (immutableExports.has(payload)) payloadHashes.set(payload, result);
+  recordSyncMetric('hash', performance.now() - started);
+  return result;
 }
 
 
@@ -1922,7 +1989,7 @@ function replaceQuizMakeLocalStorage(next: Record<string, string>): void {
     throw error;
   }
 }
-function isQuizMakeStorageKey(key: string): boolean {
+export function isQuizMakeStorageKey(key: string): boolean {
   if (WEAKNESS_STORAGE_KEYS.some(item => item === key)) return true;
   if (key === APP_DATA_FALLBACK_META_KEY) return false;
   if (key === APP_DATA_EXPECTED_KEY) return false;

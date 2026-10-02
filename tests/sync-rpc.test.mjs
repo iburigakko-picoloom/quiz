@@ -419,6 +419,8 @@ test('payload validation enforces the same byte and key limits as the server bef
 
 test('PDF sync separates bytes, skips unchanged uploads, and restores portable local data', async () => {
   const materials = await vite.ssrLoadModule('/src/utils/materialCloud.ts');
+  const metrics = await vite.ssrLoadModule('/src/utils/syncMetrics.ts');
+  metrics.resetSyncMetrics();
   const key = 'quizMake:notes:set:__material_pdf_pdf1';
   const bytes = new Uint8Array(25 * 1024 * 1024); bytes.set(new TextEncoder().encode('%PDF-1.7'));
   const file = { kind: 'quiz-material-file', version: 1, materialId: 'pdf1', updatedAt, dataUrl: 'data:application/pdf;base64,' + Buffer.from(bytes).toString('base64') };
@@ -438,6 +440,9 @@ test('PDF sync separates bytes, skips unchanged uploads, and restores portable l
   assert.ok(JSON.stringify(wire).length < 2000);
   await materials.prepareMaterialUpload(payload, transport);
   assert.equal(uploaded, 1);
+  assert.equal(metrics.getSyncMetrics().pdfDigest.count, 1, 'unchanged 25 MiB PDF hashes only once');
+  assert.equal(metrics.getSyncMetrics().pdfDigestReused.count, 1);
+  console.log(`PDF benchmark: 25 MiB, two preparations, SHA-256 computations=${metrics.getSyncMetrics().pdfDigest.count}, uploads=${uploaded}`);
   assert.equal(payload.indexedDbNotes[key], original, 'export snapshot is immutable');
   const restored = await materials.hydrateMaterialDownload(wire, transport);
   assert.deepEqual(JSON.parse(restored.indexedDbNotes[key]), file);

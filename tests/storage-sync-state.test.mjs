@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
+import { IDBFactory } from 'fake-indexeddb';
 
 const extensionHook = registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -297,83 +298,45 @@ test('all-note deletion preserves non-note local storage entries', async () => {
   assert.equal(localStorage.getItem('quizMake:settings'), 'keep-unrelated');
 });
 
-test('replacing IndexedDB notes clears current and backup stores atomically', async () => {
-  resetStorage();
-  const calls = [];
-  const fakeDb = {
-    objectStoreNames: { contains: () => true },
-    transaction(storeNames, mode) {
-      calls.push(['transaction', [...storeNames], mode]);
-      const transaction = {
-        oncomplete: null,
-        onerror: null,
-        onabort: null,
-        objectStore(storeName) {
-          return {
-            clear() {
-              calls.push(['clear', storeName]);
-            },
-            put() {},
-          };
-        },
-      };
-      queueMicrotask(() => transaction.oncomplete?.());
-      return transaction;
-    },
-  };
-  globalThis.indexedDB = {
-    open() {
-      const request = { result: fakeDb, onupgradeneeded: null, onsuccess: null, onerror: null, onblocked: null };
-      queueMicrotask(() => request.onsuccess?.());
-      return request;
-    },
-  };
-
+const noteFactory = new IDBFactory();
+async function storeEntries(db, name) {
+  const tx = db.transaction(name); const keys = tx.objectStore(name).getAllKeys(); const values = tx.objectStore(name).getAll();
+  await new Promise((resolve,reject) => { tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error); });
+  return Object.fromEntries(keys.result.map((key,index)=>[key,values.result[index]]));
+}
+test('replacing IndexedDB notes removes current and legacy backups atomically while retaining record tombstones', async () => {
+  resetStorage(); globalThis.indexedDB=noteFactory;
   try {
-    assert.equal(await notes.replaceCategoryNotesRaw({}), 0);
-    assert.deepEqual(calls, [
-      ['transaction', ['categoryNotes', 'categoryNoteBackups'], 'readwrite'],
-      ['clear', 'categoryNotes'],
-      ['clear', 'categoryNoteBackups'],
-    ]);
-  } finally {
-    delete globalThis.indexedDB;
-  }
+    await storage.saveAppData(storage.createEmptyAppData());
+    const key='quizMake:notes:s:category';
+    await notes.saveCategoryNoteRaw(key,JSON.stringify({dataUrl:'old'}));
+    await notes.saveCategoryNoteRaw(key,JSON.stringify({dataUrl:'new'}));
+    const db=await storage.openAppDb();
+    assert.equal(Object.keys(await storeEntries(db,'categoryNoteBackups')).length,1);
+    assert.equal(await notes.replaceCategoryNotesRaw({}),0);
+    assert.deepEqual(await storeEntries(db,'categoryNotes'),{});
+    assert.deepEqual(await storeEntries(db,'categoryNoteBackups'),{});
+    const outbox=await storeEntries(db,'appOutbox');
+    assert.equal(outbox[JSON.stringify(['indexedDbNotes',key])].raw,null);
+  } finally { delete globalThis.indexedDB; }
 });
 
 test('incremental note import writes changed records only and includes additions and deletions in one transaction', async () => {
-  resetStorage();
-  const incrementalNotes = await import('../src/utils/noteStorage.ts?incremental');
-  const key = name => `quizMake:notes:set-1:${name}`;
-  const raw = value => JSON.stringify({ problemSetId: 'set-1', category: 'test', pages: [{ id: 'p', dataUrl: value, updatedAt: '2026-09-22' }], currentPageIndex: 0, updatedAt: '2026-09-22' });
-  const records = new Map([[key('same'), raw('same')], [key('edit'), raw('old')], [key('delete'), raw('gone')]]);
-  const next = { [key('same')]: raw('same'), [key('edit')]: raw('new'), [key('add')]: raw('added') };
-  const writes = [];
-  globalThis.indexedDB = { open() {
-    const request = { result: { objectStoreNames: { contains: () => true }, transaction(names, mode) {
-      assert.deepEqual(names, ['categoryNotes', 'categoryNoteBackups']); assert.equal(mode, 'readwrite');
-      const transaction = { objectStore(name) { return {
-        clear() { assert.equal(name, 'categoryNoteBackups', 'the current note store is not cleared'); },
-        put(value, key) { records.set(key, value); writes.push(['add', key]); },
-        openCursor() {
-          const request = {}; const entries = [...records]; let index = 0;
-          const advance = () => queueMicrotask(() => {
-            const entry = entries[index++];
-            request.result = entry ? { key: entry[0], value: entry[1],
-              update(value) { records.set(entry[0], value); writes.push(['edit', entry[0]]); },
-              delete() { records.delete(entry[0]); writes.push(['delete', entry[0]]); }, continue: advance } : null;
-            request.onsuccess();
-            if (!entry) queueMicrotask(() => transaction.oncomplete());
-          }); advance(); return request;
-        },
-      }; } }; return transaction;
-    } } };
-    queueMicrotask(() => request.onsuccess()); return request;
-  } };
+  resetStorage(); globalThis.indexedDB=noteFactory;
+  const key=name=>`quizMake:notes:set-1:${name}`;
+  const raw=value=>JSON.stringify({dataUrl:value});
   try {
-    assert.equal(await incrementalNotes.replaceCategoryNotesRaw(next, { onlyChanged: true }), 3);
-    assert.deepEqual(Object.fromEntries(records), next);
-    assert.deepEqual(writes, [['edit', key('edit')], ['delete', key('delete')], ['add', key('add')]]);
+    await notes.replaceCategoryNotesRaw({[key('same')]:raw('same'),[key('edit')]:raw('old'),[key('delete')]:raw('gone')});
+    const db=await storage.openAppDb(); const before=await storeEntries(db,'appOutbox');
+    const next={ [key('same')]:raw('same'),[key('edit')]:raw('new'),[key('add')]:raw('added') };
+    assert.equal(await notes.replaceCategoryNotesRaw(next,{onlyChanged:true}),3);
+    assert.deepEqual(await storeEntries(db,'categoryNotes'),next);
+    const after=await storeEntries(db,'appOutbox');
+    const changed=Object.values(after).filter(op=>op.operationId!==before[op.key]?.operationId);
+    assert.deepEqual(changed.map(op=>op.id).sort(),[key('add'),key('delete'),key('edit')]);
+    assert.equal(after[JSON.stringify(['indexedDbNotes',key('same')])].operationId,before[JSON.stringify(['indexedDbNotes',key('same')])].operationId);
+    assert.equal(after[JSON.stringify(['indexedDbNotes',key('delete')])].raw,null);
+    assert.equal(new Set(changed.map(op=>op.localRevision)).size,1,'all changes belong to one commit');
   } finally { delete globalThis.indexedDB; }
 });
 

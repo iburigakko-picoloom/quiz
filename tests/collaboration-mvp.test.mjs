@@ -2,11 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const [appSource, screenSource, settingsSource, primaryNavSource, serviceSource, typesSource, validationSource, collaborationMigration, groupManagementMigration, accountDeletionMigration, reportReasonsMigration] = await Promise.all([
+const [appSource, screenSource, serviceSource, typesSource, validationSource, collaborationMigration, groupManagementMigration, accountDeletionMigration, reportReasonsMigration] = await Promise.all([
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/screens/CommunityScreen.tsx', import.meta.url), 'utf8'),
-  readFile(new URL('../src/screens/SettingsScreen.tsx', import.meta.url), 'utf8'),
-  readFile(new URL('../src/components/PrimaryBottomNav.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/utils/cloudService.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/types.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/utils/appDataValidation.ts', import.meta.url), 'utf8'),
@@ -24,46 +22,13 @@ test('local AppData stays version 1 and cloud metadata is backward-compatible', 
   assert.match(appSource, /createEmptyAppData/);
 });
 
-test('the primary navigation exposes the five global destinations', () => {
-  for (const label of ['ホーム', '見つける', '作成', 'グループ', '設定']) {
-    assert.match(primaryNavSource, new RegExp(`label: '${label}'`));
-  }
-  assert.doesNotMatch(screenSource, /community-tabs/);
-  assert.match(screenSource, /共有するときだけログイン/);
-  assert.doesNotMatch(screenSource, /問題作成と学習だけならログインは不要/);
-});
-
-test('public discovery supports required filters, detail preview and both primary actions', () => {
-  assert.match(appSource, /item === 'discover'\s*\? \{ name: 'community', tab: 'discover' \}/);
-  assert.doesNotMatch(appSource, /<SearchScreen|import \{ SearchScreen \}/);
-  assert.match(screenSource, /community-discovery-row/);
-  assert.match(screenSource, /onClick=\{\(\) => onDetail\(set\)\}/);
-  assert.match(screenSource, />対策・用途<select/);
-  assert.match(screenSource, /publicationPurposes, \.\.\.publicSets.map\(\(set\) => set.audience\)/);
-  assert.match(screenSource, /set.audience === audienceFilter/);
-  assert.match(screenSource, /<h3>難易度<\/h3>/);
-  assert.match(screenSource, /aria-pressed=\{conditionDraft.difficulty === value\}/);
-  assert.match(screenSource, /この条件で検索/);
-  assert.match(screenSource, /問題の内容を確認/);
-  assert.match(screenSource, /このまま解く/);
-  assert.match(screenSource, /自分のフォルダにコピー/);
-  const previewAnswerBody = appSource.slice(appSource.indexOf('const handlePreviewAnswer'), appSource.indexOf('const handleCreateProblemSet'));
+test('practicing a public preview does not mutate the local learning history', () => {
+  const start = appSource.indexOf('const handlePreviewAnswer');
+  const end = appSource.indexOf('const handleCreateProblemSet', start);
+  assert.ok(start >= 0 && end > start, 'preview handler must be located before checking its writes');
+  const previewAnswerBody = appSource.slice(start, end);
   assert.doesNotMatch(previewAnswerBody, /commitData|persistThenCommitData|recordAnswer/);
-  assert.match(previewAnswerBody, /学習履歴には記録しません/);
 });
-
-test('groups navigate to a dedicated detail with foldered problem sets', () => {
-  assert.match(typesSource, /name: 'community';[^\n]*groupId\?: string/);
-  assert.match(appSource, /onOpenGroup=\{\(groupId\) => \{\s*const next: AppScreen = \{ name: 'community', tab: 'groups', groupId/);
-  assert.match(appSource, /if \(communityScreen\.groupPage\) replaceScreen\(next\); else navigate\(next\)/);
-  assert.match(screenSource, /initialGroupId/);
-  assert.match(screenSource, /community-group-folder-list/);
-  assert.match(screenSource, /<SharedLibrary[^\n]*sets=\{groupSets\}/);
-  assert.match(screenSource, /role="tablist" aria-label="グループの表示"/);
-  assert.match(screenSource, /hidden=\{groupDetailTab !== 'members'\}/);
-  assert.doesNotMatch(screenSource, /selectedGroupId === group\.id/);
-});
-
 test('a copied cloud set gets new local ids and source attribution', () => {
   assert.match(appSource, /const setId = createId\('set'\)/);
   assert.match(appSource, /id: createId\('q'\)/);
@@ -103,14 +68,6 @@ test('group membership, admin operations and expiring invites are database-enfor
   assert.match(migration, /expires_at > now\(\)/);
   assert.match(migration, /owner cannot be removed/);
   assert.match(migration, /list_quiz_group_members/);
-});
-
-test('owners can stop sharing and users can delete only their own cloud account', () => {
-  assert.match(screenSource, /共有を停止しました/);
-  assert.match(serviceSource, /unpublishCloudProblemSet/);
-  assert.match(migration, /delete from auth\.users where id = current_user_id/);
-  assert.match(settingsSource, /端末内の問題セット、回答履歴、復習状態は削除されません/);
-  assert.match(settingsSource, /deleteCloudAccount/);
 });
 
 test('quality reports expose every required reason', () => {

@@ -1,6 +1,11 @@
 import { loadCategoryNoteRaw, saveCategoryNoteRaw } from './noteStorage';
 import { createId } from './id';
 import { validMaterialRecord, MAX_MATERIAL_PDF_BYTES, type MaterialIndex, type MaterialFile, type StudyMaterial } from './materialModel';
+import { getCloudAccessToken } from './cloudService';
+import { createMaterialTransport, hydrateMaterialDownload } from './materialCloud';
+import { getRemoteSyncConfig } from './syncService';
+import { withCoordinatedDataMutation } from './dataCoordination';
+import { openAppDb } from '../storage';
 
 export const materialIndexKey = (setId: string) => `quizMake:notes:${setId}:__materials_v1`;
 export const materialFileKey = (setId: string, materialId: string) => `quizMake:notes:${setId}:__material_pdf_${materialId}`;
@@ -17,7 +22,33 @@ export async function saveMaterials(index: MaterialIndex) {
   await saveCategoryNoteRaw(materialIndexKey(index.problemSetId), JSON.stringify({ ...index, updatedAt: new Date().toISOString() }));
 }
 export async function loadMaterialFile(setId: string, id: string): Promise<string> {
-  const raw = await loadCategoryNoteRaw(materialFileKey(setId, id));
+  const key = materialFileKey(setId, id);
+  let raw = await loadCategoryNoteRaw(key);
+  if (raw) {
+    const candidate = JSON.parse(raw);
+    if (candidate?.kind === 'quiz-material-remote-file') {
+      if (!validMaterialRecord(candidate)) throw new Error('PDFの参照が不正です。');
+      const config = getRemoteSyncConfig();
+      const access = await getCloudAccessToken();
+      if (!config || !access.ok) throw new Error('PDFを取得するにはログインが必要です。');
+      const result = await hydrateMaterialDownload({ version: 1, updatedAt: '', localStorage: {}, indexedDbNotes: { [key]: raw } },
+        createMaterialTransport(config,access));
+      const hydrated = result.indexedDbNotes?.[key];
+      if (!hydrated) throw new Error('PDFのダウンロードを完了できませんでした。');
+      await withCoordinatedDataMutation(['notes'], async()=>{
+        const db = await openAppDb();
+        const tx = db.transaction('categoryNotes','readwrite');
+        const completed = new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error??new Error('PDFの一時保存に失敗しました。'));});
+        const current = tx.objectStore('categoryNotes').get(key);
+        current.onsuccess=()=>{
+          if(current.result!==raw){tx.abort();return;}
+          tx.objectStore('categoryNotes').put(hydrated,key);
+        };
+        await completed;
+      },{requireCrossContext:true});
+      raw = hydrated;
+    }
+  }
   const file = raw ? JSON.parse(raw) as MaterialFile : null;
   if (!file || !validMaterialRecord(file as unknown as Record<string, unknown>)) throw new Error('PDF本体が見つかりません。資料を保存した端末のバックアップを確認してください。');
   return file.dataUrl;

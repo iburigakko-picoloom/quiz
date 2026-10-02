@@ -3,6 +3,7 @@ import { normalizeAppData } from './utils/appDataValidation';
 import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './utils/dataCoordination';
 import { advanceLocalDataRevision } from './utils/localDataRevision';
 import { hasPersistedSyncHistory } from './utils/syncState';
+import { readAppRecords, readPreviousAppRecords, saveAppRecords, upgradeAppRecordStores } from './utils/appRecordStorage';
 
 export const APP_DATA_STORAGE_KEY = 'quiz-make-app-data-v1';
 export const APP_DATA_FALLBACK_META_KEY = 'quiz-make-app-data-v1:fallback-saved-at';
@@ -155,18 +156,11 @@ async function saveAppDataNow(data: AppData): Promise<boolean> {
     console.error('Refused to save invalid Quiz make data.');
     return false;
   }
-  let raw: string;
-  try {
-    raw = JSON.stringify(normalized.data);
-  } catch (error) {
-    console.error('Failed to serialize Quiz make data.', error);
-    return false;
-  }
   const savedAt = new Date().toISOString();
 
   if (isIndexedDbAvailable()) {
     try {
-      await setAppDataRawToIndexedDb(raw, savedAt);
+      await saveAppRecords(await openAppDb(), normalized.data, savedAt, getLocalFallbackRecord);
       markAppDataExpectedBestEffort(savedAt);
       safeLocalStorageRemove(APP_DATA_STORAGE_KEY);
       safeLocalStorageRemove(APP_DATA_FALLBACK_META_KEY);
@@ -179,6 +173,7 @@ async function saveAppDataNow(data: AppData): Promise<boolean> {
   }
 
   try {
+    const raw = JSON.stringify(normalized.data);
     // Keep payload and timestamp in one localStorage value so a quota failure
     // cannot leave a new payload paired with a missing or stale timestamp.
     localStorage.setItem(APP_DATA_FALLBACK_RECORD_KEY, JSON.stringify({ raw, savedAt }));
@@ -338,20 +333,28 @@ function isIndexedDbAvailable(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
-function openAppDb(): Promise<IDBDatabase> {
+export function openAppDb(): Promise<IDBDatabase> {
   if (!isIndexedDbAvailable()) return Promise.reject(new Error('IndexedDB is not available.'));
   if (appDbPromise) return appDbPromise;
 
   appDbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(APP_DB_NAME, 2);
+    const request = indexedDB.open(APP_DB_NAME, 7);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(APP_STORE_NAME)) db.createObjectStore(APP_STORE_NAME);
       if (!db.objectStoreNames.contains(APP_BACKUP_STORE_NAME)) db.createObjectStore(APP_BACKUP_STORE_NAME);
+      upgradeAppRecordStores(db);
     };
-    request.onsuccess = () => resolve(request.result);
+    let blocked = false;
+    request.onsuccess = () => {
+      const db = request.result;
+      if (blocked) { db.close(); return; }
+      db.onversionchange = () => { db.close(); appDbPromise = null; };
+      db.onclose = () => { appDbPromise = null; };
+      resolve(db);
+    };
     request.onerror = () => reject(request.error ?? new Error('Failed to open app data database.'));
-    request.onblocked = () => reject(new Error('App data database is blocked by another tab.'));
+    request.onblocked = () => { blocked = true; reject(new Error('App data database is blocked by another tab.')); };
   });
 
   appDbPromise.catch(() => {
@@ -364,6 +367,15 @@ function openAppDb(): Promise<IDBDatabase> {
 async function getAppDataRecordFromIndexedDb(): Promise<IndexedAppDataRecord> {
   if (!isIndexedDbAvailable()) return { raw: null, savedAt: null, source: 'empty' };
   const db = await openAppDb();
+  let recordReadError: unknown;
+  try {
+    const records = await readAppRecords(db);
+    if (records) return { raw: JSON.stringify(records.data), savedAt: records.savedAt, source: 'current' };
+  } catch (error) {
+    recordReadError = error;
+    const previous = await readPreviousAppRecords(db).catch(() => null);
+    if (previous) return { raw: JSON.stringify(previous.data), savedAt: previous.savedAt, source: 'backup' };
+  }
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([APP_STORE_NAME, APP_BACKUP_STORE_NAME], 'readonly');
     const store = transaction.objectStore(APP_STORE_NAME);
@@ -375,7 +387,7 @@ async function getAppDataRecordFromIndexedDb(): Promise<IndexedAppDataRecord> {
         savedAtRequest.onsuccess = () => resolve({
           raw: request.result,
           savedAt: typeof savedAtRequest.result === 'string' ? savedAtRequest.result : null,
-          source: 'current',
+          source: recordReadError ? 'backup' : 'current',
         });
         savedAtRequest.onerror = () => reject(savedAtRequest.error ?? new Error('Failed to read app data timestamp.'));
         return;
@@ -389,6 +401,7 @@ async function getAppDataRecordFromIndexedDb(): Promise<IndexedAppDataRecord> {
           return;
         }
         const invalidRaw = currentRaw ?? backupRaw;
+        if (recordReadError && invalidRaw === null) { reject(recordReadError); return; }
         resolve({
           raw: invalidRaw,
           savedAt: null,
@@ -398,26 +411,6 @@ async function getAppDataRecordFromIndexedDb(): Promise<IndexedAppDataRecord> {
       backupRequest.onerror = () => reject(backupRequest.error ?? new Error('Failed to read app data backup.'));
     };
     request.onerror = () => reject(request.error ?? new Error('Failed to read app data.'));
-  });
-}
-async function setAppDataRawToIndexedDb(raw: string, savedAt: string): Promise<void> {
-  const db = await openAppDb();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([APP_STORE_NAME, APP_BACKUP_STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(APP_STORE_NAME);
-    const backupStore = transaction.objectStore(APP_BACKUP_STORE_NAME);
-    const currentRequest = store.get(APP_DATA_STORAGE_KEY);
-    currentRequest.onsuccess = () => {
-      if (typeof currentRequest.result === 'string' && currentRequest.result !== raw) {
-        backupStore.put(currentRequest.result, APP_DATA_STORAGE_KEY);
-      }
-      store.put(raw, APP_DATA_STORAGE_KEY);
-      store.put(savedAt, APP_DATA_IDB_SAVED_AT_KEY);
-    };
-    currentRequest.onerror = () => reject(currentRequest.error ?? new Error('Failed to read app data before saving.'));
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error('Failed to save app data.'));
-    transaction.onabort = () => reject(transaction.error ?? new Error('Failed to save app data.'));
   });
 }
 function safeLocalStorageGet(key: string): string | null {

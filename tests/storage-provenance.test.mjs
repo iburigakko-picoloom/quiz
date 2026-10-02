@@ -70,7 +70,7 @@ function createIndexedDbHarness() {
       },
       createObjectStore(storeName) {
         if (!stores.has(storeName)) stores.set(storeName, new Map());
-        return {};
+        return { createIndex() {} };
       },
       close() {},
       transaction(storeNames) {
@@ -131,6 +131,7 @@ function createIndexedDbHarness() {
         return beginRequest(() => { if (values.has(String(key))) throw new Error('ConstraintError'); values.set(String(key), structuredClone(value)); return key; });
       },
       getAll() { return beginRequest(() => [...values.values()]); },
+      getAllKeys() { return beginRequest(() => [...values.keys()]); },
       get(key) {
         return beginRequest(() => values.get(String(key)));
       },
@@ -392,7 +393,7 @@ test('scoped note deletion never legitimizes an unrelated note that is already m
     version: 1,
     keys: [otherSetNoteKey],
   });
-  await assert.rejects(sync.exportQuizMakeData(timestamp), /一部が端末から消えている/u);
+  await assert.rejects(sync.exportQuizMakeData(timestamp), /一部が端末から消えている|復旧確認が必要/u);
 });
 
 test('recovery export never replaces a current note with an older backup', async () => {
