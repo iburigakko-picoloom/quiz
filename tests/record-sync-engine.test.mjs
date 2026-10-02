@@ -337,12 +337,15 @@ test('identical progress counters with incomplete post-bootstrap history still r
   } finally { a.close(); b.close(); }
 });
 
-test('complete later histories verify the shared ancestor, retain distinct events, and defer a live quiz merge', async () => {
+test('complete later histories verify the shared ancestor, retain distinct events, and defer a live quiz merge', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-02T03:00:00.000Z') });
   const f = await fixture(); const [a, b] = f.devices;
   const answerAt = (data, id, selected, at) => {
-    const next = recordAnswer(data, data.questions[0], [selected], false, id).data;
-    next.answerLogs.at(-1).answeredAt = at; next.progress[0].lastAnsweredAt = at;
-    return next;
+    // Generate both the answer and its review transition at the event time.
+    // Changing only lastAnsweredAt after recordAnswer leaves a real-clock
+    // review level that cannot replay from this synthetic history.
+    t.mock.timers.setTime(Date.parse(at));
+    return recordAnswer(data, data.questions[0], [selected], false, id).data;
   };
   try {
     const shared = answerAt(f.initial, 'shared-later', 0, '2026-10-02T03:00:00.000Z');

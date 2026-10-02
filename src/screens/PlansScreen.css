@@ -1,4 +1,4 @@
-.plans-screen { height: 100%; display: flex; flex-direction: column; min-height: 0; background: #f4f7fb; color: #173042; }
+.plans-screen { height: 100%; display: flex; flex-direction: column; min-height: 0; background: #ffffff; color: #173042; }
 .plans-body { overflow-y: auto; overscroll-behavior: contain; padding: 16px 16px calc(var(--primary-nav-height,64px) + var(--safe-bottom,0px) + 24px); display: grid; align-content: start; gap: 14px; }
 .plans-screen button { cursor: pointer; font: inherit; min-height: 44px; padding: 10px 14px; border: 1px solid #dce5ef; border-radius: 12px; background: white; color: #174b84; }
 .plans-screen button:disabled { opacity: .5; cursor: default; }
@@ -21,7 +21,7 @@
 .plan-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .plan-question-preview { padding-left: 24px; font-size: .85rem; line-height: 1.6; }
 .plan-question-preview li { overflow-wrap: anywhere; margin-bottom: 6px; }
-.plan-form > label { display: grid; gap: 7px; font-size: .85rem; font-weight: 700; }
+.plan-form > label, .plan-options-body > label, .plan-options-body fieldset > label { display: grid; gap: 7px; font-size: .85rem; font-weight: 700; }
 .plan-form input:not([type=checkbox]), .plan-form select { width: 100%; min-width: 0; min-height: 46px; border: 1px solid #cddae9; background: white; border-radius: 10px; padding: 10px; font: inherit; color: #173042; }
 .plan-form fieldset { border: 1px solid #dce5ef; border-radius: 14px; padding: 12px; min-width: 0; }
 .plan-form legend { font-weight: 700; font-size: .85rem; }
@@ -33,3 +33,15 @@
 .plan-weekdays label { display: flex; align-items: center; gap: 3px; min-height: 44px; }
 .plan-weekdays input[type=checkbox] { width: 20px; height: 20px; }
 .plan-header-button { padding: 8px !important; }
+.plan-options summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: .85rem; color: #637080; list-style: none; }
+.plan-options summary::-webkit-details-marker { display: none; }
+.plan-options summary::after { content: '⌄'; }
+.plan-options[open] summary::after { content: '⌃'; }
+.plan-options summary:focus-visible { outline: 3px solid #146edc; outline-offset: 2px; }
+.plan-options-body { display: grid; gap: 14px; padding: 10px 0; }
+.plan-options-body fieldset { display: grid; gap: 12px; }
+.plan-confirmation { padding: 12px; }
+.plan-confirmation h2 { font-size: .85rem; margin-bottom: 6px; }
+.plan-confirmation p { font-size: .85rem; margin: 3px 0; }
+.plan-confirmation .plan-muted { font-size: .75rem; }
+.plans-screen button.plan-inline-button { border: 0; background: transparent; padding: 6px; font-size: .8rem; }
