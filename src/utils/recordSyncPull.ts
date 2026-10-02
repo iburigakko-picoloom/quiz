@@ -9,7 +9,7 @@ import { recordSyncMetric } from './syncMetrics';
 import { NOTE_CURRENT_STORE, NOTE_BACKUP_STORE } from './auxiliaryRecordStorage';
 import { LOCAL_PROJECTION_STORE } from './localStorageRecords';
 import { PULL_IMAGE_STORE, parseQuestionImageDescriptor } from './recordQuestionImageSync';
-import { storedQuestionImage } from './questionImageCloud';
+import { storedQuestionImage, verifyQuestionImageBlob } from './questionImageCloud';
 import type { QuestionImageDescriptor, StoredQuestionImage } from './questionImageRecords';
 import { normalizeAppData } from './appDataValidation';
 
@@ -18,6 +18,7 @@ export type RecordPullPage = { code: 'ok'; cursor: number; head: number; hasMore
 type PullState = { connection: RecordSyncConnection; startCursor: number; cursor: number; head: number };
 export type RecordConflict = { key: string; connection: RecordSyncConnection; local: AppRecord | null; remote: RemoteRecordChange; operationId: string | null };
 export type RecordConflictDecision = { key: string; operationId: string; remoteRevision: number; choice: 'local' | 'remote' };
+export type RecordPullApplyOptions = { preserveLiveData?: boolean };
 
 export async function readActiveRecordConflicts(db: IDBDatabase, connection: RecordSyncConnection): Promise<RecordConflict[]> {
   const tx = db.transaction(['appRecordMeta','appRecordConflicts'],'readonly');
@@ -157,7 +158,10 @@ function materializeAnswerChanges(db: IDBDatabase, commitId: string, writes: App
 /** Caller holds the origin data lock and has checked protected work and queued saves. */
 export async function applyStagedRecordPull(
   db: IDBDatabase, connection: RecordSyncConnection, decisions: RecordConflictDecision[] = [],
-): Promise<{ applied: true; data?: AppData; cursor: number; changed: number } | { applied: false; conflicts: RecordConflict[] }> {
+  options: RecordPullApplyOptions = {},
+): Promise<{ applied: true; data?: AppData; cursor: number; changed: number; commitId: string }
+  | { applied: false; conflicts: RecordConflict[] } | { applied: false; deferred: true; commitId: string }> {
+  if (options.preserveLiveData && decisions.length) throw new Error('作業中は競合の選択を適用できません。');
   const startedAt = performance.now();
   const readTx = db.transaction(['appRecordMeta', 'appPullStage'], 'readonly');
   const readDone = done(readTx);
@@ -182,7 +186,7 @@ export async function applyStagedRecordPull(
     };
     await completion;
     recordSyncMetric('pullUnchanged');
-    return { applied: true, cursor: stage.cursor, changed: 0 };
+    return { applied: true, cursor: stage.cursor, changed: 0, commitId: initialState.commitId };
   }
   const pendingTx = db.transaction('appOutbox', 'readonly'); const pendingDone = done(pendingTx);
   const operations = await Promise.all(incoming.map(row => request<AppOutboxOperation | undefined>(pendingTx.objectStore('appOutbox').get(row.key))));
@@ -272,12 +276,36 @@ export async function applyStagedRecordPull(
     }
   }
   const touchesImages = incoming.some(row => row.collection === 'questionImages');
+  let needsLiveMedia = false;
+  if (options.preserveLiveData && mediaWrites.length) {
+    const tx = db.transaction('questionImageBlobs', 'readonly'); const completion = done(tx);
+    const live = await Promise.all(mediaWrites.map(row => request<StoredQuestionImage | undefined>(tx.objectStore('questionImageBlobs').get(row.id))));
+    await completion;
+    for (let index = 0; index < mediaWrites.length; index++) {
+      const target = mediaWrites[index], existing = live[index];
+      if (!target.image) { needsLiveMedia ||= Boolean(existing); continue; }
+      const descriptor = mediaByKey.get(appRecordKey('questionImages', target.id))!.descriptor;
+      if (!existing || existing.id !== descriptor.id || existing.questionId !== descriptor.questionId
+        || !(existing.blob instanceof Blob) || !await verifyQuestionImageBlob(existing.blob, descriptor)) needsLiveMedia = true;
+    }
+  }
+  // Inspect the same merge (including conflicts, references and verified media)
+  // during protected work, but leave every live value and projection untouched.
+  // Server-revision-only changes and equal-content acknowledgements are safe.
+  const deferLiveChanges = Boolean(options.preserveLiveData && (needsLiveMedia || writes.some(row => {
+    const old = before.records.get(row.key);
+    return row.raw !== (old?.raw ?? null) || (row.raw !== null && row.position !== old?.position);
+  })));
   const preparedAt = performance.now();
-  const stores = ['appRecordMeta', 'appRecords', 'appRecordBackups', 'appPullStage', 'appRecordConflicts'];
-  if (clearPending.length || rebased.length) stores.push('appOutbox');
-  if (writes.some(row => row.collection === 'indexedDbNotes')) stores.push(NOTE_CURRENT_STORE, NOTE_BACKUP_STORE);
-  if (writes.some(row => row.collection === 'localStorage')) stores.push(LOCAL_PROJECTION_STORE);
-  if (touchesImages) stores.push(PULL_IMAGE_STORE, 'questionImageBlobs');
+  const stores = deferLiveChanges
+    ? ['appRecordMeta', 'appRecordConflicts']
+    : ['appRecordMeta', 'appRecords', 'appRecordBackups', 'appPullStage', 'appRecordConflicts'];
+  if (!deferLiveChanges) {
+    if (clearPending.length || rebased.length) stores.push('appOutbox');
+    if (writes.some(row => row.collection === 'indexedDbNotes')) stores.push(NOTE_CURRENT_STORE, NOTE_BACKUP_STORE);
+    if (writes.some(row => row.collection === 'localStorage')) stores.push(LOCAL_PROJECTION_STORE);
+    if (touchesImages) stores.push(PULL_IMAGE_STORE, 'questionImageBlobs');
+  }
   const tx = db.transaction(stores, 'readwrite');
   const completion = done(tx);
   let failure: unknown;
@@ -291,20 +319,21 @@ export async function applyStagedRecordPull(
         conflicts.forEach(conflict => tx.objectStore('appRecordConflicts').put(conflict, conflict.key));
         return;
       }
+      if (deferLiveChanges) return; // Keep the full stage and committed cursor for Home/restart.
       writes.forEach(row => {
         const old = before.records.get(row.key);
         if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, row.key);
         tx.objectStore('appRecords').put(row, row.key);
-        if (row.collection === 'indexedDbNotes') {
+        if (!options.preserveLiveData && row.collection === 'indexedDbNotes') {
           // The exact previous record is in appRecordBackups. Legacy note readers
           // select backups by timestamp, which must not undo a CAS-based import.
           tx.objectStore(NOTE_BACKUP_STORE).delete(row.id);
           if (row.raw === null) tx.objectStore(NOTE_CURRENT_STORE).delete(row.id);
           else tx.objectStore(NOTE_CURRENT_STORE).put(row.raw, row.id);
         }
-        if (row.collection === 'localStorage') tx.objectStore(LOCAL_PROJECTION_STORE).put(row.raw, row.id);
+        if (!options.preserveLiveData && row.collection === 'localStorage') tx.objectStore(LOCAL_PROJECTION_STORE).put(row.raw, row.id);
       });
-      mediaWrites.forEach(row => {
+      if (!options.preserveLiveData) mediaWrites.forEach(row => {
         if (row.image) tx.objectStore('questionImageBlobs').put(row.image, row.id);
         else tx.objectStore('questionImageBlobs').delete(row.id);
       });
@@ -326,6 +355,7 @@ export async function applyStagedRecordPull(
   };
   try { await completion; } catch (error) { throw failure ?? error; }
   if (conflicts.length) return { applied: false, conflicts };
+  if (deferLiveChanges) return { applied: false, deferred: true, commitId: before.state.commitId };
   if (writes.length) {
     rememberAppRecordSnapshot(db, { state: nextState, records: next });
     rememberAppRecordData(db, nextState.commitId, data!);
@@ -334,5 +364,6 @@ export async function applyStagedRecordPull(
   recordSyncMetric('pullPrepare', preparedAt - readAt);
   recordSyncMetric('pullCommit', performance.now() - preparedAt);
   writes.forEach(row => recordSyncMetric('pullRecordWrite', 0, row.raw?.length ?? 0));
-  return { applied: true, data: data!, cursor: stage.cursor, changed: writes.length };
+  return { applied: true, data: options.preserveLiveData ? undefined : data!, cursor: stage.cursor,
+    changed: options.preserveLiveData ? 0 : writes.length, commitId: writes.length ? nextState.commitId : before.state.commitId };
 }

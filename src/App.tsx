@@ -18,7 +18,8 @@ import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
 import { replayLocalStorageProjections } from './utils/localStorageRecords';
-import { withCoordinatedDataMutation } from './utils/dataCoordination';
+import { withCoordinatedDataMutation, withCoordinatedDataRead } from './utils/dataCoordination';
+import { isAutoUploadBlocked } from './utils/autoSyncScheduler';
 import type { RecordSyncGuards } from './utils/recordSyncEngine';
 import { QuestionEditScreen } from './screens/QuestionEditScreen';
 import { DetailedAnswerScreen } from './screens/DetailedAnswerScreen';
@@ -126,11 +127,18 @@ export default function App() {
   const dataRevisionRef = useRef(0);
   const libraryMutationBusyRef = useRef(false);
   const autoImportEligibleRef = useRef(false);
+  const recordCheckEligibleRef = useRef(false);
   // Import on the home screen only. Quiz/editor/viewer state stays untouched;
   // downloading in the background never blocks interaction.
   autoImportEligibleRef.current = screen.name === 'home' && !guideReturn && !waitingWorker
     && !receivingSharedImage && !pendingBackupImport && !backupImportBusy
     && !pendingExitTarget && !storageError && !storageLoadError;
+  recordCheckEligibleRef.current = storageReady && !guideReturn && !waitingWorker
+    && !receivingSharedImage && !pendingBackupImport && !backupImportBusy
+    && !pendingExitTarget && !storageError && !storageLoadError;
+  const canCheckRecordImport = () => recordCheckEligibleRef.current
+    && !libraryMutationBusyRef.current && !autoImportBusyRef.current
+    && !isAutoUploadBlocked(getSyncProtectedWorkReason(screenRef.current, createDraftDirtyRef.current, false, false));
   const canAutoImport = () => autoImportEligibleRef.current && screenRef.current.name === 'home'
     && !libraryMutationBusyRef.current && !autoImportBusyRef.current;
 
@@ -175,7 +183,15 @@ export default function App() {
   };
 
   const applyRecordImport: RecordSyncGuards['apply'] = async (operation) => {
-    if (!canAutoImport()) return null;
+    if (!canAutoImport()) {
+      if (!canCheckRecordImport()) return null;
+      // Metadata/inspection only: keep editor drafts, current answers, notes,
+      // blobs and React state unchanged, and do not reserve a new data epoch.
+      return withCoordinatedDataRead(['app','notes'], async () => {
+        if (!canCheckRecordImport()) return null;
+        return operation({ preserveLiveData: true });
+      }, { requireCrossContext: true });
+    }
     autoImportBusyRef.current = true;
     libraryMutationBusyRef.current = true;
     setAutoImportBusy(true);

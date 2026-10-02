@@ -1,11 +1,12 @@
 import type { AppOutboxOperation } from './appRecordStorage';
 import {
   acknowledgeRecordPushBatch, bindRecordSyncConnection, freezeRecordPushBatch, getPendingRecordPushBatch, releaseRejectedRecordPushBatch,
+  RecordSyncLocalChangedError,
   type RecordSyncConnection, type RecordPushAcknowledgement, type RecordPushBatch,
 } from './recordSyncOutbox';
 import {
   applyStagedRecordPull, getRecordPullCursor, stageRecordPullPage, validateRecordPullPage,
-  type RecordConflict,
+  type RecordConflict, type RecordPullApplyOptions,
 } from './recordSyncPull';
 import { recordSyncMetric } from './syncMetrics';
 import { materialFileEntry } from './materialModel';
@@ -22,8 +23,8 @@ export type RecordSyncOutcome =
 export type RecordSyncGuards = {
   /** Re-check account, sync ID, import markers and pending-save failures. */
   assertCurrent(): Promise<void>;
-  /** Must acquire the UI/protected-work guard and origin data lock around apply. */
-  apply(operation: () => ReturnType<typeof applyStagedRecordPull>): Promise<Awaited<ReturnType<typeof applyStagedRecordPull>> | null>;
+  /** Hold the origin lock; protected screens may inspect without changing live data. */
+  apply(operation: (options?: RecordPullApplyOptions) => ReturnType<typeof applyStagedRecordPull>): Promise<Awaited<ReturnType<typeof applyStagedRecordPull>> | null>;
   prepareMedia?(): Promise<void>;
 };
 
@@ -34,22 +35,23 @@ export async function runRecordSync(
 ): Promise<RecordSyncOutcome> {
   let uploaded = 0;
   let downloaded = 0;
-  const send = async (batch: RecordPushBatch): Promise<boolean> => {
-    await guards.assertCurrent();
-    for (const operation of batch.operations) {
-      if (operation.raw === null) continue;
-      if (operation.collection === 'questionImages') {
-        const descriptor = parseQuestionImageDescriptor(operation.raw);
-        if (descriptor.id !== operation.id || !descriptor.path
-          || descriptor.path !== remoteQuestionImageDescriptor(descriptor, connection.userId).path) {
-          throw new Error('画像本体の保存が未確認です。端末の画像を保持して送信を中止しました。');
-        }
-      }
-      if (operation.collection === 'indexedDbNotes'
-        && materialFileEntry(operation.id, operation.raw)?.kind === 'quiz-material-file') {
-        throw new Error('PDF本体の保存が未確認です。端末の資料を保持して送信を中止しました。');
+  const assertMediaReady = (operation: AppOutboxOperation) => {
+    if (operation.raw === null) return;
+    if (operation.collection === 'questionImages') {
+      const descriptor = parseQuestionImageDescriptor(operation.raw);
+      if (descriptor.id !== operation.id || !descriptor.path
+        || descriptor.path !== remoteQuestionImageDescriptor(descriptor, connection.userId).path) {
+        throw new Error('画像本体の保存が未確認です。端末の画像を保持して送信を中止しました。');
       }
     }
+    if (operation.collection === 'indexedDbNotes'
+      && materialFileEntry(operation.id, operation.raw)?.kind === 'quiz-material-file') {
+      throw new Error('PDF本体の保存が未確認です。端末の資料を保持して送信を中止しました。');
+    }
+  };
+  const send = async (batch: RecordPushBatch): Promise<boolean> => {
+    await guards.assertCurrent();
+    batch.operations.forEach(assertMediaReady);
     recordSyncMetric('recordPushRequest', 0, new TextEncoder().encode(JSON.stringify(batch.operations)).byteLength);
     const value = await transport.push(batch.operations);
     await guards.assertCurrent();
@@ -77,12 +79,35 @@ export async function runRecordSync(
     downloaded += page.batches.reduce((sum, batch) => sum + batch.changes.length, 0);
     if (page.hasMore) continue;
     await guards.prepareMedia?.();
-    const applied = await guards.apply(() => applyStagedRecordPull(db, connection));
+    const applied = await guards.apply(options => applyStagedRecordPull(db, connection, [], options));
     if (!applied) return { status: 'deferred', uploaded, downloaded };
-    if (!applied.applied) return { status: 'conflict', conflicts: applied.conflicts, uploaded, downloaded };
+    if (!applied.applied && 'conflicts' in applied) return { status: 'conflict', conflicts: applied.conflicts, uploaded, downloaded };
+    if (!applied.applied) {
+      // A complete, validated, conflict-free Pull is staged for later display.
+      // Send one CAS batch, then re-inspect before sending any subsequent edits.
+      // The receipt never advances the Pull cursor or the Snapshot baseline.
+      await guards.assertCurrent();
+      if (maxPushBatches < 1) return { status: 'more', uploaded, downloaded };
+      let batch: RecordPushBatch | null;
+      try { batch = await freezeRecordPushBatch(db, connection, { expectedCommitId: applied.commitId, validateOperation: assertMediaReady }); }
+      catch (error) {
+        if (error instanceof RecordSyncLocalChangedError) return { status: 'more', uploaded, downloaded };
+        throw error;
+      }
+      if (!batch) return { status: 'deferred', uploaded, downloaded };
+      await send(batch);
+      return { status: 'more', uploaded, downloaded };
+    }
     for (let batchNumber = 0; batchNumber < maxPushBatches; batchNumber++) {
       await guards.assertCurrent();
-      const batch = await freezeRecordPushBatch(db, connection);
+      let batch: RecordPushBatch | null;
+      try { batch = await freezeRecordPushBatch(db, connection, {
+        expectedCommitId: batchNumber === 0 ? applied.commitId : undefined, validateOperation: assertMediaReady,
+      }); }
+      catch (error) {
+        if (error instanceof RecordSyncLocalChangedError) return { status: 'more', uploaded, downloaded };
+        throw error;
+      }
       if (!batch) return { status: 'done', uploaded, downloaded };
       if (!await send(batch)) return { status: 'more', uploaded, downloaded };
     }

@@ -9,6 +9,7 @@ import { createQuestionImageTransport } from './questionImageCloud';
 import { openQuestionImageRecordDb } from './questionImageRecords';
 import { prepareQuestionImageOutbox, prepareStagedQuestionImages } from './recordQuestionImageSync';
 import { runRecordSync, type RecordSyncGuards, type RecordSyncOutcome } from './recordSyncEngine';
+import { isRecordSyncOptedIn } from './recordSyncOptIn';
 import {
   getAutoSyncSettings, getLastSyncState, getRemoteSyncConfig, getRemoteSyncMeta,
   isQuizMakeStorageKey, setLastSyncStateForConnection, waitForLocalPersistence,
@@ -25,6 +26,7 @@ export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['
   const assertCurrent = async () => {
     const current = getAutoSyncSettings();
     if (!current.enabled || current.syncId !== syncId) throw new Error('同期先が変わりました。');
+    if (!isRecordSyncOptedIn(syncId)) throw new Error('高速同期がOFFになりました。');
     const saved = await waitForLocalPersistence();
     if (!saved.ok) throw new Error(saved.error);
   };

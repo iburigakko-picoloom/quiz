@@ -23,12 +23,10 @@ import { onCloudAuthStateChange } from '../utils/cloudService';
 import { runAppRecordSync } from '../utils/recordSyncCoordinator';
 import { RecordSyncRpcError } from '../utils/recordSyncNetwork';
 import type { RecordSyncGuards } from '../utils/recordSyncEngine';
+import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 5000;
-// Keep the record protocol dormant until authenticated production round-trip
-// checks are complete. The legacy Snapshot path remains available meanwhile.
-const RECORD_SYNC_ENABLED = import.meta.env.VITE_QUIZ_RECORD_SYNC_ENABLED === 'true';
 
 interface AutoSyncControllerProps {
   protectedWorkReason: ProtectedWorkReason | null;
@@ -57,7 +55,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
 
     const tryRecordSync = async (syncId: string): Promise<AutoSyncOutcome | null> => {
       const state = getLastSyncState();
-      if (!RECORD_SYNC_ENABLED || v2Unavailable || !state.lastSyncAt || !state.lastSyncDigest) return null;
+      if (!isRecordSyncOptedIn(syncId) || v2Unavailable || !state.lastSyncAt || !state.lastSyncDigest) return null;
       try {
         const result = await runAppRecordSync(syncId, operation => importHandlersRef.current.onRecordApply(operation));
         if (result.status === 'more') return 'changed';
@@ -72,6 +70,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       } catch (error) {
         if (error instanceof RecordSyncRpcError && ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(error.code)) {
           v2Unavailable = true;
+          setRecordSyncOptIn(syncId, false);
           return null;
         }
         if (disposed || getAutoSyncSettings().syncId !== syncId) return 'paused';
@@ -202,7 +201,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         const lastState = getLastSyncState();
         setLastSyncState({ lastRemoteUpdatedAt: meta.value.updatedAt });
         const remoteHasChanged = meta.value.updatedAt !== lastState.lastSyncAt;
-        if (RECORD_SYNC_ENABLED && !v2Unavailable && lastState.lastSyncAt && lastState.lastSyncDigest && remoteHasChanged) {
+        if (isRecordSyncOptedIn(settings.syncId) && !v2Unavailable && lastState.lastSyncAt && lastState.lastSyncDigest && remoteHasChanged) {
           uploadQueue.request(true);
           return;
         }

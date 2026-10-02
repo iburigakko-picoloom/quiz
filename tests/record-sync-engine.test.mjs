@@ -11,13 +11,19 @@ const hook = registerHooks({ resolve(specifier, context, next) {
 after(() => hook.deregister());
 const records = await import('../src/utils/appRecordStorage.ts');
 const { runRecordSync } = await import('../src/utils/recordSyncEngine.ts');
-const { getPendingRecordPushBatch } = await import('../src/utils/recordSyncOutbox.ts');
-const { applyStagedRecordPull } = await import('../src/utils/recordSyncPull.ts');
+const { getPendingRecordPushBatch, freezeRecordPushBatch } = await import('../src/utils/recordSyncOutbox.ts');
+const { applyStagedRecordPull, readActiveRecordConflicts, stageRecordPullPage } = await import('../src/utils/recordSyncPull.ts');
+const { queueAuxiliaryRecordWrite } = await import('../src/utils/auxiliaryRecordStorage.ts');
+const { prepareQuestionImageOutbox, prepareStagedQuestionImages } = await import('../src/utils/recordQuestionImageSync.ts');
+const { describeQuestionImage } = await import('../src/utils/questionImageRecords.ts');
+const { remoteQuestionImageDescriptor } = await import('../src/utils/questionImageCloud.ts');
+const { prepareRecordMaterialOutbox } = await import('../src/utils/recordMaterialSync.ts');
 const { normalizeAppData } = await import('../src/utils/appDataValidation.ts');
 const pg = await createRecordProtocolDatabase();
 after(() => pg.close());
 const timestamp = '2026-09-28T01:00:00.000Z';
 const guards = { assertCurrent: async () => {}, apply: operation => operation() };
+const editingGuards = { ...guards, apply: operation => operation({ preserveLiveData: true }) };
 let sequence = 100;
 async function database(factory) {
   return new Promise((resolve, reject) => {
@@ -28,7 +34,7 @@ async function database(factory) {
   });
 }
 async function fixture() {
-  const connection = { project: 'test', userId: 'owner', syncId: String(sequence++).padStart(36, '0') };
+  const connection = { project: 'test', userId: '11111111-1111-1111-1111-111111111111', syncId: String(sequence++).padStart(36, '0') };
   const initial = normalizeAppData({ version: 1,
     folders: [{ id: 'f', name: 'Folder', createdAt: timestamp, updatedAt: timestamp }],
     problemSets: [{ id: 's', folderId: 'f', title: 'Set', source: '', createdAt: timestamp, updatedAt: timestamp }],
@@ -57,6 +63,469 @@ async function fixture() {
   return { connection, initial, devices, factories, transport, pushed };
 }
 const read = async db => (await records.readAppRecords(db)).data;
+const stored = async (db, store, key) => {
+  const tx = db.transaction(store, 'readonly');
+  const value = tx.objectStore(store).get(key);
+  await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error); });
+  return value.result;
+};
+const complete = tx => new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error); });
+async function auxiliary(db, collection, id, raw, primary) {
+  const tx = db.transaction(records.APP_RECORD_STORES, 'readwrite'); const done = complete(tx);
+  queueAuxiliaryRecordWrite(tx, collection, id, raw);
+  if (primary) tx.objectStore(primary.store).put(primary.value, id);
+  await done;
+}
+function answerTo(data, id) {
+  Object.assign(data.progress[0], { answeredCount: 1, correctCount: 1, lastSelectedIndex: 0, lastAnswerCorrect: true, lastAnsweredAt: timestamp });
+  data.answerLogs.push({ id, questionId: 'q', setId: 's', folderId: 'f', selectedIndex: 0, selectedIndexes: [0], isCorrect: true, answeredAt: timestamp });
+  return data;
+}
+async function stageChanges(db, connection, changes) {
+  const cursor = (await stored(db, 'appRecordMeta', 'pullCursor'))?.cursor ?? 0;
+  await stageRecordPullPage(db, connection, cursor, { code: 'ok', cursor: cursor + 1, head: cursor + 1, hasMore: false,
+    batches: [{ revision: cursor + 1, changes: changes.map(change => ({ ...change, key: records.appRecordKey(change.collection, change.id),
+      position: 0, revision: cursor + 1 })) }] });
+}
+
+test('Home-only guard reproduces stalled fresh upload; metadata-only Pull sends saved edits and answers during work', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const edited = await read(a); edited.questions[0].explanation = 'Saved while editing';
+    await records.saveAppRecords(a, edited, timestamp);
+    const stalled = await runRecordSync(a, f.connection, f.transport, { ...guards, apply: async () => null });
+    assert.deepEqual(stalled, { status: 'deferred', uploaded: 0, downloaded: 0 });
+    assert.equal(f.pushed.length, 0); assert.equal((await records.readAppOutbox(a)).length, 1);
+    assert.equal((await runRecordSync(a, f.connection, f.transport, editingGuards)).uploaded, 1);
+    assert.deepEqual(await read(a), edited);
+    const answer = await read(a);
+    Object.assign(answer.progress[0], { answeredCount: 1, correctCount: 1, lastSelectedIndex: 0, lastAnswerCorrect: true, lastAnsweredAt: timestamp });
+    answer.answerLogs.push({ id: 'protected-answer', questionId: 'q', setId: 's', folderId: 'f', selectedIndex: 0, selectedIndexes: [0], isCorrect: true, answeredAt: timestamp });
+    await records.saveAppRecords(a, answer, timestamp);
+    const protectedApply = { ...editingGuards, async apply(operation) {
+      const result = await operation({ preserveLiveData: true });
+      assert.equal(result.applied, true); assert.equal(result.changed, 0);
+      assert.equal(result.data, undefined, 'protected work never receives a replacement AppData');
+      return result;
+    } };
+    assert.equal((await runRecordSync(a, f.connection, f.transport, protectedApply)).uploaded, 2);
+    assert.equal((await records.readAppOutbox(a)).length, 0);
+    await runRecordSync(b, f.connection, f.transport, guards);
+    assert.deepEqual(await read(b), answer);
+  } finally { a.close(); b.close(); }
+});
+
+test('unrelated remote edits stay staged while local edits upload; more editing and returning Home converge', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const remote = await read(a); remote.folders[0].name = 'Remote folder';
+    await records.saveAppRecords(a, remote, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+    const local = await read(b); local.questions[0].question = 'Local editor';
+    await records.saveAppRecords(b, local, timestamp);
+    const cursor = await stored(b, 'appRecordMeta', 'pullCursor');
+    const result = await runRecordSync(b, f.connection, f.transport, editingGuards);
+    assert.equal(result.status, 'more'); assert.equal(result.uploaded, 1);
+    assert.deepEqual(await read(b), local, 'neither React nor durable live data may change under the editor');
+    assert.deepEqual(await stored(b, 'appRecordMeta', 'pullCursor'), cursor);
+    assert.ok(await stored(b, 'appRecordMeta', 'pullStage'));
+    const later = await read(b); later.questions[0].explanation = 'Another local edit';
+    await records.saveAppRecords(b, later, timestamp);
+    assert.equal((await runRecordSync(b, f.connection, f.transport, editingGuards)).uploaded, 1);
+    assert.equal((await runRecordSync(b, f.connection, f.transport, editingGuards)).status, 'deferred');
+    assert.deepEqual(await read(b), later);
+    assert.equal((await runRecordSync(b, f.connection, f.transport, guards)).status, 'done');
+    await runRecordSync(a, f.connection, f.transport, guards);
+    assert.deepEqual(await read(a), await read(b));
+    assert.equal((await read(b)).folders[0].name, 'Remote folder');
+    assert.equal((await read(b)).questions[0].explanation, 'Another local edit');
+  } finally { a.close(); b.close(); }
+});
+
+test('protected same-record conflict retains both versions before any fresh Push', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const remote = await read(a); remote.questions[0].question = 'Remote';
+    const local = await read(b); local.questions[0].question = 'Offline editor';
+    await records.saveAppRecords(a, remote, timestamp); await records.saveAppRecords(b, local, timestamp);
+    await runRecordSync(a, f.connection, f.transport, guards);
+    const pushes = f.pushed.length;
+    const result = await runRecordSync(b, f.connection, f.transport, editingGuards);
+    assert.equal(result.status, 'conflict'); assert.equal(result.conflicts.length, 1);
+    assert.equal(f.pushed.length, pushes); assert.deepEqual(await read(b), local);
+    const conflicts = await readActiveRecordConflicts(b, f.connection);
+    assert.equal(JSON.parse(conflicts[0].remote.raw).question, 'Remote');
+    assert.equal(JSON.parse(conflicts[0].local.raw).question, 'Offline editor');
+    assert.equal((await records.readAppOutbox(b)).length, 1);
+  } finally { a.close(); b.close(); }
+});
+
+test('remote changes after protected Pull inspection are rejected by CAS and then become retained conflicts', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const local = await read(b); local.questions[0].question = 'Local';
+    await records.saveAppRecords(b, local, timestamp);
+    const concurrent = { ...f.transport, async push(operations) {
+      const remote = await read(a); remote.questions[0].question = 'Changed after Pull';
+      await records.saveAppRecords(a, remote, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+      return f.transport.push(operations);
+    } };
+    const result = await runRecordSync(b, f.connection, concurrent, editingGuards);
+    assert.equal(result.status, 'more'); assert.equal(result.uploaded, 0);
+    assert.equal(await getPendingRecordPushBatch(b, f.connection), null);
+    assert.equal((await records.readAppOutbox(b)).length, 1);
+    assert.equal((await runRecordSync(b, f.connection, f.transport, editingGuards)).status, 'conflict');
+    assert.deepEqual(await read(b), local);
+  } finally { a.close(); b.close(); }
+});
+
+test('protected staged Pull and lost receipt survive offline restart and newer local saves', async () => {
+  const f = await fixture(); let [a,b] = f.devices;
+  try {
+    const remote = await read(a); remote.folders[0].name = 'Remote folder';
+    await records.saveAppRecords(a, remote, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+    const local = await read(b); local.questions[0].question = 'First';
+    await records.saveAppRecords(b, local, timestamp);
+    const unreliable = { ...f.transport, async push(ops) { await f.transport.push(ops); throw new Error('offline after commit'); } };
+    await assert.rejects(runRecordSync(b, f.connection, unreliable, editingGuards), /offline/);
+    const frozen = await getPendingRecordPushBatch(b, f.connection);
+    const stage = await stored(b, 'appRecordMeta', 'pullStage');
+    assert.ok(stage); assert.ok(frozen);
+    const later = await read(b); later.questions[0].question = 'Later';
+    await records.saveAppRecords(b, later, timestamp);
+    forceCloseDatabase(b); b = await database(f.factories[1]);
+    const pushes = f.pushed.length;
+    const resumed = await runRecordSync(b, f.connection, f.transport, editingGuards);
+    assert.equal(resumed.uploaded, 2); assert.equal(resumed.status, 'more');
+    assert.deepEqual(f.pushed[pushes], frozen.operations);
+    assert.notEqual(f.pushed[pushes + 1][0].operationId, frozen.operations[0].operationId);
+    assert.deepEqual(await read(b), later);
+    assert.equal((await records.readAppOutbox(b)).length, 0);
+    await runRecordSync(b, f.connection, f.transport, guards); await runRecordSync(a, f.connection, f.transport, guards);
+    assert.deepEqual(await read(b), await read(a));
+  } finally { a.close(); b.close(); }
+});
+
+test('a local save during protected Push is sent with a new ID after acknowledgement', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const first = await read(a); first.questions[0].explanation = 'First';
+    await records.saveAppRecords(a, first, timestamp);
+    let changed = false;
+    const duringUpload = { ...f.transport, async push(operations) {
+      if (!changed) {
+        changed = true;
+        const next = await read(a); next.questions[0].explanation = 'Saved during network I/O';
+        await records.saveAppRecords(a, next, timestamp);
+      }
+      return f.transport.push(operations);
+    } };
+    assert.equal((await runRecordSync(a, f.connection, duringUpload, editingGuards)).uploaded, 2);
+    assert.notEqual(f.pushed[0][0].operationId, f.pushed[1][0].operationId);
+    assert.ok(f.pushed[1][0].baseRevision > f.pushed[0][0].baseRevision);
+    assert.equal((await records.readAppOutbox(a)).length, 0);
+    await runRecordSync(b, f.connection, f.transport, guards);
+    assert.equal((await read(b)).questions[0].explanation, 'Saved during network I/O');
+  } finally { a.close(); b.close(); }
+});
+
+test('incomplete Pull, blocked apply and failed staged media never authorize fresh protected Push', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const local = await read(b); local.questions[0].explanation = 'Local pending';
+    await records.saveAppRecords(b, local, timestamp);
+    const pushes = f.pushed.length;
+    const remote = await read(a); remote.folders[0].name = 'Remote';
+    await records.saveAppRecords(a, remote, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+    const remote2 = await read(a); remote2.folders[0].name = 'Remote again';
+    await records.saveAppRecords(a, remote2, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+    const paged = { ...f.transport, async pull(cursor) {
+      return (await pg.query('select public.quiz_sync_v2_pull($1,$2,1) as result', [f.connection.syncId, cursor])).rows[0].result;
+    } };
+    const bounded = await runRecordSync(b, f.connection, paged, editingGuards, 1);
+    assert.equal(bounded.status, 'more'); assert.equal(bounded.uploaded, 0);
+    assert.equal(f.pushed.length, pushes + 2);
+    const committedCursor = await stored(b, 'appRecordMeta', 'pullCursor');
+    await assert.rejects(runRecordSync(b, f.connection, paged, {
+      ...editingGuards, prepareMedia: async () => { throw new Error('image download failed'); },
+    }), /image download failed/);
+    assert.equal(f.pushed.length, pushes + 2);
+    assert.deepEqual(await stored(b, 'appRecordMeta', 'pullCursor'), committedCursor);
+    assert.ok(await stored(b, 'appRecordMeta', 'pullStage'));
+    const blocked = await runRecordSync(b, f.connection, f.transport, { ...guards, apply: async () => null });
+    assert.equal(blocked.status, 'deferred'); assert.equal(blocked.uploaded, 0);
+    assert.equal((await records.readAppOutbox(b)).length, 1); assert.deepEqual(await read(b), local);
+    assert.equal((await runRecordSync(b, f.connection, f.transport, editingGuards)).uploaded, 1);
+  } finally { a.close(); b.close(); }
+});
+
+test('a local save after inspection must be inspected again before the next batch can freeze', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const remote = await read(a); remote.folders[0].name = 'Remote';
+    await records.saveAppRecords(a, remote, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+    const local = await read(b); local.questions[0].explanation = 'Local';
+    await records.saveAppRecords(b, local, timestamp);
+    const pushes = f.pushed.length;
+    const concurrent = { ...editingGuards, async apply(operation) {
+      const result = await operation({ preserveLiveData: true });
+      assert.equal(result.deferred, true);
+      const newer = await read(b); newer.folders[0].name = 'New edit after inspection';
+      await records.saveAppRecords(b, newer, timestamp);
+      return result;
+    } };
+    assert.equal((await runRecordSync(b, f.connection, f.transport, concurrent)).status, 'more');
+    assert.equal(f.pushed.length, pushes); assert.equal(await getPendingRecordPushBatch(b, f.connection), null);
+    const result = await runRecordSync(b, f.connection, f.transport, editingGuards);
+    assert.equal(result.status, 'conflict'); assert.equal(f.pushed.length, pushes);
+    assert.equal((await records.readAppOutbox(b)).length, 2);
+    assert.equal((await read(b)).folders[0].name, 'New edit after inspection');
+  } finally { a.close(); b.close(); }
+});
+
+test('remote deletion remains staged under a live quiz and a later answer cannot resurrect it', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const deleted = await read(a); deleted.questions = []; deleted.progress = [];
+    await records.saveAppRecords(a, deleted, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+    const local = await read(b); local.folders[0].name = 'Local folder';
+    await records.saveAppRecords(b, local, timestamp);
+    assert.equal((await runRecordSync(b, f.connection, f.transport, editingGuards)).uploaded, 1);
+    assert.deepEqual(await read(b), local, 'current quiz data remains present on this device');
+    const answered = answerTo(await read(b), 'answer-after-remote-delete');
+    await records.saveAppRecords(b, answered, timestamp);
+    const pushes = f.pushed.length;
+    const result = await runRecordSync(b, f.connection, f.transport, editingGuards);
+    assert.equal(result.status, 'conflict'); assert.equal(f.pushed.length, pushes);
+    assert.deepEqual(await read(b), answered); assert.equal((await records.readAppOutbox(b)).length, 2);
+    const remoteQuestion = await pg.query('select raw from private.quiz_sync_records where sync_id=$1 and collection=$2 and record_id=$3', [f.connection.syncId, 'questions', 'q']);
+    assert.equal(remoteQuestion.rows[0].raw, null);
+  } finally { a.close(); b.close(); }
+});
+
+test('remote deletion racing with answer Push rejects the entire CAS batch, including the new log', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const local = answerTo(await read(b), 'answer-delete-race');
+    await records.saveAppRecords(b, local, timestamp);
+    const concurrent = { ...f.transport, async push(operations) {
+      const remote = await read(a); remote.questions = []; remote.progress = [];
+      await records.saveAppRecords(a, remote, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+      return f.transport.push(operations);
+    } };
+    const result = await runRecordSync(b, f.connection, concurrent, editingGuards);
+    assert.equal(result.uploaded, 0); assert.equal(result.status, 'more');
+    const rows = await pg.query('select count(*)::integer as count from private.quiz_sync_records where sync_id=$1 and record_id=$2', [f.connection.syncId, 'answer-delete-race']);
+    assert.equal(rows.rows[0].count, 0, 'a stale progress write cannot partially commit a new log');
+    assert.equal((await runRecordSync(b, f.connection, f.transport, editingGuards)).status, 'conflict');
+    assert.deepEqual(await read(b), local);
+  } finally { a.close(); b.close(); }
+});
+
+test('invalid remote dependencies stop inspection without changing local data, outbox or committed cursor', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const local = await read(b); local.questions[0].explanation = 'Must remain local';
+    await records.saveAppRecords(b, local, timestamp);
+    const pending = await records.readAppOutbox(b), cursor = await stored(b, 'appRecordMeta', 'pullCursor');
+    await stageChanges(b, f.connection, [{ collection: 'problemSets', id: 's', raw: null }]);
+    const stage = await stored(b, 'appRecordMeta', 'pullStage');
+    const transport = { pull: async () => ({ code: 'ok', cursor: stage.cursor, head: stage.head, hasMore: false, batches: [] }),
+      push: async () => assert.fail('invalid graph must never authorize a new batch') };
+    await assert.rejects(runRecordSync(b, f.connection, transport, editingGuards), /参照|存在|失われ/);
+    assert.deepEqual(await read(b), local); assert.deepEqual(await records.readAppOutbox(b), pending);
+    assert.deepEqual(await stored(b, 'appRecordMeta', 'pullCursor'), cursor);
+    assert.ok(await stored(b, 'appRecordMeta', 'pullStage')); assert.equal(await getPendingRecordPushBatch(b, f.connection), null);
+  } finally { a.close(); b.close(); }
+});
+
+test('an external commit during inspection fails the commit CAS and keeps all pending data', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const remote = await read(a); remote.folders[0].name = 'Remote';
+    await records.saveAppRecords(a, remote, timestamp); await runRecordSync(a, f.connection, f.transport, guards);
+    const local = await read(b); local.questions[0].explanation = 'Local';
+    await records.saveAppRecords(b, local, timestamp);
+    const state = await stored(b, 'appRecordMeta', 'state');
+    const transaction = b.transaction.bind(b); let injected = false;
+    b.transaction = (stores, mode, ...rest) => {
+      if (!injected && mode === 'readwrite' && Array.isArray(stores) && stores.includes('appRecordConflicts')) {
+        injected = true;
+        const concurrent = transaction('appRecordMeta', 'readwrite');
+        concurrent.objectStore('appRecordMeta').put({ ...state, commitId: crypto.randomUUID() }, 'state');
+      }
+      return transaction(stores, mode, ...rest);
+    };
+    const pushes = f.pushed.length;
+    await assert.rejects(runRecordSync(b, f.connection, f.transport, editingGuards), /端末が更新/);
+    b.transaction = transaction;
+    assert.equal(injected, true); assert.equal(f.pushed.length, pushes);
+    assert.deepEqual(await read(b), local); assert.equal((await records.readAppOutbox(b)).length, 1);
+    assert.equal((await runRecordSync(b, f.connection, f.transport, editingGuards)).uploaded, 1);
+  } finally { a.close(); b.close(); }
+});
+
+test('remote notes and localStorage projections wait for Home without overwriting a newer local memo', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const note = 'quizMake:notes:protected', memo = 'quizMake:weaknessNotes:q';
+    const prior = 'original note', remote = 'remote note', localMemo = '["original memo"]';
+    for (const db of [a,b]) {
+      await auxiliary(db, 'indexedDbNotes', note, prior, { store: 'categoryNotes', value: prior });
+      await auxiliary(db, 'localStorage', memo, localMemo);
+    }
+    await runRecordSync(a, f.connection, f.transport, guards); await runRecordSync(b, f.connection, f.transport, guards);
+    await auxiliary(a, 'indexedDbNotes', note, remote, { store: 'categoryNotes', value: remote });
+    await auxiliary(a, 'localStorage', memo, '["remote memo"]');
+    await runRecordSync(a, f.connection, f.transport, guards);
+    const local = await read(b); local.questions[0].explanation = 'Local';
+    await records.saveAppRecords(b, local, timestamp);
+    const projection = await stored(b, 'localProjections', memo);
+    const result = await runRecordSync(b, f.connection, f.transport, editingGuards);
+    assert.equal(result.uploaded, 1); assert.equal(await stored(b, 'categoryNotes', note), prior);
+    assert.equal(await stored(b, 'localProjections', memo), projection);
+    assert.equal((await stored(b, 'appRecords', records.appRecordKey('indexedDbNotes', note))).raw, prior);
+    await auxiliary(b, 'localStorage', memo, '["new local memo"]');
+    const conflict = await runRecordSync(b, f.connection, f.transport, editingGuards);
+    assert.equal(conflict.status, 'conflict'); assert.equal(conflict.conflicts[0].remote.raw, '["remote memo"]');
+    assert.equal(conflict.conflicts[0].local.raw, '["new local memo"]');
+    assert.equal(await stored(b, 'categoryNotes', note), prior);
+  } finally { a.close(); b.close(); }
+});
+
+test('offline before server commit preserves an exact protected batch across crash/restart', async () => {
+  const f = await fixture(); let [a,b] = f.devices;
+  try {
+    const local = await read(a); local.questions[0].explanation = 'Offline';
+    await records.saveAppRecords(a, local, timestamp);
+    await assert.rejects(runRecordSync(a, f.connection, { ...f.transport, push: async () => { throw new Error('offline before request'); } }, editingGuards), /offline/);
+    const frozen = await getPendingRecordPushBatch(a, f.connection);
+    forceCloseDatabase(a); a = await database(f.factories[0]);
+    assert.equal((await runRecordSync(a, f.connection, f.transport, editingGuards)).uploaded, 1);
+    assert.deepEqual(f.pushed[0], frozen.operations);
+    await runRecordSync(b, f.connection, f.transport, guards); assert.deepEqual(await read(b), local);
+    assert.equal((await records.readAppOutbox(a)).length, 0);
+  } finally { a.close(); b.close(); }
+});
+
+test('new unprepared media never poison a frozen batch, and failed upload can retry without losing bytes', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const id = 'local-image', blob = new Blob(['saved image'], { type: 'image/png' });
+    const image = { id, questionId: 'q', name: 'a.png', type: blob.type, blob, addedAt: timestamp };
+    const descriptor = await describeQuestionImage(image), key = records.appRecordKey('questionImages', id);
+    await auxiliary(a, 'questionImages', id, JSON.stringify(descriptor), { store: 'questionImageBlobs', value: image });
+    const state = await stored(a, 'appRecordMeta', 'state'), originalOp = (await records.readAppOutbox(a))[0];
+    await assert.rejects(runRecordSync(a, f.connection, f.transport, editingGuards), /保存が未確認/);
+    assert.equal(await getPendingRecordPushBatch(a, f.connection), null);
+    const transport = { userId: f.connection.userId, exists: async () => false, upload: async () => { throw new Error('Storage offline'); } };
+    await assert.rejects(prepareQuestionImageOutbox(a, transport, async () => {}), /Storage offline/);
+    assert.deepEqual((await records.readAppOutbox(a))[0], originalOp);
+    assert.deepEqual(await stored(a, 'appRecordMeta', 'state'), state);
+    assert.equal((await stored(a, 'questionImageBlobs', id)).blob.size, blob.size);
+    await read(a); // Populate the cached record snapshot before Storage prepares the descriptor.
+    assert.equal((await prepareQuestionImageOutbox(a, { ...transport, upload: async () => {} }, async () => {})).prepared, 1);
+    assert.notEqual((await stored(a, 'appRecordMeta', 'state')).commitId, state.commitId);
+    const prepared = await stored(a, 'appRecords', key);
+    assert.ok(JSON.parse(prepared.raw).path);
+    assert.equal((await records.readAppOutbox(a))[0].operationId, originalOp.operationId);
+    await stageChanges(a, f.connection, [{ collection: 'questionImages', id, raw: prepared.raw }]);
+    await prepareStagedQuestionImages(a, { ...transport, download: async () => assert.fail('verified local body is reusable') }, async () => {});
+    const result = await applyStagedRecordPull(a, f.connection, [], { preserveLiveData: true });
+    assert.equal(result.applied, true); assert.equal(result.changed, 0); assert.equal(result.data, undefined);
+    assert.equal((await records.readAppOutbox(a)).length, 0, 'equal prepared media must not produce a false conflict');
+    assert.equal((await stored(a, 'questionImageBlobs', id)).blob.size, blob.size);
+  } finally { a.close(); b.close(); }
+});
+
+test('PDF preparation preserves local bytes and uncertain receipts before preparing newer files', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const id = 'quizMake:notes:s:__material_pdf_pdf';
+    const raw = JSON.stringify({ kind: 'quiz-material-file', version: 1, materialId: 'pdf', updatedAt: timestamp,
+      dataUrl: 'data:application/pdf;base64,' + Buffer.from('saved PDF').toString('base64') });
+    await auxiliary(a, 'indexedDbNotes', id, raw, { store: 'categoryNotes', value: raw });
+    await assert.rejects(runRecordSync(a, f.connection, f.transport, editingGuards), /保存が未確認/);
+    assert.equal(await getPendingRecordPushBatch(a, f.connection), null);
+    const before = await stored(a, 'appRecordMeta', 'state');
+    const transport = { userId: f.connection.userId, cacheScope: 'prepared-pdf', exists: async () => false, upload: async () => {} };
+    await read(a);
+    assert.equal((await prepareRecordMaterialOutbox(a, transport, async () => {})).prepared, 1);
+    assert.notEqual((await stored(a, 'appRecordMeta', 'state')).commitId, before.commitId);
+    const prepared = (await records.readAppOutbox(a))[0];
+    assert.equal(await stored(a, 'categoryNotes', id), raw);
+    const batch = await freezeRecordPushBatch(a, f.connection);
+    const nextId = 'quizMake:notes:s:__material_pdf_next';
+    const nextRaw = raw.replace('"materialId":"pdf"', '"materialId":"next"');
+    await auxiliary(a, 'indexedDbNotes', nextId, nextRaw, { store: 'categoryNotes', value: nextRaw });
+    assert.deepEqual(await prepareRecordMaterialOutbox(a, { ...transport, exists: async () => assert.fail('resolve frozen receipt first') }, async () => {}), { prepared: 0, more: false });
+    assert.deepEqual(await getPendingRecordPushBatch(a, f.connection), batch);
+    assert.deepEqual((await records.readAppOutbox(a)).find(op => op.id === id), prepared);
+    assert.equal(await stored(a, 'categoryNotes', nextId), nextRaw);
+  } finally { a.close(); b.close(); }
+});
+
+test('an image saved during Push waits for Storage without trapping the following batch', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const local = await read(a); local.questions[0].explanation = 'Saved first';
+    await records.saveAppRecords(a, local, timestamp);
+    const blob = new Blob(['image added during upload'], { type: 'image/png' });
+    const image = { id: 'during-push', questionId: 'q', name: 'a.png', type: blob.type, blob, addedAt: timestamp };
+    const descriptor = await describeQuestionImage(image);
+    const concurrent = { ...f.transport, async push(operations) {
+      await auxiliary(a, 'questionImages', image.id, JSON.stringify(descriptor), { store: 'questionImageBlobs', value: image });
+      return f.transport.push(operations);
+    } };
+    await assert.rejects(runRecordSync(a, f.connection, concurrent, editingGuards), /保存が未確認/);
+    assert.equal(f.pushed.length, 1); assert.equal(await getPendingRecordPushBatch(a, f.connection), null);
+    assert.equal((await records.readAppOutbox(a)).length, 1);
+    assert.equal((await prepareQuestionImageOutbox(a, { userId: f.connection.userId, exists: async () => false, upload: async () => {} }, async () => {})).prepared, 1);
+    assert.equal((await runRecordSync(a, f.connection, f.transport, editingGuards)).uploaded, 1);
+    assert.equal((await records.readAppOutbox(a)).length, 0);
+  } finally { a.close(); b.close(); }
+});
+
+test('equal image metadata cannot advance protected Pull past a missing live body', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const blob = new Blob(['recoverable remote body'], { type: 'image/png' });
+    const image = { id: 'missing-body', questionId: 'q', name: 'a.png', type: blob.type, blob, addedAt: timestamp };
+    const descriptor = remoteQuestionImageDescriptor(await describeQuestionImage(image), f.connection.userId);
+    await auxiliary(b, 'questionImages', image.id, JSON.stringify(descriptor));
+    const tx = b.transaction('appOutbox', 'readwrite'); const done = complete(tx);
+    tx.objectStore('appOutbox').delete(records.appRecordKey('questionImages', image.id)); await done;
+    await stageChanges(b, f.connection, [{ collection: 'questionImages', id: image.id, raw: JSON.stringify(descriptor) }]);
+    const cursor = await stored(b, 'appRecordMeta', 'pullCursor');
+    await prepareStagedQuestionImages(b, { userId: f.connection.userId, download: async () => blob }, async () => {});
+    assert.equal((await applyStagedRecordPull(b, f.connection, [], { preserveLiveData: true })).deferred, true);
+    assert.deepEqual(await stored(b, 'appRecordMeta', 'pullCursor'), cursor);
+    assert.ok(await stored(b, 'appPullMedia', records.appRecordKey('questionImages', image.id)));
+    assert.equal(await stored(b, 'questionImageBlobs', image.id), undefined);
+    assert.equal((await applyStagedRecordPull(b, f.connection)).applied, true);
+    assert.equal((await stored(b, 'questionImageBlobs', image.id)).blob.size, blob.size);
+  } finally { a.close(); b.close(); }
+});
+
+test('failed incoming image verification preserves the live blob and cursor until a verified Home import', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  try {
+    const id = 'incoming-image', blob = new Blob(['remote image'], { type: 'image/png' });
+    const descriptor = remoteQuestionImageDescriptor(await describeQuestionImage({ id, questionId: 'q', name: 'remote.png', type: blob.type, blob, addedAt: timestamp }), f.connection.userId);
+    await stageChanges(b, f.connection, [{ collection: 'questionImages', id, raw: JSON.stringify(descriptor) }]);
+    const cursor = await stored(b, 'appRecordMeta', 'pullCursor');
+    const transport = { userId: f.connection.userId, download: async () => new Blob(['bad'], { type: 'image/png' }) };
+    await assert.rejects(prepareStagedQuestionImages(b, transport, async () => {}), /画像の内容/);
+    assert.equal(await stored(b, 'questionImageBlobs', id), undefined);
+    assert.equal(await stored(b, 'appPullMedia', records.appRecordKey('questionImages', id)), undefined);
+    assert.deepEqual(await stored(b, 'appRecordMeta', 'pullCursor'), cursor);
+    await prepareStagedQuestionImages(b, { ...transport, download: async () => blob }, async () => {});
+    assert.equal((await applyStagedRecordPull(b, f.connection, [], { preserveLiveData: true })).deferred, true);
+    assert.equal(await stored(b, 'questionImageBlobs', id), undefined);
+    assert.ok(await stored(b, 'appPullMedia', records.appRecordKey('questionImages', id)));
+    assert.equal((await applyStagedRecordPull(b, f.connection)).applied, true);
+    assert.equal((await stored(b, 'questionImageBlobs', id)).blob.size, blob.size);
+  } finally { a.close(); b.close(); }
+});
 
 test('two devices transfer only one answer delta and merge edits to distinct records', async () => {
   const f = await fixture(); const [a,b] = f.devices;
