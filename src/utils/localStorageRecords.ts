@@ -16,9 +16,10 @@ function project(key: string, raw: string | null): void {
 /** Caller holds the origin data lock. IndexedDB is authoritative; localStorage
  * is a synchronous UI cache. A crash between commit and projection is replayable.
  */
-export async function saveSyncedLocalStorage(entries: Record<string, string | null>): Promise<void> {
+export async function saveSyncedLocalStorage(entries: Record<string, string | null>, onCommitted?: () => void): Promise<void> {
   if (typeof indexedDB === 'undefined') {
     for (const [key,raw] of Object.entries(entries)) project(key,raw);
+    onCommitted?.();
     return;
   }
   const db = await openCoLocatedNoteDb();
@@ -29,6 +30,7 @@ export async function saveSyncedLocalStorage(entries: Record<string, string | nu
     tx.objectStore(LOCAL_PROJECTION_STORE).put(raw,key);
   }
   await completion;
+  onCommitted?.();
   await replayLocalStorageProjections(db);
 }
 

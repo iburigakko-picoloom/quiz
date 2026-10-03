@@ -10,6 +10,8 @@ import './PlansScreen.css';
 export function PlanEditorScreen({ data, planId, initialSetId, onBack, onSaved, onDirtyChange }: { data: AppData; planId?: string; initialSetId?: string; onBack: () => void; onSaved: (id: string) => void; onDirtyChange: (dirty: boolean) => void }) {
   const originalRaw = useRef(planId ? localStorage.getItem(PLAN_PREFIX + planId) : null);
   const [original] = useState(() => { try { return originalRaw.current ? parseStudyPlan(originalRaw.current) : null; } catch { return null; } });
+  const [draftId] = useState(() => original?.id ?? createId('plan'));
+  const attemptedSave = useRef<{ committedRaw: string | null }>({ committedRaw: null });
   const day = studyDay(new Date(), original?.timeZone ?? getStudyTimeZone());
   const schedule = original ? scheduleFor(original, nextDay(day)) : null;
   const [setId, setSetId] = useState(original?.setId ?? initialSetId ?? data.problemSets[0]?.id ?? '');
@@ -42,11 +44,11 @@ export function PlanEditorScreen({ data, planId, initialSetId, onBack, onSaved, 
     if (!set || !validTimeZone(timeZone) || !validDay(deadline) || (kind === 'deadline' && (deadline < (original ? nextDay(day) : day) || deadline > nextDay(day, 3660))) || !holidayList.every(validDay) || !weekdays.length || !dailyCounts.every(n => Number.isInteger(n) && n >= 0 && n <= 10000) || (!original && !selected.length)) { setError('対象、期限、学習曜日、問題数、休日の日付を確認してください。'); return; }
     saving.current = true; setBusy(true);
     try {
-      const now = new Date().toISOString(); const id = original?.id ?? createId('plan');
+      const now = new Date().toISOString(); const id = draftId;
       const effectiveDay = original ? nextDay(day) : studyDay(new Date(), timeZone);
       const nextSchedule = { effectiveDay, kind, deadline, weekdays, holidays: holidayList, dailyCounts, paused: schedule?.paused ?? false };
       const plan: StudyPlan = { schema: 1, id, title: title.trim() || set.title, setId, setTitle: original?.setTitle ?? set.title, sourceVersionId: original?.sourceVersionId ?? set.sourceVersionId, timeZone, createdAt: original?.createdAt ?? now, updatedAt: now, targets: original?.targets ?? snapshotTargets(selected, data.answerLogs), schedules: [...(original?.schedules.filter(s => s.effectiveDay < effectiveDay) ?? []), nextSchedule] };
-      await savePlan(plan, originalRaw.current); onDirtyChange(false); onSaved(id);
+      await savePlan(plan, originalRaw.current, attemptedSave.current); onDirtyChange(false); onSaved(id);
     } catch (reason) { setError(reason instanceof Error ? reason.message : '保存できません。入力は残っています。'); }
     finally { saving.current = false; setBusy(false); }
   };
