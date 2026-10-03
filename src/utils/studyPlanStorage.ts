@@ -1,5 +1,5 @@
 import { withCoordinatedDataMutation } from './dataCoordination';
-import { saveSyncedLocalStorage } from './localStorageRecords';
+import { replayLocalStorageProjections, saveSyncedLocalStorage } from './localStorageRecords';
 import { advanceLocalDataRevision } from './localDataRevision';
 import { makePlanDay, parsePlanDay, parseStudyPlan, studyDay, validTimeZone, type PlanDay, type StudyPlan } from './studyPlans';
 import type { AnswerLog } from '../types';
@@ -16,12 +16,16 @@ export function readPlans(): StudyPlan[] {
   for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (!key?.startsWith(PLAN_PREFIX)) continue; const plan = parseStudyPlan(localStorage.getItem(key)!); if (key !== PLAN_PREFIX + plan.id) throw new Error('学習計画のIDが一致しません。'); plans.push(plan); }
   return plans.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
-export async function savePlan(plan: StudyPlan, expectedRaw: string | null): Promise<void> {
+export async function savePlan(plan: StudyPlan, expectedRaw: string | null, retry?: { committedRaw: string | null }): Promise<void> {
   const raw = JSON.stringify(plan); parseStudyPlan(raw);
   await withCoordinatedDataMutation(['notes'], async () => {
     const key = PLAN_PREFIX + plan.id;
-    if (localStorage.getItem(key) !== expectedRaw) throw new Error('別の操作で計画が変更されました。入力を控えて開き直してください。');
-    await saveSyncedLocalStorage({ [key]: raw, [STUDY_ZONE_KEY]: getStudyTimeZone() });
+    // A prior IndexedDB commit can survive a failed localStorage projection.
+    // Recover it before comparing, and accept only this editor's exact attempt.
+    await replayLocalStorageProjections();
+    const currentRaw = localStorage.getItem(key);
+    if (currentRaw !== expectedRaw && (!retry?.committedRaw || currentRaw !== retry.committedRaw)) throw new Error('別の操作で計画が変更されました。入力を控えて開き直してください。');
+    await saveSyncedLocalStorage({ [key]: raw, [STUDY_ZONE_KEY]: getStudyTimeZone() }, () => { if (retry) retry.committedRaw = raw; });
   }); changed();
 }
 export async function deletePlan(plan: StudyPlan, expectedRaw: string): Promise<void> {

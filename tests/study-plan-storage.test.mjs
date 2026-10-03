@@ -22,6 +22,25 @@ test('plan, fixed days and timezone persist to the atomic record outbox, replay 
   const log={id:'answer',questionId:'q',setId:'set',folderId:'f',selectedIndex:0,isCorrect:true,answeredAt:'2026-10-01T03:00:00Z',questionRevision:plans.questionRevision(q)};
   await planStorage.ensurePlanDays([log],new Date('2026-10-02T10:00:00Z'));assert.deepEqual(planStorage.readPlanDay(plan,new Date('2026-10-02T10:00:00Z')),day);
 });
+test('retrying an editor save recovers its exact committed attempt without duplicates or overwriting another edit',async()=>{
+  const initialRaw=localStorage.getItem(planStorage.PLAN_PREFIX+'p');
+  const retry={committedRaw:null};
+  const attempted={...plan,title:'retry attempt'};deny=true;
+  await assert.rejects(planStorage.savePlan(attempted,initialRaw,retry),/quota/);
+  assert.equal(retry.committedRaw,JSON.stringify(attempted));
+  await assert.rejects(planStorage.savePlan({...attempted,title:'still no cache space'},initialRaw,retry),/quota/);
+  assert.equal(retry.committedRaw,JSON.stringify(attempted),'A pre-commit retry failure retains the last committed attempt');
+  deny=false;
+  const retried={...attempted,title:'retained draft after failure'};
+  await planStorage.savePlan(retried,initialRaw,retry);
+  assert.deepEqual(planStorage.readPlans(),[retried]);
+  const currentRaw=JSON.stringify(retried);
+  const otherEdit={...retried,title:'another editor'};
+  await planStorage.savePlan(otherEdit,currentRaw);
+  await assert.rejects(planStorage.savePlan({...retried,title:'stale retry'},initialRaw,retry),/別の操作/);
+  assert.deepEqual(planStorage.readPlans(),[otherEdit]);
+  await planStorage.savePlan(plan,JSON.stringify(otherEdit));
+});
 test('full backup roundtrip restores plans and fixed days; malformed plan backups are rejected without replacing current data',async()=>{
   const backup=await sync.exportQuizMakeData();assert.ok(backup.localStorage[planStorage.PLAN_PREFIX+'p']);assert.equal(sync.validateSyncPayload(backup).ok,true);
   await planStorage.deletePlan(plan,localStorage.getItem(planStorage.PLAN_PREFIX+'p'));assert.deepEqual(planStorage.readPlans(),[]);
