@@ -17,7 +17,8 @@ export function readPlans(): StudyPlan[] {
   return plans.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 export async function savePlan(plan: StudyPlan, expectedRaw: string | null, retry?: { committedRaw: string | null }): Promise<void> {
-  const raw = JSON.stringify(plan); parseStudyPlan(raw);
+  const committed = retry?.committedRaw ? parseStudyPlan(retry.committedRaw) : null;
+  const raw = JSON.stringify(committed?.id === plan.id ? { ...plan, createdAt: committed.createdAt } : plan); parseStudyPlan(raw);
   await withCoordinatedDataMutation(['notes'], async () => {
     const key = PLAN_PREFIX + plan.id;
     // A prior IndexedDB commit can survive a failed localStorage projection.
