@@ -449,7 +449,9 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
   }, [protectedWorkReason]);
 
   useEffect(() => {
-    if (autoImportReady) resumeSyncRef.current?.();
+    // Applying this worker's own Pull toggles App's busy display. Its completion
+    // is already followed by Push/receipt; it must not enqueue another full run.
+    if (autoImportReady && !uploadRunningRef.current) resumeSyncRef.current?.();
   }, [autoImportReady]);
 
   return null;

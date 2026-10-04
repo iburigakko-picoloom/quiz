@@ -77,7 +77,7 @@ import { waitForPendingCategoryNoteSaves } from './utils/noteStorage';
 import { persistLibraryDeletion, type LibraryDeletionResult } from './utils/libraryDeletion';
 import { saveJsonBackup } from './utils/nativePlatform';
 import { createSampleAppData } from './utils/sampleData';
-import { setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
+import { beginRecordApply, setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
 import {
   initializeCloudNativeAuth,
   onNativeAuthResult,
@@ -212,10 +212,9 @@ export default function App() {
         return operation({ preserveLiveData: true });
       }, { requireCrossContext: true });
     }
+    const finishRecordApply = beginRecordApply();
     autoImportBusyRef.current = true;
-    libraryMutationBusyRef.current = true;
     setAutoImportBusy(true);
-    setLibraryMutationBusy(true);
     try {
       const result = await withCoordinatedDataMutation(['app','notes'], async () => {
         if (!autoImportEligibleRef.current || !isSyncDisplaySafe(screenRef.current.name) || document.visibilityState !== 'visible') return null;
@@ -237,10 +236,9 @@ export default function App() {
       setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
       throw error;
     } finally {
+      finishRecordApply();
       autoImportBusyRef.current = false;
-      libraryMutationBusyRef.current = false;
       setAutoImportBusy(false);
-      setLibraryMutationBusy(false);
     }
   };
 
