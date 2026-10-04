@@ -463,6 +463,43 @@ test('acknowledged ancestor content survives coalescing and permits a harmless n
   } finally { a.close(); b.close(); }
 });
 
+for (const collection of ['indexedDbNotes', 'localStorage']) test(`${collection} keeps its acknowledged ancestor across coalesced edits and harmless remote revisions`, async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  const id = collection === 'localStorage' ? 'quizMake:settings' : 'quizMake:notes:s:Cardio';
+  const original = '{"text":"acknowledged"}', edited = '{"text":"second edit"}';
+  try {
+    await auxiliary(a, collection, id, original);
+    await runRecordSync(a, f.connection, f.transport, guards);
+    await runRecordSync(b, f.connection, f.transport, guards);
+    const key = records.appRecordKey(collection, id), ancestor = await stored(b, 'appRecords', key);
+    await auxiliary(b, collection, id, '{"text":"first edit"}');
+    await auxiliary(b, collection, id, edited);
+    await f.transport.push([{operationId:crypto.randomUUID(),key,collection,id,raw:original,position:0,baseRevision:ancestor.serverRevision}]);
+    const result = await runRecordSync(b, f.connection, f.transport, guards);
+    assert.equal(result.status, 'done');
+    assert.equal((await stored(b, 'appRecords', key)).raw, edited);
+    assert.equal((await records.readAppOutbox(b)).length, 0);
+    assert.ok((await retainedConflicts(b)).some(item => item.reason === 'unchanged-ancestor'));
+    assert.ok(f.pushed.every(batch => batch.every(op => !('baseContent' in op))), 'ancestor evidence stays local');
+    await runRecordSync(a, f.connection, f.transport, guards);
+    assert.equal((await stored(a, 'appRecords', key)).raw, edited);
+  } finally { a.close(); b.close(); }
+});
+
+test('an auxiliary ancestor never authorizes replacing a genuinely changed remote value', async () => {
+  const f = await fixture(); const [a,b] = f.devices;
+  const collection = 'indexedDbNotes', id = 'quizMake:notes:s:Cardio';
+  try {
+    await auxiliary(a, collection, id, 'acknowledged');
+    await runRecordSync(a, f.connection, f.transport, guards); await runRecordSync(b, f.connection, f.transport, guards);
+    await auxiliary(a, collection, id, 'remote edit'); await auxiliary(b, collection, id, 'local edit');
+    await runRecordSync(a, f.connection, f.transport, guards);
+    const result = await runRecordSync(b, f.connection, f.transport, guards);
+    assert.equal(result.status, 'conflict'); assert.equal(result.conflicts[0].remote.raw, 'remote edit');
+    assert.equal(result.conflicts[0].local.raw, 'local edit'); assert.equal((await records.readAppOutbox(b)).length, 1);
+  } finally { a.close(); b.close(); }
+});
+
 test('bootstrap metadata acknowledgements and answer rebases commit while an unrelated new folder stays staged', async () => {
   const f = await fixture({ syncDevices: false }); const [a,b] = f.devices;
   try {

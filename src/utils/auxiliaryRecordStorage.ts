@@ -36,6 +36,7 @@ export function queueAuxiliaryRecordWrite(tx: IDBTransaction, collection: 'index
   if (!shared) { shared = { request: meta.get('state'), changed: false }; transactionStates.set(tx, shared); }
   const stateRequest = shared.request;
   const key = appRecordKey(collection, id);
+  const pendingRequest = tx.objectStore('appOutbox').get(key);
   const oldRequest = tx.objectStore('appRecords').get(key);
   oldRequest.onsuccess = () => {
     try {
@@ -47,6 +48,11 @@ export function queueAuxiliaryRecordWrite(tx: IDBTransaction, collection: 'index
       if (!Number.isSafeInteger(revision)) throw new Error('保存Revisionの上限に達しました。');
       const row: AppRecord = { key, collection, id, raw, position: 0, localRevision: revision, serverRevision: old?.serverRevision ?? 0 };
       const operation: AppOutboxOperation = { ...row, operationId: crypto.randomUUID(), baseRevision: row.serverRevision };
+      const prior = pendingRequest.result as AppOutboxOperation | undefined;
+      const baseContent = prior
+        ? (prior.baseRevision === row.serverRevision ? prior.baseContent : undefined)
+        : old && old.serverRevision > 0 ? { raw: old.raw, position: old.position } : undefined;
+      if (baseContent) operation.baseContent = baseContent;
       if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, key);
       tx.objectStore('appRecords').put(row, key);
       tx.objectStore('appOutbox').put(operation, key);

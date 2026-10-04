@@ -1828,7 +1828,6 @@ export default function App() {
       onOpenStudyRecord={() => navigate({ name: 'studyRecord' })}
       onOpenPlans={() => navigate({ name: 'plans' })}
       onOpenSearch={() => navigate({ name: 'search' })}
-      onOpenPlan={planId => navigate({ name: 'planDetail', planId })}
       onSave={commitData}
     />
   );
