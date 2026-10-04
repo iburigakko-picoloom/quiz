@@ -1,16 +1,18 @@
 import type { AppRecord } from './appRecordStorage';
 import { appRecordKey } from './appRecordStorage';
 import type { RecordConflict } from './recordSyncPull';
+import { auxiliaryRecordLabel, conflictPreview } from './recordConflictComparison';
 
 const labels = { folders: 'フォルダー', problemSets: '問題集', questions: '問題', progress: '回答・復習の状態',
   answerLogs: '回答履歴', localStorage: '設定・補助データ', indexedDbNotes: 'ノート・資料', questionImages: '問題の画像' };
 const valueOf = (raw: string | null | undefined): Record<string, unknown> | null => {
   try { return raw ? JSON.parse(raw) : null; } catch { return null; }
 };
-const text = (value: unknown) => typeof value === 'string' ? value.replace(/\s+/gu, ' ').trim().slice(0, 160) : '';
+const text = (value: unknown) => typeof value === 'string' ? conflictPreview(value).slice(0, 160) : '';
 
 export function recordConflictTitle(item: RecordConflict, records: Map<string, AppRecord>): string {
   const value = valueOf(item.local?.raw) ?? valueOf(item.remote.raw);
+  if (item.remote.collection === 'localStorage') return `${auxiliaryRecordLabel(item.remote.id)}${item.remote.id.startsWith('quizMake:plan:') && text(value?.title) ? `：${text(value?.title)}` : ''}`;
   const questionId = item.remote.collection === 'progress' || item.remote.collection === 'questions'
     ? item.remote.id : typeof value?.questionId === 'string' ? value.questionId : null;
   const question = questionId ? valueOf(records.get(appRecordKey('questions', questionId))?.raw) : null;

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCloudAccessToken } from '../utils/cloudService';
+import { getCloudAccessToken, getCloudSession } from '../utils/cloudService';
 import { withCoordinatedDataMutation, withCoordinatedDataRead } from '../utils/dataCoordination';
 import { replayLocalStorageProjections } from '../utils/localStorageRecords';
 import { readAppRecordSnapshot } from '../utils/appRecordStorage';
 import { applyStagedRecordPull, readActiveRecordConflicts, type RecordConflict, type RecordConflictDecision } from '../utils/recordSyncPull';
-import { describeRecordConflictValue, recordConflictIdentity, recordConflictTitle, retainRecordConflictChoices } from '../utils/recordConflictPresentation';
+import { recordConflictIdentity, recordConflictTitle, retainRecordConflictChoices } from '../utils/recordConflictPresentation';
+import { compareRecordConflict, conflictPreview } from '../utils/recordConflictComparison';
+import { exportRecordConflictOriginals } from '../utils/recordConflictExport';
+import { saveJsonBackup } from '../utils/nativePlatform';
 import { getRemoteSyncConfig, getStoredSyncId, waitForLocalPersistence } from '../utils/syncService';
 import { openAppDb } from '../storage';
 import { requestSyncRetry, withRecordSyncLease } from '../utils/syncRequest';
@@ -25,6 +28,8 @@ export function RecordConflictPanel({ syncId, accountId, onImported, open, onOpe
   const config = getRemoteSyncConfig();
   const project = config ? new URL(config.url).origin : '';
   const [error, setError] = useState('');
+  const [exportError, setExportError] = useState('');
+  const [exportMessage, setExportMessage] = useState('');
   const busyRef = useRef(false);
   const identitiesRef = useRef(new Map<string, string>());
   const connection = () => {
@@ -82,7 +87,7 @@ export function RecordConflictPanel({ syncId, accountId, onImported, open, onOpe
     return () => { stopped = true; window.clearInterval(interval); };
   }, [syncId, accountId, project, config?.anonKey, attempt]);
   useEffect(() => {
-    if (!open) { setChoices({}); setIndex(0); return; }
+    if (!open) { setChoices({}); setIndex(0); setExportError(''); setExportMessage(''); return; }
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialogRef.current?.focus();
     const keydown = (event: KeyboardEvent) => {
@@ -127,23 +132,55 @@ export function RecordConflictPanel({ syncId, accountId, onImported, open, onOpe
     finally { busyRef.current = false; setBusy(false); }
   };
   const current = conflicts[Math.min(index, Math.max(0, conflicts.length - 1))];
+  const candidateIdentity = current ? recordConflictIdentity(current) : '';
+  useEffect(() => { setExportError(''); setExportMessage(''); }, [candidateIdentity]);
   const remaining = conflicts.filter(item => !choices[item.key]).length;
+  const comparison = current ? compareRecordConflict(current) : null;
+  const saveOriginals = async () => {
+    if (busyRef.current || !current) return;
+    busyRef.current = true; setBusy(true); setExportError(''); setExportMessage('');
+    try {
+      const raw = await withCoordinatedDataRead(['app', 'notes'], async () => {
+        const session = await getCloudSession();
+        if (!session?.user || session.user.is_anonymous || session.user.id !== accountId || getStoredSyncId() !== syncId || getRemoteSyncConfig()?.url !== config?.url || getRemoteSyncConfig()?.anonKey !== config?.anonKey) throw new Error('接続が変わりました。内容を確認し直してください。');
+        const db = await openAppDb();
+        return exportRecordConflictOriginals(current, await readActiveRecordConflicts(db, connection()));
+      }, { requireCrossContext: true });
+      await saveJsonBackup(`quiz-make-conflict-originals-${new Date().toISOString().replace(/[:.]/gu, '-')}.json`, raw);
+      setExportMessage('両候補の原本を保存しました。');
+    } catch (caught) { setExportError(caught instanceof Error ? caught.message : '原本を保存できませんでした。'); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  const rows = (all: boolean) => comparison?.differences.slice(all ? 3 : 0, all ? undefined : 3).map((row, i) => <div className="sync-difference" key={`${row.label}-${i}`}>
+    <strong>{row.label}</strong><dl><div><dt>この端末</dt><dd>{row.local}</dd></div><div><dt>クラウド</dt><dd>{row.remote}</dd></div></dl>
+  </div>);
   return <>
-    {conflicts.length ? <button type="button" className="sync-button sync-button--secondary sync-review-entry" onClick={() => onOpenChange(true)}>確認が必要な変更 {conflicts.length}件</button> : null}
+    {conflicts.length ? <button type="button" className="sync-button sync-button--primary sync-review-entry" onClick={() => onOpenChange(true)}>確認する</button> : null}
     {error && !open ? <div className="sync-overview-error"><p role="alert">変更の内容を確認できません。未送信の変更は保持しています。</p><button type="button" className="sync-button" onClick={() => setAttempt(n => n + 1)}>再試行</button><details><summary>詳細</summary>{error}</details></div> : null}
     {open ? <section ref={dialogRef} tabIndex={-1} className="sync-review-screen" role="dialog" aria-modal="true" aria-label="変更の内容を確認">
       <header><button type="button" className="sync-button" disabled={busy} onClick={() => onOpenChange(false)}>戻る</button><h2>変更の内容を確認</h2><button type="button" className="sync-button" disabled={busy} onClick={() => onOpenChange(false)}>閉じる</button></header>
       <main>
-        <p>あと {remaining}件・選ばなかった内容も復旧用に残します。</p>
+        {conflicts.length > 1 ? <p>{index + 1} / {conflicts.length}</p> : null}
         {current ? <fieldset disabled={busy} key={current.key}>
           <legend>{titles[current.key] ?? '変更内容'}</legend>
-          <label><input type="radio" name="record-version" checked={choices[current.key] === 'local'} onChange={() => setChoices(value => ({ ...value, [current.key]: 'local' }))} /><strong>この端末</strong><span>{describeRecordConflictValue(current.local?.raw ?? null)}</span></label>
-          <label><input type="radio" name="record-version" checked={choices[current.key] === 'remote'} onChange={() => setChoices(value => ({ ...value, [current.key]: 'remote' }))} /><strong>クラウド</strong><span>{describeRecordConflictValue(current.remote.raw)}</span></label>
-          <div className="sync-actions"><button className="sync-button" disabled={busy || index === 0} onClick={() => setIndex(n => n - 1)}>前の変更</button><button className="sync-button" disabled={busy || index >= conflicts.length - 1} onClick={() => setIndex(n => n + 1)}>次の変更</button></div>
+          {rows(false)}
+          {comparison?.incomplete ? <p className="sync-review-note">表示できない違いがあります。詳細の原本で内容を確認してください。</p> : null}
+          <label><input type="radio" name="record-version" checked={choices[current.key] === 'local'} onChange={() => setChoices(value => ({ ...value, [current.key]: 'local' }))} /><strong>この端末を使う</strong><span>{comparison?.local}</span></label>
+          <label><input type="radio" name="record-version" checked={choices[current.key] === 'remote'} onChange={() => setChoices(value => ({ ...value, [current.key]: 'remote' }))} /><strong>クラウドを使う</strong><span>{comparison?.remote}</span></label>
+          {conflicts.length > 1 ? <div className="sync-actions"><button className="sync-button" disabled={busy || index === 0} onClick={() => setIndex(n => n - 1)}>前の変更</button><button className="sync-button" disabled={busy || index >= conflicts.length - 1} onClick={() => setIndex(n => n + 1)}>次の変更</button></div> : null}
         </fieldset> : <p>確認が必要な変更はありません。</p>}
         {error ? <><p role="alert">内容を確定できません。もう一度確認してください。</p><details><summary>詳細</summary>{error}</details></> : null}
-        <div className="sync-actions"><button className="sync-button sync-button--primary" disabled={busy || !current || remaining > 0 || Boolean(error)} onClick={() => void resolve()}>{busy ? '確定中…' : '選んだ内容を確定'}</button><button className="sync-button" disabled={busy} onClick={() => onOpenChange(false)}>あとで</button></div>
-        {onOpenBackups ? <button className="sync-button" disabled={busy} onClick={() => { onOpenChange(false); onOpenBackups(); }}>復旧用コピー・バックアップを開く</button> : null}
+        <div className="sync-actions"><button className="sync-button sync-button--primary" disabled={busy || !current || remaining > 0 || Boolean(error)} onClick={() => void resolve()}>{busy ? '処理中…' : '選んだ内容を確定'}</button><button className="sync-button" disabled={busy} onClick={() => onOpenChange(false)}>あとで</button></div>
+        {current ? <details className="sync-review-details" key={`details:${current.key}`}><summary>詳細{comparison && comparison.differences.length > 3 ? `（ほか${comparison.differences.length - 3}件の違い）` : ''}</summary>
+          {comparison && comparison.differences.length > 3 ? rows(true) : null}
+          <p>選択はこの項目全体に適用されます。選ばなかった原本も端末に残します。</p>
+          {current.remote.collection === 'localStorage' ? <p>保存項目：{conflictPreview(current.remote.id)}</p> : null}
+          <p>端末 {current.local?.raw?.length ?? 0}文字 / クラウド {current.remote.raw?.length ?? 0}文字</p>
+          <p>両候補は選択前に保存できます。個人の内容を含む確認用ファイルです。通常のバックアップ復元には使えません。</p>
+          <button className="sync-button" disabled={busy} onClick={() => void saveOriginals()}>両候補の原本を保存</button>
+          {exportError ? <p role="alert">{exportError}</p> : null}{exportMessage ? <p role="status">{exportMessage}</p> : null}
+          {onOpenBackups ? <button className="sync-button" disabled={busy} onClick={() => { onOpenChange(false); onOpenBackups(); }}>バックアップを開く</button> : null}
+        </details> : null}
       </main>
     </section> : null}
   </>;

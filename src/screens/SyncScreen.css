@@ -76,6 +76,17 @@
 .sync-review-screen .sync-button { min-height: 44px; }
 .sync-screen.sync-screen--simple .sync-card--transfer { grid-column: 1 / -1; }
 .sync-status-card details { overflow-wrap: anywhere; }
+.sync-review-entry { margin-top: 0; }
+.sync-review-details { margin-top: 24px; border-top: 1px solid #e7e9ed; }
+.sync-review-details > summary { min-height: 48px; padding: 16px 0; cursor: pointer; }
+.sync-review-details p, .sync-review-note { font-size: 13px; line-height: 1.7; color: #667386; overflow-wrap: anywhere; }
+.sync-review-details > button { width: 100%; margin-top: 12px; }
+.sync-difference { padding: 12px 0; border-bottom: 1px solid #e7e9ed; line-height: 1.6; overflow-wrap: anywhere; }
+.sync-difference > strong { display: block; font-size: 14px; }
+.sync-difference dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 8px 0 0; }
+.sync-difference dt { color: #667386; font-size: 12px; }
+.sync-difference dd { margin: 4px 0 0; font-size: 14px; }
+.sync-review-screen label:has(input:checked) { border-color: #315d9c; background: #f5f8fc; }
 .sync-screen button:focus-visible, .sync-screen summary:focus-visible, .sync-review-screen button:focus-visible { outline: 3px solid #315d9c; outline-offset: 3px; }
 
 .sync-screen {
