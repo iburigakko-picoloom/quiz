@@ -1,4 +1,6 @@
+import { accountLocalStorage as localStorage } from '../utils/accountStorage';
 import { useEffect, useRef, useState } from 'react';
+import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
 import type { AppData } from '../types';
 import { Layout } from '../components/Layout';
 import { Header } from '../components/Header';
@@ -8,25 +10,28 @@ import { nextDay, parseStudyPlan, scheduleFor, snapshotTargets, studyDay, validD
 import './PlansScreen.css';
 
 export function PlanEditorScreen({ data, planId, initialSetId, onBack, onSaved, onDirtyChange }: { data: AppData; planId?: string; initialSetId?: string; onBack: () => void; onSaved: (id: string) => void; onDirtyChange: (dirty: boolean) => void }) {
-  const originalRaw = useRef(planId ? localStorage.getItem(PLAN_PREFIX + planId) : null);
+  const workKey = `plan:${planId ?? initialSetId ?? 'new'}`;
+  const recovered = useRestoredAccountWork<{ originalRaw: string | null; draftId: string; setId: string; title: string; kind: PlanKind; deadline: string; timeZone: string; weekdays: number[]; dailyCounts: number[]; holidays: string; category: string; start: number; end: number }>(workKey);
+  const originalRaw = useRef(recovered ? recovered.originalRaw : planId ? localStorage.getItem(PLAN_PREFIX + planId) : null);
   const [original] = useState(() => { try { return originalRaw.current ? parseStudyPlan(originalRaw.current) : null; } catch { return null; } });
-  const [draftId] = useState(() => original?.id ?? createId('plan'));
+  const [draftId] = useState(() => recovered?.draftId ?? original?.id ?? createId('plan'));
   const attemptedSave = useRef<{ committedRaw: string | null }>({ committedRaw: null });
   const day = studyDay(new Date(), original?.timeZone ?? getStudyTimeZone());
   const schedule = original ? scheduleFor(original, nextDay(day)) : null;
-  const [setId, setSetId] = useState(original?.setId ?? initialSetId ?? data.problemSets[0]?.id ?? '');
-  const [title, setTitle] = useState(original?.title ?? '');
-  const [kind, setKind] = useState<PlanKind>(schedule?.kind ?? 'deadline');
-  const [deadline, setDeadline] = useState(schedule?.deadline ?? nextDay(day, 30));
-  const [timeZone, setTimeZone] = useState(original?.timeZone ?? getStudyTimeZone());
-  const [weekdays, setWeekdays] = useState(schedule?.weekdays ?? [0, 1, 2, 3, 4, 5, 6]);
-  const [dailyCounts, setDailyCounts] = useState(schedule?.dailyCounts ?? [10, 10, 10, 10, 10, 10, 10]);
-  const [holidays, setHolidays] = useState(schedule?.holidays.join(', ') ?? '');
-  const [category, setCategory] = useState('all');
-  const [start, setStart] = useState(1); const [end, setEnd] = useState(10000);
+  const [setId, setSetId] = useState(recovered?.setId ?? original?.setId ?? initialSetId ?? data.problemSets[0]?.id ?? '');
+  const [title, setTitle] = useState(recovered?.title ?? original?.title ?? '');
+  const [kind, setKind] = useState<PlanKind>(recovered?.kind ?? schedule?.kind ?? 'deadline');
+  const [deadline, setDeadline] = useState(recovered?.deadline ?? schedule?.deadline ?? nextDay(day, 30));
+  const [timeZone, setTimeZone] = useState(recovered?.timeZone ?? original?.timeZone ?? getStudyTimeZone());
+  const [weekdays, setWeekdays] = useState(recovered?.weekdays ?? schedule?.weekdays ?? [0, 1, 2, 3, 4, 5, 6]);
+  const [dailyCounts, setDailyCounts] = useState(recovered?.dailyCounts ?? schedule?.dailyCounts ?? [10, 10, 10, 10, 10, 10, 10]);
+  const [holidays, setHolidays] = useState(recovered?.holidays ?? schedule?.holidays.join(', ') ?? '');
+  const [category, setCategory] = useState(recovered?.category ?? 'all');
+  const [start, setStart] = useState(recovered?.start ?? 1); const [end, setEnd] = useState(recovered?.end ?? 10000);
   const [error, setError] = useState(planId && !original ? '編集する計画を読み込めません。' : '');
   const [busy, setBusy] = useState(false); const saving = useRef(false);
   const optionsRef = useRef<HTMLDetailsElement>(null);
+  useAccountWork(workKey, () => ({ originalRaw: originalRaw.current, draftId, setId, title, kind, deadline, timeZone, weekdays, dailyCounts, holidays, category, start, end }), async () => { if(saving.current)throw new Error('計画の保存完了を待っています。'); });
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
   const questions = data.questions.filter(q => q.setId === setId);
   const selected = questions.filter(q => category === 'all' || q.category === category).slice(Math.max(0, start - 1), end);

@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 export const ANSWER_SOUND_KEY = 'quiz-make-answer-sound';
 export function isAnswerSoundEnabled(): boolean {
   try { return localStorage.getItem(ANSWER_SOUND_KEY) !== 'off'; } catch { return true; }

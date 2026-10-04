@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 import type { AppData } from '../types';
 import { loadAppDataAsync, saveAppDataAsync, waitForPendingAppDataSaves } from '../storage';
 import {

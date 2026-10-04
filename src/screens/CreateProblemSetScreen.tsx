@@ -1,4 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
+import { isAccountWorkReloadApproved } from '../utils/accountWork';
 import { createPortal } from 'react-dom';
 import type { AppData, Difficulty, ProblemSet, ProblemSetCreationMethod } from '../types';
 import { BackButton } from '../components/BackButton';
@@ -78,29 +80,40 @@ interface SetMeta {
   difficulty: Difficulty;
   source: string;
 }
+type CreateWork = {
+  view: CreationView; notesPurpose: 'questions'|'answer'; meta: SetMeta; originalMeta: SetMeta;
+  drafts: BulkQuestionDraft[]; initialDrafts: BulkQuestionDraft[]; deletedDrafts: DraftDeletion<BulkQuestionDraft>[];
+  questionEditor: BulkQuestionDraft; editingIndex: number|null; pasteText: string; sourceSetId?: string;
+  creationRequest: string; memoContext: string; aiStep: 1|2; aiMethod: 'simple'|'material'|'past-exam';
+  referenceMaterialId: string; choiceCount: 4|5; questionCount: string; allowMultiple: boolean;
+  pendingMethod: CreationView|null; pendingQuestionSave: PendingManualQuestion|null; editingBaseline: string|null;
+};
 
 export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, startWithAi = false, startWithExplanationImport = false, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
+  const workKey = `create:${editSetId ?? copySetId ?? initialFolderId ?? 'new'}`;
+  const recovered = useRestoredAccountWork<CreateWork>(workKey);
   const editingProblemSet = data.problemSets.find((problemSet) => problemSet.id === editSetId);
-  const initialDraftsRef = useRef<BulkQuestionDraft[]>(createDraftsFromProblemSet(data, editingProblemSet));
-  const [view, setView] = useState<CreationView>(startWithExplanationImport ? 'notes' : editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods');
-  const [notesPurpose, setNotesPurpose] = useState<'questions'|'answer'>('answer');
-  const [meta, setMeta] = useState<SetMeta>(() => createInitialMeta(data, initialFolderId, editingProblemSet));
-  const [drafts, setDrafts] = useState<BulkQuestionDraft[]>(() => initialDraftsRef.current);
-  const [deletedDrafts, setDeletedDrafts] = useState<DraftDeletion<BulkQuestionDraft>[]>([]);
+  const editingBaseline = useRef(recovered?.editingBaseline ?? (editingProblemSet ? JSON.stringify({ set:editingProblemSet, questions:data.questions.filter(q=>q.setId===editSetId) }) : null));
+  const initialDraftsRef = useRef<BulkQuestionDraft[]>(recovered?.initialDrafts ?? createDraftsFromProblemSet(data, editingProblemSet));
+  const [view, setView] = useState<CreationView>(recovered?.view ?? (startWithExplanationImport ? 'notes' : editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods'));
+  const [notesPurpose, setNotesPurpose] = useState<'questions'|'answer'>(recovered?.notesPurpose ?? 'answer');
+  const [meta, setMeta] = useState<SetMeta>(() => recovered?.meta ?? createInitialMeta(data, initialFolderId, editingProblemSet));
+  const [drafts, setDrafts] = useState<BulkQuestionDraft[]>(() => recovered?.drafts ?? initialDraftsRef.current);
+  const [deletedDrafts, setDeletedDrafts] = useState<DraftDeletion<BulkQuestionDraft>[]>(recovered?.deletedDrafts ?? []);
   const lastReviewId = useRef('');
-  const [questionEditor, setQuestionEditor] = useState<BulkQuestionDraft>(() => createBlankDraft('manual-editor'));
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [pasteText, setPasteText] = useState('');
-  const [sourceSetId, setSourceSetId] = useState<string | undefined>();
+  const [questionEditor, setQuestionEditor] = useState<BulkQuestionDraft>(() => recovered?.questionEditor ?? createBlankDraft('manual-editor'));
+  const [editingIndex, setEditingIndex] = useState<number | null>(recovered?.editingIndex ?? null);
+  const [pasteText, setPasteText] = useState(recovered?.pasteText ?? '');
+  const [sourceSetId, setSourceSetId] = useState<string | undefined>(recovered?.sourceSetId);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [copiedTemplate, setCopiedTemplate] = useState<'simple' | 'material' | 'past-exam' | ''>('');
-  const [creationRequest, setCreationRequest] = useState('');
-  const [memoContext, setMemoContext] = useState('');
-  const [aiStep, setAiStep] = useState<1 | 2>(1);
-  const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>('simple');
+  const [creationRequest, setCreationRequest] = useState(recovered?.creationRequest ?? '');
+  const [memoContext, setMemoContext] = useState(recovered?.memoContext ?? '');
+  const [aiStep, setAiStep] = useState<1 | 2>(recovered?.aiStep ?? 1);
+  const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>(recovered?.aiMethod ?? 'simple');
   const [registeredMaterials, setRegisteredMaterials] = useState<{ setTitle: string; material: StudyMaterial }[]>([]);
-  const [referenceMaterialId, setReferenceMaterialId] = useState('');
+  const [referenceMaterialId, setReferenceMaterialId] = useState(recovered?.referenceMaterialId ?? '');
   const [materialsError, setMaterialsError] = useState('');
   useEffect(() => {
     if (aiMethod !== 'material') return;
@@ -110,19 +123,20 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     }).catch(() => { if (!cancelled) setMaterialsError('登録済み資料を読み込めませんでした。'); });
     return () => { cancelled = true; };
   }, [aiMethod, data.problemSets]);
-  const [choiceCount, setChoiceCount] = useState<4 | 5>(4);
-  const [questionCount, setQuestionCount] = useState('');
-  const [allowMultiple, setAllowMultiple] = useState(false);
+  const [choiceCount, setChoiceCount] = useState<4 | 5>(recovered?.choiceCount ?? 4);
+  const [questionCount, setQuestionCount] = useState(recovered?.questionCount ?? '');
+  const [allowMultiple, setAllowMultiple] = useState(recovered?.allowMultiple ?? false);
   const jsonFileRef = useRef<HTMLInputElement>(null);
-  const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
-  const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
+  const [pendingMethod, setPendingMethod] = useState<CreationView | null>(recovered?.pendingMethod ?? null);
+  const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(recovered?.pendingQuestionSave ?? null);
   const [notesDirty, setNotesDirty] = useState(false);
   const notesBackRef = useRef<(()=>boolean)|null>(null);
-  const initializedCopyRef = useRef<string | undefined>(undefined);
+  const initializedCopyRef = useRef<string | undefined>(recovered ? copySetId : undefined);
   const saveInFlightRef = useRef(false);
-  const initialMetaRef = useRef(meta);
+  const initialMetaRef = useRef(recovered?.originalMeta ?? meta);
   const activeMethodRef = useRef<CreationView | null>(editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : null);
   const copiedTemplateTimerRef = useRef<number | null>(null);
+  useAccountWork(workKey, () => ({ view, notesPurpose, meta, originalMeta:initialMetaRef.current, drafts, initialDrafts:initialDraftsRef.current, deletedDrafts, questionEditor, editingIndex, pasteText, sourceSetId, creationRequest, memoContext, aiStep, aiMethod, referenceMaterialId, choiceCount, questionCount, allowMultiple, pendingMethod, pendingQuestionSave, editingBaseline:editingBaseline.current }), async () => { if(busy||saveInFlightRef.current)throw new Error('教材の読み込み・保存完了を待っています。'); });
 
   useEffect(() => () => {
     if (copiedTemplateTimerRef.current !== null) window.clearTimeout(copiedTemplateTimerRef.current);
@@ -164,6 +178,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   useEffect(() => {
     if (!isDirty) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if(isAccountWorkReloadApproved())return;
       event.preventDefault();
       event.returnValue = '';
     };
@@ -302,6 +317,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   };
 
   const persistDrafts = async (finalDrafts: BulkQuestionDraft[]) => {
+    if(editSetId && editingBaseline.current!==JSON.stringify({set:editingProblemSet,questions:data.questions.filter(q=>q.setId===editSetId)})) { setError('教材が別の操作で更新されました。復元した入力を控えて、更新後の教材を確認してください。');return false; }
     if (saveInFlightRef.current) return false;
     saveInFlightRef.current = true;
     setBusy(true);

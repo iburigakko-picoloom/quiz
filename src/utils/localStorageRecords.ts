@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 import { openAppDb } from '../storage';
 import { openCoLocatedNoteDb } from './noteRecordMigration';
 import { queueAuxiliaryRecordWrite } from './auxiliaryRecordStorage';

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAccountWork } from '../hooks/useAccountWork';
+import { isAccountWorkReloadApproved } from '../utils/accountWork';
 import { PinchImage } from './PinchImage';
 import { ActionMenu } from './ActionMenu';
 import ReactMarkdown from 'react-markdown';
@@ -32,6 +34,7 @@ export function ExplanationReader({ text, questionId = '', imageIds = [], onSave
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [localImages, setLocalImages] = useState<LocalQuestionImage[]>([]);
   const input = useRef<HTMLInputElement>(null), lock = useRef(false);
+  useAccountWork(`image-attachment:${questionId}`,()=>null,async()=>{if(lock.current)throw new Error('画像の保存完了を待っています。');});
   useEffect(() => {
     if (!questionId || !imageIds.length) { setLocalImages([]); return; }
     let cancelled = false;
@@ -121,6 +124,7 @@ export function WeaknessDetail({ questionId, text, imageIds, onSave, onAddImage,
   const writeSequence = useRef(0);
   const saveLock = useRef(false);
   const [savingMemo, setSavingMemo] = useState(false);
+  useAccountWork(`weakness-memo:${questionId}`,()=>({body,memoId,adding}),async()=>{if(failed.current||saveLock.current)throw new Error('メモの保存完了を待っています。');});
   const addImage = async (file: File) => {
     if (!onAddImage) return;
     onDirtyChange?.(true);
@@ -152,7 +156,7 @@ export function WeaknessDetail({ questionId, text, imageIds, onSave, onAddImage,
     catch {setError('メモを読み込めません。再読み込みしてください。');}
   },[questionId,guideExample]);
   useEffect(()=>()=>onDirtyChange?.(false),[onDirtyChange]);
-  useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if(failed.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[]);
+  useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if(failed.current&&!isAccountWorkReloadApproved()){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[]);
   const persist=async(value:string,draft:boolean)=>{
     if (guideExample !== undefined) return true;
     const sequence = ++writeSequence.current;

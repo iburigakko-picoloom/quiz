@@ -1,4 +1,5 @@
 import { forwardRef, type PointerEvent, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useAccountWork } from '../hooks/useAccountWork';
 import { flushSync } from 'react-dom';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
@@ -686,6 +687,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   };
 
   useImperativeHandle(ref, () => ({ flush: flushPendingNote, resetPageSlide: (animate = true) => resetPageRail(animate) }));
+  useAccountWork(`category-note:${noteKey}`, () => ({ pageIndex }), flushPendingNote);
 
   function clearHistory() {
     historyRef.current = createByteBudgetHistory();

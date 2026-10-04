@@ -98,6 +98,8 @@ type PendingBackupImport =
   | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary }
   | { kind: 'legacy'; data: AppData };
 export default function App() {
+  const recovered = useRestoredAccountWork<{ screen: AppScreen; pendingBackupImport: PendingBackupImport | null; createDraftDirty: boolean }>('app');
+  const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' }));
   const [data, setData] = useState<AppData>(() => createEmptyAppData());
   const [storageReady, setStorageReady] = useState(false);
   const [receivingSharedImage,setReceivingSharedImage] = useState(()=>new URL(location.href).searchParams.has('sharedImage')||new URL(location.href).searchParams.has('sharedImageError'));
@@ -105,14 +107,14 @@ export default function App() {
   const [storageLoadAttempt, setStorageLoadAttempt] = useState(0);
   const dataRef = useRef(data);
   const durableDataRef = useRef(data);
-  const [screen, setScreen] = useState<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
+  const [screen, setScreen] = useState<AppScreen>(initialScreen.current);
   const [transitionDirection, setTransitionDirection] = useState<'forward' | 'back' | 'replace'>('replace');
   const [guideReturn, setGuideReturn] = useState<'home' | 'settings' | null>(null);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [pendingExitTarget, setPendingExitTarget] = useState<AppScreen | null>(null);
   const [pendingExitReason, setPendingExitReason] = useState<'quiz' | 'create' | null>(null);
-  const [createDraftDirty, setCreateDraftDirty] = useState(false);
-  const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(null);
+  const [createDraftDirty, setCreateDraftDirty] = useState(recovered?.createDraftDirty ?? false);
+  const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(recovered?.pendingBackupImport ?? null);
   const [backupImportBusy, setBackupImportBusy] = useState(false);
   const [backupImportError, setBackupImportError] = useState('');
   const [backupExportNotice, setBackupExportNotice] = useState('');
@@ -122,7 +124,7 @@ export default function App() {
   const [autoImportBusy, setAutoImportBusy] = useState(false);
   const autoImportBusyRef = useRef(false);
   const [storageError, setStorageError] = useState('');
-  const navigationStackRef = useRef<AppScreen[]>(lineLinkReturn ? [{ name: 'home' }, { name: 'settings', page: 'account' }] : [{ name: 'home' }]);
+  const navigationStackRef = useRef<AppScreen[]>(initialScreen.current.name === 'home' ? [{ name: 'home' }] : [{ name: 'home' }, initialScreen.current]);
   const noteExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
   const importExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
   const importHistoryPendingRef = useRef(false);
@@ -136,7 +138,8 @@ export default function App() {
   const pendingExitModeRef = useRef<'back' | 'replace'>('back');
   const confirmedProtectedExitRef = useRef(false);
   const createDraftDirtyRef = useRef(false);
-  const screenRef = useRef<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
+  const screenRef = useRef<AppScreen>(initialScreen.current);
+  useAccountWork('app', () => ({ screen: screenRef.current, pendingBackupImport, createDraftDirty }));
   const dataRevisionRef = useRef(0);
   const libraryMutationBusyRef = useRef(false);
   const autoImportEligibleRef = useRef(false);
@@ -2032,3 +2035,4 @@ function hasQuestionLearningContentChanged(previous: Question, next: Question): 
       !== JSON.stringify([...getAnswerIndexes(next)].sort((left, right) => left - right));
 }
 
+import { useAccountWork, useRestoredAccountWork } from './hooks/useAccountWork';

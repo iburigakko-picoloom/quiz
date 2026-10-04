@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 const RECORD_SYNC_OPT_IN_KEY = 'quizMake:sync:recordV2OptIn';
 
 /** Opt-in is local to one connection. Missing or unreadable storage leaves V2 off. */

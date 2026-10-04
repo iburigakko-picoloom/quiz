@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage, accountDatabaseName } from './accountStorage';
 import type { SyncPayload } from './syncService';
 
 export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; }
@@ -11,7 +12,7 @@ const DB = 'quiz-make-backups';
 const PREFIX = 'quizMake:sync:saved-backup:';
 async function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB, 1);
+    const request = indexedDB.open(accountDatabaseName(DB), 1);
     request.onupgradeneeded = () => request.result.createObjectStore('backups', { keyPath: 'id' });
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);

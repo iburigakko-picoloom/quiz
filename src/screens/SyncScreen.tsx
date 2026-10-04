@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage, accountStorageEventKey } from '../utils/accountStorage';
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import type { SyncScreenPage } from '../types';
 import { SyncStatus } from '../components/SyncStatus';
@@ -162,10 +163,10 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
       setRecordSyncOptedInState(isRecordSyncOptedIn(getStoredSyncId().trim()));
     };
     const refreshExternalSyncState = (event: StorageEvent) => {
-      if (event.storageArea && event.storageArea !== localStorage) return;
-      if (event.key !== null && !event.key.startsWith('quizMake:sync:')) return;
+      const key = accountStorageEventKey(event);
+      if (key === undefined || key !== null && !key.startsWith('quizMake:sync:')) return;
       refreshSyncState();
-      if (event.key !== null && event.key !== SYNC_ID_STORAGE_KEY) return;
+      if (key !== null && key !== SYNC_ID_STORAGE_KEY) return;
 
       const nextSyncId = getStoredSyncId().trim();
       setSyncId(nextSyncId);

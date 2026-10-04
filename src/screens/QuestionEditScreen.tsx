@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
 import type { Question } from '../types';
 import { Layout } from '../components/Layout';
 import { getAnswerIndexes } from '../utils/quiz';
@@ -9,11 +10,14 @@ export function QuestionEditScreen({ question, onBack, onDirtyChange, onSave }: 
   question: Question; onBack: () => void; onDirtyChange: (dirty: boolean) => void;
   onSave: (next: Question, original: Question) => Promise<string | null>;
 }) {
-  const original = useRef(question);
-  const [draft, setDraft] = useState(question);
+  const workKey = `question-edit:${question.id}`;
+  const recovered = useRestoredAccountWork<{ original: Question; draft: Question }>(workKey);
+  const original = useRef(recovered?.original ?? question);
+  const [draft, setDraft] = useState(recovered?.draft ?? question);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const busyRef = useRef(false);
+  useAccountWork(workKey, () => ({ original: original.current, draft }), async () => { if(busyRef.current)throw new Error('問題の保存完了を待っています。'); });
   const answers = getAnswerIndexes(draft);
   const dirty = JSON.stringify(original.current) !== JSON.stringify(draft);
   useEffect(() => { onDirtyChange(dirty || busy); return () => onDirtyChange(false); }, [dirty, busy, onDirtyChange]);

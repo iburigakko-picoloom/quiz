@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 import {
   APP_DATA_FALLBACK_META_KEY,
   APP_DATA_EXPECTED_KEY,

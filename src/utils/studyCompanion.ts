@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 export const STUDY_COMPANION_KEY = 'quiz-make-study-companion';
 export const STUDY_COMPANION_EVENT = 'quiz-make-study-companion-change';
 export function isStudyCompanionEnabled(): boolean {

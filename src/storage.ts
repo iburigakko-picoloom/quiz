@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage, accountDatabaseName, assertAccountStorageCurrent } from './utils/accountStorage';
 import type { AppData } from './types';
 import { normalizeAppData } from './utils/appDataValidation';
 import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './utils/dataCoordination';
@@ -348,11 +349,12 @@ function isIndexedDbAvailable(): boolean {
 }
 
 export function openAppDb(): Promise<IDBDatabase> {
+  assertAccountStorageCurrent();
   if (!isIndexedDbAvailable()) return Promise.reject(new Error('IndexedDB is not available.'));
   if (appDbPromise) return appDbPromise;
 
   appDbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(APP_DB_NAME, 7);
+    const request = indexedDB.open(accountDatabaseName(APP_DB_NAME), 7);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(APP_STORE_NAME)) db.createObjectStore(APP_STORE_NAME);

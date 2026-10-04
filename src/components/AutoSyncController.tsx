@@ -389,7 +389,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       uploadQueue.request(true);
     };
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === null || event.key.startsWith('quizMake:sync:')) {
+      const key = accountStorageEventKey(event);
+      if (key === null || key?.startsWith('quizMake:sync:')) {
         handleSettingsChange();
       }
     };
@@ -453,3 +454,4 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
 
   return null;
 }
+import { accountStorageEventKey } from '../utils/accountStorage';

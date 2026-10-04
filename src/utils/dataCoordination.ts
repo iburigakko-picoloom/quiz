@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 export type DataDomain = 'app' | 'notes';
 
 const DATA_LOCK_NAME = 'quiz-make-origin-data-v1';

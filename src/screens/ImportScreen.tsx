@@ -1,4 +1,6 @@
 import { type ChangeEvent, useEffect, useRef, useState } from 'react';
+import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
+import { isAccountWorkReloadApproved } from '../utils/accountWork';
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
@@ -27,7 +29,9 @@ interface ImportResult {
 }
 
 export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack, onImport, onImportComplete }: ImportScreenProps) {
-  const initial = readImportSession(sessionKey);
+  const workKey = `import:${sessionKey}`;
+  const recovered = useRestoredAccountWork<ImportDraft>(workKey);
+  const initial = recovered ?? readImportSession(sessionKey);
   const [title, setTitle] = useState(initial?.title ?? '');
   const [titleEdited, setTitleEdited] = useState(initial?.titleEdited ?? false);
   const [jsonText, setJsonText] = useState(initial?.jsonText ?? '');
@@ -44,6 +48,7 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
   const runningRef = useRef<Promise<void> | null>(null);
   const draftRef = useRef<ImportDraft>({ title, titleEdited, jsonText, files: importFiles, savedCount });
   draftRef.current = { title, titleEdited, jsonText, files: importFiles, savedCount };
+  useAccountWork(workKey, () => draftRef.current, async () => { if(preparingRef.current || runningRef.current)throw new Error('取り込み完了を待っています。'); });
   const exitResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const [exitOpen, setExitOpen] = useState(false);
   const [exitWaiting, setExitWaiting] = useState(false);
@@ -64,7 +69,7 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
   }, [sessionKey, registerExitGuard]);
   useEffect(() => {
     if (!isImporting && !isPreparingFiles && !jsonText.trim() && !importFiles.length) return;
-    const protect = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    const protect = (event: BeforeUnloadEvent) => { if(isAccountWorkReloadApproved())return;event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', protect); return () => window.removeEventListener('beforeunload', protect);
   }, [isImporting, isPreparingFiles, jsonText, importFiles.length]);
   const resolveExit = async (confirmed: boolean) => {

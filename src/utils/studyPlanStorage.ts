@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 import { withCoordinatedDataMutation } from './dataCoordination';
 import { replayLocalStorageProjections, saveSyncedLocalStorage } from './localStorageRecords';
 import { advanceLocalDataRevision } from './localDataRevision';

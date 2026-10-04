@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from '../utils/accountStorage';
 import { useState } from 'react';
 import type { AppData, Question } from '../types';
 import { Layout } from '../components/Layout';
