@@ -1,5 +1,6 @@
 import type { AppOutboxOperation, AppRecord, AppRecordState } from './appRecordStorage';
 import { recordSyncMetric } from './syncMetrics';
+import { MAX_RECORD_BATCH_BYTES, SyncRecordTooLargeError } from './recordSyncSize';
 
 export type RecordSyncConnection = { project: string; userId: string; syncId: string };
 export type RecordPushBatch = { id: string; connection: RecordSyncConnection; operations: AppOutboxOperation[] };
@@ -7,7 +8,7 @@ export type RecordPushAcknowledgement = { code: 'ok'; revision: number; ack: Arr
 export const sameRecordSyncConnection = (a: RecordSyncConnection, b: RecordSyncConnection) =>
   a.project === b.project && a.userId === b.userId && a.syncId === b.syncId;
 
-const MAX_BATCH_BYTES = 900 * 1024; // Leave room for JSON and RPC parameter framing.
+const MAX_BATCH_BYTES = MAX_RECORD_BATCH_BYTES; // Leave room for JSON and RPC parameter framing.
 
 export class RecordSyncLocalChangedError extends Error {
   constructor() { super('差分の検証後に端末データが更新されました。最新の変更を再確認します。'); }
@@ -143,8 +144,8 @@ export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordS
         // Abort before persisting a batch so preparation can retry next run.
         options.validateOperation?.(operation);
         const size = new TextEncoder().encode(JSON.stringify(operation)).byteLength + 1;
-        if (size > MAX_BATCH_BYTES) {
-          failure = new Error('1レコードの同期サイズが大きすぎます。データは端末に保持しています。'); tx.abort(); return;
+        if (2 + size > MAX_BATCH_BYTES) {
+          failure = new SyncRecordTooLargeError(operation.collection, operation.id, 2 + size); tx.abort(); return;
         }
         if (bytes + size > MAX_BATCH_BYTES) { persist(); return; }
         bytes += size; operations.push(operation);
@@ -156,6 +157,15 @@ export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordS
   try { await completion; } catch (error) { throw failure ?? error; }
   if (batch) recordSyncMetric('pushBatchFrozen');
   return batch;
+}
+
+/** A concurrent local save after an empty freeze must not be reported as done. */
+export async function hasPendingRecordPushOperations(db: IDBDatabase): Promise<boolean> {
+  const tx = db.transaction('appOutbox', 'readonly');
+  const completion = done(tx);
+  const request = tx.objectStore('appOutbox').count();
+  await completion;
+  return request.result > 0;
 }
 
 function validateAcknowledgement(batch: RecordPushBatch, response: RecordPushAcknowledgement): void {

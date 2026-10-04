@@ -1,6 +1,6 @@
 import type { AppOutboxOperation } from './appRecordStorage';
 import {
-  acknowledgeRecordPushBatch, bindRecordSyncConnection, freezeRecordPushBatch, getPendingRecordPushBatch, releaseRejectedRecordPushBatch,
+  acknowledgeRecordPushBatch, bindRecordSyncConnection, freezeRecordPushBatch, getPendingRecordPushBatch, releaseRejectedRecordPushBatch, hasPendingRecordPushOperations,
   RecordSyncLocalChangedError,
   type RecordSyncConnection, type RecordPushAcknowledgement, type RecordPushBatch,
 } from './recordSyncOutbox';
@@ -124,7 +124,7 @@ export async function runRecordSync(
         if (error instanceof RecordSyncLocalChangedError) return { status: 'more', uploaded, downloaded };
         throw error;
       }
-      if (!batch) return { status: 'done', uploaded, downloaded };
+      if (!batch) return { status: await hasPendingRecordPushOperations(db) ? 'more' : 'done', uploaded, downloaded };
       if (!await send(batch)) return { status: 'more', uploaded, downloaded };
     }
     return { status: 'more', uploaded, downloaded };

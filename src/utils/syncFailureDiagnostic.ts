@@ -1,4 +1,6 @@
-// Only static application messages are eligible; provider responses stay private.
+import { SYNC_RECORD_KIND_LABELS } from './recordSyncSize';
+
+// Only static application messages and bounded kind/byte diagnostics are eligible.
 const safeMessages = new Set([
   "1レコードの同期サイズが大きすぎます。データは端末に保持しています。",
   "Cannot bootstrap a missing note manifest after cloud sync.",
@@ -128,6 +130,8 @@ const safeMessages = new Set([
 
 export function safeSyncFailureMessage(message: string): string {
   if (safeMessages.has(message)) return message;
+  const oversized = message.match(/^1レコードの同期サイズが大きすぎます（対象：([^、]+)、計算サイズ：([0-9]{1,13})B、上限：921600B）。データは端末に保持しています。$/u);
+  if (oversized && SYNC_RECORD_KIND_LABELS.some(kind => kind === oversized[1]) && Number(oversized[2]) > 921600) return message;
   const field = message.match(/^(folders|problemSets|questions|answerLogs)(\[\d+\])?(?:\.([A-Za-z]+))? (が不正です。|は4個または5個の文字列である必要があります。|が存在しないフォルダを参照しています。|が存在しない問題セットを参照しています。)$/u);
   if (field) return message;
   const duplicate = message.match(/^(folders|problemSets|questions|answerLogs) に(?:内容の異なる)?重複ID/u);
