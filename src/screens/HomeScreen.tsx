@@ -14,9 +14,8 @@ import {
 import { buildAppDataView } from '../utils/appDataView';
 import './HomeScreen.css';
 import { StudyCompanion } from '../components/StudyCompanion';
+import { StudyActivity } from '../components/StudyActivity';
 import { useStudyRecord } from '../hooks/useStudyRecord';
-import { useStudyPlans } from '../hooks/useStudyPlans';
-import { aggregatePlanToday, planStatus } from '../utils/studyPlans';
 
 interface HomeScreenProps {
   data: AppData;
@@ -27,7 +26,6 @@ interface HomeScreenProps {
   onOpenStudyRecord: () => void;
   onOpenPlans: () => void;
   onOpenSearch: () => void;
-  onOpenPlan: (id: string) => void;
   onSave: (data: AppData) => Promise<boolean>;
 }
 
@@ -40,13 +38,10 @@ export function HomeScreen({
   onOpenStudyRecord,
   onOpenPlans,
   onOpenSearch,
-  onOpenPlan,
   onSave,
 }: HomeScreenProps) {
   const [folderName, setFolderName] = useState('');
   const { summary, day } = useStudyRecord(data.answerLogs);
-  const { entries, error: planError } = useStudyPlans(data.answerLogs);
-  const planToday = aggregatePlanToday(entries, data);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('recent');
   const editMode = false;
@@ -71,13 +66,12 @@ export function HomeScreen({
         </header>
 
         <div className="quiz-home__content">
-        <section className="quiz-home__today" aria-label="今日のがんばりと計画達成">
-          <h2 className="sr-only">今日のがんばりと計画達成</h2>
+        <section className="quiz-home__today" aria-label="今日のがんばり">
+          <h2 className="sr-only">今日のがんばり</h2>
           <StudyCompanion scene="home">
             <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
               <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
-              <span className="quiz-home__activity"><span>全回答 <strong>{summary.todayCount}<small>回</small></strong></span><span>連続 <b>{summary.streak}</b>日</span></span>
-              <span className="quiz-home__plan-total">計画 <b>{planToday.done}/{planToday.goal}</b>問</span>
+              <StudyActivity summary={summary} compact />
             </button>
           </StudyCompanion>
         </section>
@@ -115,16 +109,6 @@ export function HomeScreen({
           })}
         </section>
         {!folders.length && query ? <p className="quiz-home__no-results">該当するフォルダがありません</p> : null}
-        </section>
-
-        <section className="quiz-home__plans" aria-label="学習計画">
-          <div className="quiz-home__section-heading"><h2>学習計画</h2><button type="button" onClick={onOpenPlans}>一覧・作成 ›</button></div>
-          {planError ? <p role="alert">{planError}</p> : null}
-          {entries.length ? <div className="quiz-home__plan-list">{entries.slice(0, 2).map(({ plan, daily }) => {
-            const status = planStatus(plan, data, daily);
-            const label = status.paused ? '休止中' : status.expired ? '期限超過' : status.todayComplete ? '今日の目標達成' : `今日あと${status.remaining}問`;
-            return <button key={plan.id} type="button" className="quiz-home__plan-card" aria-label={`${plan.title}：${plan.setTitle}、${label}、${status.done}/${status.goal}問`} onClick={() => onOpenPlan(plan.id)}><span className="quiz-home__plan-target"><strong>{plan.title}</strong></span><span className="quiz-home__plan-count">{status.paused ? '休止中' : status.expired ? '期限超過' : `今日 ${status.done}/${status.goal}問`}</span><ChevronRightIcon size={16} /></button>;
-          })}{entries.length > 2 ? <button type="button" className="quiz-home__more-plans" onClick={onOpenPlans}>ほか{entries.length - 2}件の計画</button> : null}</div> : <button className="quiz-home__no-plans" type="button" onClick={onOpenPlans}>期限型・習慣型の計画を作成 ＋</button>}
         </section>
 
         </div>

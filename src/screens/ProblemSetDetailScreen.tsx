@@ -164,7 +164,7 @@ export function ProblemSetDetailScreen({
             <section className="quiz-detail__start-panel" aria-labelledby="quiz-detail-start-title">
               <h2 id="quiz-detail-start-title" className="sr-only">出題条件と学習開始</h2>
 
-              <details className="quiz-detail__filters">
+              <details className="quiz-detail__filters" open>
                 <summary className="quiz-detail__conditions-summary">出題条件：{selectedLabel}・{reviewFilterLabel}・{filteredStartQuestions.length}問</summary>
                 <div className="quiz-detail__filters-body">
                   {questions.some(question => question.category.trim() && question.category !== '未分類') ? <>
