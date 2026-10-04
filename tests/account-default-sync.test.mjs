@@ -7,7 +7,9 @@ const first='a'.repeat(36),second='b'.repeat(36),foreign='c'.repeat(36),unowned=
 test('account default RPC permission and migration matrix (unchanged migration on local PostgreSQL)',async t=>{
   const pg=await createRecordProtocolDatabase();
   try{
-    await pg.exec(`create schema auth;create table auth.users(id uuid primary key);
+    await pg.exec(`create role service_role;
+      alter default privileges for role postgres in schema public grant execute on functions to anon, authenticated, service_role;
+      create schema auth;create table auth.users(id uuid primary key);
       create function auth.uid() returns uuid language sql as $$ select (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid $$;
       create function private.quiz_sync_hash(text) returns bytea language sql immutable as $$select sha256(convert_to($1,'UTF8'))$$;
       grant usage on schema private to authenticated;
@@ -23,8 +25,10 @@ test('account default RPC permission and migration matrix (unchanged migration o
     const reset=async()=>{await auth();await pg.exec(`delete from public.quiz_sync_data;delete from auth.users;insert into auth.users values('${a}'),('${b}');delete from private.qa_rate_checks;`);};
     const call=async(candidate=null)=>{await pg.exec('set role authenticated');try{return (await pg.query('select public.quiz_sync_resolve_account($1) as value',[candidate])).rows[0].value;}finally{await pg.exec('reset role')}};
     const seed=async(id,user=a,owner=true)=>{await auth(user);await pg.query("insert into public.quiz_sync_data(sync_id,data,updated_at,creator_hash) values($1,'{}',now(),case when $2 then private.quiz_sync_actor_hash() else null end)",[id,owner]);};
-    await t.test('anonymous role and direct private-table access are denied; public wrapper is invoker',async()=>{
+    await t.test('anon/service_role execution and direct private-table access are denied despite default grants; public wrapper is invoker',async()=>{
       await reset();await pg.exec('set role anon');await assert.rejects(pg.query('select public.quiz_sync_resolve_account(null)'),/permission denied/);await pg.exec('reset role');await pg.exec('set role authenticated');await assert.rejects(pg.query('select * from private.quiz_sync_account_defaults'),/permission denied/);await pg.exec('reset role');
+      const inherited=await pg.query("select has_function_privilege('service_role','public.quiz_sync_resolve_account(text)','EXECUTE') as public_execute,has_function_privilege('service_role','private.quiz_sync_resolve_account(text)','EXECUTE') as private_execute");assert.deepEqual(inherited.rows[0],{public_execute:false,private_execute:false});
+      await pg.exec('grant usage on schema private to service_role;set role service_role');await assert.rejects(pg.query('select public.quiz_sync_resolve_account(null)'),/permission denied/);await assert.rejects(pg.query('select private.quiz_sync_resolve_account(null)'),/permission denied/);await pg.exec('reset role;revoke usage on schema private from service_role');
       const r=await pg.query("select p.prosecdef from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='quiz_sync_resolve_account'");assert.equal(r.rows[0].prosecdef,false);
       const policies=await pg.query("select relrowsecurity from pg_class where oid='private.quiz_sync_account_defaults'::regclass");assert.equal(policies.rows[0].relrowsecurity,true);
     });

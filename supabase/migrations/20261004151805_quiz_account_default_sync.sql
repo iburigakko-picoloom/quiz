@@ -86,8 +86,10 @@ create function public.quiz_sync_resolve_account(p_existing_sync_id text default
 returns jsonb language sql security invoker set search_path = '' as $$
   select private.quiz_sync_resolve_account(p_existing_sync_id)
 $$;
-revoke all on function private.quiz_sync_resolve_account(text) from public, anon, authenticated;
-revoke all on function public.quiz_sync_resolve_account(text) from public, anon, authenticated;
+-- Public-schema default ACLs can also grant service_role execution. Revoke it
+-- explicitly before granting the authenticated-only account endpoints.
+revoke all on function private.quiz_sync_resolve_account(text) from public, anon, authenticated, service_role;
+revoke all on function public.quiz_sync_resolve_account(text) from public, anon, authenticated, service_role;
 grant execute on function private.quiz_sync_resolve_account(text) to authenticated;
 grant execute on function public.quiz_sync_resolve_account(text) to authenticated;
 comment on function public.quiz_sync_resolve_account(text) is
