@@ -14,6 +14,8 @@ import type { QuestionImageDescriptor, StoredQuestionImage } from './questionIma
 import { normalizeAppData } from './appDataValidation';
 import { createProgressSyncContext, verifiedBootstrapProgress } from './recordProgressAncestor';
 import { validatePlanStorage } from './studyPlanStorage';
+import { SyncProtocolError } from './syncInterruption';
+import { safeSyncFailureMessage } from './syncFailureDiagnostic';
 
 export type RemoteRecordChange = { key: string; collection: RecordCollection; id: string; raw: string | null; position: number; revision: number };
 export type RecordPullPage = { code: 'ok'; cursor: number; head: number; hasMore: boolean; batches: Array<{ revision: number; changes: RemoteRecordChange[] }> };
@@ -46,7 +48,12 @@ const revisionValid = (value: unknown): value is number => Number.isSafeInteger(
 
 /** Exported for the network adapter: never trust cursor progress or record IDs from a response. */
 export function validateRecordPullPage(value: unknown, fromCursor: number): RecordPullPage {
+  try {
   const page = value as RecordPullPage | null;
+  if (page && page.code !== 'ok') {
+    const code = (page as unknown as { code?: unknown }).code;
+    throw new SyncProtocolError(typeof code === 'string' ? code : 'invalid_response', '差分読込の応答を確認できません。端末データを保持しています。');
+  }
   if (!page || page.code !== 'ok' || !revisionValid(page.cursor) || !revisionValid(page.head)
     || page.cursor < fromCursor || page.cursor > page.head || page.hasMore !== (page.cursor < page.head)
     || !Array.isArray(page.batches) || page.batches.length > 20) throw new Error('差分読込のCursorが不正です。');
@@ -72,6 +79,10 @@ export function validateRecordPullPage(value: unknown, fromCursor: number): Reco
   });
   if (cursor !== page.cursor || (page.hasMore && !batches.length)) throw new Error('差分読込のCursorが変更内容と一致しません。');
   return { code: 'ok', cursor, head: page.head, hasMore: page.hasMore, batches };
+  } catch (error) {
+    if (error instanceof SyncProtocolError) throw error;
+    throw new SyncProtocolError('invalid_response', error instanceof Error ? safeSyncFailureMessage(error.message) : '差分読込の形式を確認できません。端末データを保持しています。');
+  }
 }
 
 export async function getRecordPullCursor(db: IDBDatabase, connection: RecordSyncConnection): Promise<number> {

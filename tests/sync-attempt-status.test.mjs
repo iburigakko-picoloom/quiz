@@ -6,12 +6,12 @@ const hooks=registerHooks({resolve(s,c,next){return next(/^\.\.?\//.test(s)&&! /
 after(()=>hooks.deregister());
 const {createAutoSyncScheduler}=await import('../src/utils/autoSyncScheduler.ts');
 const {clearSyncAttemptStatus,readSyncAttemptStatus,publishSyncAttempt,publishSyncQueue,publishRemoteCheck,observeRecordSyncAttempt}=await import('../src/utils/syncAttemptStatus.ts');
-const {SyncInterruptedError}=await import('../src/utils/syncInterruption.ts');
+const {SyncInterruptedError,SyncLocalPersistenceError,SyncProtocolError}=await import('../src/utils/syncInterruption.ts');
 const {syncStatusPresentation}=await import('../src/utils/syncStatusPresentation.ts');
 const {createRecordSyncRpc,RecordSyncRpcError}=await import('../src/utils/recordSyncNetwork.ts');
 const {writeRecordSyncReceipt,readRecordSyncStatus}=await import('../src/utils/recordSyncStatus.ts');
 const connection={project:'https://test.invalid',userId:'test-user',syncId:'test-sync'};
-const base={online:true,loginRequired:false,error:true,autoEnabled:true,recordEnabled:true,record:{phase:'done',pending:0,staged:false,conflicts:0,lastSuccessAt:'2026-10-01T00:00:00Z',cursor:1},pending:false,success:'2026-10-01T00:00:00Z'};
+const base={now:0,online:true,loginRequired:false,error:true,autoEnabled:true,recordEnabled:true,record:{phase:'done',pending:0,staged:false,conflicts:0,lastSuccessAt:'2026-10-01T00:00:00Z',cursor:1},pending:false,success:'2026-10-01T00:00:00Z'};
 const present=extra=>syncStatusPresentation({...base,attempt:readSyncAttemptStatus(connection),...extra});
 const settle=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
 function harness(run){
@@ -63,4 +63,16 @@ test('real done receipt survives an informational status writer failure; display
     const result=await observeRecordSyncAttempt(async step=>{step('receipt');await writeRecordSyncReceipt(db,connection,{status:'done',uploaded:0,downloaded:0},'2026-10-04T00:00:00Z');return {status:'done'}},u=>{publishSyncAttempt(connection,u);throw Error('informational writer quota')});
     assert.equal(result.outcome,'done');const record=await readRecordSyncStatus(db,connection);assert.equal(record.phase,'done');assert.equal(record.pending,0);assert.equal(present({record,success:record.lastSuccessAt,error:true}).text,'同期済み');
   }finally{db.close()}
+});
+test('local persistence and permanent protocol failures pause without a retry loop or invented success',async()=>{
+  for(const error of [new SyncLocalPersistenceError('端末への保存を確認してください。'),new SyncProtocolError('invalid_response','差分読込のCursorが不正です。'),new RecordSyncRpcError('payload_too_large','too large')]){
+    let calls=0,repaired=false;const h=harness(async step=>{calls++;step(error.code==='local_persistence_failed'?'local_persistence':'pull_validate');if(!repaired)throw error;return {status:'done'}});
+    h.queue.request(true);await h.advance(0);assert.equal(readSyncAttemptStatus(connection).phase,'paused');assert.equal(readSyncAttemptStatus(connection).retryAt,null);assert.equal(present().action,'retry');assert.notEqual(present().text,'同期済み');
+    await h.advance(180000);assert.equal(calls,1);repaired=true;h.queue.request(true);await h.advance(0);assert.equal(calls,2);assert.equal(present().text,'同期済み');h.queue.dispose();
+  }
+});
+test('an expired retry time exposes an actionable state while offline and running retain priority',()=>{
+  clearSyncAttemptStatus();publishSyncAttempt(connection,{phase:'failed',lastFailure:{step:'pull',code:'network',at:'now',message:'network'}});publishSyncQueue(connection,{phase:'queued',retryAt:5000});
+  assert.equal(present({now:4999}).text,'再試行を待っています');assert.equal(present({now:4999}).action,'retry');assert.equal(present({now:20000}).text,'再試行できます');assert.equal(present({now:20000}).action,'retry');assert.equal(present({now:20000,online:false}).text,'オフライン');
+  publishSyncQueue(connection,{phase:'running',retryAt:null});assert.equal(present({now:20000}).text,'同期中');assert.equal(present({now:20000}).action,null);
 });

@@ -4,6 +4,8 @@ import { SyncInterruptedError } from './syncInterruption';
 
 export const SYNC_ATTEMPT_EVENT = 'quiz-make-sync-attempt';
 export type SyncFailure = { code: string; step: string; at: string; message: string };
+export const isBlockedSyncFailure = (code: string) => ['local_persistence_failed', 'invalid_response', 'invalid_request',
+  'invalid', 'operation_reused', 'quota', 'payload_too_large', 'unavailable', 'media_unsupported', 'legacy_snapshot'].includes(code);
 export type SyncAttemptStatus = { phase: 'queued' | 'running' | 'paused' | 'failed' | 'done'; retryAt: number | null;
   pauseReason: string; step: string; lastFailure: SyncFailure | null };
 type Entry = { connection: RecordSyncConnection; queue: AutoSyncQueueState; remoteChecking: boolean; result: SyncAttemptStatus };
@@ -48,8 +50,8 @@ export async function observeRecordSyncAttempt<T extends { status: 'done' | 'mor
       notify({ phase: 'paused', pauseReason: error.reason }); return { outcome: 'paused', error };
     }
     const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unexpected';
-    notify({ phase: 'failed', lastFailure: { code, step, at: now(), message: error instanceof Error ? error.message : '同期を完了できませんでした。' } });
-    const paused = ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(code);
+    const paused = isBlockedSyncFailure(code);
+    notify({ phase: paused ? 'paused' : 'failed', pauseReason: paused ? code : '', lastFailure: { code, step, at: now(), message: error instanceof Error ? error.message : '同期を完了できませんでした。' } });
     return { outcome: paused ? 'paused' : code === 'rate_limited' ? 'rate_limited' : 'retry', error };
   }
 }

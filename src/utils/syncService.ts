@@ -46,6 +46,7 @@ import { createMaterialTransport, hasMaterialFiles, hasRemoteMaterialFiles, hydr
 import { NOTES_KEY, REQUEST_KEY, WEAKNESS_STORAGE_KEYS, NOTES_EVENT, parseNotes, parseExplanationRequests } from './weaknessNotes';
 import { recordSyncMetric } from './syncMetrics';
 import { validatePlanStorage } from './studyPlanStorage';
+import { SyncLocalPersistenceError } from './syncInterruption';
 export type SyncPayload = {
   version: 1;
   updatedAt: string;
@@ -63,7 +64,8 @@ export type SyncErrorCode =
   | 'not_found'
   | 'payload_too_large'
   | 'quota'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'local_persistence_failed';
 
 export type SyncResult<T> = { ok: true; value: T } | {
   ok: false;
@@ -442,12 +444,13 @@ export async function waitForLocalPersistence(): Promise<SyncResult<number>> {
       waitForPendingCategoryNoteSaves(),
     ]);
     if (!appDataSaved) {
-      return { ok: false, error: '端末内の問題データを保存できていないため、クラウド同期を中止しました。' };
+      return { ok: false, code: 'local_persistence_failed', error: '端末内の問題データを保存できていないため、クラウド同期を中止しました。' };
     }
     return { ok: true, value: getLocalDataRevision() };
   } catch (error) {
     return {
       ok: false,
+      code: 'local_persistence_failed',
       error: error instanceof Error
         ? `端末内のノートを保存できていないため、クラウド同期を中止しました: ${error.message}`
         : '端末内のノートを保存できていないため、クラウド同期を中止しました。',
@@ -487,7 +490,7 @@ export function exportQuizMakeData(
       throw new Error('前回のデータ読込が完了したことを確認できないため、クラウドへの保存を中止しました。先にクラウドまたはJSONバックアップから読み込み直してください。');
     }
     const beforeSnapshot = await waitForLocalPersistence();
-    if (!beforeSnapshot.ok) throw new Error(beforeSnapshot.error);
+    if (!beforeSnapshot.ok) throw new SyncLocalPersistenceError(beforeSnapshot.error);
     return withCoordinatedDataRead(['app', 'notes'], async () => {
       if (options.mode !== 'recovery' && isDataImportInProgress()) {
         throw new Error('前回のデータ読込が完了したことを確認できないため、クラウドへの保存を中止しました。先にクラウドまたはJSONバックアップから読み込み直してください。');

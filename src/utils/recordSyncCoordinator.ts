@@ -20,7 +20,7 @@ import { writeRecordSyncReceipt } from './recordSyncStatus';
 import { isAutoUploadBlocked } from './autoSyncScheduler';
 import { getActiveProtectedWorkReason } from './protectedWork';
 import { isSyncInteractionProtected } from './syncInteraction';
-import { SyncInterruptedError } from './syncInterruption';
+import { SyncInterruptedError, SyncLocalPersistenceError } from './syncInterruption';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -48,7 +48,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
     if ((!current.enabled && !manual) || current.syncId !== syncId) throw new SyncInterruptedError('connection_changed', '同期先が変わりました。');
     if (!isRecordSyncOptedIn(syncId)) throw new SyncInterruptedError('mode_changed', '高速同期がOFFになりました。');
     const saved = await waitForLocalPersistence();
-    if (!saved.ok) throw new Error(saved.error);
+    if (!saved.ok) { step('local_persistence'); throw new SyncLocalPersistenceError(saved.error); }
   };
   await assertCurrent();
   step('remote_metadata');
@@ -83,7 +83,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   step('images'); const images = await prepareQuestionImageOutbox(db,imageTransport,assertCurrent);
   if(images.more)return {status:'more',uploaded:0,downloaded:0};
   await assertCurrent();
-  step('records'); const result = await runRecordSync(db,connection,rpc,{assertCurrent,apply,prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent)});
+  step('records'); const result = await runRecordSync(db,connection,rpc,{assertCurrent,apply,step,prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent)});
   await assertCurrent();
   step('receipt'); await writeRecordSyncReceipt(db, connection, result);
   return result;

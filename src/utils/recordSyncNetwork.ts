@@ -41,7 +41,8 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
       if (!response.ok) {
         // Do not embed server responses or credentials in user-facing logs.
         const code = response.status === 429 ? 'rate_limited' : response.status === 401 || response.status === 403 ? 'authentication_required'
-          : response.status === 404 ? 'unavailable' : 'network';
+          : response.status === 404 ? 'unavailable' : response.status === 413 ? 'payload_too_large'
+          : response.status === 400 ? 'invalid_request' : 'network';
         throw new RecordSyncRpcError(code, `差分同期に失敗しました（HTTP ${response.status}）。端末データを保持しています。`);
       }
       const result: unknown = await response.json();

@@ -54,7 +54,8 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   return <section className="sync-status-card" aria-live="polite">
     {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : summary}</h2> : null}
     {!diagnosticsOnly && presentation.action ? <p>変更は端末に保持しています。</p> : null}
-    {!diagnosticsOnly && attempt?.phase === 'queued' && attempt.retryAt ? <p>{new Date(attempt.retryAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}に再試行します。</p> : null}
+    {!diagnosticsOnly && presentation.action === 'retry' && attempt?.lastFailure ? <p role="alert">{safeSyncFailureMessage(attempt.lastFailure.message)}</p> : null}
+    {!diagnosticsOnly && attempt?.phase === 'queued' && attempt.retryAt && attempt.retryAt > Date.now() ? <p>{new Date(attempt.retryAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}に再試行します。</p> : null}
     {!diagnosticsOnly ? <p>最終成功 {success ? new Date(success).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : '未実行'}</p> : null}
     {diagnosticsOnly ? null : onInitialSync ? <button type="button" className="sync-button sync-button--primary" disabled={disabled || !online} onClick={onInitialSync}>初回のデータを確認</button> : presentation.action === 'login' ? <button type="button" className="sync-button sync-button--primary" onClick={onLogin}>ログイン</button> : presentation.action === 'retry' ? <button type="button" className="sync-button sync-button--primary"
       disabled={disabled || !online} onClick={() => requestSyncRetry(syncId)}>再試行</button> : null}
