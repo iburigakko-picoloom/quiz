@@ -57,12 +57,23 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     let disposed = false;
     let lastConflictKey = '';
     let manualRequest = false;
+    let manualSyncId = '';
+    let manualScope = '';
     let userId = '';
     let authVersion = 0;
     let queueState: AutoSyncQueueState = { phase: 'idle', retryAt: null };
     const attemptConnection = () => {
       const config = getRemoteSyncConfig(), settings = getAutoSyncSettings();
       return config && settings.syncId && userId ? { project: new URL(config.url).origin, syncId: settings.syncId, userId } : null;
+    };
+    const manualContext = () => {
+      const config = getRemoteSyncConfig(), settings = getAutoSyncSettings();
+      return config && settings.syncId && userId
+        ? JSON.stringify([config.url, config.anonKey, userId, settings.syncId, isRecordSyncOptedIn(settings.syncId)]) : '';
+    };
+    const stopManualSync = (syncId = manualSyncId) => {
+      if (syncId === manualSyncId) { manualRequest = false; manualSyncId = ''; manualScope = ''; }
+      finishManualSync(syncId);
     };
     const publishQueue = () => { const connection = attemptConnection(); if (connection) publishSyncQueue(connection, queueState); };
     const paused = (reason: string) => { const connection = attemptConnection(); if (!disposed && connection) publishSyncAttempt(connection, { phase: 'paused', pauseReason: reason }); };
@@ -198,7 +209,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         completed(uploadConnection);
         return 'done';
         });
-        if (outcome === 'done' && isRecordSyncOptedIn(settings.syncId)) { manualRequest = false; finishManualSync(settings.syncId); }
+        if (outcome === 'done' && isRecordSyncOptedIn(settings.syncId)) stopManualSync(settings.syncId);
         if (outcome === 'done' && isRecordSyncOptedIn(settings.syncId)) completed(uploadConnection);
         return outcome;
       } catch (error) {
@@ -212,7 +223,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       } finally {
         uploadRunningRef.current = false;
         if (!disposed && shouldCheckRemoteAfterUpload) void checkRemote(true).finally(() => {
-          if (manual) { manualRequest = false; finishManualSync(settings.syncId); }
+          if (manual) stopManualSync(settings.syncId);
         });
       }
     };
@@ -349,17 +360,19 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       if (document.visibilityState === 'visible') void checkRemote(false);
     };
     const handleSettingsChange = () => {
+      if (manualRequest && manualScope !== manualContext()) stopManualSync();
       uploadQueue.request(true);
       void checkRemote(true);
     };
     const handleRetry = (event: Event) => {
       if ((event as CustomEvent<{ syncId: string }>).detail?.syncId !== getAutoSyncSettings().syncId) return;
       manualRequest = true;
+      manualSyncId = getAutoSyncSettings().syncId;
+      manualScope = manualContext();
       uploadQueue.request(true);
     };
     const handleStorage = (event: StorageEvent) => {
       if (event.key === null || event.key.startsWith('quizMake:sync:')) {
-        manualRequest = false;
         handleSettingsChange();
       }
     };
@@ -370,10 +383,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     const unsubscribeAuth = onCloudAuthStateChange((_event, session) => {
       authVersion++;
       const nextUserId = session?.user && !session.user.is_anonymous ? session.user.id : '';
-      if (nextUserId !== userId) clearSyncAttemptStatus();
+      if (_event === 'SIGNED_OUT' || nextUserId !== userId) { stopManualSync(); clearSyncAttemptStatus(); }
       userId = nextUserId; publishQueue();
-      manualRequest = false;
-      finishManualSync(getAutoSyncSettings().syncId);
       uploadQueue.request(true);
       window.clearTimeout(authCheckTimer);
       authCheckTimer = window.setTimeout(() => void checkRemote(true), 0);
