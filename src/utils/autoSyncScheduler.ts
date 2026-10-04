@@ -1,6 +1,7 @@
 import type { ProtectedWorkReason } from './protectedWork';
 
 export type AutoSyncOutcome = 'done' | 'paused' | 'busy' | 'changed' | 'retry' | 'rate_limited';
+export type AutoSyncQueueState = { phase: 'idle' | 'queued' | 'running' | 'paused'; retryAt: number | null };
 
 // Upload only persisted content while studying/editing. Destructive/importing
 // workflows still need an exclusive, stable snapshot before anything is sent.
@@ -20,7 +21,7 @@ interface Clock {
 }
 
 /** One trailing upload queue. Requests made during I/O are never dropped. */
-export function createAutoSyncScheduler(upload: () => Promise<AutoSyncOutcome>, clock: Clock) {
+export function createAutoSyncScheduler(upload: () => Promise<AutoSyncOutcome>, clock: Clock, onState?: (state: AutoSyncQueueState) => void) {
   let timer: number | null = null;
   let running = false;
   let pending = false;
@@ -29,11 +30,13 @@ export function createAutoSyncScheduler(upload: () => Promise<AutoSyncOutcome>, 
   let firstChangeAt: number | null = null;
   let retryCount = 0;
   let retryNotBefore = 0;
+  const notify = (phase: AutoSyncQueueState['phase']) => { try { onState?.({ phase, retryAt: retryNotBefore > clock.now() ? retryNotBefore : null }); } catch { /* Display observers must never change the queue. */ } };
 
   function schedule(delay: number) {
     if (disposed || running) return;
     if (timer !== null) clock.clearTimeout(timer);
     timer = clock.setTimeout(() => { timer = null; void run(); }, Math.max(delay, retryNotBefore - clock.now(), 0));
+    notify('queued');
   }
 
   async function run() {
@@ -42,6 +45,7 @@ export function createAutoSyncScheduler(upload: () => Promise<AutoSyncOutcome>, 
     urgent = false;
     firstChangeAt = null;
     running = true;
+    notify('running');
     let outcome: AutoSyncOutcome;
     try { outcome = await upload(); }
     catch { outcome = 'retry'; }
@@ -51,6 +55,7 @@ export function createAutoSyncScheduler(upload: () => Promise<AutoSyncOutcome>, 
       // Keep the request until a new save/resume/reconnect/periodic check.
       const requestedDuringUpload = pending;
       pending = true;
+      notify('paused');
       if (requestedDuringUpload) schedule(urgent ? 0 : SAVE_DELAY_MS);
       return;
     }
@@ -67,6 +72,7 @@ export function createAutoSyncScheduler(upload: () => Promise<AutoSyncOutcome>, 
       pending = true;
       schedule(LOCAL_CHANGE_RETRY_MS);
     } else if (pending) schedule(urgent ? 0 : SAVE_DELAY_MS);
+    else notify('idle');
   }
 
   return {
@@ -80,6 +86,7 @@ export function createAutoSyncScheduler(upload: () => Promise<AutoSyncOutcome>, 
     dispose() {
       disposed = true;
       if (timer !== null) clock.clearTimeout(timer);
+      notify('idle');
     },
   };
 }

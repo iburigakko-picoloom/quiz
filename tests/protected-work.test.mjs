@@ -144,7 +144,7 @@ test('saved answers and memos may upload during study; imports and destructive w
     assert.ok(autoSyncSource.includes(`addEventListener(${event}`));
     assert.ok(autoSyncSource.includes(`removeEventListener(${event}`));
   }
-  assert.match(autoSyncSource, /onCloudAuthStateChange\(\(\) => \{[\s\S]*?uploadQueue.request\(true\)/);
+  assert.match(autoSyncSource, /onCloudAuthStateChange\(\([^)]*\) => \{[\s\S]*?uploadQueue.request\(true\)/);
   assert.match(autoSyncSource, /expectedRemoteUpdatedAt: lastState.lastSyncAt \|\| null,\s*force: false/);
 });
 

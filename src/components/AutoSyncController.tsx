@@ -9,6 +9,7 @@ import {
   getLastSyncState,
   isLocalSyncUnchanged,
   getRemoteSyncMeta,
+  getRemoteSyncConfig,
   setLastSyncState,
   setLastSyncStateForConnection,
   uploadSyncData,
@@ -17,15 +18,17 @@ import {
 import { getSyncDecision } from '../utils/syncDecision';
 import type { ProtectedWorkReason } from '../utils/protectedWork';
 import { CLOUD_UPDATE_EVENT, isCloudUpdateDismissed } from '../utils/cloudUpdateNotice';
-import { createAutoSyncScheduler, isAutoUploadBlocked, type AutoSyncOutcome } from '../utils/autoSyncScheduler';
+import { createAutoSyncScheduler, isAutoUploadBlocked, type AutoSyncOutcome, type AutoSyncQueueState } from '../utils/autoSyncScheduler';
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
-import { onCloudAuthStateChange } from '../utils/cloudService';
+import { getCloudSession, onCloudAuthStateChange } from '../utils/cloudService';
 import { runAppRecordSync } from '../utils/recordSyncCoordinator';
 import { RecordSyncRpcError } from '../utils/recordSyncNetwork';
 import type { RecordSyncGuards } from '../utils/recordSyncEngine';
 import { isRecordSyncOptedIn } from '../utils/recordSyncOptIn';
 import { SYNC_RETRY_EVENT, runSelectedSync, finishManualSync } from '../utils/syncRequest';
 import { isSyncInteractionProtected } from '../utils/syncInteraction';
+import { SyncInterruptedError } from '../utils/syncInterruption';
+import { clearSyncAttemptStatus, observeRecordSyncAttempt, publishRemoteCheck, publishSyncAttempt, publishSyncQueue } from '../utils/syncAttemptStatus';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 5000;
@@ -54,11 +57,42 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     let disposed = false;
     let lastConflictKey = '';
     let manualRequest = false;
+    let userId = '';
+    let authVersion = 0;
+    let queueState: AutoSyncQueueState = { phase: 'idle', retryAt: null };
+    const attemptConnection = () => {
+      const config = getRemoteSyncConfig(), settings = getAutoSyncSettings();
+      return config && settings.syncId && userId ? { project: new URL(config.url).origin, syncId: settings.syncId, userId } : null;
+    };
+    const publishQueue = () => { const connection = attemptConnection(); if (connection) publishSyncQueue(connection, queueState); };
+    const paused = (reason: string) => { const connection = attemptConnection(); if (!disposed && connection) publishSyncAttempt(connection, { phase: 'paused', pauseReason: reason }); };
+    const failure = (step: string, code: string, message: string, connection = attemptConnection()) => {
+      const current = attemptConnection();
+      if (!disposed && connection && current?.project === connection.project && current?.userId === connection.userId && current?.syncId === connection.syncId) {
+        publishSyncAttempt(connection, { phase: 'failed', lastFailure: { step, code, message, at: new Date().toISOString() } });
+      }
+    };
+    const completed = (connection: ReturnType<typeof attemptConnection>) => {
+      const current = attemptConnection();
+      if (!disposed && connection && current?.project === connection.project && current?.userId === connection.userId && current?.syncId === connection.syncId) {
+        publishSyncAttempt(connection, { phase: 'done', pauseReason: '' });
+      }
+    };
+    const bootstrapVersion = authVersion;
+    const sessionReady = getCloudSession().then(session => {
+      if (disposed || bootstrapVersion !== authVersion) return;
+      userId = session?.user && !session.user.is_anonymous ? session.user.id : ''; publishQueue();
+    }).catch(() => { /* The coordinator reports authentication errors. */ });
 
     const tryRecordSync = async (syncId: string, manual: boolean): Promise<AutoSyncOutcome> => {
-      try {
-        const result = await runAppRecordSync(syncId, operation => importHandlersRef.current.onRecordApply(operation), manual);
-        if (result.status === 'more') return 'changed';
+      const connection = attemptConnection();
+      const current = () => !disposed && getAutoSyncSettings().syncId === syncId && (!connection || attemptConnection()?.userId === connection.userId && attemptConnection()?.project === connection.project);
+      const observed = await observeRecordSyncAttempt(step => runAppRecordSync(syncId, operation => importHandlersRef.current.onRecordApply(operation), manual, step),
+        update => { if (connection && current()) publishSyncAttempt(connection, update); });
+      if (!current()) return 'paused';
+      const result = observed.result;
+      if (result) {
+        if (result.status === 'more') { setLastSyncState({ status: '同期中', error: '' }); return 'changed'; }
         if (result.status === 'deferred') { setLastSyncState({ status: '変更の反映を待っています', error: '' }); return 'paused'; }
         if (result.status === 'conflict') {
           setLastSyncState({ status: 'クラウドと端末の編集が競合しています', error: '両方の内容を保存しています。同期画面で確認してください。' });
@@ -67,32 +101,38 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         }
         setLastSyncState({ status: '同期済み', error: '' });
         return 'done';
-      } catch (error) {
-        if (disposed || getAutoSyncSettings().syncId !== syncId) return 'paused';
-        if (error instanceof RecordSyncRpcError && ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(error.code)) {
-          setLastSyncState({ status: '高速同期の確認が必要です', error: error.message });
-          return 'paused';
-        }
-        setLastSyncState({ status: error instanceof RecordSyncRpcError && error.code === 'authentication_required' ? 'ログインが必要です' : '端末のデータを保持して再試行します', error: error instanceof Error ? error.message : '差分同期に失敗しました。' });
-        return error instanceof RecordSyncRpcError && error.code === 'rate_limited' ? 'rate_limited' : 'retry';
       }
+      const error = observed.error;
+      if (error instanceof SyncInterruptedError) {
+        setLastSyncState({ status: '内容の確認が終わってから同期を再開します', error: '' }); return 'paused';
+      }
+      if (error instanceof RecordSyncRpcError && ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(error.code)) {
+        setLastSyncState({ status: '高速同期の確認が必要です', error: error.message });
+        return 'paused';
+      }
+      setLastSyncState({ status: error instanceof RecordSyncRpcError && error.code === 'authentication_required' ? 'ログインが必要です' : '端末のデータを保持して再試行します', error: error instanceof Error ? error.message : '差分同期に失敗しました。' });
+      return observed.outcome;
     };
 
     const uploadIfChanged = async (): Promise<AutoSyncOutcome> => {
       const settings = getAutoSyncSettings();
       const manual = manualRequest;
-      if (disposed || (!settings.enabled && !manual) || !settings.syncId || !settings.configured) return 'paused';
+      if (disposed || (!settings.enabled && !manual) || !settings.syncId || !settings.configured) { paused('disabled'); return 'paused'; }
       if (navigator.onLine === false) {
         setLastSyncState({ status: '端末に保存済み・接続後に自動保存します', error: '' });
+        paused('offline');
         return 'paused';
       }
       if ((isAutoUploadBlocked(protectedWorkReasonRef.current) || isSyncInteractionProtected())) {
         setLastSyncState({ status: '自動同期: 作業終了後に保存します', error: '' });
+        paused('protected_work');
         return 'paused';
       }
       if (uploadRunningRef.current || remoteCheckRunningRef.current) return 'busy';
 
       uploadRunningRef.current = true;
+      const uploadConnection = attemptConnection();
+      let legacyStep = 'local_data';
       let shouldCheckRemoteAfterUpload = manual && !isRecordSyncOptedIn(settings.syncId);
       try {
         const outcome = await runSelectedSync<AutoSyncOutcome>(isRecordSyncOptedIn(settings.syncId),
@@ -122,6 +162,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
             }
 
             setLastSyncState({ status: '自動保存中...', error: '' });
+            legacyStep = 'snapshot_upload';
             const result = await uploadSyncData(settings.syncId, payload, {
               expectedRemoteUpdatedAt: lastState.lastSyncAt || null,
               force: false,
@@ -144,6 +185,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
                   : '端末に保存済み・クラウド保存を再試行します',
             error: result.error,
           });
+          if (result.code === 'conflict') paused('conflict');
+          else failure(legacyStep, result.code ?? 'network', result.error, uploadConnection);
           if (result.code === 'conflict') shouldCheckRemoteAfterUpload = true;
           if (result.code === 'rate_limited') return 'rate_limited';
           return result.code ? 'paused' : 'retry';
@@ -152,9 +195,11 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
           return 'changed';
         }
         setLastSyncState({ status: '自動保存しました', error: '' });
+        completed(uploadConnection);
         return 'done';
         });
         if (outcome === 'done' && isRecordSyncOptedIn(settings.syncId)) { manualRequest = false; finishManualSync(settings.syncId); }
+        if (outcome === 'done' && isRecordSyncOptedIn(settings.syncId)) completed(uploadConnection);
         return outcome;
       } catch (error) {
         const latestSettings = getAutoSyncSettings();
@@ -162,6 +207,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         const message = error instanceof Error ? error.message : '自動保存に失敗しました。';
         console.warn('Auto sync upload failed.', error);
         setLastSyncState({ status: '端末のデータを保持して再試行します', error: message });
+        failure(legacyStep, error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unexpected', message, uploadConnection);
         return 'retry';
       } finally {
         uploadRunningRef.current = false;
@@ -175,7 +221,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       now: Date.now,
       setTimeout: (callback, delay) => window.setTimeout(callback, delay),
       clearTimeout: (timer) => window.clearTimeout(timer),
-    });
+    }, state => { queueState = state; publishQueue(); });
 
     const checkRemote = async (force = false) => {
       const settings = getAutoSyncSettings();
@@ -186,12 +232,20 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       if (!force && now - lastRemoteCheckAtRef.current < REMOTE_CHECK_COOLDOWN_MS) return;
       lastRemoteCheckAtRef.current = now;
       remoteCheckRunningRef.current = true;
+      let remoteConnection = attemptConnection();
+      let remoteStep = 'remote_metadata';
 
       try {
         if (isRecordSyncOptedIn(settings.syncId)) {
           if (settings.enabled || manualRequest) uploadQueue.request(true);
           return;
         }
+        // Startup reconciliation can begin before the cached session resolves.
+        // Establish the display scope before marking its remote I/O as running.
+        await sessionReady;
+        if (disposed || getAutoSyncSettings().syncId !== settings.syncId) return;
+        remoteConnection = attemptConnection();
+        if (remoteConnection) publishRemoteCheck(remoteConnection, true);
         const meta = await getRemoteSyncMeta(settings.syncId);
         const latestSettings = getAutoSyncSettings();
         if (disposed || latestSettings.syncId !== settings.syncId) return;
@@ -201,16 +255,19 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
             status: meta.code === 'authentication_required' ? '自動同期: ログインが必要です' : 'クラウド確認失敗',
             error: meta.error,
           });
+          failure(remoteStep, meta.code ?? 'network', meta.error, remoteConnection);
           return;
         }
         if (!meta.value) {
           setLastSyncState({ status: 'クラウドデータなし', error: '' });
+          paused('remote_missing');
           return;
         }
 
         const lastState = getLastSyncState();
         setLastSyncState({ lastRemoteUpdatedAt: meta.value.updatedAt });
         const remoteHasChanged = meta.value.updatedAt !== lastState.lastSyncAt;
+        if (remoteHasChanged) paused('deferred');
         const canReconcile = () => !disposed && (getAutoSyncSettings().enabled || manualRequest)
           && getAutoSyncSettings().syncId === settings.syncId && !isRecordSyncOptedIn(settings.syncId)
           && document.visibilityState === 'visible' && protectedWorkReasonRef.current === null
@@ -223,6 +280,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
           const conflictKey = `${settings.syncId}:${meta.value.updatedAt}:${localDigest}`;
           if (lastConflictKey === conflictKey) return;
           if (!canReconcile()) return;
+          remoteStep = 'snapshot_download';
           const remote = await downloadSyncData(settings.syncId, { localPayload: local });
           if (!remote.ok) throw new Error(remote.error);
           if (!remote.value || !canReconcile()) return;
@@ -233,11 +291,14 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
             setLastSyncStateForConnection(settings.syncId, { lastSyncAt: remote.value.updatedAt,
               lastUploadHash: computePayloadHash(local), lastSyncDigest: localDigest,
               lastRemoteUpdatedAt: remote.value.updatedAt, status: '同期済み', error: '' });
+            completed(remoteConnection);
             return;
           }
           if (decision === 'download') {
             setLastSyncState({ status: 'クラウドの更新を取り込み中…', error: '' });
-            if (await importHandlersRef.current.onAutoImport(remote.value, localDigest)) return;
+            if (await importHandlersRef.current.onAutoImport(remote.value, localDigest)) {
+              completed(remoteConnection); return;
+            }
             // Local changes/new work during download are re-evaluated later.
             lastRemoteCheckAtRef.current = 0;
             return;
@@ -245,7 +306,10 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
           if (decision === 'upload') { uploadQueue.request(true); return; }
           lastConflictKey = conflictKey;
         }
-        if (!remoteHasChanged) return;
+        if (!remoteHasChanged) {
+          completed(remoteConnection);
+          return;
+        }
         const promptKey = `${settings.syncId}:${meta.value.updatedAt}`;
         if (promptedRemoteUpdatedAtRef.current === promptKey || isCloudUpdateDismissed({ syncId: settings.syncId, updatedAt: meta.value.updatedAt })) return;
         // Conflicts, first sync and protected screens keep the existing notice.
@@ -258,8 +322,10 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         const message = error instanceof Error ? error.message : 'クラウド確認に失敗しました。';
         console.warn('Auto sync remote check failed.', error);
         setLastSyncState({ status: 'クラウド確認失敗', error: message });
+        failure(remoteStep, error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unexpected', message, remoteConnection);
       } finally {
         remoteCheckRunningRef.current = false;
+        if (!disposed && remoteConnection && attemptConnection()?.userId === remoteConnection.userId && attemptConnection()?.syncId === remoteConnection.syncId && attemptConnection()?.project === remoteConnection.project) publishRemoteCheck(remoteConnection, false);
       }
     };
 
@@ -301,7 +367,11 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     const handlePageHide = () => uploadQueue.request(true);
     // Supabase's auth callback holds a session lock; the queue defers Auth calls.
     let authCheckTimer: number | undefined;
-    const unsubscribeAuth = onCloudAuthStateChange(() => {
+    const unsubscribeAuth = onCloudAuthStateChange((_event, session) => {
+      authVersion++;
+      const nextUserId = session?.user && !session.user.is_anonymous ? session.user.id : '';
+      if (nextUserId !== userId) clearSyncAttemptStatus();
+      userId = nextUserId; publishQueue();
       manualRequest = false;
       finishManualSync(getAutoSyncSettings().syncId);
       uploadQueue.request(true);
@@ -339,6 +409,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('quiz-make-sync-settings-change', handleSettingsChange);
       resumeSyncRef.current = null;
+      clearSyncAttemptStatus();
     };
   }, []);
 
