@@ -14,10 +14,14 @@ import type { QuestionImageDescriptor, StoredQuestionImage } from './questionIma
 import { normalizeAppData } from './appDataValidation';
 import { createProgressSyncContext, verifiedBootstrapProgress } from './recordProgressAncestor';
 import { validatePlanStorage } from './studyPlanStorage';
-import { SyncProtocolError } from './syncInterruption';
+import { SyncInterruptedError, SyncProtocolError } from './syncInterruption';
 import { safeSyncFailureMessage } from './syncFailureDiagnostic';
+import { isChunkInternal, validateChunkWire } from './recordChunkFormat';
+import { hydrateChunkChanges } from './recordChunks';
+import { isValidCategoryNoteRaw } from './noteStorage';
+import { rememberChunkGarbage } from './auxiliaryRecordStorage';
 
-export type RemoteRecordChange = { key: string; collection: RecordCollection; id: string; raw: string | null; position: number; revision: number };
+export type RemoteRecordChange = { key: string; collection: RecordCollection; id: string; raw: string | null; logicalRaw?: string; position: number; revision: number };
 export type RecordPullPage = { code: 'ok'; cursor: number; head: number; hasMore: boolean; batches: Array<{ revision: number; changes: RemoteRecordChange[] }> };
 type PullState = { connection: RecordSyncConnection; startCursor: number; cursor: number; head: number };
 export type RecordConflict = { key: string; connection: RecordSyncConnection; local: AppRecord | null; remote: RemoteRecordChange; operationId: string | null };
@@ -72,7 +76,8 @@ export function validateRecordPullPage(value: unknown, fromCursor: number): Reco
         if (!parsed || typeof parsed !== 'object' || (row.collection === 'progress' ? parsed.questionId : parsed.id) !== row.id) throw new Error('差分読込のレコードIDが一致しません。');
       }
       seen.add(row.key);
-      if (row.collection === 'localStorage' && row.raw !== null) validatePlanStorage(row.id, row.raw);
+      const chunked=validateChunkWire(row.collection,row.id,row.raw);
+      if (!chunked && row.collection === 'localStorage' && row.raw !== null) validatePlanStorage(row.id, row.raw);
       return { key: row.key, collection: row.collection, id: row.id, raw: row.raw, position: row.position, revision: row.revision };
     });
     return { revision: batch.revision, changes };
@@ -179,7 +184,7 @@ export async function applyStagedRecordPull(
   const startedAt = performance.now();
   const readTx = db.transaction(['appRecordMeta', 'appPullStage'], 'readonly');
   const readDone = done(readTx);
-  const [stage, incoming, inflight, initialState] = await Promise.all([
+  const [stage, wireIncoming, inflight, initialState] = await Promise.all([
     request<PullState | undefined>(readTx.objectStore('appRecordMeta').get('pullStage')),
     request<RemoteRecordChange[]>(readTx.objectStore('appPullStage').getAll()),
     request(readTx.objectStore('appRecordMeta').get('pushBatch')),
@@ -188,6 +193,24 @@ export async function applyStagedRecordPull(
   if (!stage || !sameRecordSyncConnection(stage.connection, connection) || stage.cursor !== stage.head) throw new Error('差分読込の全ページが揃っていません。');
   if (inflight) throw new Error('未確認の送信結果を確認してから差分を取り込んでください。');
   if (!initialState) throw new Error('端末のレコード移行が完了していません。');
+  let incoming: RemoteRecordChange[];
+  try{
+    incoming=await hydrateChunkChanges(db,wireIncoming,connection);
+    incoming.forEach(row=>{
+      if(!isChunkInternal(row.collection,row.id)&&row.collection==='localStorage'&&row.raw!==null)validatePlanStorage(row.id,row.logicalRaw??row.raw);
+      if(row.logicalRaw!==undefined&&row.collection==='indexedDbNotes'&&!isValidCategoryNoteRaw(row.logicalRaw))throw new SyncProtocolError('invalid_response','Invalid category note data.');
+    });
+  }catch(error){
+    if(error instanceof SyncInterruptedError)throw error;
+    // A manual retry must refetch missing/corrupt parts, even when the former
+    // staged cursor reached head. Keep the complete stage and every live value.
+    const retry=db.transaction('appRecordMeta','readwrite'),completion=done(retry);
+    const current=retry.objectStore('appRecordMeta').get('pullStage');
+    current.onsuccess=()=>{if(JSON.stringify(current.result)===JSON.stringify(stage))retry.objectStore('appRecordMeta').put({...stage,startCursor:0,cursor:0},'pullStage')};
+    await completion;
+    if(error instanceof SyncProtocolError)throw error;
+    throw new SyncProtocolError('invalid_response',error instanceof Error?safeSyncFailureMessage(error.message):'差分読込の形式を確認できません。端末データを保持しています。');
+  }
   if (!incoming.length) {
     if (decisions.length) throw new Error('競合の内容が更新されました。もう一度内容を確認してください。');
     const tx = db.transaction(['appRecordMeta', 'appPullStage'], 'readwrite');
@@ -284,7 +307,8 @@ export async function applyStagedRecordPull(
     }
     if (op) clearPending.push(remote.key);
     if (local && same && local.serverRevision === remote.revision) continue;
-    const row: AppRecord = { ...remote, raw: same && local ? local.raw : remote.raw, localRevision: revision, serverRevision: remote.revision };
+      const row: AppRecord = { ...remote, raw: same && local ? local.raw : remote.raw, localRevision: revision, serverRevision: remote.revision };
+      if(same&&local?.logicalRaw!==undefined)row.logicalRaw=local.logicalRaw;
     next.set(row.key, row); writes.push(row);
   }
   if (selected.size) throw new Error('競合の内容が更新されました。もう一度内容を確認してください。');
@@ -350,7 +374,7 @@ export async function applyStagedRecordPull(
   // Server-revision-only changes and equal-content acknowledgements are safe.
   const deferLiveChanges = Boolean(options.preserveLiveData && (needsLiveMedia || writes.some(row => {
     const old = before.records.get(row.key);
-    return row.raw !== (old?.raw ?? null) || (row.raw !== null && row.position !== old?.position);
+    return !isChunkInternal(row.collection,row.id) && ((row.logicalRaw??row.raw) !== (old?.logicalRaw??old?.raw??null) || (row.raw !== null && row.position !== old?.position));
   })));
   const safeResolved = resolved.filter(item => item.choice === 'local' && item.reason);
   const explicitKeys = new Set(resolved.filter(item => !item.reason).map(item => item.conflict.key));
@@ -424,6 +448,7 @@ export async function applyStagedRecordPull(
       }
       writes.forEach(row => {
         const old = before.records.get(row.key);
+        if(old?.raw!==row.raw)rememberChunkGarbage(tx,old);
         if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, row.key);
         tx.objectStore('appRecords').put(row, row.key);
         if (!options.preserveLiveData && row.collection === 'indexedDbNotes') {
@@ -431,9 +456,9 @@ export async function applyStagedRecordPull(
           // select backups by timestamp, which must not undo a CAS-based import.
           tx.objectStore(NOTE_BACKUP_STORE).delete(row.id);
           if (row.raw === null) tx.objectStore(NOTE_CURRENT_STORE).delete(row.id);
-          else tx.objectStore(NOTE_CURRENT_STORE).put(row.raw, row.id);
+          else tx.objectStore(NOTE_CURRENT_STORE).put(row.logicalRaw??row.raw, row.id);
         }
-        if (!options.preserveLiveData && row.collection === 'localStorage') tx.objectStore(LOCAL_PROJECTION_STORE).put(row.raw, row.id);
+        if (!options.preserveLiveData && row.collection === 'localStorage' && !isChunkInternal(row.collection,row.id)) tx.objectStore(LOCAL_PROJECTION_STORE).put(row.logicalRaw??row.raw, row.id);
       });
       if (!options.preserveLiveData) mediaWrites.forEach(row => {
         if (row.image) tx.objectStore('questionImageBlobs').put(row.image, row.id);

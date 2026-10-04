@@ -9,6 +9,7 @@ import { createQuestionImageTransport } from './questionImageCloud';
 import { openQuestionImageRecordDb } from './questionImageRecords';
 import { prepareQuestionImageOutbox, prepareStagedQuestionImages } from './recordQuestionImageSync';
 import { runRecordSync, type RecordSyncGuards, type RecordSyncOutcome } from './recordSyncEngine';
+import { prepareRecordChunks } from './recordChunks';
 import { isRecordSyncOptedIn } from './recordSyncOptIn';
 import {
   getAutoSyncSettings, getRemoteSyncConfig, getRemoteSyncMeta,
@@ -83,7 +84,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   step('images'); const images = await prepareQuestionImageOutbox(db,imageTransport,assertCurrent);
   if(images.more)return {status:'more',uploaded:0,downloaded:0};
   await assertCurrent();
-  step('records'); const result = await runRecordSync(db,connection,rpc,{assertCurrent,apply,step,prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent)});
+  step('records'); const result = await runRecordSync(db,connection,rpc,{assertCurrent,apply,step,prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent),prepareOutgoing:async()=>{await assertCurrent();await prepareRecordChunks(db,connection);await assertCurrent()}});
   await assertCurrent();
   step('receipt'); await writeRecordSyncReceipt(db, connection, result);
   return result;

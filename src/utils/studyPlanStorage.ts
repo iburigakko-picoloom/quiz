@@ -4,6 +4,7 @@ import { replayLocalStorageProjections, saveSyncedLocalStorage } from './localSt
 import { advanceLocalDataRevision } from './localDataRevision';
 import { makePlanDay, parsePlanDay, parseStudyPlan, studyDay, validTimeZone, type PlanDay, type StudyPlan } from './studyPlans';
 import type { AnswerLog } from '../types';
+import { isChunkInternal } from './recordChunkFormat';
 
 export const PLAN_PREFIX = 'quizMake:plan:';
 export const PLAN_DAY_PREFIX = 'quizMake:planDay:';
@@ -14,7 +15,7 @@ export function getStudyTimeZone(): string { const stored = typeof localStorage 
 function changed() { advanceLocalDataRevision(); window.dispatchEvent(new Event(PLAN_EVENT)); }
 export function readPlans(): StudyPlan[] {
   const plans: StudyPlan[] = [];
-  for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (!key?.startsWith(PLAN_PREFIX)) continue; const plan = parseStudyPlan(localStorage.getItem(key)!); if (key !== PLAN_PREFIX + plan.id) throw new Error('学習計画のIDが一致しません。'); plans.push(plan); }
+  for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (!key?.startsWith(PLAN_PREFIX) || isChunkInternal('localStorage',key)) continue; const plan = parseStudyPlan(localStorage.getItem(key)!); if (key !== PLAN_PREFIX + plan.id) throw new Error('学習計画のIDが一致しません。'); plans.push(plan); }
   return plans.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 export async function savePlan(plan: StudyPlan, expectedRaw: string | null, retry?: { committedRaw: string | null }): Promise<void> {

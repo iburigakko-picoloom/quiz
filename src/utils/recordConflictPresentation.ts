@@ -11,7 +11,7 @@ const valueOf = (raw: string | null | undefined): Record<string, unknown> | null
 const text = (value: unknown) => typeof value === 'string' ? conflictPreview(value).slice(0, 160) : '';
 
 export function recordConflictTitle(item: RecordConflict, records: Map<string, AppRecord>): string {
-  const value = valueOf(item.local?.raw) ?? valueOf(item.remote.raw);
+  const value = valueOf(item.local?.logicalRaw ?? item.local?.raw) ?? valueOf(item.remote.logicalRaw ?? item.remote.raw);
   if (item.remote.collection === 'localStorage') return `${auxiliaryRecordLabel(item.remote.id)}${item.remote.id.startsWith('quizMake:plan:') && text(value?.title) ? `：${text(value?.title)}` : ''}`;
   const questionId = item.remote.collection === 'progress' || item.remote.collection === 'questions'
     ? item.remote.id : typeof value?.questionId === 'string' ? value.questionId : null;

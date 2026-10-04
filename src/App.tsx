@@ -78,6 +78,8 @@ import { persistLibraryDeletion, type LibraryDeletionResult } from './utils/libr
 import { saveJsonBackup } from './utils/nativePlatform';
 import { createSampleAppData } from './utils/sampleData';
 import { beginRecordApply, setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
+import { validateHydratedSyncPayload } from './utils/syncService';
+import { SyncProtocolError } from './utils/syncInterruption';
 import {
   initializeCloudNativeAuth,
   onNativeAuthResult,
@@ -233,7 +235,7 @@ export default function App() {
       }, { requireCrossContext: true });
       return result;
     } catch (error) {
-      setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
+      if(!(error instanceof SyncProtocolError))setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
       throw error;
     } finally {
       finishRecordApply();
@@ -1342,7 +1344,7 @@ export default function App() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as unknown;
-      const syncValidation = validateSyncPayload(parsed);
+      const syncValidation = await validateHydratedSyncPayload(parsed);
       if (syncValidation.ok) {
         setBackupImportError('');
         setPendingBackupImport({ kind: 'sync', payload: syncValidation.value, summary: summarizeSyncPayload(syncValidation.value) });

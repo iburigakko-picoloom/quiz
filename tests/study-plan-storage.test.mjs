@@ -92,6 +92,21 @@ test('without IndexedDB complete projections succeed but a partial timezone fail
     items.delete(planStorage.PLAN_PREFIX+complete.id);items.delete(planStorage.PLAN_PREFIX+partial.id);
   }
 });
+test('transport Snapshot import hydrates a large plan before validation and rejects incomplete backup without replacing it',async()=>{
+  const {largeNoteRaw}=await import('./helpers/large-note-fixture.mjs');
+  const chunks=await vite.ssrLoadModule('/src/utils/recordChunkFormat.ts');
+  const raw=JSON.stringify({...plan,title:'Large backup',targets:plans.snapshotTargets(Array.from({length:695},(_,i)=>({...q,id:'large-'+i,explanation:'Synthetic content. '.repeat(50)})),[])});
+  const encoded=await chunks.encodeRecordChunks('localStorage',planStorage.PLAN_PREFIX+'p',raw);
+  const noteKey='quizMake:notes:set:category',noteRaw=largeNoteRaw(q.updatedAt,'set','category'),note=await chunks.encodeRecordChunks('indexedDbNotes',noteKey,noteRaw);
+  const backup=await sync.exportQuizMakeData(),wire={...backup,localStorage:{...backup.localStorage,[planStorage.PLAN_PREFIX+'p']:encoded.raw,[chunks.RECORD_CHUNK_GUARD_ID]:chunks.RECORD_CHUNK_GUARD_RAW,...Object.fromEntries([...encoded.parts,...note.parts].map(p=>[p.id,p.raw]))},indexedDbNotes:{...backup.indexedDbNotes,[noteKey]:note.raw}};
+  assert.equal((await sync.importQuizMakeData(wire)).ok,true);assert.equal(localStorage.getItem(planStorage.PLAN_PREFIX+'p'),raw);
+  const exported=await sync.exportQuizMakeData();assert.equal(exported.indexedDbNotes[noteKey],noteRaw);assert.ok(!Object.keys(exported.localStorage).some(id=>chunks.isChunkInternal('localStorage',id)));
+  const incomplete={...wire,localStorage:{...wire.localStorage}};delete incomplete.localStorage[encoded.parts[0].id];
+  assert.equal((await sync.importQuizMakeData(incomplete)).ok,false);assert.equal(localStorage.getItem(planStorage.PLAN_PREFIX+'p'),raw);
+  assert.equal((await sync.exportQuizMakeData()).indexedDbNotes[noteKey],noteRaw);
+  await planStorage.savePlan(plan,raw);
+});
+
 test('full backup roundtrip restores plans and fixed days; malformed plan backups are rejected without replacing current data',async()=>{
   const backup=await sync.exportQuizMakeData();assert.ok(backup.localStorage[planStorage.PLAN_PREFIX+'p']);assert.equal(sync.validateSyncPayload(backup).ok,true);
   await planStorage.deletePlan(plan,localStorage.getItem(planStorage.PLAN_PREFIX+'p'));assert.deepEqual(planStorage.readPlans(),[]);

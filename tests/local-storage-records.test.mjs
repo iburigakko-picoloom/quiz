@@ -30,6 +30,23 @@ test('localStorage projection replays after a crash without dropping atomic Outb
   assert.deepEqual((await readAppOutbox(db)).filter(op=>op.collection==='localStorage'),ops);
 });
 
+test('chunk preparation keeps the full native cache and capture never requeues transport records',async()=>{
+  const {bindRecordSyncConnection}=await import('../src/utils/recordSyncOutbox.ts');
+  const {prepareRecordChunks}=await import('../src/utils/recordChunks.ts');
+  const db=await storage.openAppDb(),id='quizMake:chunk-capture-test',raw=JSON.stringify({value:'x'.repeat(950000)});
+  const connection={project:'https://test.invalid',userId:'owner',syncId:'a'.repeat(36)};
+  await bindRecordSyncConnection(db,connection);await saveSyncedLocalStorage({[id]:raw});await prepareRecordChunks(db,connection);
+  const before=await readAppOutbox(db),parent=await get(db,'appRecords',JSON.stringify(['localStorage',id]));
+  assert.equal(parent.logicalRaw,raw);assert.equal(localStorage.getItem(id),raw);
+  assert.ok(before.some(op=>op.id.startsWith('quizMake:recordChunks:v1:')));
+  const filter=key=>key===id||key.startsWith('quizMake:recordChunks:')||key==='quizMake:plan:__record_chunks_v1';
+  assert.equal(await captureSyncedLocalStorage(filter),0);
+  assert.deepEqual(await readAppOutbox(db),before);
+  assert.ok(![...items.keys()].some(key=>key.startsWith('quizMake:recordChunks:')||key==='quizMake:plan:__record_chunks_v1'));
+  localStorage.removeItem(id);assert.equal(await captureSyncedLocalStorage(filter),1);
+  assert.equal((await readAppOutbox(db)).find(op=>op.id===id).raw,null);
+});
+
 test('legacy settings capture only changed synchronized keys and never scans AppData',async()=>{
   const db=await storage.openAppDb();
   const original=db.transaction.bind(db);

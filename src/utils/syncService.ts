@@ -1,4 +1,5 @@
 import { accountLocalStorage as localStorage } from './accountStorage';
+import { chunkFailure, hydrateChunkPayload, isChunkInternal, parseChunkManifest } from './recordChunkFormat';
 import {
   APP_DATA_FALLBACK_META_KEY,
   APP_DATA_EXPECTED_KEY,
@@ -595,8 +596,9 @@ async function importQuizMakeDataUnlocked(
   expectedLocalDigest?: string,
   canApply?: () => boolean,
 ): Promise<SyncResult<number>> {
-  const validation = validateSyncPayload(payload);
+  const validation = await validateHydratedSyncPayload(payload);
   if (!validation.ok) return validation;
+  payload = validation.value;
   const previousSyncState = getLastSyncState();
 
   let previousAppDataRaw: string;
@@ -883,7 +885,7 @@ async function uploadSyncDataUnlocked(
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
     const rpcFailure = syncRpcFailureFromRow(first, 'upload');
     if (rpcFailure) return rpcFailure;
-    const record = parseRemoteRecord(first, normalizedSyncId, true);
+    const record = await parseRemoteRecord(first, normalizedSyncId, true);
     if (!record.ok) return record;
     if (computePayloadHash(record.value.payload) !== computePayloadHash(uploadPayload)) {
       return { ok: false, error: 'クラウド保存結果の内容が送信したデータと一致しません。保存状態を確認してから再試行してください。' };
@@ -929,7 +931,7 @@ export async function downloadSyncData(syncId: string, options: { materialFiles?
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
     if (!Array.isArray(rows) || rows.length === 0) return { ok: true, value: null };
 
-    const record = parseRemoteRecord(rows[0], normalizedSyncId);
+    const record = await parseRemoteRecord(rows[0], normalizedSyncId);
     if (!record.ok) return record;
     if (options.materialFiles !== 'references' && hasRemoteMaterialFiles(record.value.payload)) {
       const access = await syncAccessTokenProvider();
@@ -1183,6 +1185,12 @@ export function summarizeSyncPayload(payload: SyncPayload): SyncPayloadSummary {
   };
 }
 
+export async function validateHydratedSyncPayload(value: unknown, options: { wire?: boolean } = {}): Promise<SyncResult<SyncPayload>> {
+  const size=measureJsonBytes(value);
+  if(size!==null&&size>MAX_SYNC_PAYLOAD_BYTES)return {ok:false,code:'payload_too_large',error:SYNC_PAYLOAD_TOO_LARGE_MESSAGE};
+  try{return validateSyncPayload(await hydrateChunkPayload(value),options)}
+  catch{return {ok:false,code:'invalid',error:chunkFailure().message}}
+}
 export function validateSyncPayload(value: unknown, options: { wire?: boolean } = {}): SyncResult<SyncPayload> {
   if (!isRecord(value)) return { ok: false, error: '同期データの形式が正しくありません。' };
   const canSeparatePdfs = !options.wire && isStringRecord(value.localStorage)
@@ -1204,7 +1212,10 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
 
   const invalidKey = Object.keys(value.localStorage).find((key) => !isQuizMakeStorageKey(key));
   if (invalidKey) return { ok: false, error: 'Quiz make以外のキーが含まれています: ' + invalidKey };
-  try { Object.entries(value.localStorage).forEach(([key, raw]) => validatePlanStorage(key, raw as string)); }
+  try { Object.entries(value.localStorage).forEach(([key, raw]) => {
+    if(isChunkInternal('localStorage',key)||parseChunkManifest(raw as string,'localStorage',key))throw chunkFailure();
+    validatePlanStorage(key, raw as string);
+  }); }
   catch { return { ok: false, code: 'invalid', error: '学習計画の形式が正しくありません。現在のデータは変更していません。' }; }
   try {
     for (const key of WEAKNESS_STORAGE_KEYS) {
@@ -1233,7 +1244,10 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
   }
   const invalidNoteKey = Object.keys(indexedDbNotes).find((key) => !isCategoryNoteKey(key));
   if (invalidNoteKey) return { ok: false, error: 'ノート以外のキーが含まれています: ' + invalidNoteKey };
-  const invalidIndexedNote = Object.entries(indexedDbNotes).find(([, raw]) => !isValidCategoryNoteRaw(raw));
+  const invalidIndexedNote = Object.entries(indexedDbNotes).find(([key, raw]) => {
+    try { return Boolean(parseChunkManifest(raw,'indexedDbNotes',key)) || !isValidCategoryNoteRaw(raw); }
+    catch { return true; }
+  });
   if (invalidIndexedNote) return { ok: false, error: `ノートデータの形式が正しくありません: ${invalidIndexedNote[0]}` };
 
   const invalidLegacyNote = Object.entries(value.localStorage)
@@ -1873,7 +1887,7 @@ async function responseError(response: Response, fallback: string) {
   return syncRpcHttpError(response, fallback);
 }
 
-function parseRemoteRecord(value: unknown, expectedSyncId: string, requireSuccessCode = false): SyncResult<RemoteSyncRecord> {
+async function parseRemoteRecord(value: unknown, expectedSyncId: string, requireSuccessCode = false): Promise<SyncResult<RemoteSyncRecord>> {
   if (
     !isRecord(value)
     || (requireSuccessCode && value.result_code !== 'ok')
@@ -1885,7 +1899,7 @@ function parseRemoteRecord(value: unknown, expectedSyncId: string, requireSucces
     return { ok: false, error: 'クラウドデータの形式が正しくありません。' };
   }
 
-  const validation = validateSyncPayload(value.data, { wire: true });
+  const validation = await validateHydratedSyncPayload(value.data, { wire: true });
   if (!validation.ok) return validation;
 
   return {

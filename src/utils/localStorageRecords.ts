@@ -3,6 +3,7 @@ import { openAppDb } from '../storage';
 import { openCoLocatedNoteDb } from './noteRecordMigration';
 import { queueAuxiliaryRecordWrite } from './auxiliaryRecordStorage';
 import { validQuestionImageDescriptor } from './questionImageRecords';
+import { isChunkInternal } from './recordChunkFormat';
 
 export const LOCAL_PROJECTION_STORE = 'localProjections';
 const STORES = ['appRecordMeta', 'appRecords', 'appRecordBackups', 'appOutbox', LOCAL_PROJECTION_STORE];
@@ -69,7 +70,7 @@ export async function captureSyncedLocalStorage(isSyncKey: (key: string) => bool
   const values = new Map<string,string>();
   for (let index=0;index<localStorage.length;index++) {
     const key=localStorage.key(index);
-    if (!key || !isSyncKey(key) || key==='quiz-make-app-data-v1' || key.startsWith('quizMake:notes:')) continue;
+    if (!key || !isSyncKey(key) || isChunkInternal('localStorage',key) || key==='quiz-make-app-data-v1' || key.startsWith('quizMake:notes:')) continue;
     const raw=localStorage.getItem(key);
     if (raw!==null && !isImagePointer(key,raw)) values.set(key,raw);
   }
@@ -83,10 +84,11 @@ export async function captureSyncedLocalStorage(isSyncKey: (key: string) => bool
       values.forEach((raw,key)=>{queueAuxiliaryRecordWrite(tx,'localStorage',key,raw);count++;});
       return;
     }
-    const row=current.value as {id:string;raw:string|null};
+    const row=current.value as {id:string;raw:string|null;logicalRaw?:string};
+    if (isChunkInternal('localStorage',row.id)) { current.continue(); return; }
     if (!isSyncKey(row.id) || (row.raw !== null && isImagePointer(row.id,row.raw))) { current.continue(); return; }
     const raw=values.get(row.id) ?? null;
-    if (raw!==row.raw) { queueAuxiliaryRecordWrite(tx,'localStorage',row.id,raw); count++; }
+    if (raw!==(row.logicalRaw??row.raw)) { queueAuxiliaryRecordWrite(tx,'localStorage',row.id,raw); count++; }
     values.delete(row.id);
     current.continue();
   };
