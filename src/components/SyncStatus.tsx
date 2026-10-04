@@ -6,6 +6,7 @@ import { syncStatusPresentation } from '../utils/syncStatusPresentation';
 import { readSyncAttemptStatus, SYNC_ATTEMPT_EVENT, type SyncAttemptStatus } from '../utils/syncAttemptStatus';
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { requestSyncRetry } from '../utils/syncRequest';
+import { safeSyncFailureMessage } from '../utils/syncFailureDiagnostic';
 
 export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, lastState, disabled, onLogin, detailsOpen = false, diagnosticsOnly = false, onInitialSync }: {
   syncId: string; accountId: string; recordEnabled: boolean; autoEnabled: boolean; lastState: LastSyncState; disabled: boolean; onLogin: () => void; detailsOpen?: boolean; diagnosticsOnly?: boolean; onInitialSync?: () => void;
@@ -59,6 +60,9 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
       disabled={disabled || !online} onClick={() => requestSyncRetry(syncId)}>再試行</button> : null}
     {detailsOpen && lastState.error ? <p role="alert">{lastState.error}</p> : null}
     {detailsOpen && readError ? <p role="alert">{readError}</p> : null}
-    {detailsOpen && attempt?.lastFailure ? <p>前回の失敗：{attempt.lastFailure.step} / {attempt.lastFailure.code} / {new Date(attempt.lastFailure.at).toLocaleString('ja-JP')}</p> : null}
+    {detailsOpen && attempt?.lastFailure ? <>
+      <p>前回の失敗：{attempt.lastFailure.step} / {attempt.lastFailure.code} / {new Date(attempt.lastFailure.at).toLocaleString('ja-JP')}</p>
+      <p role="alert">{safeSyncFailureMessage(attempt.lastFailure.message)}</p>
+    </> : null}
   </section>;
 }
