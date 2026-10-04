@@ -1,22 +1,32 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Layout } from '../components/Layout';
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ActionMenu } from '../components/ActionMenu';
 import { DownloadIcon } from '../components/UiIcons';
-import { exportQuizMakeData, validateSyncPayload } from '../utils/syncService';
+import { exportQuizMakeData, exportQuizMakeRecoveryData, validateSyncPayload } from '../utils/syncService';
 import { deleteSavedBackup, getSavedBackup, listSavedBackups, saveBackupPayload, type SavedBackupSummary } from '../utils/backupRepository';
 import { saveJsonBackup } from '../utils/nativePlatform';
 import { RecordConflictRecovery } from '../components/RecordConflictRecovery';
+import './BackupScreen.css';
 
 const kinds = { manual:'手動', 'before-import':'読み込み前に自動作成', 'before-sync':'同期前に自動作成', 'before-logout':'ログアウト前に自動作成' };
-export function BackupScreen({ onBack, onRestore }: { onBack: () => void; onRestore: (file: File) => Promise<string | null> }) {
+export function BackupScreen({ onBack, onRestore, onOpenSyncRecovery, onExitGuardChange }: { onBack: () => void; onRestore: (file: File) => Promise<string | null>; onOpenSyncRecovery?: () => void; onExitGuardChange?: (guard: (() => boolean) | null) => void }) {
   const [items,setItems] = useState<SavedBackupSummary[]>([]);
   const [busy,setBusy] = useState(false);
+  const [recoveryBusy,setRecoveryBusy] = useState(false);
   const [error,setError] = useState('');
   const [deleting,setDeleting] = useState<SavedBackupSummary | null>(null);
   const lock = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    onExitGuardChange?.(() => {
+      if (lock.current || recoveryBusy) return false;
+      if (deleting) { setDeleting(null); return false; }
+      return true;
+    });
+    return () => onExitGuardChange?.(null);
+  });
   const refresh = () => listSavedBackups().then(setItems).catch(() => setError('バックアップを読み込めませんでした。'));
   useEffect(() => { void refresh(); }, []);
   const run = async (action: () => Promise<void>) => {
@@ -25,10 +35,10 @@ export function BackupScreen({ onBack, onRestore }: { onBack: () => void; onRest
     try { await action(); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : '処理を完了できませんでした。'); }
     finally { lock.current = false; setBusy(false); }
   };
-  return <Layout><main className="library-page">
-    <header className="library-page__header"><BackButton onClick={onBack} disabled={busy} /><h1>バックアップ・復元</h1></header>
+  return <Layout><main className="library-page backup-page">
+    <header className="library-page__header"><BackButton onClick={onBack} disabled={busy || recoveryBusy} /><h1>バックアップと復旧</h1></header>
     <section aria-label="ファイル保存と復元"><h2>ファイルで保管</h2><p>端末の故障・紛失に備え、別の場所へファイルを保管してください。</p>
-      <button className="qm-primary" disabled={busy} onClick={() => void run(async () => { const raw = JSON.stringify(await exportQuizMakeData()); await saveJsonBackup(`quiz-make-${new Date().toISOString().replace(/[:.]/g,'-')}.json`, raw); })}>ファイルに保存</button>
+      <button className="qm-primary" disabled={busy} onClick={() => void run(async () => { const raw = JSON.stringify(await exportQuizMakeRecoveryData()); await saveJsonBackup(`quiz-make-${new Date().toISOString().replace(/[:.]/g,'-')}.json`, raw); })}>ファイルに保存</button>
       <button className="qm-secondary" disabled={busy} onClick={() => fileInput.current?.click()}>ファイルから復元</button>
       <input ref={fileInput} hidden type="file" accept=".json,application/json" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run(async () => { const issue = await onRestore(file); if (issue) throw new Error(issue); }); }} />
     </section>
@@ -48,6 +58,7 @@ export function BackupScreen({ onBack, onRestore }: { onBack: () => void; onRest
       </div>;
     })}
     <ConfirmDialog open={Boolean(deleting)} title="このバックアップを削除しますか？" message={deleting ? `${new Date(deleting.createdAt).toLocaleString()}のバックアップだけを削除します。現在の学習データは残ります。` : ''} busy={busy} onCancel={() => setDeleting(null)} onConfirm={() => void run(async () => { if(deleting) await deleteSavedBackup(deleting.id); setDeleting(null); })} />
-    <RecordConflictRecovery onCreated={refresh} />
+    <RecordConflictRecovery onCreated={refresh} onBusyChange={setRecoveryBusy} />
+    {onOpenSyncRecovery ? <section aria-label="同期の復旧"><h2>同期の復旧</h2><p>初回の取り込み、接続ID、同期方式、診断が必要なときに使います。</p><button className="qm-secondary" disabled={busy || recoveryBusy} onClick={onOpenSyncRecovery}>同期の復旧を開く</button></section> : null}
   </main></Layout>;
 }

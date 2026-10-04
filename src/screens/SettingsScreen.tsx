@@ -34,11 +34,12 @@ interface SettingsScreenProps {
   onImportBackup: (file: File) => Promise<string | null>;
   onClearAll: () => Promise<boolean>;
   onOpenSync: () => void;
+  onOpenSyncSettings: () => void;
   onOpenPrivacy: () => void;
   onOpenGuide: () => void;
 }
 
-export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBackup, onClearAll, onOpenSync, onOpenPrivacy, onOpenGuide }: SettingsScreenProps) {
+export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBackup, onClearAll, onOpenSync, onOpenSyncSettings, onOpenPrivacy, onOpenGuide }: SettingsScreenProps) {
   const [sound, setSound] = useState(isAnswerSoundEnabled);
   const [companion, setCompanion] = useState(isStudyCompanionEnabled);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -173,7 +174,8 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
             </section>
             <section className="settings-section"><div className="settings-section__heading"><h2>データ</h2></div>
               <SettingsRow icon={<SettingsIcon kind="sync" />} title="同期" arrow onClick={onOpenSync} />
-              <SettingsRow icon={<SettingsIcon kind="backup" />} title="バックアップ・復元" arrow onClick={() => onNavigate('backups')} />
+              <SettingsRow icon={<SettingsIcon kind="sync" />} title="同期設定" arrow onClick={onOpenSyncSettings} />
+              <SettingsRow icon={<SettingsIcon kind="backup" />} title="バックアップと復旧" arrow onClick={() => onNavigate('backups')} />
               <SettingsRow icon={<TrashIcon />} title="端末データの削除" arrow onClick={() => onNavigate('transfer')} />
             </section>
           </> : null}

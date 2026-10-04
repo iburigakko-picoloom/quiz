@@ -1,3 +1,4 @@
+import type { SyncScreenPage } from '../types';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -18,7 +19,7 @@ type PersistentStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 export type NativeAuthReturnTarget =
   | { name: 'settings' }
-  | { name: 'sync' }
+  | { name: 'sync'; page?: SyncScreenPage }
   | {
       name: 'community';
       tab: 'mine' | 'groups' | 'discover';
@@ -284,7 +285,11 @@ function normalizeReturnTarget(value: unknown): NativeAuthReturnTarget | null {
   if (!value || typeof value !== 'object') return null;
   const target = value as Record<string, unknown>;
   if (target.name === 'settings') return { name: 'settings' };
-  if (target.name === 'sync') return { name: 'sync' };
+  if (target.name === 'sync') {
+    if (target.page === undefined) return { name: 'sync' };
+    if (target.page === 'settings' || target.page === 'recovery' || target.page === 'connect' || target.page === 'diagnostics' || target.page === 'danger') return { name: 'sync', page: target.page };
+    return null;
+  }
   if (target.name !== 'community') return null;
   if (target.tab !== 'mine' && target.tab !== 'groups' && target.tab !== 'discover') return null;
 

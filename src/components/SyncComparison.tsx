@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { registerTransientDialog } from '../utils/transientDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { computePayloadDigest, downloadSyncData, exportQuizMakeData, getLastSyncState, getStoredSyncId, summarizeSyncPayload, type SyncPayload, type SyncPayloadSummary } from '../utils/syncService';
 import { saveBackupPayload } from '../utils/backupRepository';
 import { readSyncOverview, readSyncPreview, type SyncOverview } from '../utils/syncPreview';
 
 type Comparison = SyncOverview;
-export function SyncComparison({ syncId, disabled, onUpload, onDownload, onRetry }: { syncId: string; disabled: boolean; onUpload: (payload?: SyncPayload, confirmedRemoteUpdatedAt?: string) => Promise<void>; onDownload: () => Promise<void>; onRetry: () => void }) {
+export function SyncComparison({ syncId, disabled, onUpload, onDownload, onRetry, onBusyChange }: { syncId: string; disabled: boolean; onUpload: (payload?: SyncPayload, confirmedRemoteUpdatedAt?: string) => Promise<void>; onDownload: () => Promise<void>; onRetry: () => void; onBusyChange?: (busy: boolean) => void }) {
   const [value,setValue] = useState<Comparison | null>(null);
   const [pending,setPending] = useState<Comparison | null>(null);
   const [error,setError] = useState('');
@@ -15,6 +16,8 @@ export function SyncComparison({ syncId, disabled, onUpload, onDownload, onRetry
   const [attempt,setAttempt] = useState(0);
   const lock = useRef(false);
   const requestId = useRef(0);
+  useLayoutEffect(() => { onBusyChange?.(Boolean(pending && loading)); return () => onBusyChange?.(false); }, [pending, loading, onBusyChange]);
+  useEffect(() => pending ? registerTransientDialog(() => { if (!lock.current) setPending(null); }) : undefined, [pending]);
   useEffect(() => {
     let active = true;
     const currentRequest = ++requestId.current;

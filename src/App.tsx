@@ -141,6 +141,9 @@ export default function App() {
   const autoImportEligibleRef = useRef(false);
   const recordCheckEligibleRef = useRef(false);
   const [, setSyncInteractionActive] = useState(false);
+  const syncExitGuardRef = useRef<(() => boolean) | null>(null);
+  const backupExitStateRef = useRef({ pending: false, busy: false });
+  backupExitStateRef.current = { pending: pendingBackupImport !== null, busy: backupImportBusy };
   // Home and the normal sync display can apply data. Quiz/editor/viewer state stays untouched;
   // downloading in the background never blocks interaction.
   autoImportEligibleRef.current = isSyncDisplaySafe(screen.name) && !guideReturn && !waitingWorker
@@ -298,6 +301,9 @@ export default function App() {
     window.history.replaceState({ quizMake: true }, '');
 
     const handlePopState = () => {
+      if (backupExitStateRef.current.busy) { window.history.pushState({ quizMake: true }, ''); return; }
+      if (backupExitStateRef.current.pending) { setPendingBackupImport(null); window.history.pushState({ quizMake: true }, ''); return; }
+      if ((screenRef.current.name === 'sync' || (screenRef.current.name === 'settings' && screenRef.current.page === 'backups')) && syncExitGuardRef.current && !syncExitGuardRef.current()) { window.history.pushState({ quizMake: true }, ''); return; }
       if (tryCloseTransientDialog()) { window.history.pushState({ quizMake: true }, ''); return; }
       if (autoImportBusyRef.current) {
         window.history.pushState({ quizMake: true }, '');
@@ -434,7 +440,8 @@ export default function App() {
     }
 
     // Keep the original entry point when a child supplies only the destination ID.
-    const resolvedTarget = targetIndex >= 0 ? { ...stack[targetIndex], ...target } : target;
+    const resolvedTarget: AppScreen = targetIndex >= 0 && stack[targetIndex].name === target.name
+      ? { ...stack[targetIndex], ...target } as AppScreen : target;
     navigationStackRef.current = targetIndex >= 0 ? [...stack.slice(0, targetIndex), resolvedTarget] : [resolvedTarget];
     browserDepthRef.current = Math.max(0, browserDepthRef.current - historySteps);
     pendingBackTargetRef.current = null;
@@ -1797,7 +1804,9 @@ export default function App() {
   } else if (screen.name === 'sessionAnswers') {
     content = <SessionAnswersScreen result={screen.result} onBack={() => goBackTo({ name: 'result', result: screen.result })} />;
   } else if (screen.name === 'settings') {
-    content = screen.page === 'backups' ? <BackupScreen onBack={() => goBackTo({ name: 'settings' })} onRestore={handleImportBackup} /> : (
+    content = screen.page === 'backups' ? <BackupScreen onBack={() => goBackTo(navigationStackRef.current[navigationStackRef.current.length - 2] ?? { name: 'settings' })} onRestore={handleImportBackup}
+      onOpenSyncRecovery={() => navigate({ name: 'sync', page: 'recovery', backScreen: { name: 'settings', page: 'backups' } })}
+      onExitGuardChange={guard => { syncExitGuardRef.current = guard; }} /> : (
       <SettingsScreen
         page={screen.page}
         onNavigate={(page) => navigate({ name: 'settings', page })}
@@ -1806,12 +1815,15 @@ export default function App() {
         onImportBackup={handleImportBackup}
         onClearAll={handleClearAll}
         onOpenSync={() => navigate({ name: 'sync' })}
+        onOpenSyncSettings={() => navigate({ name: 'sync', page: 'settings', backScreen: { name: 'settings' } })}
         onOpenPrivacy={() => navigate({ name: 'privacy' })}
         onOpenGuide={() => { setGuideReturn('settings'); navigatePrimary('home'); }}
       />
     );
   } else if (screen.name === 'sync') {
-    content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} onImported={refreshImportedData}
+    content = <SyncScreen page={screen.page} onBack={() => goBackTo(screen.backScreen ?? (screen.page ? { name: 'sync' } : { name: 'settings' }))} onImported={refreshImportedData}
+      onNavigatePage={page => navigate({ name: 'sync', page, backScreen: screen })}
+      onExitGuardChange={guard => { syncExitGuardRef.current = guard; }}
       onProtectionChange={setSyncInteractionActive} onOpenBackups={() => navigate({ name: 'settings', page: 'backups' })} />;
   } else if (screen.name === 'privacy') {
     content = <PrivacyScreen onBack={() => goBackTo({ name: 'settings' })} />;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getCloudAccessToken, getCloudSession } from '../utils/cloudService';
 import { withCoordinatedDataMutation, withCoordinatedDataRead } from '../utils/dataCoordination';
 import { replayLocalStorageProjections } from '../utils/localStorageRecords';
@@ -12,14 +12,15 @@ import { getRemoteSyncConfig, getStoredSyncId, waitForLocalPersistence } from '.
 import { openAppDb } from '../storage';
 import { requestSyncRetry, withRecordSyncLease } from '../utils/syncRequest';
 
-export function RecordConflictPanel({ syncId, accountId, onImported, open, onOpenChange, onOpenBackups }: {
+export function RecordConflictPanel({ syncId, accountId, onImported, open, onOpenChange, onOpenBackups, onBusyChange }: {
   syncId: string; accountId: string; onImported?: () => Promise<void>;
-  open: boolean; onOpenChange: (value: boolean) => void; onOpenBackups?: () => void;
+  open: boolean; onOpenChange: (value: boolean) => void; onOpenBackups?: () => void; onBusyChange?: (busy: boolean) => void;
 }) {
   const [conflicts, setConflicts] = useState<RecordConflict[]>([]);
   const [titles, setTitles] = useState<Record<string, string>>({});
   const [choices, setChoices] = useState<Record<string, 'local' | 'remote'>>({});
   const [busy, setBusy] = useState(false);
+  useLayoutEffect(() => { onBusyChange?.(busy); return () => onBusyChange?.(false); }, [busy, onBusyChange]);
   const [index, setIndex] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const dialogRef = useRef<HTMLElement>(null);
