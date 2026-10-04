@@ -180,6 +180,8 @@ export interface QuizSession {
   isPreview?: boolean;
 }
 
+export type SyncScreenPage = 'settings' | 'recovery' | 'connect' | 'diagnostics' | 'danger';
+
 export type AppScreen =
   | { name: 'home' }
   | { name: 'plans' }
@@ -193,7 +195,7 @@ export type AppScreen =
   | { name: 'detailedAnswer'; questionId: string; backScreen: AppScreen; editing?: boolean }
   | { name: 'settings'; page?: 'account' | 'transfer' | 'backups' | 'logout' }
   | { name: 'community'; tab?: 'mine' | 'groups' | 'discover'; groupPage?: 'create' | 'join'; groupId?: string; shareSetId?: string; shareToken?: string; backScreen?: AppScreen }
-  | { name: 'sync' }
+  | { name: 'sync'; page?: SyncScreenPage; backScreen?: AppScreen }
   | { name: 'privacy' }
   | { name: 'createProblemSet'; folderId?: string; editSetId?: string; copySetId?: string; importExplanations?: boolean; backScreen?: AppScreen }
   | { name: 'folder'; folderId: string }

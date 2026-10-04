@@ -41,6 +41,17 @@ import {
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
+test('sync settings and recovery children return to the screen that opened them', () => {
+  const sync = { name: 'sync' }, settings = { name: 'sync', page: 'settings', backScreen: sync };
+  const danger = { name: 'sync', page: 'danger', backScreen: settings };
+  const backups = { name: 'settings', page: 'backups' };
+  const recovery = { name: 'sync', page: 'recovery', backScreen: backups };
+  for (const child of [settings, danger, recovery, { name: 'sync', page: 'connect' }, { name: 'sync', page: 'diagnostics' }]) assert.notEqual(getScreenKey(child), getScreenKey(sync));
+  assert.equal(getBackNavigationSteps([{ name: 'home' }, sync, settings, danger], settings), 1);
+  assert.equal(getBackNavigationSteps([{ name: 'home' }, sync, backups, recovery], backups), 1);
+  assert.equal(getBackNavigationSteps([{ name: 'home' }, sync, settings, danger], sync), 2);
+});
+
 test('recommended review returns to study records after a session or result', () => {
   const target = { name: 'studyRecord' };
   const result = { mode: 'review', title: '今日のおすすめ', returnScreen: target };

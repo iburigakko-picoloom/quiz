@@ -23,6 +23,16 @@ function createStorage() {
   };
 }
 
+test('native login returns to a validated sync child without restoring a destructive action', () => {
+  const storage = createStorage();
+  for (const page of ['settings', 'recovery', 'connect', 'diagnostics', 'danger']) {
+    assert.equal(rememberNativeAuthReturnTarget({ name: 'sync', page, pendingDelete: true }, storage, 1000), true);
+    assert.deepEqual(consumeNativeAuthReturnTarget(storage, 1001), { name: 'sync', page });
+  }
+  assert.equal(rememberNativeAuthReturnTarget({ name: 'sync', page: 'untrusted' }, storage, 1000), false);
+  assert.equal(consumeNativeAuthReturnTarget(storage, 1001), null);
+});
+
 test('native callback accepts only the exact app-owned PKCE route', () => {
   assert.deepEqual(
     parseNativeAuthCallback(`${NATIVE_AUTH_REDIRECT_URL}?code=abcDEF12-._~&sb_flow_id=0123456789abcdef`),

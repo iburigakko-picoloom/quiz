@@ -4,6 +4,7 @@ export function getScreenKey(screen: AppScreen): string {
   if (screen.name === 'planDetail') return `plan-${screen.planId}`;
   if (screen.name === 'planEditor') return `plan-editor-${screen.planId ?? screen.setId ?? 'new'}`;
   if (screen.name === 'createProblemSet' && screen.importExplanations) return `explanation-import-${screen.backScreen?.name === 'noteList' ? screen.backScreen.setId : ''}`;
+  if (screen.name === 'sync') return `sync-${screen.page ?? 'main'}`;
   if (screen.name === 'settings') return `settings-${screen.page ?? 'main'}`;
   if (screen.name === 'questionDetail') return `question-${screen.questionId}`;
   if (screen.name === 'questionEdit') return `question-edit-${screen.questionId}`;

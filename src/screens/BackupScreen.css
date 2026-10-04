@@ -1,0 +1,7 @@
+.backup-page { overflow-wrap: anywhere; }
+.backup-page .library-page__header h1 { min-width: 0; line-height: 1.5; }
+.backup-page > section { margin: 12px 0 24px; }
+.backup-page p { font-size: 14px; line-height: 1.7; color: #667386; }
+.backup-page button { min-height: 44px; line-height: 1.6; white-space: normal; }
+.backup-page > section > button { margin: 8px 8px 0 0; padding-block: 10px; }
+.backup-page > section > h2 { margin-bottom: 8px; }

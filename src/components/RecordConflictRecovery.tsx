@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { openAppDb } from '../storage';
 import { getCloudSession, onCloudAuthStateChange } from '../utils/cloudService';
 import { getRemoteSyncConfig, getStoredSyncId, exportQuizMakeData } from '../utils/syncService';
@@ -8,11 +8,12 @@ import { recordConflictTitle } from '../utils/recordConflictPresentation';
 import { saveBackupPayload } from '../utils/backupRepository';
 import { saveJsonBackup } from '../utils/nativePlatform';
 
-export function RecordConflictRecovery({ onCreated }: { onCreated: () => Promise<void> }) {
+export function RecordConflictRecovery({ onCreated, onBusyChange }: { onCreated: () => Promise<void>; onBusyChange?: (busy: boolean) => void }) {
   const [items, setItems] = useState<Array<ArchivedRecordConflict & { title: string }>>([]);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  useLayoutEffect(() => { onBusyChange?.(busy); return () => onBusyChange?.(false); }, [busy, onBusyChange]);
   const lock = useRef(false);
   const [account, setAccount] = useState('');
   const [attempt, setAttempt] = useState(0);
