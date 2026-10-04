@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { openAppDb } from '../storage';
 import { getRemoteSyncConfig, isLocalSyncUnchanged, type LastSyncState } from '../utils/syncService';
-import { readRecordSyncStatus, recordSyncSummary, RECORD_SYNC_STATE_EVENT, type RecordSyncStatus } from '../utils/recordSyncStatus';
+import { readRecordSyncStatus, RECORD_SYNC_STATE_EVENT, type RecordSyncStatus } from '../utils/recordSyncStatus';
+import { syncStatusPresentation } from '../utils/syncStatusPresentation';
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { requestSyncRetry } from '../utils/syncRequest';
 
-export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, lastState, disabled, onLogin }: {
-  syncId: string; accountId: string; recordEnabled: boolean; autoEnabled: boolean; lastState: LastSyncState; disabled: boolean; onLogin: () => void;
+export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, lastState, disabled, onLogin, detailsOpen = false }: {
+  syncId: string; accountId: string; recordEnabled: boolean; autoEnabled: boolean; lastState: LastSyncState; disabled: boolean; onLogin: () => void; detailsOpen?: boolean;
 }) {
   const [record, setRecord] = useState<RecordSyncStatus | null>(null);
   const [pending, setPending] = useState(false);
@@ -36,18 +37,15 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   }, [syncId, accountId, recordEnabled, lastState.lastSyncDigest]);
   const failed = Boolean(readError || lastState.error);
   const loginRequired = lastState.status.includes('ログイン');
-  const summary = !online ? 'オフライン・変更は端末に保存しています'
-    : loginRequired ? 'ログインが必要です。未送信の変更は保持しています'
-    : failed ? '同期を完了できません。未送信の変更は保持しています'
-    : recordEnabled ? record ? recordSyncSummary(record) : '同期状態を確認中…'
-    : pending ? '未送信の変更があります' : lastState.lastSyncAt ? '同期済み' : '最初の同期を確認してください';
   const success = recordEnabled ? record?.lastSuccessAt : lastState.lastSyncAt;
+  const presentation = syncStatusPresentation({ online, loginRequired, error: failed, autoEnabled, recordEnabled, record, pending, success: success ?? '' });
+  const summary = presentation.text === '変更の確認があります' && record?.conflicts ? `変更の確認が${record.conflicts}件あります` : presentation.text;
   return <section className="sync-status-card" aria-live="polite">
     <h2>{summary}</h2>
-    <p>最終成功 {success ? new Date(success).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : '未実行'}</p>
-    {!autoEnabled ? <p>自動同期はOFFです</p> : null}
-    {loginRequired ? <button type="button" className="sync-button sync-button--primary" onClick={onLogin}>ログイン</button> : failed || pending || !autoEnabled || !success || record?.pending ? <button type="button" className="sync-button sync-button--primary"
+    {presentation.action ? <p>変更は端末に保持しています。</p> : null}
+    {detailsOpen ? <p>最終成功 {success ? new Date(success).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : '未実行'}</p> : null}
+    {presentation.action === 'login' ? <button type="button" className="sync-button sync-button--primary" onClick={onLogin}>ログイン</button> : presentation.action === 'retry' ? <button type="button" className="sync-button sync-button--primary"
       disabled={disabled || !online} onClick={() => requestSyncRetry(syncId)}>再試行</button> : null}
-    {readError ? <details><summary>状態確認の詳細</summary><p role="alert">{readError}</p></details> : null}
+    {detailsOpen && readError ? <p role="alert">{readError}</p> : null}
   </section>;
 }

@@ -1020,6 +1020,26 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
           </section>
         ) : null}
 
+        {detailsOpen && message ? <div className="sync-alert sync-alert--message" role="status" aria-live="polite">{message}</div> : null}
+        {error ? <div className="sync-alert sync-alert--error" role="alert">操作を完了できません。変更は端末に保持しています<details><summary>詳細</summary>{error}</details></div> : null}
+
+        {configured && authenticated && hasStrongConnection ? (
+          <section className="sync-card sync-card--transfer">
+            <SyncStatus detailsOpen={detailsOpen} onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id} recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={busy || diagnosticBusy || interactionProtected} />
+            {recordSyncOptedIn ? <RecordConflictPanel syncId={activeSyncId} accountId={cloudAccount.id} onImported={onImported}
+              open={reviewOpen} onOpenChange={setReviewOpen} onOpenBackups={onOpenBackups} /> : null}
+          </section>
+        ) : null}
+
+        <details className="sync-advanced" open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)}>
+          <summary>
+            <span>
+              <strong>詳細・復旧</strong>
+            </span>
+            <ChevronDownIcon size={20} />
+          </summary>
+
+          <div className="sync-advanced__body">
         {configured && authenticated ? (
           <div className="sync-account-line" role="status">
             <span>ログイン中</span>
@@ -1027,18 +1047,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
           </div>
         ) : null}
 
-        {message ? <div className="sync-alert sync-alert--message" role="status" aria-live="polite">{detailsOpen ? message : '操作結果があります。詳細で確認できます'}</div> : null}
-        {error ? <div className="sync-alert sync-alert--error" role="alert">操作を完了できません。変更は端末に保持しています<details><summary>詳細</summary>{error}</details></div> : null}
-
-        {configured && authenticated && hasStrongConnection ? (
-          <section className="sync-card sync-card--transfer">
-            <SyncStatus onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id} recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={busy || diagnosticBusy || interactionProtected} />
             <p className="sync-card__compact-note">変更ごとの同期：{recordSyncOptedIn ? 'ON' : 'OFF'}（教材・回答・ノートなどの変更を個別に保存）。全体コピー同期：{autoEnabled ? 'ON' : 'OFF'}（全データをまとめて保存・比較して取り込み）。設定は「詳細・復旧」で変更できます。</p>
-            {recordSyncOptedIn ? <RecordConflictPanel syncId={activeSyncId} accountId={cloudAccount.id} onImported={onImported}
-              open={reviewOpen} onOpenChange={setReviewOpen} onOpenBackups={onOpenBackups} /> : null}
-          </section>
-        ) : null}
-
         {configured && authenticated ? <details className="sync-advanced sync-connections" open={hasStrongConnection ? undefined : true}>
           <summary><strong>{hasStrongConnection ? 'ほかの端末とつなぐ' : '同期を始める'}</strong><ChevronDownIcon size={20} /></summary>
           <div className="sync-advanced__body">
@@ -1110,15 +1119,6 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
           </div>
         </details> : null}
 
-        <details className="sync-advanced" open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)}>
-          <summary>
-            <span>
-              <strong>詳細・復旧</strong>
-            </span>
-            <ChevronDownIcon size={20} />
-          </summary>
-
-          <div className="sync-advanced__body">
             <section className="sync-advanced__section">
               <h2>同期設定</h2>
             <div className="sync-auto-row">
