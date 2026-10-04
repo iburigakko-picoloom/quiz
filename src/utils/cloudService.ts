@@ -261,7 +261,7 @@ export async function getCloudAccessToken(): Promise<CloudAccessTokenResult> {
 
 export async function signOutCloud(): Promise<void> {
   const client = requireCloudClient();
-  const { error } = await client.auth.signOut();
+  const { error } = await client.auth.signOut({ scope: 'local' });
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 

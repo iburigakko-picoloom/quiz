@@ -30,3 +30,9 @@ test('corrupt ownership, competing bindings and failed manifest writes fail clos
 test('different projects and auth storage remain separate, including key enumeration and clear',()=>{
   const native=memory();native.setItem('sb-auth-token','kept');const first=new AccountStorageSession(native,decideAccountStorage(native,a,null)),other=new AccountStorageSession(native,decideAccountStorage(native,{...a,project:'https://other.supabase.co'},null));first.storage.setItem('quizMake:sync:id','A');assert.equal(other.storage.getItem('quizMake:sync:id'),null);assert.throws(()=>first.storage.setItem('sb-auth-token','changed'));assert.equal(first.storage.getItem(ACCOUNT_VAULT_MANIFEST_KEY),null);first.storage.clear();assert.equal(native.getItem('sb-auth-token'),'kept');
 });
+
+test('a stale unclaimed guest cannot write into legacy data after another tab adopts it',()=>{
+  const native=memory(),guest=new AccountStorageSession(native,decideAccountStorage(native,null,null));guest.storage.setItem('quizMake:plan:kept','original');
+  native.setItem(ACCOUNT_VAULT_MANIFEST_KEY,JSON.stringify({version:1,legacyOwner:a}));
+  assert.throws(()=>guest.storage.setItem('quizMake:plan:kept','stale'),/所有者/);assert.throws(()=>guest.databaseName('quiz-make-app-data-v1'),/所有者/);assert.equal(native.getItem('quizMake:plan:kept'),'original');
+});

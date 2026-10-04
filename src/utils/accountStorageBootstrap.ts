@@ -13,11 +13,11 @@ function binding(value: unknown): StoredAccountBinding {
 export async function readStoredAccountBinding(factory: IDBFactory, databaseName: string): Promise<StoredAccountBinding | null> {
   const db = await new Promise<IDBDatabase | null>((resolve, reject) => {
     const request = factory.open(databaseName);
-    let absent = false;
+    let absent = false, failed = false;
     request.onupgradeneeded = () => { absent = true; request.transaction?.abort(); };
     request.onerror = () => absent ? resolve(null) : reject(request.error ?? new Error('保存済みの所有記録を読み込めません。'));
-    request.onblocked = () => reject(new Error('端末の所有記録を読み込めません。別のQuizMake画面を閉じて再試行してください。'));
-    request.onsuccess = () => resolve(request.result);
+    request.onblocked = () => { failed = true; reject(new Error('端末の所有記録を読み込めません。別のQuizMake画面を閉じて再試行してください。')); };
+    request.onsuccess = () => { if(failed)request.result.close();else resolve(request.result); };
   });
   if (!db) return null;
   try {

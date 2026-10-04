@@ -16,6 +16,8 @@ import {
   type RemoteSyncRecord,
 } from '../utils/syncService';
 import { getSyncDecision } from '../utils/syncDecision';
+import { getAccountStorageSession } from '../utils/accountStorage';
+import { isAccountSyncConnected } from '../utils/accountSync';
 import type { ProtectedWorkReason } from '../utils/protectedWork';
 import { CLOUD_UPDATE_EVENT, isCloudUpdateDismissed } from '../utils/cloudUpdateNotice';
 import { createAutoSyncScheduler, isAutoUploadBlocked, type AutoSyncOutcome, type AutoSyncQueueState } from '../utils/autoSyncScheduler';
@@ -254,6 +256,9 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     const checkRemote = async (force = false) => {
       const settings = getAutoSyncSettings();
       if (disposed || navigator.onLine === false || !settings.syncId || !settings.configured) return;
+      // Account bootstrap installs the local ancestor and record connection
+      // before automatic I/O. A cached legacy ID is not bootstrap completion.
+      if(getAccountStorageSession()?.identity&&!isAccountSyncConnected(settings.syncId)&&!manualRequest)return;
       if (remoteCheckRunningRef.current || uploadRunningRef.current) return;
 
       const now = Date.now();

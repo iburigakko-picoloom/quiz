@@ -1,4 +1,5 @@
 import { accountLocalStorage as localStorage } from './accountStorage';
+import { accountAutomaticSyncEnabled, pauseAccountSync } from './accountSync';
 import { chunkFailure, hydrateChunkPayload, isChunkInternal, parseChunkManifest } from './recordChunkFormat';
 import {
   APP_DATA_FALLBACK_META_KEY,
@@ -365,7 +366,7 @@ function restoreSyncStateStorage(snapshot: ReadonlyMap<string, string | null>): 
 
 export function getAutoSyncSettings(): AutoSyncSettings {
   return {
-    enabled: safeGetItem(AUTO_SYNC_ENABLED_KEY) === 'true',
+    enabled: accountAutomaticSyncEnabled() ?? safeGetItem(AUTO_SYNC_ENABLED_KEY) === 'true',
     syncId: getStoredSyncId(),
     configured: isSyncConfigured(),
   };
@@ -383,6 +384,7 @@ export function setAutoSyncEnabled(enabled: boolean): SyncResult<boolean> {
     if (localStorage.getItem(AUTO_SYNC_ENABLED_KEY) !== storedValue) {
       return { ok: false, error: '自動同期設定を端末に保存できませんでした。端末の保存設定と空き容量を確認してください。' };
     }
+    pauseAccountSync(!enabled);
     setLastSyncState({ status: enabled ? '自動同期ON' : '自動同期OFF', error: '' });
     dispatchSyncSettingsChanged();
     return { ok: true, value: enabled };

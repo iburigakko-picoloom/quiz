@@ -42,6 +42,7 @@ export function decideAccountStorage(storage: Pick<Storage, 'getItem' | 'setItem
 export class AccountStorageSession {
   readonly identity: LocalAccountIdentity | null;
   readonly namespace: string;
+  readonly legacyUnclaimed: boolean;
   private invalidated = false;
   private networkFenced = false;
   private readonly nativeStorage: Storage;
@@ -50,6 +51,7 @@ export class AccountStorageSession {
     this.nativeStorage = nativeStorage;
     this.identity = decision.identity ? Object.freeze({ ...validateLocalAccountIdentity(decision.identity) }) : null;
     this.namespace = decision.namespace;
+    this.legacyUnclaimed = decision.legacyUnclaimed;
     if (this.namespace !== 'legacy' && this.namespace !== 'guest' && (!this.identity || this.namespace !== accountNamespace(this.identity))) throw new Error('端末データの保存先を確認できません。');
     const owner = this;
     this.storage = {
@@ -81,6 +83,11 @@ export class AccountStorageSession {
   }
   assertCurrent(identity?: LocalAccountIdentity | null) {
     if (this.invalidated || identity !== undefined && !sameLocalAccount(this.identity, identity)) throw new Error('アカウントが変わりました。元の端末データは保持しています。');
+    if(this.namespace==='legacy'){
+      const raw=this.nativeStorage.getItem(ACCOUNT_VAULT_MANIFEST_KEY);
+      if(raw){const manifest=JSON.parse(raw);if(manifest.version!==1||!sameLocalAccount(validateLocalAccountIdentity(manifest.legacyOwner),this.identity))throw new Error('端末データの所有者が変わりました。元の作業は保持しています。');}
+      else if(!this.legacyUnclaimed)throw new Error('端末データの所有記録が変わりました。元の作業は保持しています。');
+    }
   }
   assertNetworkCurrent(identity?: LocalAccountIdentity | null) {
     this.assertCurrent(identity);
@@ -109,9 +116,9 @@ export function accountStorageEventKey(event: Pick<StorageEvent, 'key' | 'storag
   return activeSession ? activeSession.eventKey(event.key) ?? undefined : event.key;
 }
 export const accountLocalStorage: Storage = {
-  get length() { return (activeSession?.storage ?? globalThis.localStorage).length; },
-  key(index) { return (activeSession?.storage ?? globalThis.localStorage).key(index); },
-  getItem(key) { return (activeSession?.storage ?? globalThis.localStorage).getItem(key); },
+  get length() { return (activeSession?.storage ?? globalThis.localStorage)?.length ?? 0; },
+  key(index) { return (activeSession?.storage ?? globalThis.localStorage)?.key(index) ?? null; },
+  getItem(key) { return (activeSession?.storage ?? globalThis.localStorage)?.getItem(key) ?? null; },
   setItem(key, value) { (activeSession?.storage ?? globalThis.localStorage).setItem(key, value); },
   removeItem(key) { (activeSession?.storage ?? globalThis.localStorage).removeItem(key); },
   clear() { (activeSession?.storage ?? globalThis.localStorage).clear(); },

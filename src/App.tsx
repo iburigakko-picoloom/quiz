@@ -43,6 +43,7 @@ import { saveBackupPayload } from './utils/backupRepository';
 import type { CreateProblemSetSubmission, LegacyImportTarget } from './screens/CreateProblemSetScreen';
 import { lineLinkReturn } from './utils/lineAuthReturn';
 import { AutoSyncController } from './components/AutoSyncController';
+import { AccountSyncController } from './components/AccountSyncController';
 import { UpdateNotices } from './components/UpdateNotices';
 import { WelcomeGuide } from './components/WelcomeGuide';
 import { UsageGuide } from './components/UsageGuide';
@@ -93,7 +94,7 @@ const QuizRunner = lazy(() => import('./screens/QuizRunner').then((module) => ({
 const NoteListScreen = lazy(() => import('./screens/NoteListScreen').then((module) => ({ default: module.NoteListScreen })));
 const ImportScreen = lazy(() => import('./screens/ImportScreen').then((module) => ({ default: module.ImportScreen })));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then((module) => ({ default: module.SettingsScreen })));
-const SyncScreen = lazy(() => import('./screens/SyncScreen').then((module) => ({ default: module.SyncScreen })));
+const SyncScreen = lazy(() => import('./screens/AccountSyncScreen').then((module) => ({ default: module.AccountSyncScreen })));
 const PrivacyScreen = lazy(() => import('./screens/PrivacyScreen').then((module) => ({ default: module.PrivacyScreen })));
 const StudyRecordScreen = lazy(() => import('./screens/StudyRecordScreen').then((module) => ({ default: module.StudyRecordScreen })));
 type PendingBackupImport =
@@ -1855,6 +1856,7 @@ export default function App() {
 
   return (
     <>
+      <AccountSyncController />
       <AutoSyncController protectedWorkReason={protectedWorkReason} canAutoImport={canAutoImport}
         autoImportReady={autoImportEligibleRef.current && !libraryMutationBusy && !autoImportBusy} onAutoImport={handleAutoImport}
         onRecordApply={applyRecordImport} />
