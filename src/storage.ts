@@ -4,6 +4,7 @@ import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './utils/
 import { advanceLocalDataRevision } from './utils/localDataRevision';
 import { hasPersistedSyncHistory } from './utils/syncState';
 import { readAppRecords, readPreviousAppRecords, saveAppRecords, upgradeAppRecordStores } from './utils/appRecordStorage';
+import { appSaveFailure, type AppSaveFailure } from './utils/appSaveFailure';
 
 export const APP_DATA_STORAGE_KEY = 'quiz-make-app-data-v1';
 export const APP_DATA_FALLBACK_META_KEY = 'quiz-make-app-data-v1:fallback-saved-at';
@@ -112,6 +113,13 @@ export function saveAppData(data: AppData): Promise<boolean> {
   return saveAppDataAsync(data);
 }
 
+/** A per-call result keeps concurrent saves' failure reasons separate. */
+export async function saveAppDataResult(data: AppData): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
+  let failure: AppSaveFailure | undefined;
+  const saved = await saveAppDataAsync(data, { onFailure: value => { failure = value; } });
+  return saved ? { ok: true } : { ok: false, failure: failure ?? appSaveFailure([{ stage: 'indexeddb', error: new Error() }]) };
+}
+
 export function establishCurrentAppDataAuthority(): boolean {
   try {
     markAppDataExpected(new Date().toISOString());
@@ -125,16 +133,17 @@ export function establishCurrentAppDataAuthority(): boolean {
 
 export async function saveAppDataAsync(
   data: AppData,
-  options: { coordinationLockHeld?: boolean } = {},
+  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void } = {},
 ): Promise<boolean> {
-  if (options.coordinationLockHeld) return saveAppDataNow(data);
+  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure);
   const queuedSave = appSaveQueue
     .catch(() => true)
     .then(async () => {
       try {
-        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data));
+        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data, options.onFailure));
       } catch (error) {
         console.error('Refused to overwrite app data changed in another tab.', error);
+        try { options.onFailure?.(appSaveFailure([{ stage: 'coordination', error }])); } catch { /* Informational only. */ }
         return false;
       }
     });
@@ -150,13 +159,15 @@ export async function waitForPendingAppDataSaves(): Promise<boolean> {
   }
 }
 
-async function saveAppDataNow(data: AppData): Promise<boolean> {
+async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailure) => void): Promise<boolean> {
   const normalized = normalizeAppData(data);
   if (!normalized.ok) {
     console.error('Refused to save invalid Quiz make data.');
+    try { onFailure?.(appSaveFailure([{ stage: 'validation', error: new Error() }], normalized.error)); } catch { /* Informational only. */ }
     return false;
   }
   const savedAt = new Date().toISOString();
+  const attempts: Array<{ stage: 'indexeddb' | 'fallback'; error: unknown }> = [];
 
   if (isIndexedDbAvailable()) {
     try {
@@ -169,6 +180,7 @@ async function saveAppDataNow(data: AppData): Promise<boolean> {
       return true;
     } catch (error) {
       console.error('Failed to save Quiz make data to IndexedDB.', error);
+      attempts.push({ stage: 'indexeddb', error });
     }
   }
 
@@ -184,6 +196,8 @@ async function saveAppDataNow(data: AppData): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('Failed to save Quiz make data.', error);
+    attempts.push({ stage: 'fallback', error });
+    try { onFailure?.(appSaveFailure(attempts)); } catch { /* Informational only. */ }
     return false;
   }
 }

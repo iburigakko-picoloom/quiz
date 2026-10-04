@@ -20,7 +20,7 @@ test('account/project changes, invalid responses, HTTP failures and aborts never
   assert.throws(()=>createRecordSyncRpc(options({url:'https://other.supabase.co'})),/プロジェクト/);
   await assert.rejects(createRecordSyncRpc(options({access:async()=>({userId:'other',accessToken:'token'}),fetch:()=>assert.fail('must not send')})).pull(0),/アカウント/);
   await assert.rejects(createRecordSyncRpc(options({fetch:async()=>Response.json([])})).pull(0),/応答/);
-  for(const [status,code] of [[401,'authentication_required'],[403,'authentication_required'],[429,'rate_limited'],[404,'unavailable'],[500,'network']]) {
+  for(const [status,code] of [[400,'invalid_request'],[413,'payload_too_large'],[401,'authentication_required'],[403,'authentication_required'],[429,'rate_limited'],[404,'unavailable'],[500,'network']]) {
     await assert.rejects(createRecordSyncRpc(options({fetch:async()=>new Response('private server details',{status})})).push([]),error=>error.code===code&&!error.message.includes('private server details'));
   }
   await assert.rejects(createRecordSyncRpc(options({timeoutMs:5,fetch:async(_url,{signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(new Error('aborted'))))})).push([]),/aborted/);

@@ -27,8 +27,8 @@ import type { RecordSyncGuards } from '../utils/recordSyncEngine';
 import { isRecordSyncOptedIn } from '../utils/recordSyncOptIn';
 import { SYNC_RETRY_EVENT, runSelectedSync, finishManualSync } from '../utils/syncRequest';
 import { isSyncInteractionProtected } from '../utils/syncInteraction';
-import { SyncInterruptedError } from '../utils/syncInterruption';
-import { clearSyncAttemptStatus, observeRecordSyncAttempt, publishRemoteCheck, publishSyncAttempt, publishSyncQueue } from '../utils/syncAttemptStatus';
+import { SyncInterruptedError, SyncLocalPersistenceError } from '../utils/syncInterruption';
+import { clearSyncAttemptStatus, isBlockedSyncFailure, observeRecordSyncAttempt, publishRemoteCheck, publishSyncAttempt, publishSyncQueue } from '../utils/syncAttemptStatus';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 5000;
@@ -61,6 +61,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     let manualScope = '';
     let userId = '';
     let authVersion = 0;
+    let blockedFailure: { scope: string; code: string } | null = null;
     let queueState: AutoSyncQueueState = { phase: 'idle', retryAt: null };
     const attemptConnection = () => {
       const config = getRemoteSyncConfig(), settings = getAutoSyncSettings();
@@ -103,6 +104,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       if (!current()) return 'paused';
       const result = observed.result;
       if (result) {
+        blockedFailure = null;
         if (result.status === 'more') { setLastSyncState({ status: '同期中', error: '' }); return 'changed'; }
         if (result.status === 'deferred') { setLastSyncState({ status: '変更の反映を待っています', error: '' }); return 'paused'; }
         if (result.status === 'conflict') {
@@ -114,6 +116,14 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         return 'done';
       }
       const error = observed.error;
+      if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && isBlockedSyncFailure(error.code)) {
+        blockedFailure = { scope: manualContext(), code: error.code };
+        stopManualSync(syncId);
+      }
+      if (error instanceof SyncLocalPersistenceError) {
+        setLastSyncState({ status: '端末への保存を確認してください', error: error.message });
+        return 'paused';
+      }
       if (error instanceof SyncInterruptedError) {
         setLastSyncState({ status: '内容の確認が終わってから同期を再開します', error: '' }); return 'paused';
       }
@@ -129,6 +139,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       const settings = getAutoSyncSettings();
       const manual = manualRequest;
       if (disposed || (!settings.enabled && !manual) || !settings.syncId || !settings.configured) { paused('disabled'); return 'paused'; }
+      if (blockedFailure?.scope === manualContext() && !manual) { paused(blockedFailure.code); return 'paused'; }
       if (navigator.onLine === false) {
         setLastSyncState({ status: '端末に保存済み・接続後に自動保存します', error: '' });
         paused('offline');
@@ -216,6 +227,12 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         const latestSettings = getAutoSyncSettings();
         if (disposed || (!latestSettings.enabled && !manual) || latestSettings.syncId !== settings.syncId) return 'paused';
         const message = error instanceof Error ? error.message : '自動保存に失敗しました。';
+        if (error instanceof SyncLocalPersistenceError) {
+          blockedFailure = { scope: manualContext(), code: error.code }; stopManualSync(settings.syncId);
+          setLastSyncState({ status: '端末への保存を確認してください', error: message });
+          failure('local_persistence', error.code, message, uploadConnection);
+          paused(error.code); return 'paused';
+        }
         console.warn('Auto sync upload failed.', error);
         setLastSyncState({ status: '端末のデータを保持して再試行します', error: message });
         failure(legacyStep, error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unexpected', message, uploadConnection);
@@ -376,14 +393,14 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         handleSettingsChange();
       }
     };
-    const handleLocalSave = () => uploadQueue.request(document.visibilityState === 'hidden');
+    const handleLocalSave = () => { blockedFailure = null; uploadQueue.request(document.visibilityState === 'hidden'); };
     const handlePageHide = () => uploadQueue.request(true);
     // Supabase's auth callback holds a session lock; the queue defers Auth calls.
     let authCheckTimer: number | undefined;
     const unsubscribeAuth = onCloudAuthStateChange((_event, session) => {
       authVersion++;
       const nextUserId = session?.user && !session.user.is_anonymous ? session.user.id : '';
-      if (_event === 'SIGNED_OUT' || nextUserId !== userId) { stopManualSync(); clearSyncAttemptStatus(); }
+      if (_event === 'SIGNED_OUT' || nextUserId !== userId) { blockedFailure = null; stopManualSync(); clearSyncAttemptStatus(); }
       userId = nextUserId; publishQueue();
       uploadQueue.request(true);
       window.clearTimeout(authCheckTimer);

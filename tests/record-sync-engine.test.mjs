@@ -11,6 +11,7 @@ const hook = registerHooks({ resolve(specifier, context, next) {
 after(() => hook.deregister());
 const records = await import('../src/utils/appRecordStorage.ts');
 const { runRecordSync } = await import('../src/utils/recordSyncEngine.ts');
+const { SyncProtocolError } = await import('../src/utils/syncInterruption.ts');
 const { getPendingRecordPushBatch, freezeRecordPushBatch, acknowledgeRecordPushBatch } = await import('../src/utils/recordSyncOutbox.ts');
 const { applyStagedRecordPull, readActiveRecordConflicts, stageRecordPullPage } = await import('../src/utils/recordSyncPull.ts');
 const { queueAuxiliaryRecordWrite } = await import('../src/utils/auxiliaryRecordStorage.ts');
@@ -109,6 +110,26 @@ test('answers before the first V2 Pull rebase the verified initial progress with
     await runRecordSync(b, f.connection, f.transport, guards);
     assert.deepEqual(await read(b), answer);
   } finally { a.close(); b.close(); }
+});
+test('permanent push rejection retains the exact frozen request and separates validation from network stages',async()=>{
+  const f=await fixture();const [a,b]=f.devices;
+  try{
+    const local=await read(a);local.folders[0].name='Local edit retained';await records.saveAppRecords(a,local,timestamp);const outbox=await records.readAppOutbox(a),steps=[];
+    const rejected={...f.transport,push:async()=>({code:'quota',message:'private server value'})};
+    await assert.rejects(runRecordSync(a,f.connection,rejected,{...guards,step:value=>steps.push(value)}),error=>error instanceof SyncProtocolError&&error.code==='quota'&&!error.message.includes('private'));
+    assert.equal(steps.at(-1),'push');assert.ok(steps.indexOf('pull_validate')<steps.indexOf('pull_stage'));assert.ok(steps.indexOf('pull_stage')<steps.indexOf('pull_apply'));
+    const frozen=await getPendingRecordPushBatch(a,f.connection);assert.ok(frozen);assert.deepEqual(frozen.operations.map(op=>op.operationId),outbox.map(op=>op.operationId));assert.deepEqual(await records.readAppOutbox(a),outbox);assert.deepEqual(await read(a),local);
+    await assert.rejects(runRecordSync(a,f.connection,{...rejected,push:async()=>({})},guards),error=>error.code==='invalid_response');assert.deepEqual(await getPendingRecordPushBatch(a,f.connection),frozen);
+    assert.equal((await runRecordSync(a,f.connection,f.transport,guards)).status,'done');assert.equal(await getPendingRecordPushBatch(a,f.connection),null);assert.equal((await records.readAppOutbox(a)).length,0);
+  }finally{a.close();b.close()}
+});
+test('malformed pull stops at validation before changing staged or live records',async()=>{
+  const f=await fixture();const [a,b]=f.devices;
+  try{
+    const before=await read(a),stage=await stored(a,'appRecordMeta','pullStage'),steps=[];
+    await assert.rejects(runRecordSync(a,f.connection,{...f.transport,pull:async()=>({code:'ok',cursor:-1,head:0,hasMore:false,batches:[]})},{...guards,step:value=>steps.push(value)}),error=>error.code==='invalid_response');
+    assert.equal(steps.at(-1),'pull_validate');assert.deepEqual(await read(a),before);assert.deepEqual(await stored(a,'appRecordMeta','pullStage'),stage);
+  }finally{a.close();b.close()}
 });
 
 async function retainedConflicts(db) {

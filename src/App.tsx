@@ -7,9 +7,10 @@ import {
   establishCurrentAppDataAuthority,
   loadAppDataAsync,
   parseBackupJson,
-  saveAppData,
+  saveAppDataResult,
   waitForPendingAppDataSaves,
 } from './storage';
+import { appSaveFailureMessage } from './utils/appSaveFailure';
 import { HomeScreen } from './screens/HomeScreen';
 import { SearchScreen } from './screens/SearchScreen';
 import { tryCloseTransientDialog } from './utils/transientDialog';
@@ -372,7 +373,8 @@ export default function App() {
     dataRevisionRef.current = revision;
     dataRef.current = nextData;
     setData(nextData);
-    const saved = await saveAppData(nextData);
+    const saveResult = await saveAppDataResult(nextData);
+    const saved = saveResult.ok;
     if (saved) {
       durableDataRef.current = nextData;
       void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
@@ -382,7 +384,7 @@ export default function App() {
     if (dataRevisionRef.current === revision) {
       dataRef.current = durableDataRef.current;
       setData(durableDataRef.current);
-      setStorageError('端末への保存に失敗しました。保存前の状態に戻しました。空き容量やブラウザの保存設定を確認して、もう一度お試しください。');
+      if (!saveResult.ok) setStorageError(appSaveFailureMessage(saveResult.failure));
     }
     return saved;
   };
@@ -397,12 +399,13 @@ export default function App() {
     // Reserve the next snapshot immediately. Any action taken while this durable
     // save is pending will now build on top of it instead of an older snapshot.
     dataRef.current = nextData;
-    const saved = await saveAppData(nextData);
+    const saveResult = await saveAppDataResult(nextData);
+    const saved = saveResult.ok;
     if (!saved) {
       if (dataRevisionRef.current === revision) {
         dataRef.current = durableDataRef.current;
         setData(durableDataRef.current);
-        setStorageError('端末への保存に失敗しました。保存前の状態に戻しました。空き容量やブラウザの保存設定を確認して、もう一度お試しください。');
+        if (!saveResult.ok) setStorageError(appSaveFailureMessage(saveResult.failure));
       }
       return false;
     }
@@ -844,7 +847,9 @@ export default function App() {
       ...current,
       folders,
       problemSets: [problemSet, ...current.problemSets],
-      questions: [...questions, ...current.questions],
+      // Global question order is not the set list's display order. Appending
+      // keeps all existing question/progress positions and submitted order.
+      questions: [...current.questions, ...questions],
       progress: [...current.progress, ...questions.map((question) => ({
         questionId: question.id,
         answeredCount: 0,
@@ -859,7 +864,7 @@ export default function App() {
         isGraduated: false,
       }))],
     });
-    if (!saved) return '問題セットを端末へ保存できませんでした。空き容量や保存設定を確認してください。';
+    if (!saved) return '問題セットを端末へ保存できませんでした。入力内容はこの画面に保持しています。保存エラーの理由を確認してください。';
     if (screenRef.current.name === 'createProblemSet') {
       setCreateDraftDirty(false);
       replaceScreen({ name: 'problemSetDetail', setId });

@@ -968,7 +968,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
     try {
       const result = await runSyncDiagnostic(normalizedSyncId);
       setDiagnosticResult(result);
-      setMessage(result.ok ? '接続診断が完了しました。すべてOKです。' : '接続診断が完了しました。NG項目を確認してください。');
+      setMessage(result.ok ? '基本接続の診断が完了しました。差分同期の成否は前回の失敗欄を確認してください。' : '基本接続の診断が完了しました。NG項目を確認してください。');
     } catch (caughtError) {
       const detail = caughtError instanceof Error ? caughtError.message : String(caughtError);
       setDiagnosticResult({
