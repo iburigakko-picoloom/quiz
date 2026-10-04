@@ -66,16 +66,6 @@ export function HomeScreen({
         </header>
 
         <div className="quiz-home__content">
-        <section className="quiz-home__today" aria-label="今日のがんばり">
-          <h2 className="sr-only">今日のがんばり</h2>
-          <StudyCompanion scene="home">
-            <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
-              <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
-              <StudyActivity summary={summary} compact />
-            </button>
-          </StudyCompanion>
-        </section>
-
         <section className="quiz-home__library" aria-label="学習フォルダ">
           <div className="quiz-home__section-heading"><h2>学習フォルダ</h2><button type="button" className="quiz-home__search-entry" onClick={onOpenSearch}>教材検索</button><HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} /></div>
           <details className="quiz-home__folder-options"><summary>検索・並び替え{query ? ` · ${query}` : sort === 'name' ? ' · 名前順' : ''}</summary><div className="quiz-home__folder-tools"><input type="search" aria-label="フォルダを検索" placeholder="フォルダを検索" value={query} onChange={e => setQuery(e.target.value)} /><select aria-label="フォルダの並び順" value={sort} onChange={e => setSort(e.target.value)}><option value="recent">更新順</option><option value="name">名前順</option></select></div></details>
@@ -109,6 +99,16 @@ export function HomeScreen({
           })}
         </section>
         {!folders.length && query ? <p className="quiz-home__no-results">該当するフォルダがありません</p> : null}
+        </section>
+
+        <section className="quiz-home__today" aria-label="今日のがんばり">
+          <h2 className="sr-only">今日のがんばり</h2>
+          <StudyCompanion scene="home">
+            <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
+              <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
+              <StudyActivity summary={summary} compact />
+            </button>
+          </StudyCompanion>
         </section>
 
         </div>
