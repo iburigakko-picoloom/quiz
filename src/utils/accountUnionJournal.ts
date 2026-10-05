@@ -1,4 +1,4 @@
-import { AccountStorageSession, accountGenerationKey, accountNamespace, readAccountGeneration, sameLocalAccount, type LocalAccountIdentity } from './accountStorage';
+import { AccountStorageSession, accountGenerationKey, accountNamespace, decideAccountStorage, readAccountGeneration, sameLocalAccount, type LocalAccountIdentity } from './accountStorage';
 import { APP_COLLECTIONS, upgradeAppRecordStores, type AppOutboxOperation, type AppRecord, type AppRecordState } from './appRecordStorage';
 import { previewAccountUnion, unionFingerprint, validateUnionSnapshot, type UnionChoice, type UnionPreview, type UnionRecord, type UnionSnapshot } from './accountUnionPlan';
 import { validatePlanStorage } from './studyPlanStorage';
@@ -14,6 +14,13 @@ export type UnionJournal = {
   localSettings: Record<string, string>; choices: Record<string, UnionChoice>; preparedFingerprint?: string; preparedCommitId?: string;
 };
 export type UnionMigrationPreview = UnionPreview & { step: number; totalSteps: number };
+const copiedSetting = (key: string) => !key.startsWith('quizMake:sync:') && !key.startsWith('quizMake:coord:') && !key.startsWith('quizMake:notes:') && !key.startsWith('quiz-make-app-data-v1');
+function assertOriginalSettings(native: Storage, entry: UnionJournal) {
+  const original = new AccountStorageSession(native, decideAccountStorage(native, entry.identity, null)), current: Record<string, string> = {};
+  for (let i = 0; i < original.storage.length; i++) { const key = original.storage.key(i); if (key && copiedSetting(key)) { const value = original.storage.getItem(key); if (value !== null) current[key] = value; } }
+  const comparable = (values: Record<string, string>) => JSON.stringify(Object.entries(values).filter(([key]) => copiedSetting(key)).sort(([a], [b]) => a.localeCompare(b)));
+  if (comparable(current) !== comparable(entry.localSettings)) throw new Error('プレビュー後に端末の設定が変わりました。新しいプレビューで確認してください。元の設定は保持しています。');
+}
 const done = (tx: IDBTransaction) => new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error ?? new Error('統合用の控えを保存できませんでした。原本は保持しています。')); });
 const request = <T>(r: IDBRequest<T>) => new Promise<T>((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
 function validateJournal(entry: UnionJournal) {
@@ -93,6 +100,7 @@ export async function prepareUnionMigration(factory: IDBFactory, native: Storage
   await assertSavedJournal(factory, native, entry, deps.assertCurrent);
   if (entry.phase !== 'draft' && entry.phase !== 'prepared') throw new Error('この移行は準備できません。');
   if (readAccountGeneration(native, entry.identity) !== entry.previousGeneration) throw new Error('端末の保存先が変わりました。原本は保持しています。');
+  assertOriginalSettings(native, entry);
   if (await unionFingerprint(await deps.readLocal()) !== entry.localFingerprint) throw new Error('プレビュー後に端末データが変わりました。内容を確認し直してください。');
   for (const snapshot of [entry.destination, ...entry.sources]) if (snapshot.kind === 'cloud') { await deps.recheckCloud(snapshot); deps.assertCurrent(); }
   const preview = previewUnionMigration(entry);
@@ -113,7 +121,7 @@ export async function prepareUnionMigration(factory: IDBFactory, native: Storage
   await assertSavedJournal(factory, native, entry, deps.assertCurrent);
   // App-specific display settings come only from the active local account.
   const project = (key: string, value: string | null) => { if (value === null) staged.storage.removeItem(key); else staged.storage.setItem(key, value); if (staged.storage.getItem(key) !== value) throw new Error('統合先の計画・設定を保存できません。原本は保持しています。'); };
-  for (const [key, value] of Object.entries(entry.localSettings)) if (!key.startsWith('quizMake:sync:') && !key.startsWith('quizMake:coord:') && !key.startsWith('quizMake:notes:') && !key.startsWith('quiz-make-app-data-v1')) project(key, value);
+  for (const [key, value] of Object.entries(entry.localSettings)) if (copiedSetting(key)) project(key, value);
   for (const row of preview.records) if (row.collection === 'localStorage') project(row.id, row.raw);
   for (const row of preview.records) if (row.collection === 'questionImages') project('quizMake:image:' + row.id, row.raw);
   project(CATEGORY_NOTES_MANIFEST_KEY, JSON.stringify({ version: 1, keys: preview.records.filter(row => row.collection === 'indexedDbNotes' && row.raw !== null).map(row => row.id).sort() }));
@@ -146,10 +154,12 @@ export async function activateUnionMigration(factory: IDBFactory, native: Storag
   deps.assertCurrent(); validateJournal(entry); if (entry.phase !== 'prepared') throw new Error('統合先の準備が完了していません。');
   await assertSavedJournal(factory, native, entry, deps.assertCurrent);
   if (readAccountGeneration(native, entry.identity) !== entry.previousGeneration || await unionFingerprint(await deps.readLocal()) !== entry.localFingerprint) throw new Error('準備後に端末データが変わりました。原本を保持して確認を止めました。');
+  assertOriginalSettings(native, entry);
   for (const snapshot of [entry.destination, ...entry.sources]) if (snapshot.kind === 'cloud') { await deps.recheckCloud(snapshot); deps.assertCurrent(); }
   const staged = new AccountStorageSession(native, { identity: entry.identity, namespace: accountNamespace(entry.identity), legacyUnclaimed: false }, { generation: entry.generation, staging: true }), db = await openUnionStage(factory, staged);
   try { const tx = db.transaction('appRecordMeta'), completion = done(tx); const state = tx.objectStore('appRecordMeta').get('state'); await completion; if (state.result?.commitId !== entry.preparedCommitId) throw new Error('準備中の内容が変わりました。原本は保持しています。'); } finally { db.close(); }
   await assertSavedJournal(factory, native, entry, deps.assertCurrent);
+  assertOriginalSettings(native, entry);
   deps.assertCurrent(); const pointer = accountGenerationKey(entry.identity); native.setItem(pointer, entry.generation);
   if (native.getItem(pointer) !== entry.generation) throw new Error('統合後の保存先を記録できません。原本は保持しています。');
   // A crash here is recovered from pointer === generation, even if this receipt
