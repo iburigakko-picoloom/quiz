@@ -1,4 +1,4 @@
-import { readAppRecordSnapshot, readAppOutbox, type AppRecord } from './appRecordStorage';
+import { appRecordKey, readAppRecordSnapshot, readAppOutbox, type AppRecord } from './appRecordStorage';
 import { acknowledgeRecordPushBatch, bindRecordSyncConnection, getPendingRecordPushBatch, releaseRejectedRecordPushBatch, type RecordPushAcknowledgement, type RecordSyncConnection } from './recordSyncOutbox';
 import { validateRecordPullPage, type RemoteRecordChange } from './recordSyncPull';
 import type { RecordSyncGuards, RecordSyncOutcome, RecordSyncTransport } from './recordSyncEngine';
@@ -14,6 +14,7 @@ import { prepareWholeRecovery } from './wholeRecovery';
 import { materialFileEntry } from './materialModel';
 import { parseQuestionImageDescriptor } from './recordQuestionImageSync';
 import { remoteQuestionImageDescriptor } from './questionImageCloud';
+import { chunkIds, isChunkInternal, parseChunkManifest, RECORD_CHUNK_GUARD_ID } from './recordChunkFormat';
 
 type Reply={code:string;[key:string]:unknown};
 export type WholeTransport=RecordSyncTransport&{whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<Reply>};
@@ -117,6 +118,11 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     remoteDigest=await computeWholeRecordDigest(incoming);
     decision=decideWholeSync({baseline,serverRevision:remote.revision,userGeneration:source.generation,localDigest,remoteDigest,verifiedRecordCursor:await readVerifiedWholeAncestorCursor(db,connection)});
   }
+  // Logical equality deliberately ignores wire chunks. Their guard/garbage
+  // still needs an acknowledged transfer, without creating a user edit.
+  const maintenance=source.outbox.some(row=>isChunkInternal(row.collection,row.id));
+  const replaceEqualWire=decision==='same'&&maintenance&&baseline?.serverRevision!==remote.revision;
+  if(decision==='same'&&maintenance)decision='upload';
   if(decision==='same'){
     const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision)return result('more');
     await acknowledgeIdenticalWhole(db,{version:1,connection,serverRevision:remote.revision,userGeneration:source.generation,digest:localDigest});return result('done',0,downloaded);
@@ -151,8 +157,17 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     await guards.prepareMedia?.();const cloud=await guards.incoming(incoming),local=await exportFileBackup();
     archive=await prepareWholeRecovery(db,cloud,'conflict',new Blob([JSON.stringify(local)]).size);
   }
-  const replace=decision==='conflict'||!baseline||!source.outbox.length;
-  const outgoing=replace?localRows:source.outbox;
+  const replace=decision==='conflict'||replaceEqualWire||!baseline||!source.outbox.length;
+  const outgoingMap=new Map((replace?localRows:source.outbox).map(row=>[row.key,row]));
+  if(!replace)for(const row of source.outbox){
+    const manifest=parseChunkManifest(row.raw,row.collection,row.id);if(!manifest)continue;
+    for(const id of [RECORD_CHUNK_GUARD_ID,...chunkIds(manifest)]){
+      const key=appRecordKey('localStorage',id),dependency=source.snapshot.records.get(key);
+      if(!dependency?.raw)throw new SyncProtocolError('invalid_response','全体送信に必要なチャンク原本がありません。');
+      outgoingMap.set(key,{...dependency,revision:dependency.serverRevision});
+    }
+  }
+  const outgoing=[...outgoingMap.values()];
   outgoing.forEach(row=>mediaReady(row as AppRecord,connection));
   const packed=await pack(outgoing.map(wire));
   const next:WholeFrozen={version:1,connection,id:crypto.randomUUID(),expectedRevision:remote.revision,generation:source.generation,digest:localDigest,wireDigest:packed.wireDigest,parts:packed.parts,records:outgoing.length,device:guards.device,replace,outbox:source.outbox.map(row=>({key:row.key,operationId:row.operationId}))};

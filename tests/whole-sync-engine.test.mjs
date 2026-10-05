@@ -8,7 +8,11 @@ const values=new Map();globalThis.localStorage={get length(){return values.size}
 Object.defineProperty(navigator,'locks',{value:{request:async(_name,_options,run)=>run()},configurable:true});Object.defineProperty(navigator,'storage',{value:{estimate:async()=>({quota:1024*1024*1024,usage:0})},configurable:true});
 const storage=await import('../src/storage.ts'),records=await import('../src/utils/appRecordStorage.ts');
 const {runWholeRecordSync}=await import('../src/utils/wholeSyncEngine.ts');
-const {readWholeMeta,chooseWholeConflict,readWholeBaseline,readVerifiedWholeAncestorCursor}=await import('../src/utils/wholeSyncStorage.ts');
+const {readWholeMeta,chooseWholeConflict,readWholeBaseline,readVerifiedWholeAncestorCursor,acknowledgeIdenticalWhole}=await import('../src/utils/wholeSyncStorage.ts');
+const {prepareRecordChunks,hydrateChunkChanges}=await import('../src/utils/recordChunks.ts');
+const {RECORD_CHUNK_GUARD_ID,RECORD_CHUNK_GUARD_RAW,parseChunkManifest,chunkIds}=await import('../src/utils/recordChunkFormat.ts');
+const {queueAuxiliaryRecordWrite}=await import('../src/utils/auxiliaryRecordStorage.ts');
+const {saveSyncedLocalStorage}=await import('../src/utils/localStorageRecords.ts');
 const {withCoordinatedDataMutation}=await import('../src/utils/dataCoordination.ts');
 const {wholeRowsPayload}=await import('../src/utils/wholeSyncIncoming.ts');
 const {createCompleteFileBackup}=await import('../src/utils/backupPayload.ts');
@@ -28,7 +32,7 @@ await pg.query('select public.quiz_sync_v2_open($1,$2)',[connection.syncId,stamp
 const signatures={status:[],open:[['p_expected_revision','bigint']],read:[['p_expected_revision','bigint'],['p_after_key','text'],['p_limit','integer']],begin:[['p_operation_id','uuid'],['p_expected_revision','bigint'],['p_parts','integer'],['p_records','integer'],['p_digest','text'],['p_device','text'],['p_replace','boolean']],part:[['p_commit_id','uuid'],['p_operation_id','uuid'],['p_number','integer'],['p_raw','text']],finish:[['p_operation_id','uuid']],abort:[['p_operation_id','uuid']],receipts:[['p_operations','jsonb']]};
 const calls=[];let loseFinish=false,losePart=false,applyActive=false;
 const transport={async whole(name,body={}){if(applyActive)throw new Error('network inside protected apply');calls.push({name,body:structuredClone(body)});const fields=signatures[name],args=[connection.syncId,...fields.map(([key,type])=>type==='jsonb'?JSON.stringify(body[key]):body[key])];const sql=`select public.quiz_whole_${name}($1::text${fields.map(([,type],i)=>`,$${i+2}::${type}`).join('')}) result`;const result=(await pg.query(sql,args)).rows[0].result;if(name==='finish'&&loseFinish){loseFinish=false;throw new Error('lost committed response')}if(name==='part'&&losePart){losePart=false;throw new Error('lost part response')}return result},async push(operations){return (await pg.query('select public.quiz_sync_v2_push($1,$2) result',[connection.syncId,JSON.stringify(operations)])).rows[0].result},async pull(){throw new Error('whole mode must not merge old record pull')}};
-const guards={assertCurrent:async()=>{},prepareOutgoing:async()=>{},device:'QA Windows',apply:operation=>withCoordinatedDataMutation(['app','notes'],async()=>{applyActive=true;try{return await operation()}finally{applyActive=false}},{requireCrossContext:true}),incoming:rows=>createCompleteFileBackup(wholeRowsPayload(rows),[])};
+const guards={assertCurrent:async()=>{},prepareOutgoing:()=>prepareRecordChunks(db,connection),device:'QA Windows',apply:operation=>withCoordinatedDataMutation(['app','notes'],async()=>{applyActive=true;try{return await operation()}finally{applyActive=false}},{requireCrossContext:true}),incoming:rows=>createCompleteFileBackup(wholeRowsPayload(rows),[])};
 const run=(overrides={})=>runWholeRecordSync(db,connection,transport,{...guards,...overrides});
 const names=async()=> (await storage.loadAppDataAsync()).folders.map(row=>row.name);
 async function edit(name){const prior=await storage.loadAppDataAsync();assert.equal(await storage.saveAppDataAsync({...prior,folders:[{...prior.folders[0],name}]}),true)}
@@ -73,4 +77,38 @@ test('a pre-upgrade lost old receipt is resolved behind the writer fence without
 });
 test('an old batch that definitively never committed is released without losing its pending device edit',async()=>{
   await edit('Old unsent edit');await freezeRecordPushBatch(db,connection);assert.equal((await run()).status,'more');assert.equal(await getPendingRecordPushBatch(db,connection),null);assert.equal((await run()).status,'done');assert.deepEqual(await names(),['Old unsent edit']);
+});
+
+async function readCloudRows(){
+  const head=await transport.whole('status'),rows=[];let after='';
+  for(;;){const page=await transport.whole('read',{p_expected_revision:head.revision,p_after_key:after,p_limit:200});assert.equal(page.code,'ok');rows.push(...page.rows);if(!page.hasMore)return rows;assert.notEqual(page.afterKey,after);after=page.afterKey}
+}
+const largeKey='quizMake:large-sync-fixture',largeRaw='X'.repeat(1200000);let oldChunkIds;
+test('a large delta includes its existing chunk guard even when equality already cleared the guard outbox',async()=>{
+  const tx=db.transaction(['appRecordMeta','appRecords','appRecordBackups','appOutbox'],'readwrite');
+  const complete=new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)});
+  queueAuxiliaryRecordWrite(tx,'localStorage',RECORD_CHUNK_GUARD_ID,RECORD_CHUNK_GUARD_RAW,false);await complete;
+  await acknowledgeIdenticalWhole(db,await readWholeBaseline(db,connection));
+  assert.equal((await records.readAppOutbox(db)).length,0);
+  assert.equal((await records.readAppRecordSnapshot(db)).records.get(records.appRecordKey('localStorage',RECORD_CHUNK_GUARD_ID)).serverRevision,0);
+  assert.equal((await readCloudRows()).some(row=>row.id===RECORD_CHUNK_GUARD_ID),false);
+  await withCoordinatedDataMutation(['app','notes'],()=>saveSyncedLocalStorage({[largeKey]:largeRaw}),{requireCrossContext:true});
+  const generation=await readUserEditGeneration(db);
+  assert.equal((await run()).status,'more');assert.equal((await run()).status,'done');
+  const cloud=await readCloudRows(),parent=cloud.find(row=>row.id===largeKey);
+  assert.ok(cloud.some(row=>row.id===RECORD_CHUNK_GUARD_ID&&row.raw===RECORD_CHUNK_GUARD_RAW));
+  assert.equal((await hydrateChunkChanges(db,cloud,connection,true)).find(row=>row.id===largeKey).logicalRaw,largeRaw);
+  oldChunkIds=chunkIds(parseChunkManifest(parent.raw,parent.collection,parent.id));
+  assert.equal(await readUserEditGeneration(db),generation);
+});
+test('obsolete wire chunks are deleted by an acknowledged maintenance commit despite unchanged logical data',async()=>{
+  await withCoordinatedDataMutation(['app','notes'],()=>saveSyncedLocalStorage({[largeKey]:'Y'.repeat(1200000)}),{requireCrossContext:true});
+  const generation=await readUserEditGeneration(db),copies=(await listWholeRecovery()).length;
+  assert.equal((await run()).status,'more');
+  const before=new Set((await readCloudRows()).map(row=>row.id));assert.ok(oldChunkIds.every(id=>before.has(id)));
+  const revision=(await transport.whole('status')).revision;
+  assert.equal((await run()).status,'more');assert.equal((await transport.whole('status')).revision,revision+1);
+  assert.equal((await run()).status,'done');const cloud=await readCloudRows();assert.ok(oldChunkIds.every(id=>!cloud.some(row=>row.id===id)));
+  assert.equal((await hydrateChunkChanges(db,cloud,connection,true)).find(row=>row.id===largeKey).logicalRaw,'Y'.repeat(1200000));
+  assert.equal(await readUserEditGeneration(db),generation);assert.equal((await listWholeRecovery()).length,copies);
 });
