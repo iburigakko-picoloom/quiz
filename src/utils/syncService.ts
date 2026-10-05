@@ -1,3 +1,4 @@
+import { MAX_RECORD_DATASET_BYTES } from './recordSyncSize';
 import { accountLocalStorage as localStorage } from './accountStorage';
 import { accountAutomaticSyncEnabled, pauseAccountSync } from './accountSync';
 import { chunkFailure, hydrateChunkPayload, isChunkInternal, parseChunkManifest } from './recordChunkFormat';
@@ -730,6 +731,7 @@ export async function uploadSyncData(
   payload: SyncPayload,
   options: UploadSyncOptions = {},
 ): Promise<SyncResult<RemoteSyncRecord>> {
+  if('backupManifest' in payload)return {ok:false,code:'invalid',error:'復元用ファイルはクラウド同期データとして送信できません。端末で内容を確認して復元してください。'};
   if (recoveryOnlyPayloads.has(payload)) {
     return {
       ok: false,
@@ -1190,23 +1192,27 @@ export function summarizeSyncPayload(payload: SyncPayload): SyncPayloadSummary {
   };
 }
 
-export async function validateHydratedSyncPayload(value: unknown, options: { wire?: boolean } = {}): Promise<SyncResult<SyncPayload>> {
-  const size=measureJsonBytes(value);
-  if(size!==null&&size>MAX_SYNC_PAYLOAD_BYTES)return {ok:false,code:'payload_too_large',error:SYNC_PAYLOAD_TOO_LARGE_MESSAGE};
+export async function validateHydratedSyncPayload(value: unknown, options: { wire?: boolean; recordRecovery?: boolean } = {}): Promise<SyncResult<SyncPayload>> {
+  // Local backup PDFs obey their 50 MiB media limit and are counted separately,
+  // just as on export. The wire contract and metadata ceiling remain 32 MiB.
+  const separate=!options.wire && isRecord(value) && isStringRecord(value.localStorage)
+    && (value.indexedDbNotes===undefined || isStringRecord(value.indexedDbNotes));
+  const size=measureJsonBytes(separate?materialMetadataOnly(value as SyncPayload):value);
+  if(size!==null&&size>(options.recordRecovery&&!options.wire?MAX_RECORD_DATASET_BYTES:MAX_SYNC_PAYLOAD_BYTES))return {ok:false,code:'payload_too_large',error:SYNC_PAYLOAD_TOO_LARGE_MESSAGE};
   try{return validateSyncPayload(await hydrateChunkPayload(value),options)}
   catch{return {ok:false,code:'invalid',error:chunkFailure().message}}
 }
-export function validateSyncPayload(value: unknown, options: { wire?: boolean } = {}): SyncResult<SyncPayload> {
+export function validateSyncPayload(value: unknown, options: { wire?: boolean; recordRecovery?: boolean } = {}): SyncResult<SyncPayload> {
   if (!isRecord(value)) return { ok: false, error: '同期データの形式が正しくありません。' };
   const canSeparatePdfs = !options.wire && isStringRecord(value.localStorage)
     && (value.indexedDbNotes === undefined || isStringRecord(value.indexedDbNotes));
   const byteSize = measureJsonBytes(canSeparatePdfs ? materialMetadataOnly(value as SyncPayload) : value);
   if (byteSize === null) return { ok: false, code: 'invalid', error: '同期データをJSONとして読み込めません。' };
-  if (byteSize > MAX_SYNC_PAYLOAD_BYTES) {
+  if (byteSize > (options.recordRecovery&&!options.wire?MAX_RECORD_DATASET_BYTES:MAX_SYNC_PAYLOAD_BYTES)) {
     return {
       ok: false,
       code: 'payload_too_large',
-      error: SYNC_PAYLOAD_TOO_LARGE_MESSAGE,
+      error: options.recordRecovery&&!options.wire ? '完全復旧コピーのメタデータが128 MBを超えています。' : SYNC_PAYLOAD_TOO_LARGE_MESSAGE,
     };
   }
   if (value.version !== 1) return { ok: false, error: '同期データのversionに対応していません。' };

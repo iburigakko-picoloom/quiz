@@ -20,7 +20,7 @@ export class RecordSyncRpcError extends Error {
 /** Every request revalidates the authenticated account; a timeout never implies
  * that a push failed to commit. Its caller retains the frozen Operation IDs.
  */
-export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransport & { open(expectedUpdatedAt: string): Promise<number> } {
+export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransport & { open(expectedUpdatedAt: string): Promise<number>; whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}> } {
   const origin = new URL(options.url).origin;
   if (origin !== options.connection.project) throw new Error('差分同期のプロジェクトが一致しません。');
   const request = async (name: string, body: Record<string, unknown>) => {
@@ -70,5 +70,6 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
     },
     pull: cursor => request('quiz_sync_v2_pull', { p_cursor: cursor, p_limit: 20 }),
     push: operations => request('quiz_sync_v2_push', { p_operations: operations }),
+    whole:(name,body={})=>request('quiz_whole_'+name,body),
   };
 }

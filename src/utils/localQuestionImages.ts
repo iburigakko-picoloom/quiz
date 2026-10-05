@@ -18,8 +18,8 @@ export async function saveLocalQuestionImage(questionId: string, file: Blob, id 
 export function loadLocalQuestionImages(questionId: string, imageIds: readonly string[]): Promise<LocalQuestionImage[]> {
   return readQuestionImages(questionId, imageIds);
 }
-export function deleteLocalQuestionImage(id: string): Promise<void> {
-  return removeQuestionImages(image => image.id === id);
+export function deleteLocalQuestionImage(questionId: string, id: string): Promise<void> {
+  return removeQuestionImages(image => image.id === id && image.questionId === questionId);
 }
 export function deleteLocalQuestionImages(questionId: string): Promise<void> {
   return removeQuestionImages(image => image.questionId === questionId);

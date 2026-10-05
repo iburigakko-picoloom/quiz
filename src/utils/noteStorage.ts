@@ -13,6 +13,13 @@ const NOTE_STORAGE_OPERATION_TIMEOUT_MS = 4_500;
 export const CATEGORY_NOTE_KEY_PREFIX = 'quizMake:notes:';
 export const CATEGORY_NOTES_MANIFEST_KEY = 'quiz-make-note-storage-v1:manifest';
 export const CATEGORY_NOTES_RECOVERY_REQUIRED_KEY = 'quiz-make-note-storage-v1:recovery-required';
+export function getNoteBackupIssues(notes: Record<string,string>): string[] {
+  const manifest=readCategoryNotesManifest(),issues:string[]=[];
+  if(manifest.kind==='invalid' || manifest.kind==='missing' && hasPersistedSyncHistory())issues.push('ノートの保存一覧を確認できません。');
+  if(manifest.kind==='valid')for(const key of manifest.keys)if(notes[key]===undefined)issues.push(`ノート未収録: ${key}`);
+  if(isCategoryNotesRecoveryRequired())issues.push('ノートの復旧確認が必要です。');
+  return issues;
+}
 
 export class CategoryNoteStorageTimeoutError extends Error {
   constructor() {
@@ -41,8 +48,9 @@ export function isIndexedDbAvailable(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
-export async function loadCategoryNoteRaw(key: string): Promise<string | null> {
+export async function loadCategoryNoteRaw(key: string, options: { coordinationLockHeld?: boolean } = {}): Promise<string | null> {
   if (!isCategoryNoteKey(key)) return null;
+  if (options.coordinationLockHeld) return loadCategoryNoteRawUnlocked(key);
   await waitForPendingCategoryNoteSaves();
   return loadLatestCoordinatedData(['notes'], () => loadCategoryNoteRawUnlocked(key));
 }

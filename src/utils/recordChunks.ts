@@ -36,7 +36,7 @@ async function collectGarbage(db: IDBDatabase, connection: RecordSyncConnection)
               if(!pending.result&&row&&row.serverRevision>0){
                 const active=parseChunkManifest(row.raw,row.collection,row.id);
                 if(!active||!chunkIds(active).some(id=>ids.includes(id))) {
-                  ids.forEach(id=>queueAuxiliaryRecordWrite(tx,'localStorage',id,null));
+                  ids.forEach(id=>queueAuxiliaryRecordWrite(tx,'localStorage',id,null,false));
                 }
                 meta.delete(current.key);
               }
@@ -101,8 +101,8 @@ export async function prepareRecordChunks(db: IDBDatabase, connection: RecordSyn
         assertBinding(owner.result,connection);
         const op=pending.result as AppOutboxOperation|undefined,existing=current.result as AppRecord|undefined,saved=state.result as AppRecordState|undefined;
         if(batch.result||!saved||!op||op.operationId!==source.operationId||op.raw!==source.raw||op.baseRevision!==source.baseRevision||existing?.raw!==source.raw){changedDuringPreparation=true;return}
-        if(guard.result?.raw!==RECORD_CHUNK_GUARD_RAW)queueAuxiliaryRecordWrite(tx,'localStorage',RECORD_CHUNK_GUARD_ID,RECORD_CHUNK_GUARD_RAW);
-        encoded.parts.forEach((part,index)=>{if(parts[index].result?.raw!==part.raw)queueAuxiliaryRecordWrite(tx,'localStorage',part.id,part.raw)});
+        if(guard.result?.raw!==RECORD_CHUNK_GUARD_RAW)queueAuxiliaryRecordWrite(tx,'localStorage',RECORD_CHUNK_GUARD_ID,RECORD_CHUNK_GUARD_RAW,false);
+        encoded.parts.forEach((part,index)=>{if(parts[index].result?.raw!==part.raw)queueAuxiliaryRecordWrite(tx,'localStorage',part.id,part.raw,false)});
         if(existing.raw!==encoded.raw||existing.logicalRaw!==raw){
           tx.objectStore('appRecords').put({...existing,raw:encoded.raw,logicalRaw:raw},source.key);
           tx.objectStore('appOutbox').put({...op,raw:encoded.raw},source.key);

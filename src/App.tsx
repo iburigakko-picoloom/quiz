@@ -22,6 +22,7 @@ import { questionRevision } from './utils/studyPlans';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
 import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
 import { deleteLocalQuestionImage, deleteLocalQuestionImages, MAX_QUESTION_DETAIL_IMAGES, pruneLocalQuestionImages, saveLocalQuestionImage } from './utils/localQuestionImages';
+import { prepareCopiedQuestionImages, type PreparedQuestionImageCopy } from './utils/questionImageRecords';
 import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
@@ -81,6 +82,7 @@ import { saveJsonBackup } from './utils/nativePlatform';
 import { createSampleAppData } from './utils/sampleData';
 import { beginRecordApply, setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
 import { validateHydratedSyncPayload } from './utils/syncService';
+import { exportFileBackup, validateFileBackup, restoreFileBackup, type FileBackup } from './utils/backupPayload';
 import { SyncProtocolError } from './utils/syncInterruption';
 import {
   initializeCloudNativeAuth,
@@ -99,7 +101,7 @@ const SyncScreen = lazy(() => import('./screens/AccountSyncScreen').then((module
 const PrivacyScreen = lazy(() => import('./screens/PrivacyScreen').then((module) => ({ default: module.PrivacyScreen })));
 const StudyRecordScreen = lazy(() => import('./screens/StudyRecordScreen').then((module) => ({ default: module.StudyRecordScreen })));
 type PendingBackupImport =
-  | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary }
+  | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary; file?: FileBackup }
   | { kind: 'legacy'; data: AppData };
 export default function App() {
   const recovered = useRestoredAccountWork<{ screen: AppScreen; pendingBackupImport: PendingBackupImport | null; createDraftDirty: boolean }>('app');
@@ -400,7 +402,7 @@ export default function App() {
     return saved;
   };
 
-  const persistThenCommitData = async (nextData: AppData): Promise<boolean> => {
+  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = []): Promise<boolean> => {
     if (libraryMutationBusyRef.current) {
       setStorageError('削除処理が完了するまでお待ちください。');
       return false;
@@ -410,7 +412,7 @@ export default function App() {
     // Reserve the next snapshot immediately. Any action taken while this durable
     // save is pending will now build on top of it instead of an older snapshot.
     dataRef.current = nextData;
-    const saveResult = await saveAppDataResult(nextData);
+    const saveResult = await saveAppDataResult(nextData, { questionImages });
     const saved = saveResult.ok;
     if (!saved) {
       if (dataRevisionRef.current === revision) {
@@ -657,7 +659,9 @@ export default function App() {
     targetLabel: 'フォルダ' | '問題セット' | '全データ',
   ): boolean => {
     if (!result.ok) {
-      if (result.reason === 'notes-delete-failed') {
+      if (result.reason === 'referenced-material') {
+        setStorageError(result.error instanceof Error ? result.error.message : 'ほかの教材から資料を参照しているため、削除を中止しました。');
+      } else if (result.reason === 'notes-delete-failed') {
         setStorageError(`ノートを削除できなかったため、${targetLabel}の削除を取り消しました。もう一度お試しください。`);
       } else if (result.reason === 'rollback-failed') {
         setStorageError(`ノートの削除と${targetLabel}の復元に失敗しました。復旧用バックアップを書き出してから再読み込みしてください。`);
@@ -808,7 +812,7 @@ export default function App() {
     }
 
     const setId = createId('set');
-    const questions: Question[] = submission.questions.map((question) => {
+    const initialQuestions: Question[] = submission.questions.map((question) => {
       const sourceQuestion = submission.sourceSetId ? current.questions.find(q => q.id === question.id && q.setId === submission.sourceSetId) : undefined;
       const choices = question.choices.map((choice) => choice.trim()) as Question['choices'];
       const answerIndexes = getDraftAnswerIndexes({ ...question, choices });
@@ -836,6 +840,14 @@ export default function App() {
         updatedAt: timestamp,
       };
     });
+    let prepared: { questions: Question[]; images: PreparedQuestionImageCopy[] };
+    try {
+      prepared = submission.sourceSetId
+        ? await prepareCopiedQuestionImages(initialQuestions.map((question,index)=>({sourceId:submission.questions[index].id,question})))
+        : {questions:initialQuestions,images:[]};
+    } catch(error) { return error instanceof Error ? error.message : 'コピー元の画像を確認できませんでした。入力は保持しています。'; }
+    if(dataRef.current!==current)return 'コピーの準備中に教材が変更されました。入力を残して元の問題を確認してください。';
+    const questions=prepared.questions;
     const problemSet: ProblemSet = {
       id: setId,
       folderId,
@@ -874,7 +886,7 @@ export default function App() {
         reviewLevel: null,
         isGraduated: false,
       }))],
-    });
+    }, prepared.images);
     if (!saved) return '問題セットを端末へ保存できませんでした。入力内容はこの画面に保持しています。保存エラーの理由を確認してください。';
     if (screenRef.current.name === 'createProblemSet') {
       setCreateDraftDirty(false);
@@ -1206,13 +1218,13 @@ export default function App() {
     const latestData = dataRef.current;
     const latestQuestion = latestData.questions.find(question => question.id === questionId);
     if (!latestQuestion || (originalQuestion !== undefined && latestQuestion.question !== originalQuestion)) {
-      await deleteLocalQuestionImage(savedImageId);
+      await deleteLocalQuestionImage(questionId, savedImageId);
       throw new Error('問題が変更または削除されたため、画像を追加できませんでした。');
     }
     const latestImageIds = latestQuestion.detailedAnswer?.imageIds ?? [];
     if (latestImageIds.includes(savedImageId)) return;
     if (latestImageIds.length >= MAX_QUESTION_DETAIL_IMAGES) {
-      await deleteLocalQuestionImage(savedImageId);
+      await deleteLocalQuestionImage(questionId, savedImageId);
       throw new Error(`この問題に追加できる画像は${MAX_QUESTION_DETAIL_IMAGES}枚までです。`);
     }
     const body = latestQuestion.detailedAnswer?.body ?? latestQuestion.detailedExplanation ?? '';
@@ -1224,7 +1236,7 @@ export default function App() {
     };
     const nextData = { ...latestData, questions: latestData.questions.map(question => question.id === questionId ? updatedQuestion : question) };
     if (!await persistThenCommitData(nextData)) {
-      await deleteLocalQuestionImage(savedImageId);
+      await deleteLocalQuestionImage(questionId, savedImageId);
       throw new Error('画像の保存情報を端末に記録できませんでした。空き容量を確認して再試行してください。');
     }
   };
@@ -1232,7 +1244,7 @@ export default function App() {
   const handleRemoveDetailedImage = async (questionId: string, imageId: string): Promise<void> => {
     const current = dataRef.current;
     const question = current.questions.find(item => item.id === questionId);
-    if (!question) { await deleteLocalQuestionImage(imageId); return; }
+    if (!question) { await deleteLocalQuestionImage(questionId, imageId); return; }
     const imageIds = (question.detailedAnswer?.imageIds ?? []).filter(id => id !== imageId);
     const updatedAt = nowIso();
     const updatedQuestion: Question = {
@@ -1242,7 +1254,7 @@ export default function App() {
     };
     const nextData = { ...current, questions: current.questions.map(item => item.id === questionId ? updatedQuestion : item) };
     if (!await persistThenCommitData(nextData)) throw new Error('画像の削除情報を端末に保存できませんでした。もう一度お試しください。');
-    await deleteLocalQuestionImage(imageId);
+    await deleteLocalQuestionImage(questionId, imageId);
   };
 
   const handleLinkMaterialPage = async (questionId: string, reference: MaterialReference, linked: boolean): Promise<void> => {
@@ -1301,9 +1313,9 @@ export default function App() {
     try {
       setBackupImportError('');
       setBackupExportNotice('');
-      const payload = await exportQuizMakeRecoveryData();
+      const payload = await exportFileBackup({recovery:true});
       await saveJsonBackup(`quiz-make-backup-${formatBackupDate()}.json`, JSON.stringify(payload, null, 2));
-      setBackupExportNotice('バックアップを書き出しました。');
+      setBackupExportNotice(payload.backupManifest.completeness==='complete'?'画像・PDFを含む完全なバックアップを書き出しました。':`部分的な救出ファイルを書き出しました。完全復元用ではありません。${payload.backupManifest.issues.join(' ')}`);
     } catch (error) {
       setBackupImportError(error instanceof Error ? `バックアップの作成に失敗しました: ${error.message}` : 'バックアップの作成に失敗しました。');
     }
@@ -1352,6 +1364,12 @@ export default function App() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as unknown;
+      if(parsed && typeof parsed==='object' && 'backupManifest' in parsed){
+        const checked=await validateFileBackup(parsed);
+        if(!checked.ok)return checked.error;
+        if(checked.value.payload.backupManifest.completeness!=='complete')return 'このファイルは部分的な救出コピーです。ファイル内の欠落一覧を確認してください。完全コピーとして上書き復元できません。';
+        setBackupImportError('');setPendingBackupImport({kind:'sync',payload:checked.value.payload,file:checked.value.payload,summary:summarizeSyncPayload(checked.value.payload)});return null;
+      }
       const syncValidation = await validateHydratedSyncPayload(parsed);
       if (syncValidation.ok) {
         setBackupImportError('');
@@ -1401,8 +1419,9 @@ export default function App() {
       return;
     }
 
-    const result = await importQuizMakeData(target.payload);
+    const result = target.file ? await restoreFileBackup(target.file) : await importQuizMakeData(target.payload);
     if (!result.ok) {
+      if('committed' in result && result.committed)setStorageLoadError(result.error);
       setBackupImportError(result.error);
       setBackupImportBusy(false);
       return;
