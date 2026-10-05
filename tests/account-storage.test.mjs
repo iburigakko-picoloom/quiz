@@ -11,7 +11,7 @@ test('large frozen plans retain exact Unicode/escaped bytes across generations a
   native.setItem(accountGenerationKey(a),'union-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');const fresh=new AccountStorageSession(native,decideAccountStorage(native,a,null));assert.equal(fresh.storage.getItem('quizMake:plan:large'),raw);assert.equal(original.storage.getItem('quizMake:plan:large'),raw);assert.equal(decodeAccountValue(encodeAccountValue(ACCOUNT_VALUE_PREFIX+'ordinary text')),ACCOUNT_VALUE_PREFIX+'ordinary text');
   const encoded=encodeAccountValue(raw),row=JSON.parse(encoded.slice(ACCOUNT_VALUE_PREFIX.length));row.strings[0]=row.strings[0].replace('日本語','altered');assert.throws(()=>decodeAccountValue(ACCOUNT_VALUE_PREFIX+JSON.stringify(row)),/原本/);assert.throws(()=>decodeAccountValue(ACCOUNT_VALUE_PREFIX+JSON.stringify({...row,length:1,parts:[0,0,0]})),/原本/);assert.throws(()=>decodeAccountValue(ACCOUNT_VALUE_PREFIX+'broken'),/原本/);
 });
-test('native Web Locks prevent rollback across live windows and fence a window that was opening during the pointer change',async()=>{
+test('native Web Locks prevent rollback across live windows and fence a window that was opening during the pointer change',{skip:!globalThis.navigator?.locks},async()=>{
   const native=memory(),generation='union-cccccccc-cccc-4ccc-8ccc-cccccccccccc';native.setItem(accountGenerationKey(a),generation);
   const first=new AccountStorageSession(native,decideAccountStorage(native,a,null)),second=new AccountStorageSession(native,decideAccountStorage(native,a,null));
   try {await first.claimUnionWindow(navigator.locks);await second.claimUnionWindow(navigator.locks);let called=false;
@@ -19,6 +19,12 @@ test('native Web Locks prevent rollback across live windows and fence a window t
     let late,lateOpening;await first.withExclusiveUnionWindow(async()=>{late=new AccountStorageSession(native,decideAccountStorage(native,a,null));lateOpening=late.claimUnionWindow(navigator.locks);void lateOpening.catch(()=>{});native.removeItem(accountGenerationKey(a));});
     await assert.rejects(lateOpening,/移行状態/);assert.equal(native.getItem(accountGenerationKey(a)),null);assert.throws(()=>first.storage.setItem('quizMake:plan:late','unsafe'),/移行状態/);late.invalidate();
   } finally {first.invalidate();second.invalidate();}
+});
+test('rollback without cross-window locks stops before changing storage or running the operation',async()=>{
+  const native=memory(),generation='union-dddddddd-dddd-4ddd-8ddd-dddddddddddd';native.setItem(accountGenerationKey(a),generation);
+  const owner=new AccountStorageSession(native,decideAccountStorage(native,a,null));let called=false;
+  await owner.claimUnionWindow(null);await assert.rejects(owner.withExclusiveUnionWindow(async()=>{called=true}),/画面間の保護/);
+  assert.equal(called,false);assert.equal(native.getItem(accountGenerationKey(a)),generation);owner.invalidate();
 });
 test('bound legacy records are retained in place for A and hidden from B and signed-out guest',()=>{
   const native=memory();native.setItem('quiz-make-app-data-v1','A questions');native.setItem('quizMake:sync:id','old-sync-id');native.setItem('sb-project-auth-token','auth credential');
