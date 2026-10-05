@@ -12,6 +12,8 @@ export type AppRecord = {
   collection: RecordCollection;
   id: string;
   raw: string | null;
+  /** Complete local value when raw is a chunk manifest. Never sent as an operation. */
+  logicalRaw?: string;
   position: number;
   serverRevision: number;
   localRevision: number;

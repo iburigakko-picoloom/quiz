@@ -76,3 +76,9 @@ test('an expired retry time exposes an actionable state while offline and runnin
   assert.equal(present({now:4999}).text,'再試行を待っています');assert.equal(present({now:4999}).action,'retry');assert.equal(present({now:20000}).text,'再試行できます');assert.equal(present({now:20000}).action,'retry');assert.equal(present({now:20000,online:false}).text,'オフライン');
   publishSyncQueue(connection,{phase:'running',retryAt:null});assert.equal(present({now:20000}).text,'同期中');assert.equal(present({now:20000}).action,null);
 });
+test('403 permission failure pauses without login prompts; Auth transport failure retries without hiding the known account',async()=>{
+  for(const [status,code]of [[403,'permission_denied'],[503,'network']]){
+    const h=harness(async step=>{step('pull');const rpc=createRecordSyncRpc({url:'https://test.invalid',anonKey:'fixture',connection,access:async()=>({userId:connection.userId,accessToken:'fixture'}),assertCurrent(){},fetch:async()=>new Response('',{status})});await rpc.pull(0);return{status:'done'}});
+    h.queue.request(true);await h.advance(0);const attempt=readSyncAttemptStatus(connection);assert.equal(attempt.lastFailure.code,code);assert.notEqual(present().action,'login');assert.equal(attempt.phase,status===403?'paused':'queued');if(status===403)assert.match(present().text,/権限/);h.queue.dispose();
+  }
+});

@@ -416,6 +416,13 @@ test('payload validation enforces the same byte and key limits as the server bef
   assert.equal(keyResult.ok, false);
   if (!keyResult.ok) assert.equal(keyResult.code, 'invalid');
 });
+test('temporary auth validation and local identity errors are not classified as login requirements',async()=>{
+  let fetches=0;globalThis.fetch=async()=>{fetches++;return rpcResponse([])};
+  try{for(const[reason,code]of [['temporarily-unavailable','network'],['account-changed','connection_changed']]){sync.setSyncAccessTokenProviderForTests(async()=>({ok:false,reason,message:'fixture-safe-error'}));assert.equal((await sync.getRemoteSyncMeta(syncId)).code,code)}assert.equal(fetches,0)}finally{sync.setSyncAccessTokenProviderForTests(testAccessTokenProvider)}
+});
+test('legacy metadata RPC distinguishes forbidden permissions from missing authentication',async()=>{
+  for(const[status,code]of [[403,'permission_denied'],[401,'authentication_required']]){globalThis.fetch=async()=>rpcResponse({message:'fixture denied'},status);assert.equal((await sync.getRemoteSyncMeta(syncId)).code,code)}
+});
 
 test('PDF sync separates bytes, skips unchanged uploads, and restores portable local data', async () => {
   const materials = await vite.ssrLoadModule('/src/utils/materialCloud.ts');

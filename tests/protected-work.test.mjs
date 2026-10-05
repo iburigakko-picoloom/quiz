@@ -5,6 +5,19 @@ import { createAutoSyncScheduler, isAutoUploadBlocked } from '../src/utils/autoS
 import { getSyncDecision } from '../src/utils/syncDecision.ts';
 import { runSelectedSync, requestSyncRetry, SYNC_RETRY_EVENT, withRecordSyncLease } from '../src/utils/syncRequest.ts';
 import { isSyncDisplaySafe, setSyncInteractionProtected } from '../src/utils/syncInteraction.ts';
+import {beginRecordApply,getActiveProtectedWorkReason,setActiveProtectedWorkReason} from '../src/utils/protectedWork.ts';
+
+test('a worker-owned Pull protects activation until release, without clearing concurrent user work',()=>{
+  setActiveProtectedWorkReason(null);
+  const finishFirst=beginRecordApply(),finishSecond=beginRecordApply();
+  try{
+    assert.equal(getActiveProtectedWorkReason(),'library');
+    finishFirst();finishFirst();assert.equal(getActiveProtectedWorkReason(),'library');
+    setActiveProtectedWorkReason('quiz');assert.equal(getActiveProtectedWorkReason(),'quiz');
+    finishSecond();assert.equal(getActiveProtectedWorkReason(),'quiz');
+    setActiveProtectedWorkReason(null);assert.equal(getActiveProtectedWorkReason(),null);
+  }finally{finishFirst();finishSecond();setActiveProtectedWorkReason(null)}
+});
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const appSource = readSource('../src/App.tsx');

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { accountLocalStorage as localStorage } from './utils/accountStorage';
 import type { AppData, AppScreen, Folder, ProblemSet, Question, QuizResult, QuizSession, MaterialReference } from './types';
 import { linkQuestionMaterialPage } from './utils/materialModel';
 import { applyReferenceLinks, type ReferenceLink } from './utils/referenceLinking';
@@ -25,7 +26,7 @@ import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
 import { replayLocalStorageProjections } from './utils/localStorageRecords';
-import { withCoordinatedDataMutation, withCoordinatedDataRead } from './utils/dataCoordination';
+import { withCoordinatedDataMutation, withCoordinatedDataRead, loadLatestCoordinatedData } from './utils/dataCoordination';
 import { isAutoUploadBlocked } from './utils/autoSyncScheduler';
 import { isManualSyncRequested } from './utils/syncRequest';
 import { isSyncDisplaySafe, isSyncInteractionProtected } from './utils/syncInteraction';
@@ -43,6 +44,7 @@ import { saveBackupPayload } from './utils/backupRepository';
 import type { CreateProblemSetSubmission, LegacyImportTarget } from './screens/CreateProblemSetScreen';
 import { lineLinkReturn } from './utils/lineAuthReturn';
 import { AutoSyncController } from './components/AutoSyncController';
+import { AccountSyncController } from './components/AccountSyncController';
 import { UpdateNotices } from './components/UpdateNotices';
 import { WelcomeGuide } from './components/WelcomeGuide';
 import { UsageGuide } from './components/UsageGuide';
@@ -77,7 +79,9 @@ import { waitForPendingCategoryNoteSaves } from './utils/noteStorage';
 import { persistLibraryDeletion, type LibraryDeletionResult } from './utils/libraryDeletion';
 import { saveJsonBackup } from './utils/nativePlatform';
 import { createSampleAppData } from './utils/sampleData';
-import { setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
+import { beginRecordApply, setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
+import { validateHydratedSyncPayload } from './utils/syncService';
+import { SyncProtocolError } from './utils/syncInterruption';
 import {
   initializeCloudNativeAuth,
   onNativeAuthResult,
@@ -91,13 +95,15 @@ const QuizRunner = lazy(() => import('./screens/QuizRunner').then((module) => ({
 const NoteListScreen = lazy(() => import('./screens/NoteListScreen').then((module) => ({ default: module.NoteListScreen })));
 const ImportScreen = lazy(() => import('./screens/ImportScreen').then((module) => ({ default: module.ImportScreen })));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then((module) => ({ default: module.SettingsScreen })));
-const SyncScreen = lazy(() => import('./screens/SyncScreen').then((module) => ({ default: module.SyncScreen })));
+const SyncScreen = lazy(() => import('./screens/AccountSyncScreen').then((module) => ({ default: module.AccountSyncScreen })));
 const PrivacyScreen = lazy(() => import('./screens/PrivacyScreen').then((module) => ({ default: module.PrivacyScreen })));
 const StudyRecordScreen = lazy(() => import('./screens/StudyRecordScreen').then((module) => ({ default: module.StudyRecordScreen })));
 type PendingBackupImport =
   | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary }
   | { kind: 'legacy'; data: AppData };
 export default function App() {
+  const recovered = useRestoredAccountWork<{ screen: AppScreen; pendingBackupImport: PendingBackupImport | null; createDraftDirty: boolean }>('app');
+  const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : localStorage.getItem('quizMake:sync:unionLegacyPending') === 'true' ? { name: 'sync' } : { name: 'home' }));
   const [data, setData] = useState<AppData>(() => createEmptyAppData());
   const [storageReady, setStorageReady] = useState(false);
   const [receivingSharedImage,setReceivingSharedImage] = useState(()=>new URL(location.href).searchParams.has('sharedImage')||new URL(location.href).searchParams.has('sharedImageError'));
@@ -105,14 +111,14 @@ export default function App() {
   const [storageLoadAttempt, setStorageLoadAttempt] = useState(0);
   const dataRef = useRef(data);
   const durableDataRef = useRef(data);
-  const [screen, setScreen] = useState<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
+  const [screen, setScreen] = useState<AppScreen>(initialScreen.current);
   const [transitionDirection, setTransitionDirection] = useState<'forward' | 'back' | 'replace'>('replace');
   const [guideReturn, setGuideReturn] = useState<'home' | 'settings' | null>(null);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [pendingExitTarget, setPendingExitTarget] = useState<AppScreen | null>(null);
   const [pendingExitReason, setPendingExitReason] = useState<'quiz' | 'create' | null>(null);
-  const [createDraftDirty, setCreateDraftDirty] = useState(false);
-  const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(null);
+  const [createDraftDirty, setCreateDraftDirty] = useState(recovered?.createDraftDirty ?? false);
+  const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(recovered?.pendingBackupImport ?? null);
   const [backupImportBusy, setBackupImportBusy] = useState(false);
   const [backupImportError, setBackupImportError] = useState('');
   const [backupExportNotice, setBackupExportNotice] = useState('');
@@ -122,7 +128,7 @@ export default function App() {
   const [autoImportBusy, setAutoImportBusy] = useState(false);
   const autoImportBusyRef = useRef(false);
   const [storageError, setStorageError] = useState('');
-  const navigationStackRef = useRef<AppScreen[]>(lineLinkReturn ? [{ name: 'home' }, { name: 'settings', page: 'account' }] : [{ name: 'home' }]);
+  const navigationStackRef = useRef<AppScreen[]>(initialScreen.current.name === 'home' ? [{ name: 'home' }] : [{ name: 'home' }, initialScreen.current]);
   const noteExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
   const importExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
   const importHistoryPendingRef = useRef(false);
@@ -136,7 +142,8 @@ export default function App() {
   const pendingExitModeRef = useRef<'back' | 'replace'>('back');
   const confirmedProtectedExitRef = useRef(false);
   const createDraftDirtyRef = useRef(false);
-  const screenRef = useRef<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
+  const screenRef = useRef<AppScreen>(initialScreen.current);
+  useAccountWork('app', () => ({ screen: screenRef.current, pendingBackupImport, createDraftDirty }));
   const dataRevisionRef = useRef(0);
   const libraryMutationBusyRef = useRef(false);
   const autoImportEligibleRef = useRef(false);
@@ -209,10 +216,9 @@ export default function App() {
         return operation({ preserveLiveData: true });
       }, { requireCrossContext: true });
     }
+    const finishRecordApply = beginRecordApply();
     autoImportBusyRef.current = true;
-    libraryMutationBusyRef.current = true;
     setAutoImportBusy(true);
-    setLibraryMutationBusy(true);
     try {
       const result = await withCoordinatedDataMutation(['app','notes'], async () => {
         if (!autoImportEligibleRef.current || !isSyncDisplaySafe(screenRef.current.name) || document.visibilityState !== 'visible') return null;
@@ -231,13 +237,12 @@ export default function App() {
       }, { requireCrossContext: true });
       return result;
     } catch (error) {
-      setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
+      if(!(error instanceof SyncProtocolError))setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
       throw error;
     } finally {
+      finishRecordApply();
       autoImportBusyRef.current = false;
-      libraryMutationBusyRef.current = false;
       setAutoImportBusy(false);
-      setLibraryMutationBusy(false);
     }
   };
 
@@ -245,9 +250,15 @@ export default function App() {
     let cancelled = false;
     setStorageReady(false);
     setStorageLoadError('');
-    void loadAppDataAsync()
+    void waitForPendingAppDataSaves().then(() => loadLatestCoordinatedData(['app', 'notes'], async () => {
+      const loaded = await loadAppDataAsync({ coordinationLockHeld: true });
+      await replayLocalStorageProjections();
+      // A damaged old backup must not block unrelated learning saves.
+      try { await (await import('./utils/backupRepository')).migrateSavedBackups(); }
+      catch (error) { console.warn('Old backups retained without cleanup.', error); }
+      return loaded;
+    }))
       .then(async (loadedData) => {
-        await replayLocalStorageProjections();
         if (cancelled) return;
         dataRef.current = loadedData;
         durableDataRef.current = loadedData;
@@ -1341,7 +1352,7 @@ export default function App() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as unknown;
-      const syncValidation = validateSyncPayload(parsed);
+      const syncValidation = await validateHydratedSyncPayload(parsed);
       if (syncValidation.ok) {
         setBackupImportError('');
         setPendingBackupImport({ kind: 'sync', payload: syncValidation.value, summary: summarizeSyncPayload(syncValidation.value) });
@@ -1852,6 +1863,7 @@ export default function App() {
 
   return (
     <>
+      <AccountSyncController />
       <AutoSyncController protectedWorkReason={protectedWorkReason} canAutoImport={canAutoImport}
         autoImportReady={autoImportEligibleRef.current && !libraryMutationBusy && !autoImportBusy} onAutoImport={handleAutoImport}
         onRecordApply={applyRecordImport} />
@@ -2032,3 +2044,4 @@ function hasQuestionLearningContentChanged(previous: Question, next: Question): 
       !== JSON.stringify([...getAnswerIndexes(next)].sort((left, right) => left - right));
 }
 
+import { useAccountWork, useRestoredAccountWork } from './hooks/useAccountWork';

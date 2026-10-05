@@ -1,0 +1,6 @@
+.account-storage-gate{width:min(100%,440px);margin:auto;padding:28px 20px;box-sizing:border-box;min-height:100dvh;color:#172033;background:#fff;overflow-wrap:anywhere}
+.account-storage-gate h1{font-size:1.4rem;margin:0 0 20px}.account-storage-gate p{line-height:1.7;margin:0 0 24px}
+.account-storage-gate button{display:block;width:100%;min-height:48px;padding:12px 16px;margin:12px 0;border:1px solid #d8dfea;border-radius:12px;font:inherit;font-weight:600;background:#2453c5;color:#fff}
+.account-storage-gate button:disabled{opacity:.5}.account-storage-gate label{display:block;margin-top:24px}.account-storage-gate input{display:block;width:100%;box-sizing:border-box;min-height:48px;margin:8px 0;padding:10px;border:1px solid #c9d2e2;border-radius:10px;font:inherit}
+.account-storage-gate[hidden]{display:none}
+html[data-quiz-account-fenced] body>:not(#root):not(script):not(style){visibility:hidden!important;pointer-events:none!important}

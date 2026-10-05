@@ -16,11 +16,13 @@ import {
   type RemoteSyncRecord,
 } from '../utils/syncService';
 import { getSyncDecision } from '../utils/syncDecision';
+import { getAccountStorageSession } from '../utils/accountStorage';
+import { isAccountSyncConnected } from '../utils/accountSync';
 import type { ProtectedWorkReason } from '../utils/protectedWork';
 import { CLOUD_UPDATE_EVENT, isCloudUpdateDismissed } from '../utils/cloudUpdateNotice';
 import { createAutoSyncScheduler, isAutoUploadBlocked, type AutoSyncOutcome, type AutoSyncQueueState } from '../utils/autoSyncScheduler';
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
-import { getCloudSession, onCloudAuthStateChange } from '../utils/cloudService';
+import { getCachedCloudAccountIdentity, getCloudSession, onCloudAuthStateChange } from '../utils/cloudService';
 import { runAppRecordSync } from '../utils/recordSyncCoordinator';
 import { RecordSyncRpcError } from '../utils/recordSyncNetwork';
 import type { RecordSyncGuards } from '../utils/recordSyncEngine';
@@ -93,8 +95,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     const bootstrapVersion = authVersion;
     const sessionReady = getCloudSession().then(session => {
       if (disposed || bootstrapVersion !== authVersion) return;
-      userId = session?.user && !session.user.is_anonymous ? session.user.id : ''; publishQueue();
-    }).catch(() => { /* The coordinator reports authentication errors. */ });
+      userId = session?.user && !session.user.is_anonymous ? session.user.id : getCachedCloudAccountIdentity()?.userId ?? ''; publishQueue();
+    }).catch(() => { if (!disposed && bootstrapVersion === authVersion) { try { userId = getCachedCloudAccountIdentity()?.userId ?? ''; } catch { userId = ''; } publishQueue(); } });
 
     const tryRecordSync = async (syncId: string, manual: boolean): Promise<AutoSyncOutcome> => {
       const connection = attemptConnection();
@@ -202,7 +204,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
               ? '自動同期: ログインが必要です'
               : result.code === 'conflict'
                 ? 'クラウドに新しいデータがあります'
-                : result.code && result.code !== 'rate_limited'
+                : result.code && result.code !== 'rate_limited' && result.code !== 'network'
                   ? '自動同期: 確認が必要です'
                   : '端末に保存済み・クラウド保存を再試行します',
             error: result.error,
@@ -211,7 +213,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
           else failure(legacyStep, result.code ?? 'network', result.error, uploadConnection);
           if (result.code === 'conflict') shouldCheckRemoteAfterUpload = true;
           if (result.code === 'rate_limited') return 'rate_limited';
-          return result.code ? 'paused' : 'retry';
+          return result.code && result.code !== 'network' ? 'paused' : 'retry';
         }
         if (result.value.localChangesPending) {
           return 'changed';
@@ -254,6 +256,9 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     const checkRemote = async (force = false) => {
       const settings = getAutoSyncSettings();
       if (disposed || navigator.onLine === false || !settings.syncId || !settings.configured) return;
+      // Account bootstrap installs the local ancestor and record connection
+      // before automatic I/O. A cached legacy ID is not bootstrap completion.
+      if(getAccountStorageSession()?.identity&&!isAccountSyncConnected(settings.syncId)&&!manualRequest)return;
       if (remoteCheckRunningRef.current || uploadRunningRef.current) return;
 
       const now = Date.now();
@@ -389,7 +394,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       uploadQueue.request(true);
     };
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === null || event.key.startsWith('quizMake:sync:')) {
+      const key = accountStorageEventKey(event);
+      if (key === null || key?.startsWith('quizMake:sync:')) {
         handleSettingsChange();
       }
     };
@@ -398,9 +404,9 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     // Supabase's auth callback holds a session lock; the queue defers Auth calls.
     let authCheckTimer: number | undefined;
     const unsubscribeAuth = onCloudAuthStateChange((_event, session) => {
-      authVersion++;
+      if (_event !== 'SIGNED_OUT' && !session && userId) { try { if (getCachedCloudAccountIdentity()?.userId === userId) return; } catch { /* Fail closed below. */ } }
       const nextUserId = session?.user && !session.user.is_anonymous ? session.user.id : '';
-      if (_event === 'SIGNED_OUT' || nextUserId !== userId) { blockedFailure = null; stopManualSync(); clearSyncAttemptStatus(); }
+      if (_event === 'SIGNED_OUT' || nextUserId !== userId) { authVersion++; blockedFailure = null; stopManualSync(); clearSyncAttemptStatus(); }
       userId = nextUserId; publishQueue();
       uploadQueue.request(true);
       window.clearTimeout(authCheckTimer);
@@ -448,8 +454,11 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
   }, [protectedWorkReason]);
 
   useEffect(() => {
-    if (autoImportReady) resumeSyncRef.current?.();
+    // Applying this worker's own Pull toggles App's busy display. Its completion
+    // is already followed by Push/receipt; it must not enqueue another full run.
+    if (autoImportReady && !uploadRunningRef.current) resumeSyncRef.current?.();
   }, [autoImportReady]);
 
   return null;
 }
+import { accountStorageEventKey } from '../utils/accountStorage';

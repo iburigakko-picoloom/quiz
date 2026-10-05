@@ -1,4 +1,7 @@
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
+import { CloudSessionReadError, verifiedCloudAccess, watchCloudSession, type CloudAccessTokenResult } from './cloudAuthAccess';
+export type { CloudAccessTokenResult } from './cloudAuthAccess';
+import { accountLocalStorage, assertAccountNetworkCurrent, getAccountStorageSession, validateLocalAccountIdentity, type LocalAccountIdentity } from './accountStorage';
 import { beginLineLinkAttempt, clearLineLinkAttempt } from './lineAuthReturn';
 import { getLineAvatarUrl } from './lineAvatar';
 import { lineWebLoginQuery } from './linePwaLogin';
@@ -18,10 +21,46 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
 
 export const cloudConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const cloudAuthStorageKey = supabaseUrl ? `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token` : '';
+/** Local storage selection only. This cache never authorizes network access;
+ * getCloudAccessToken still verifies the exact token with the Auth server. */
+export function getCachedCloudAccountIdentity(): LocalAccountIdentity | null {
+  if (!cloudConfigured || typeof globalThis.localStorage === 'undefined') return null;
+  const raw = globalThis.localStorage.getItem(cloudAuthStorageKey);
+  if (raw === null) return null;
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { throw new Error('ログインの保存状態を確認できません。端末データは保持しています。'); }
+  const session = value as { access_token?: unknown; user?: { id?: unknown; is_anonymous?: unknown } } | null;
+  if (!session?.user || session.user.is_anonymous === true) return null;
+  if (typeof session.access_token !== 'string' || typeof session.user.id !== 'string') throw new Error('ログインの保存状態を確認できません。端末データは保持しています。');
+  return validateLocalAccountIdentity({ project: new URL(supabaseUrl).origin, userId: session.user.id });
+}
+export function localIdentityForCloudSession(session: Session | null): LocalAccountIdentity | null {
+  return cloudConfigured && session?.user && !session.user.is_anonymous ? { project: new URL(supabaseUrl).origin, userId: session.user.id } : null;
+}
+/** Check immediately before the SDK transmits data. A queued RPC assembled
+ * under A must never acquire B's token after an auth change in another tab. */
+async function accountGuardedCloudFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+  if (url.origin === new URL(supabaseUrl).origin && !url.pathname.startsWith('/auth/v1/')) {
+    assertAccountNetworkCurrent(getCachedCloudAccountIdentity());
+    const owner = getAccountStorageSession()?.identity;
+    if (owner) {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      const bearer = headers.get('Authorization')?.replace(/^Bearer\s+/iu, '') ?? '';
+      let subject: unknown;
+      try { subject = JSON.parse(atob(bearer.split('.')[1].replace(/-/gu, '+').replace(/_/gu, '/'))).sub; } catch { /* Fail closed below. */ }
+      if (subject !== owner.userId) throw new Error('アカウントが変わりました。元の端末データは保持しています。');
+    }
+  }
+  return fetch(input, init);
+}
 const nativeAuthPlatform = isNativeAuthPlatform();
 export const cloudClient = cloudConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
+      global: { fetch: accountGuardedCloudFetch },
       auth: {
+        storageKey: cloudAuthStorageKey,
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: !nativeAuthPlatform,
@@ -99,7 +138,16 @@ export interface CloudPublishResult {
 
 export function getCloudSession() {
   if (!cloudClient) return Promise.resolve<Session | null>(null);
-  return cloudClient.auth.getSession().then(({ data }) => data.session);
+  return cloudClient.auth.getSession().then(({ data, error }) => { if (error) throw new CloudSessionReadError(error); return data.session; });
+}
+
+function cachedCloudDisplaySession(): Session | null {
+  if (!getCachedCloudAccountIdentity()) return null;
+  // Display only. All network credentials still pass exact-token verification.
+  return JSON.parse(globalThis.localStorage.getItem(cloudAuthStorageKey)!) as Session;
+}
+export function onCloudSessionSnapshot(callback: (session: Session | null) => void) {
+  return watchCloudSession({ read: getCloudSession, cached: cachedCloudDisplaySession, subscribe: onCloudAuthStateChange, emit: callback });
 }
 
 export function onCloudAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void) {
@@ -172,57 +220,19 @@ export async function initializeCloudNativeAuth(): Promise<() => Promise<void>> 
   return startNativeAuthListener(cloudClient);
 }
 
-export type CloudAccessTokenResult =
-  | { ok: true; accessToken: string; userId: string }
-  | {
-      ok: false;
-      reason: 'not-configured' | 'signed-out' | 'validation-failed';
-      message: string;
-    };
-
 export async function getCloudAccessToken(): Promise<CloudAccessTokenResult> {
   if (!cloudClient) {
     return { ok: false, reason: 'not-configured', message: 'クラウド接続が設定されていません。' };
   }
 
-  try {
-    const { data: sessionData, error: sessionError } = await cloudClient.auth.getSession();
-    const session = sessionData.session;
-    if (sessionError) {
-      return {
-        ok: false,
-        reason: 'validation-failed',
-        message: 'ログイン状態を確認できませんでした。通信状態を確認して、もう一度お試しください。',
-      };
-    }
-    if (!session?.access_token || session.user.is_anonymous) {
-      return { ok: false, reason: 'signed-out', message: 'クラウド同期を使うにはログインが必要です。' };
-    }
-
-    // getSession() alone reads client storage. Validate this exact JWT with the
-    // Auth server before another service uses it as a Bearer credential.
-    const { data: userData, error: userError } = await cloudClient.auth.getUser(session.access_token);
-    if (userError || !userData.user || userData.user.is_anonymous || userData.user.id !== session.user.id) {
-      return {
-        ok: false,
-        reason: 'validation-failed',
-        message: 'ログイン状態を確認できませんでした。通信状態を確認して、もう一度ログインしてください。',
-      };
-    }
-
-    return { ok: true, accessToken: session.access_token, userId: userData.user.id };
-  } catch {
-    return {
-      ok: false,
-      reason: 'validation-failed',
-      message: 'ログイン状態を確認できませんでした。通信状態を確認して、もう一度お試しください。',
-    };
-  }
+  return verifiedCloudAccess(cloudClient.auth,
+    userId => assertAccountNetworkCurrent({ project: new URL(supabaseUrl).origin, userId }),
+    () => getCachedCloudAccountIdentity()?.userId ?? null);
 }
 
 export async function signOutCloud(): Promise<void> {
   const client = requireCloudClient();
-  const { error } = await client.auth.signOut();
+  const { error } = await client.auth.signOut({ scope: 'local' });
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
@@ -595,10 +605,10 @@ function normalizeGroupRole(value: unknown): CloudGroup['role'] {
 
 function getInstallationId(): string {
   const key = 'quizMake:cloud:installationId';
-  const stored = window.localStorage.getItem(key);
+  const stored = accountLocalStorage.getItem(key);
   if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(stored)) return stored;
   const value = crypto.randomUUID();
-  window.localStorage.setItem(key, value);
+  accountLocalStorage.setItem(key, value);
   return value;
 }
 

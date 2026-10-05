@@ -1,6 +1,6 @@
 import type { AppOutboxOperation } from './appRecordStorage';
 import {
-  acknowledgeRecordPushBatch, bindRecordSyncConnection, freezeRecordPushBatch, getPendingRecordPushBatch, releaseRejectedRecordPushBatch,
+  acknowledgeRecordPushBatch, bindRecordSyncConnection, freezeRecordPushBatch, getPendingRecordPushBatch, releaseRejectedRecordPushBatch, hasPendingRecordPushOperations,
   RecordSyncLocalChangedError,
   type RecordSyncConnection, type RecordPushAcknowledgement, type RecordPushBatch,
 } from './recordSyncOutbox';
@@ -29,6 +29,7 @@ export type RecordSyncGuards = {
   /** Hold the origin lock; protected screens may inspect without changing live data. */
   apply(operation: (options?: RecordPullApplyOptions) => ReturnType<typeof applyStagedRecordPull>): Promise<Awaited<ReturnType<typeof applyStagedRecordPull>> | null>;
   prepareMedia?(): Promise<void>;
+  prepareOutgoing?(): Promise<void>;
 };
 
 /** Restartable bounded work. Network errors intentionally keep the frozen request and staged pages. */
@@ -77,6 +78,8 @@ export async function runRecordSync(
   const pending = await getPendingRecordPushBatch(db, connection);
   // The server may have committed a lost response. Resolve it before merging a pull.
   if (pending) await send(pending);
+  try { await guards.prepareOutgoing?.(); }
+  catch(error){if(error instanceof RecordSyncLocalChangedError)return {status:'more',uploaded,downloaded};throw error}
   for (let pageNumber = 0; pageNumber < maxPages; pageNumber++) {
     await guards.assertCurrent();
     const cursor = await getRecordPullCursor(db, connection);
@@ -115,6 +118,10 @@ export async function runRecordSync(
     }
     for (let batchNumber = 0; batchNumber < maxPushBatches; batchNumber++) {
       await guards.assertCurrent();
+      if (batchNumber > 0) {
+        try { await guards.prepareOutgoing?.(); }
+        catch(error){if(error instanceof RecordSyncLocalChangedError)return {status:'more',uploaded,downloaded};throw error}
+      }
       let batch: RecordPushBatch | null;
       step('push_prepare');
       try { batch = await freezeRecordPushBatch(db, connection, {
@@ -124,7 +131,7 @@ export async function runRecordSync(
         if (error instanceof RecordSyncLocalChangedError) return { status: 'more', uploaded, downloaded };
         throw error;
       }
-      if (!batch) return { status: 'done', uploaded, downloaded };
+      if (!batch) return { status: await hasPendingRecordPushOperations(db) ? 'more' : 'done', uploaded, downloaded };
       if (!await send(batch)) return { status: 'more', uploaded, downloaded };
     }
     return { status: 'more', uploaded, downloaded };

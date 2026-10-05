@@ -14,8 +14,7 @@ import {
   cloudConfigured,
   deleteCloudAccount,
   getCloudDisplayName,
-  getCloudSession,
-  onCloudAuthStateChange,
+  onCloudSessionSnapshot,
   sendMagicLink,
   signOutCloud,
   updateCloudDisplayName,
@@ -58,8 +57,10 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
   useEffect(() => {
     if (!cloudConfigured) return;
     let active = true;
+    let sessionRevision = 0;
     const applySession = async (value: Session | null) => {
       if (!active) return;
+      const revision = ++sessionRevision;
       setSession(value);
       setAuthReady(true);
       if (!value) {
@@ -69,13 +70,12 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
       const fallback = value.user.email?.split('@')[0] ?? 'Quiz Make ユーザー';
       try {
         const storedName = await getCloudDisplayName();
-        if (active) setDisplayName(storedName || fallback);
+        if (active && revision === sessionRevision) setDisplayName(storedName || fallback);
       } catch {
-        if (active) setDisplayName(fallback);
+        if (active && revision === sessionRevision) setDisplayName(fallback);
       }
     };
-    void getCloudSession().then((value) => void applySession(value));
-    const unsubscribe = onCloudAuthStateChange((_event, value) => void applySession(value));
+    const unsubscribe = onCloudSessionSnapshot((value) => void applySession(value));
     return () => {
       active = false;
       unsubscribe();

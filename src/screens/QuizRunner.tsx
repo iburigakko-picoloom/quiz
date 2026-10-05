@@ -1,4 +1,6 @@
 import { Children, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
+import { isAccountWorkReloadApproved } from '../utils/accountWork';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import { PinchImage } from '../components/PinchImage';
@@ -57,21 +59,25 @@ interface QuizRunnerProps {
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
-  const [currentIndex, setCurrentIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(questions.length - 1, 0)));
-  const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
-  const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
-  const [hasAnswered, setHasAnswered] = useState(false);
-  const [correctCount, setCorrectCount] = useState(0);
-  const sessionAnswersRef = useRef<NonNullable<QuizResult['sessionAnswers']>>([]);
-  const submittedQuestionRef = useRef<string | null>(null);
+type QuizWork = { questions: Question[]; readOnly: boolean; currentIndex: number; selectedIndexes: number[]; lastCorrect: boolean|null; hasAnswered: boolean; correctCount: number; wrongCount: number; addedReviewCount: number; sessionAnswers: NonNullable<QuizResult['sessionAnswers']>; presentation: {index:number;question:Question|undefined}|null; answerSaveState:'idle'|'saving'|'saved'|'error'; savedLevelLabel:string };
+export function QuizRunner({ data, title, subtitle, questions: incomingQuestions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
+  const workKey=`quiz:${setId??'multi'}:${mode}:${readOnly}`;
+  const recovered=useRestoredAccountWork<QuizWork>(workKey);
+  const [questions]=useState(recovered?.questions??incomingQuestions);
+  const [currentIndex, setCurrentIndex] = useState(() => Math.min(Math.max(recovered?.currentIndex??initialIndex, 0), Math.max(questions.length - 1, 0)));
+  const [selectedIndexes, setSelectedIndexes] = useState<number[]>(recovered?.selectedIndexes??[]);
+  const [lastCorrect, setLastCorrect] = useState<boolean | null>(recovered?.lastCorrect??null);
+  const [hasAnswered, setHasAnswered] = useState(recovered?.hasAnswered??false);
+  const [correctCount, setCorrectCount] = useState(recovered?.correctCount??0);
+  const sessionAnswersRef = useRef<NonNullable<QuizResult['sessionAnswers']>>(recovered?.sessionAnswers??[]);
+  const submittedQuestionRef = useRef<string | null>(recovered?.hasAnswered ? questions[currentIndex]?.id??null : null);
   const [feedback, setFeedback] = useState<'correct' | 'relearned' | 'wrong' | null>(null);
-  const [wrongCount, setWrongCount] = useState(0);
-  const [addedReviewCount, setAddedReviewCount] = useState(0);
+  const [wrongCount, setWrongCount] = useState(recovered?.wrongCount??0);
+  const [addedReviewCount, setAddedReviewCount] = useState(recovered?.addedReviewCount??0);
   const [answerSheetState, setAnswerSheetState] = useState<AnswerSheetState>('default');
-  const [savedLevelLabel, setSavedLevelLabel] = useState('');
+  const [savedLevelLabel, setSavedLevelLabel] = useState(recovered?.savedLevelLabel??'');
   const [answerMessage, setAnswerMessage] = useState('');
-  const [answerSaveState, setAnswerSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [answerSaveState, setAnswerSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>(recovered?.answerSaveState??'idle');
   const answerRetryRef = useRef<(() => Promise<boolean>) | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [materialLauncherTarget, setMaterialLauncherTarget] = useState<HTMLSpanElement | null>(null);
@@ -162,11 +168,12 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   }, [noteAreaOpen]);
 
   const sourceQuestion = questions[currentIndex];
-  const presentationRef = useRef<{ index: number; question: Question | undefined } | null>(null);
+  const presentationRef = useRef<{ index: number; question: Question | undefined } | null>(recovered?.presentation??null);
   if (!presentationRef.current || presentationRef.current.index !== currentIndex || presentationRef.current.question?.id !== sourceQuestion?.id) {
     presentationRef.current = { index: currentIndex, question: sourceQuestion ? randomizeQuestionChoices(sourceQuestion) : undefined };
   }
   const currentQuestion = presentationRef.current.question;
+  useAccountWork(workKey, () => ({ questions, readOnly, currentIndex, selectedIndexes, lastCorrect, hasAnswered, correctCount, wrongCount, addedReviewCount, sessionAnswers:sessionAnswersRef.current, presentation:presentationRef.current, answerSaveState, savedLevelLabel }), async () => { if(answerSaveState==='saving'||answerSaveState==='error')throw new Error('回答の保存完了を待っています。'); });
   const currentDetailedExplanation = useMemo(
     () => resolveQuestionDetailedExplanation(data.questions, currentQuestion),
     [currentQuestion, data.questions],
@@ -223,6 +230,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   useEffect(() => {
     if (answerSaveState !== 'saving' && answerSaveState !== 'error') return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if(isAccountWorkReloadApproved())return;
       event.preventDefault();
       event.returnValue = '';
     };

@@ -5,7 +5,7 @@ import { SyncInterruptedError } from './syncInterruption';
 export const SYNC_ATTEMPT_EVENT = 'quiz-make-sync-attempt';
 export type SyncFailure = { code: string; step: string; at: string; message: string };
 export const isBlockedSyncFailure = (code: string) => ['local_persistence_failed', 'invalid_response', 'invalid_request',
-  'invalid', 'operation_reused', 'quota', 'payload_too_large', 'unavailable', 'media_unsupported', 'legacy_snapshot'].includes(code);
+  'invalid', 'operation_reused', 'quota', 'payload_too_large', 'unavailable', 'permission_denied', 'media_unsupported', 'legacy_snapshot'].includes(code);
 export type SyncAttemptStatus = { phase: 'queued' | 'running' | 'paused' | 'failed' | 'done'; retryAt: number | null;
   pauseReason: string; step: string; lastFailure: SyncFailure | null };
 type Entry = { connection: RecordSyncConnection; queue: AutoSyncQueueState; remoteChecking: boolean; result: SyncAttemptStatus };

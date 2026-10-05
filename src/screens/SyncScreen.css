@@ -3,6 +3,14 @@
   box-sizing: border-box;
 }
 
+.sync-screen--account .sync-section { width:100%; padding:4px 0 24px; overflow-wrap:anywhere; }
+.sync-screen--account .sync-section > h2 { margin:0 0 12px; font-size:18px; }
+.sync-screen--account .sync-section p { line-height:1.7; margin:0 0 16px; }
+.sync-screen--account .sync-section > button { width:100%; margin:8px 0; }
+.sync-screen--account .sync-label { display:block; margin:16px 0; }
+.sync-screen--account .sync-input { display:block; width:100%; margin-top:8px; }
+.sync-screen--account .sync-subpage-row { display:flex; justify-content:space-between; width:100%; min-height:48px; padding:16px 0; border:0; border-top:1px solid #e7e9ed; background:#fff; font:inherit; color:#315d9c; }
+
 .sync-page-links { width: 100%; margin: 12px 0 0; }
 .sync-page-link { appearance: none; width: 100%; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; border: 0; border-top: 1px solid #e7e9ed; background: #fff; color: #172033; text-align: left; cursor: pointer; font-size: 15px; font-weight: 700; line-height: 1.6; }
 .sync-page-link > span { min-width: 0; overflow-wrap: anywhere; }

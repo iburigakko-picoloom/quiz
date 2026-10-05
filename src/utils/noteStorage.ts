@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 import { advanceLocalDataRevision } from './localDataRevision';
 import { validMaterialRecord } from './materialModel';
 import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './dataCoordination';
@@ -5,6 +6,7 @@ import { hasPersistedSyncHistory } from './syncState';
 
 import { openCoLocatedNoteDb } from './noteRecordMigration';
 import { NOTE_RECORD_TRANSACTION_STORES, queueNoteRecordWrite, abortPendingNoteTransactions } from './auxiliaryRecordStorage';
+import { cleanupNativeOriginals } from './learningValueStorage';
 const NOTE_STORE_NAME = 'categoryNotes';
 const NOTE_BACKUP_STORE_NAME = 'categoryNoteBackups';
 const NOTE_STORAGE_OPERATION_TIMEOUT_MS = 4_500;
@@ -204,7 +206,7 @@ async function saveCategoryNoteRawNow(key: string, raw: string): Promise<void> {
   if (isIndexedDbAvailable()) {
     try {
       await waitForCategoryNoteStorage(setRawToIndexedDb(key, raw));
-      safeLocalStorageRemove(key);
+      await cleanupNativeOriginals(await openCoLocatedNoteDb(), { [key]: localStorage.getItem(key) });
       await ensureCategoryNoteManifestIncludesBestEffort(key);
       return;
     } catch (indexedDbError) {
@@ -373,7 +375,7 @@ export function replaceCategoryNotesRaw(
   return enqueueCategoryNoteOperation(async () => {
     if (isIndexedDbAvailable()) {
       await replaceIndexedDbNotes(validNotes, options.onlyChanged);
-      removeAllLegacyLocalStorageNotes();
+      await cleanupNativeOriginals(await openCoLocatedNoteDb(), Object.fromEntries(collectLegacyLocalStorageNotes()));
       if (writeCategoryNotesManifestBestEffort(Object.keys(validNotes)) && options.establishAuthority) {
         safeLocalStorageRemove(CATEGORY_NOTES_RECOVERY_REQUIRED_KEY);
       }

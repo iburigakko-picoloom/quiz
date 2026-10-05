@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 export const CLOUD_UPDATE_EVENT = 'quiz-make-cloud-update-available';
 export interface CloudUpdateNotice { syncId: string; updatedAt: string }
 const dismissed = new Map<string, string>();

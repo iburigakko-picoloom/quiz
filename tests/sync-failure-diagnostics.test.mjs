@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import test from 'node:test';
-import {safeSyncFailureMessage} from '../src/utils/syncFailureDiagnostic.ts';
+import {registerHooks} from 'node:module';
+import {after,test} from 'node:test';
+const hooks = registerHooks({resolve(specifier, context, next) {
+  return next(/^\.\.?\//u.test(specifier) && !/\.[cm]?[jt]sx?$/u.test(specifier)
+    && context.parentURL?.endsWith('.ts') ? `${specifier}.ts` : specifier, context);
+}});
+after(() => hooks.deregister());
+const {safeSyncFailureMessage} = await import('../src/utils/syncFailureDiagnostic.ts');
 test('retained pull failure explains a known cause after the older status error was cleared',()=>{
   for(const message of ['差分読込のCursorが不正です。','差分読込の変更履歴が連続していません。','保存レコードの一部が失われています。','questions[23] が存在しない問題セットを参照しています。','questions[1].choices は4個または5個の文字列である必要があります。'])assert.equal(safeSyncFailureMessage(message),message);
   const status=readFileSync(new URL('../src/components/SyncStatus.tsx',import.meta.url),'utf8');assert.match(status,/safeSyncFailureMessage\(attempt.lastFailure.message\)/);

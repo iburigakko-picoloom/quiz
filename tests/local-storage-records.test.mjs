@@ -6,7 +6,7 @@ const hook=registerHooks({resolve(specifier,context,next){return next(/^\.\.?\//
 process.on('exit',()=>hook.deregister());
 const items=new Map();let deny=false;
 globalThis.localStorage={get length(){return items.size;},key:i=>[...items.keys()][i]??null,
-  getItem:key=>items.get(key)??null,removeItem:key=>items.delete(key),setItem(key,value){if(deny&&key==='quiz-make-creation-notes-v1')throw new Error('projection failed');items.set(key,String(value));}};
+  getItem:key=>items.get(key)??null,removeItem:key=>items.delete(key),setItem(key,value){if(deny&&key==='quizMake:settings-cache')throw new Error('projection failed');items.set(key,String(value));}};
 globalThis.window={dispatchEvent(){}};globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
 const storage=await import('../src/storage.ts');
 const {saveSyncedLocalStorage,replayLocalStorageProjections,captureSyncedLocalStorage}=await import('../src/utils/localStorageRecords.ts');
@@ -14,7 +14,7 @@ const {readAppOutbox}=await import('../src/utils/appRecordStorage.ts');
 async function get(db,store,key){const tx=db.transaction(store);const result=tx.objectStore(store).get(key);await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});return result.result;}
 test('localStorage projection replays after a crash without dropping atomic Outbox and two keys share one commit',async()=>{
   assert.equal(await storage.saveAppData(storage.createEmptyAppData()),true);
-  const main='quiz-make-creation-notes-v1',recovery=`${main}-removed-orphans`;
+  const main='quizMake:settings-cache',recovery=`${main}-recovery`;
   deny=true;
   await assert.rejects(saveSyncedLocalStorage({[main]:'[{"id":"memo"}]',[recovery]:'[]'}),/projection failed/);
   const db=await storage.openAppDb();
@@ -30,6 +30,23 @@ test('localStorage projection replays after a crash without dropping atomic Outb
   assert.deepEqual((await readAppOutbox(db)).filter(op=>op.collection==='localStorage'),ops);
 });
 
+test('chunk preparation keeps the full native cache and capture never requeues transport records',async()=>{
+  const {bindRecordSyncConnection}=await import('../src/utils/recordSyncOutbox.ts');
+  const {prepareRecordChunks}=await import('../src/utils/recordChunks.ts');
+  const db=await storage.openAppDb(),id='quizMake:chunk-capture-test',raw=JSON.stringify({value:'x'.repeat(950000)});
+  const connection={project:'https://test.invalid',userId:'owner',syncId:'a'.repeat(36)};
+  await bindRecordSyncConnection(db,connection);await saveSyncedLocalStorage({[id]:raw});await prepareRecordChunks(db,connection);
+  const before=await readAppOutbox(db),parent=await get(db,'appRecords',JSON.stringify(['localStorage',id]));
+  assert.equal(parent.logicalRaw,raw);assert.equal(localStorage.getItem(id),raw);
+  assert.ok(before.some(op=>op.id.startsWith('quizMake:recordChunks:v1:')));
+  const filter=key=>key===id||key.startsWith('quizMake:recordChunks:')||key==='quizMake:plan:__record_chunks_v1';
+  assert.equal(await captureSyncedLocalStorage(filter),0);
+  assert.deepEqual(await readAppOutbox(db),before);
+  assert.ok(![...items.keys()].some(key=>key.startsWith('quizMake:recordChunks:')||key==='quizMake:plan:__record_chunks_v1'));
+  localStorage.removeItem(id);assert.equal(await captureSyncedLocalStorage(filter),1);
+  assert.equal((await readAppOutbox(db)).find(op=>op.id===id).raw,null);
+});
+
 test('legacy settings capture only changed synchronized keys and never scans AppData',async()=>{
   const db=await storage.openAppDb();
   const original=db.transaction.bind(db);
@@ -37,7 +54,7 @@ test('legacy settings capture only changed synchronized keys and never scans App
     const tx=original(stores,...args);const objectStore=tx.objectStore.bind(tx);
     tx.objectStore=name=>{
       const store=objectStore(name);
-      if(name==='appRecords')store.getAll=()=>assert.fail('must not scan the AppData rows');
+      if(name==='appRecords'){const getAll=store.getAll.bind(store);store.getAll=range=>{assert.equal(range?.lower,'[\"localStorage\",');return getAll(range);};}
       return store;
     };
     return tx;

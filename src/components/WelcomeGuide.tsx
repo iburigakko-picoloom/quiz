@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from '../utils/accountStorage';
 import { useEffect, useRef, useState } from 'react';
 import { getCloudSession, lineLoginAvailable, onCloudAuthStateChange } from '../utils/cloudService';
 import { isNativeAuthPlatform } from '../utils/nativeAuth';

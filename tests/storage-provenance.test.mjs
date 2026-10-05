@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
+import { IDBKeyRange } from 'fake-indexeddb';
+globalThis.IDBKeyRange = IDBKeyRange;
 
 const extensionHook = registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -130,8 +132,8 @@ function createIndexedDbHarness() {
       add(value, key = value.id) {
         return beginRequest(() => { if (values.has(String(key))) throw new Error('ConstraintError'); values.set(String(key), structuredClone(value)); return key; });
       },
-      getAll() { return beginRequest(() => [...values.values()]); },
-      getAllKeys() { return beginRequest(() => [...values.keys()]); },
+      getAll(range) { return beginRequest(() => [...values.entries()].filter(([key]) => !range || range.includes(key)).sort(([a],[b])=>a.localeCompare(b)).map(([,value])=>value)); },
+      getAllKeys(range) { return beginRequest(() => [...values.keys()].filter(key => !range || range.includes(key)).sort()); },
       get(key) {
         return beginRequest(() => values.get(String(key)));
       },

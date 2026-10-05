@@ -47,7 +47,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
     return () => { stopped = true; window.clearInterval(timer); window.removeEventListener(SYNC_ATTEMPT_EVENT, attemptUpdate); for (const event of [RECORD_SYNC_STATE_EVENT, LOCAL_DATA_SAVED_EVENT, 'storage', 'online', 'offline']) window.removeEventListener(event, update); };
   }, [syncId, accountId, recordEnabled, lastState.lastSyncDigest]);
   const failed = Boolean(readError || lastState.error);
-  const loginRequired = lastState.status.includes('ログイン');
+  const loginRequired = lastState.status.includes('ログインが必要');
   const success = recordEnabled ? record?.lastSuccessAt : lastState.lastSyncAt;
   const presentation = syncStatusPresentation({ online, loginRequired, error: failed, readError: Boolean(readError), attempt, autoEnabled, recordEnabled, record, pending, success: success ?? '' });
   const summary = presentation.text === '変更の確認があります' && record?.conflicts ? `変更の確認が${record.conflicts}件あります` : presentation.text;

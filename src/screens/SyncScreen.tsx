@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage, accountStorageEventKey } from '../utils/accountStorage';
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import type { SyncScreenPage } from '../types';
 import { SyncStatus } from '../components/SyncStatus';
@@ -47,7 +48,7 @@ import {
 } from '../utils/syncService';
 import { isStrongSyncId } from '../utils/syncState';
 import { saveJsonBackup, writeClipboardText } from '../utils/nativePlatform';
-import { getCloudSession, onCloudAuthStateChange, sendMagicLink } from '../utils/cloudService';
+import { getCloudSession, onCloudSessionSnapshot, sendMagicLink } from '../utils/cloudService';
 import { LineLoginButton } from '../components/LineLoginButton';
 import { RecordConflictPanel } from '../components/RecordConflictPanel';
 import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
@@ -139,15 +140,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
       setAuthReady(true);
     };
 
-    void getCloudSession()
-      .then(applySession)
-      .catch(() => {
-        if (!cancelled) {
-          setCloudAccount(null);
-          setAuthReady(true);
-        }
-      });
-    const unsubscribe = onCloudAuthStateChange((_event, session) => applySession(session));
+    const unsubscribe = onCloudSessionSnapshot(applySession);
     return () => {
       cancelled = true;
       unsubscribe();
@@ -162,10 +155,10 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
       setRecordSyncOptedInState(isRecordSyncOptedIn(getStoredSyncId().trim()));
     };
     const refreshExternalSyncState = (event: StorageEvent) => {
-      if (event.storageArea && event.storageArea !== localStorage) return;
-      if (event.key !== null && !event.key.startsWith('quizMake:sync:')) return;
+      const key = accountStorageEventKey(event);
+      if (key === undefined || key !== null && !key.startsWith('quizMake:sync:')) return;
       refreshSyncState();
-      if (event.key !== null && event.key !== SYNC_ID_STORAGE_KEY) return;
+      if (key !== null && key !== SYNC_ID_STORAGE_KEY) return;
 
       const nextSyncId = getStoredSyncId().trim();
       setSyncId(nextSyncId);

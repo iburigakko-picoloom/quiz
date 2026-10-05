@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 export const LAST_SYNC_AT_KEY = 'quizMake:sync:lastSyncAt';
 export const LAST_UPLOAD_HASH_KEY = 'quizMake:sync:lastUploadHash';
 export const LAST_REMOTE_UPDATED_AT_KEY = 'quizMake:sync:lastRemoteUpdatedAt';

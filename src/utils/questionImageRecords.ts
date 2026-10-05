@@ -36,7 +36,7 @@ let legacyDb:Promise<IDBDatabase>|null=null;
 function openLegacy():Promise<IDBDatabase>{
   if(legacyDb)return legacyDb;
   legacyDb=new Promise((resolve,reject)=>{
-    const opening=indexedDB.open(OLD_DB,2);let blocked=false;
+    const opening=indexedDB.open(accountDatabaseName(OLD_DB),2);let blocked=false;
     opening.onupgradeneeded=()=>{if(!opening.result.objectStoreNames.contains(OLD_STORE))opening.result.createObjectStore(OLD_STORE,{keyPath:'id'});};
     opening.onsuccess=()=>{if(blocked){opening.result.close();return;}opening.result.onversionchange=()=>{opening.result.close();legacyDb=null;};opening.result.onclose=()=>{legacyDb=null;};resolve(opening.result);};
     opening.onerror=()=>reject(opening.error);
@@ -100,3 +100,4 @@ export async function removeQuestionImages(predicate:(image:StoredQuestionImage)
   };
   await completed;
 }
+import { accountDatabaseName } from './accountStorage';

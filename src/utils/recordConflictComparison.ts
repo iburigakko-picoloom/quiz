@@ -61,7 +61,7 @@ const fieldsFor = (collection: string, id: string): string[] => {
     answerLogs: ['isCorrect', 'answeredAt'], folders: ['name'], problemSets: ['title'], indexedDbNotes: ['title', 'body'] } as Record<string, string[]>)[collection] ?? [];
 };
 export function compareRecordConflict(item: RecordConflict): ConflictComparison {
-  const left = parse(item.local?.raw ?? null), right = parse(item.remote.raw);
+  const left = parse(item.local?.logicalRaw??item.local?.raw??null), right = parse(item.remote.logicalRaw??item.remote.raw);
   const differences: ConflictDifference[] = [];
   const result: ConflictComparison = { differences, incomplete: false, local: item.local?.raw == null ? '削除' : 'この端末の内容', remote: item.remote.raw === null ? '削除' : 'クラウドの内容' };
   const add = (label: string, a: unknown, b: unknown) => {

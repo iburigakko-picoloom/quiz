@@ -66,7 +66,7 @@ export async function openCoLocatedNoteDb(migrate = true): Promise<IDBDatabase> 
 function openLegacyNoteDb(): Promise<IDBDatabase> {
   if (legacyPromise) return legacyPromise;
   legacyPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const opening = indexedDB.open('quiz-make-notes-v1', 2);
+    const opening = indexedDB.open(accountDatabaseName('quiz-make-notes-v1'), 2);
     let rejected = false;
     opening.onupgradeneeded = () => {
       for (const name of [NOTE_CURRENT_STORE, NOTE_BACKUP_STORE]) if (!opening.result.objectStoreNames.contains(name)) opening.result.createObjectStore(name);
@@ -83,3 +83,4 @@ function openLegacyNoteDb(): Promise<IDBDatabase> {
   void legacyPromise.catch(() => { legacyPromise = null; });
   return legacyPromise;
 }
+import { accountDatabaseName } from './accountStorage';

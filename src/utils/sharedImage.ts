@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 import type { AppData, AppScreen } from '../types';
 
 export const SHARE_IMAGE_CACHE = 'quiz-make-shared-images-v1';

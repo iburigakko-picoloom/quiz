@@ -21,7 +21,7 @@ import {
   deleteCloudGroup,
   createGroupInvite,
   getCloudDisplayName,
-  getCloudSession,
+  onCloudSessionSnapshot,
   getSharedProblemSet,
   joinCloudGroup,
   listCloudGroupMembers,
@@ -30,7 +30,6 @@ import {
   listMyPublishedSets,
   listPublicFolderSets,
   listPublicProblemSets,
-  onCloudAuthStateChange,
   publishLocalProblemSet,
   recordCloudCopy,
   removeCloudGroupMember,
@@ -179,12 +178,8 @@ export function CommunityScreen({
 
   useEffect(() => {
     let active = true;
-    void getCloudSession().then((value) => {
+    const unsubscribe = onCloudSessionSnapshot((value) => {
       if (!active) return;
-      setSession(value);
-      setAuthReady(true);
-    });
-    const unsubscribe = onCloudAuthStateChange((_event, value) => {
       setSession(value);
       setAuthReady(true);
       if (value) setLoginOpen(false);
