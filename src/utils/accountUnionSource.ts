@@ -97,7 +97,10 @@ export async function readArchivedUnionLocal(factory: IDBFactory, native: Storag
   const binding = await readStoredAccountBinding(factory, 'quiz-make-app-data-v1'); assertCurrent(); if (binding && !sameLocalAccount(binding, identity)) throw new Error('旧端末データは別のアカウントに所属しています。');
   const isQuizMakeStorageKey = storageKeyFilter ?? (await import('./syncService')).isQuizMakeStorageKey;
   const db = await openUnionOriginal(factory, 'quiz-make-app-data-v1'); let records: UnionRecord[] = [], notesMigrated = false, imagesMigrated = false;
+  const { readLearningValues } = await import('./learningValueStorage');
+  let learning = new Map<string, import('./learningValueStorage').LearningValue>();
   try {
+    if (db?.objectStoreNames.contains('appData')) learning = await readLearningValues(db);
     if (db?.objectStoreNames.contains('appRecordMeta')) {
       const tx = db.transaction('appRecordMeta'), completion = done(tx), store = tx.objectStore('appRecordMeta');
       const notes = store.get('notesMigrationV1'), images = store.get('questionImageMigrationV1'), batch = store.get('pushBatch'); await completion;
@@ -123,13 +126,24 @@ export async function readArchivedUnionLocal(factory: IDBFactory, native: Storag
     }
   } finally { db?.close(); }
   const known = new Map(records.map(row => [row.key, row]));
+  for (const [id, value] of learning) {
+    const key = appRecordKey('localStorage', id), old = known.get(key);
+    // Record pull may have committed after its previous materialized view. The
+    // canonical record remains authoritative; a view-only legacy value is kept.
+    if (!old) known.set(key, { key, collection: 'localStorage', id, raw: value.raw, position: 0, revision: 0 });
+  }
   for (let i = 0; i < native.length; i++) {
     const id = native.key(i); if (!id || !isQuizMakeStorageKey(id) || id === 'quiz-make-app-data-v1' || isChunkInternal('localStorage', id)) continue;
     const raw = native.getItem(id); if (raw === null) continue;
     if (id.startsWith('quizMake:image:')) continue; // Blob-derived descriptors are authoritative, never a metadata-only copy.
     const collection = id.startsWith('quizMake:notes:') ? 'indexedDbNotes' : 'localStorage', key = appRecordKey(collection, id), old = known.get(key);
     if (notesMigrated && collection === 'indexedDbNotes') continue;
-    if (old && old.raw !== raw) throw new Error('旧端末の保存本体と控えが異なります。原本を保管して確認を止めました。');
+    if (old && old.raw !== raw) {
+      const cleanup = learning.get(id)?.nativeCleanup;
+      const digest = cleanup && [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw)))].map(n => n.toString(16).padStart(2, '0')).join('');
+      if (cleanup === digest) continue;
+      throw new Error('旧端末の保存本体と控えが異なります。原本を保管して確認を止めました。');
+    }
     known.set(key, { key, collection, id, raw, position: 0, revision: old?.revision ?? 0 });
   }
   const noteDb = notesMigrated ? null : await openUnionOriginal(factory, 'quiz-make-notes-v1');

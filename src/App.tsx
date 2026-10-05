@@ -26,7 +26,7 @@ import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
 import { replayLocalStorageProjections } from './utils/localStorageRecords';
-import { withCoordinatedDataMutation, withCoordinatedDataRead } from './utils/dataCoordination';
+import { withCoordinatedDataMutation, withCoordinatedDataRead, loadLatestCoordinatedData } from './utils/dataCoordination';
 import { isAutoUploadBlocked } from './utils/autoSyncScheduler';
 import { isManualSyncRequested } from './utils/syncRequest';
 import { isSyncDisplaySafe, isSyncInteractionProtected } from './utils/syncInteraction';
@@ -250,9 +250,15 @@ export default function App() {
     let cancelled = false;
     setStorageReady(false);
     setStorageLoadError('');
-    void loadAppDataAsync()
+    void waitForPendingAppDataSaves().then(() => loadLatestCoordinatedData(['app', 'notes'], async () => {
+      const loaded = await loadAppDataAsync({ coordinationLockHeld: true });
+      await replayLocalStorageProjections();
+      // A damaged old backup must not block unrelated learning saves.
+      try { await (await import('./utils/backupRepository')).migrateSavedBackups(); }
+      catch (error) { console.warn('Old backups retained without cleanup.', error); }
+      return loaded;
+    }))
       .then(async (loadedData) => {
-        await replayLocalStorageProjections();
         if (cancelled) return;
         dataRef.current = loadedData;
         durableDataRef.current = loadedData;

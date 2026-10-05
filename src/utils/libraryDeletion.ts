@@ -1,4 +1,5 @@
 import { accountLocalStorage as localStorage } from './accountStorage';
+import { saveSyncedLocalStorage } from './localStorageRecords';
 import type { AppData } from '../types';
 import { loadAppDataAsync, saveAppDataAsync, waitForPendingAppDataSaves } from '../storage';
 import {
@@ -53,10 +54,10 @@ const defaultDependencies: LibraryDeletionDependencies = {
     if (deleteAll) {
       const previous = WEAKNESS_STORAGE_KEYS.map(key => [key, localStorage.getItem(key)] as const);
       try {
-        WEAKNESS_STORAGE_KEYS.forEach(key => localStorage.setItem(key, '[]'));
+        await saveSyncedLocalStorage(Object.fromEntries(WEAKNESS_STORAGE_KEYS.map(key => [key, '[]'])));
         await deleteAllCategoryNotes({ coordinationLockHeld: true });
       } catch (error) {
-        previous.forEach(([key, raw]) => raw === null ? localStorage.removeItem(key) : localStorage.setItem(key, raw));
+        await saveSyncedLocalStorage(Object.fromEntries(previous));
         throw error;
       }
       advanceLocalDataRevision();

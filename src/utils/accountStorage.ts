@@ -1,4 +1,5 @@
 import { decodeAccountValue, encodeAccountValue } from './accountStorageCodec';
+import { isLearningStorageKey, LEARNING_MIGRATED_KEY } from './learningStorageKeys';
 export type LocalAccountIdentity = { project: string; userId: string };
 export type AccountStorageDecision = { identity: LocalAccountIdentity | null; namespace: string; legacyUnclaimed: boolean };
 export const ACCOUNT_VAULT_MANIFEST_KEY = 'quizMakeAccountVault:v1';
@@ -160,11 +161,27 @@ export function accountStorageEventKey(event: Pick<StorageEvent, 'key' | 'storag
   if (event.key === null) return null;
   return activeSession ? activeSession.eventKey(event.key) ?? undefined : event.key;
 }
+/** Native values remain accessible only for verified migration and tiny settings. */
+export const accountNativeStorage = () => activeSession?.storage ?? globalThis.localStorage;
+let learningView: { owner: AccountStorageSession | null; native: Storage; values: Map<string, string | null> } | undefined;
+function currentLearningView() {
+  if (!learningView || learningView.owner !== activeSession || learningView.native !== globalThis.localStorage) return undefined;
+  activeSession?.assertCurrent(); return learningView.values;
+}
+export function publishLearningStorage(values: Map<string, string | null>, owner = activeSession, native = globalThis.localStorage) {
+  owner?.assertCurrent(); if (owner !== activeSession || native !== globalThis.localStorage) throw new Error('学習データの保存先が変わりました。原本は保持しています。');
+  learningView = { owner, native, values: new Map(values) };
+}
+function localKeys() {
+  const storage = accountNativeStorage(), values = currentLearningView(), keys = new Set<string>();
+  for (let i = 0; i < (storage?.length ?? 0); i++) { const key = storage.key(i); if (key && (!values?.has(key) || values.get(key) !== null)) keys.add(key); }
+  values?.forEach((raw, key) => { if (raw !== null) keys.add(key); else keys.delete(key); }); return [...keys];
+}
 export const accountLocalStorage: Storage = {
-  get length() { return (activeSession?.storage ?? globalThis.localStorage)?.length ?? 0; },
-  key(index) { return (activeSession?.storage ?? globalThis.localStorage)?.key(index) ?? null; },
-  getItem(key) { return (activeSession?.storage ?? globalThis.localStorage)?.getItem(key) ?? null; },
-  setItem(key, value) { (activeSession?.storage ?? globalThis.localStorage).setItem(key, value); },
-  removeItem(key) { (activeSession?.storage ?? globalThis.localStorage).removeItem(key); },
-  clear() { (activeSession?.storage ?? globalThis.localStorage).clear(); },
+  get length() { return localKeys().length; },
+  key(index) { return localKeys()[index] ?? null; },
+  getItem(key) { const values = currentLearningView(); return values?.has(key) ? values.get(key)! : accountNativeStorage()?.getItem(key) ?? null; },
+  setItem(key, value) { if (isLearningStorageKey(key) && (currentLearningView() || accountNativeStorage()?.getItem(LEARNING_MIGRATED_KEY) === '1')) throw new Error('学習データはIndexedDBへ保存してください。未保存の入力は保持しています。'); accountNativeStorage().setItem(key, value); },
+  removeItem(key) { if (isLearningStorageKey(key) && (currentLearningView() || accountNativeStorage()?.getItem(LEARNING_MIGRATED_KEY) === '1')) throw new Error('学習データはIndexedDBの保存処理から削除してください。'); accountNativeStorage().removeItem(key); },
+  clear() { if (currentLearningView()?.size) throw new Error('保存済み学習データを一括削除しません。'); accountNativeStorage().clear(); },
 };

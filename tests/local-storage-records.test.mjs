@@ -6,7 +6,7 @@ const hook=registerHooks({resolve(specifier,context,next){return next(/^\.\.?\//
 process.on('exit',()=>hook.deregister());
 const items=new Map();let deny=false;
 globalThis.localStorage={get length(){return items.size;},key:i=>[...items.keys()][i]??null,
-  getItem:key=>items.get(key)??null,removeItem:key=>items.delete(key),setItem(key,value){if(deny&&key==='quiz-make-creation-notes-v1')throw new Error('projection failed');items.set(key,String(value));}};
+  getItem:key=>items.get(key)??null,removeItem:key=>items.delete(key),setItem(key,value){if(deny&&key==='quizMake:settings-cache')throw new Error('projection failed');items.set(key,String(value));}};
 globalThis.window={dispatchEvent(){}};globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
 const storage=await import('../src/storage.ts');
 const {saveSyncedLocalStorage,replayLocalStorageProjections,captureSyncedLocalStorage}=await import('../src/utils/localStorageRecords.ts');
@@ -14,7 +14,7 @@ const {readAppOutbox}=await import('../src/utils/appRecordStorage.ts');
 async function get(db,store,key){const tx=db.transaction(store);const result=tx.objectStore(store).get(key);await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});return result.result;}
 test('localStorage projection replays after a crash without dropping atomic Outbox and two keys share one commit',async()=>{
   assert.equal(await storage.saveAppData(storage.createEmptyAppData()),true);
-  const main='quiz-make-creation-notes-v1',recovery=`${main}-removed-orphans`;
+  const main='quizMake:settings-cache',recovery=`${main}-recovery`;
   deny=true;
   await assert.rejects(saveSyncedLocalStorage({[main]:'[{"id":"memo"}]',[recovery]:'[]'}),/projection failed/);
   const db=await storage.openAppDb();
@@ -54,7 +54,7 @@ test('legacy settings capture only changed synchronized keys and never scans App
     const tx=original(stores,...args);const objectStore=tx.objectStore.bind(tx);
     tx.objectStore=name=>{
       const store=objectStore(name);
-      if(name==='appRecords')store.getAll=()=>assert.fail('must not scan the AppData rows');
+      if(name==='appRecords'){const getAll=store.getAll.bind(store);store.getAll=range=>{assert.equal(range?.lower,'[\"localStorage\",');return getAll(range);};}
       return store;
     };
     return tx;

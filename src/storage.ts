@@ -6,12 +6,17 @@ import { advanceLocalDataRevision } from './utils/localDataRevision';
 import { hasPersistedSyncHistory } from './utils/syncState';
 import { readAppRecords, readPreviousAppRecords, saveAppRecords, upgradeAppRecordStores } from './utils/appRecordStorage';
 import { appSaveFailure, type AppSaveFailure } from './utils/appSaveFailure';
+import { cleanupNativeOriginals } from './utils/learningValueStorage';
 
 export const APP_DATA_STORAGE_KEY = 'quiz-make-app-data-v1';
 export const APP_DATA_FALLBACK_META_KEY = 'quiz-make-app-data-v1:fallback-saved-at';
 export const APP_DATA_EXPECTED_KEY = 'quiz-make-app-data-v1:expected';
 export const APP_DATA_RECOVERY_REQUIRED_KEY = 'quiz-make-app-data-v1:recovery-required';
 const APP_DATA_FALLBACK_RECORD_KEY = 'quiz-make-app-data-v1:fallback-record';
+async function cleanupLegacyAppData() {
+  const originals = Object.fromEntries([APP_DATA_STORAGE_KEY, APP_DATA_FALLBACK_META_KEY, APP_DATA_FALLBACK_RECORD_KEY].map(key => [key, localStorage.getItem(key)]));
+  await cleanupNativeOriginals(await openAppDb(), originals);
+}
 
 const APP_DB_NAME = 'quiz-make-app-data-v1';
 const APP_STORE_NAME = 'appData';
@@ -102,11 +107,7 @@ async function loadAppDataUnlocked(): Promise<AppData> {
     markAppDataExpectedBestEffort(indexedRecord.savedAt ?? fallbackRecord.savedAt ?? new Date().toISOString());
   }
 
-  if (preferredRaw !== fallbackRaw) {
-    safeLocalStorageRemove(APP_DATA_STORAGE_KEY);
-    safeLocalStorageRemove(APP_DATA_FALLBACK_META_KEY);
-    safeLocalStorageRemove(APP_DATA_FALLBACK_RECORD_KEY);
-  }
+  if (preferredRaw !== fallbackRaw) await cleanupLegacyAppData();
   return preferredData;
 }
 
@@ -174,9 +175,7 @@ async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailur
     try {
       await saveAppRecords(await openAppDb(), normalized.data, savedAt, getLocalFallbackRecord);
       markAppDataExpectedBestEffort(savedAt);
-      safeLocalStorageRemove(APP_DATA_STORAGE_KEY);
-      safeLocalStorageRemove(APP_DATA_FALLBACK_META_KEY);
-      safeLocalStorageRemove(APP_DATA_FALLBACK_RECORD_KEY);
+      await cleanupLegacyAppData();
       advanceLocalDataRevision();
       return true;
     } catch (error) {

@@ -25,7 +25,7 @@ export async function savePlan(plan: StudyPlan, expectedRaw: string | null, retr
     const key = PLAN_PREFIX + plan.id;
     // A prior IndexedDB commit can survive a failed localStorage projection.
     // Recover it before comparing, and accept only this editor's exact attempt.
-    await replayLocalStorageProjections();
+    await replayLocalStorageProjections(undefined, [key]);
     const currentRaw = localStorage.getItem(key);
     if (currentRaw !== expectedRaw && (!retry?.committedRaw || currentRaw !== retry.committedRaw)) throw new Error('別の操作で計画が変更されました。入力を控えて開き直してください。');
     await saveSyncedLocalStorage({ [key]: raw, [STUDY_ZONE_KEY]: getStudyTimeZone() }, () => { if (retry) retry.committedRaw = raw; });
@@ -33,6 +33,7 @@ export async function savePlan(plan: StudyPlan, expectedRaw: string | null, retr
 }
 export async function deletePlan(plan: StudyPlan, expectedRaw: string): Promise<void> {
   await withCoordinatedDataMutation(['notes'], async () => {
+    await replayLocalStorageProjections(undefined, [PLAN_PREFIX + plan.id]);
     if (localStorage.getItem(PLAN_PREFIX + plan.id) !== expectedRaw) throw new Error('別の操作で計画が変更されています。');
     const entries: Record<string, null> = { [PLAN_PREFIX + plan.id]: null };
     for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key?.startsWith(PLAN_DAY_PREFIX + plan.id + ':')) entries[key] = null; }
@@ -50,6 +51,7 @@ export async function ensurePlanDays(logs: readonly AnswerLog[], now = new Date(
   if (localStorage.getItem(STUDY_ZONE_KEY) && readPlans().every(plan => readPlanDay(plan, now))) return;
   let saved = false;
   await withCoordinatedDataMutation(['notes'], async () => {
+    await replayLocalStorageProjections(undefined, [STUDY_ZONE_KEY]);
     const entries: Record<string, string> = {};
     for (const plan of readPlans()) {
       if (readPlanDay(plan, now)) continue;

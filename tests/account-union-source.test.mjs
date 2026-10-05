@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readOwnedUnionCloud, decodeUnionRecords, readArchivedUnionLocal } from '../src/utils/accountUnionSource.ts';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+globalThis.IDBKeyRange = IDBKeyRange;
 import { ACCOUNT_VAULT_MANIFEST_KEY } from '../src/utils/accountStorage.ts';
 import { encodeRecordChunks, RECORD_CHUNK_GUARD_ID, RECORD_CHUNK_GUARD_RAW } from '../src/utils/recordChunkFormat.ts';
 import { appRecordKey } from '../src/utils/appRecordStorage.ts';

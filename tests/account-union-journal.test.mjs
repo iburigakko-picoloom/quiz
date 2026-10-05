@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+globalThis.IDBKeyRange = IDBKeyRange;
 import { AccountStorageSession, accountGenerationKey, decideAccountStorage } from '../src/utils/accountStorage.ts';
 import { APP_COLLECTIONS, appRecordKey, readAppRecordSnapshot, materializeAppRecords } from '../src/utils/appRecordStorage.ts';
 import { normalizeAppData } from '../src/utils/appDataValidation.ts';

@@ -7,6 +7,8 @@ import { verifyQuestionImageBlob } from './questionImageCloud';
 import type { StoredQuestionImage } from './questionImageRecords';
 import { isChunkInternal } from './recordChunkFormat';
 import { CATEGORY_NOTES_MANIFEST_KEY, isValidCategoryNoteRaw } from './noteStorage';
+import { isLearningStorageKey, LEARNING_VALUE_PREFIX, LEARNING_MIGRATED_KEY } from './learningStorageKeys';
+import { prepareLearningValue, queueLearningValue, queueLearningFence } from './learningValueStorage';
 
 export type UnionJournal = {
   schema: 1; id: string; revision: number; identity: LocalAccountIdentity; createdAt: string; phase: 'draft' | 'prepared' | 'activated' | 'rolled_back';
@@ -120,7 +122,7 @@ export async function prepareUnionMigration(factory: IDBFactory, native: Storage
   deps.assertCurrent();
   await assertSavedJournal(factory, native, entry, deps.assertCurrent);
   // App-specific display settings come only from the active local account.
-  const project = (key: string, value: string | null) => { if (value === null) staged.storage.removeItem(key); else staged.storage.setItem(key, value); if (staged.storage.getItem(key) !== value) throw new Error('統合先の計画・設定を保存できません。原本は保持しています。'); };
+  const project = (key: string, value: string | null) => { if (isLearningStorageKey(key)) return; if (value === null) staged.storage.removeItem(key); else staged.storage.setItem(key, value); if (staged.storage.getItem(key) !== value) throw new Error('統合先の計画・設定を保存できません。原本は保持しています。'); };
   for (const [key, value] of Object.entries(entry.localSettings)) if (copiedSetting(key)) project(key, value);
   for (const row of preview.records) if (row.collection === 'localStorage') project(row.id, row.raw);
   for (const row of preview.records) if (row.collection === 'questionImages') project('quizMake:image:' + row.id, row.raw);
@@ -136,9 +138,14 @@ export async function prepareUnionMigration(factory: IDBFactory, native: Storage
   const records: AppRecord[] = preview.records.map(row => ({ key: row.key, collection: row.collection, id: row.id, raw: row.raw, position: row.position, localRevision: 1, serverRevision: destinationRows.get(row.key)?.revision ?? 0 }));
   const outbox: AppOutboxOperation[] = records.filter(row => { const old = destinationRows.get(row.key); return old ? row.raw !== old.raw || row.position !== old.position : row.raw !== null; }).map(row => ({ ...row, operationId: crypto.randomUUID(), baseRevision: row.serverRevision, ...(destinationRows.has(row.key) ? { baseContent: { raw: destinationRows.get(row.key)!.raw, position: destinationRows.get(row.key)!.position } } : {}) }));
   const counts = Object.fromEntries(APP_COLLECTIONS.map(name => [name, records.filter(row => row.collection === name && row.raw !== null).length])) as AppRecordState['counts'];
+  const learning = await Promise.all(records.filter(row => row.collection === 'localStorage' && isLearningStorageKey(row.id)).map(row => prepareLearningValue(row.id, row.raw)));
+  if (learning.length) project(LEARNING_MIGRATED_KEY, '1');
   const db = await openUnionStage(factory, staged);
-  try { deps.assertCurrent(); const tx = db.transaction(['appData', 'appRecords', 'appRecordMeta', 'appOutbox', 'categoryNotes', 'questionImageBlobs'], 'readwrite'), completion = done(tx);
+  try { deps.assertCurrent(); const tx = db.transaction(['appData', 'appRecords', 'appRecordMeta', 'appOutbox', 'categoryNotes', 'questionImageBlobs', 'localProjections'], 'readwrite'), completion = done(tx);
     for (const store of ['appRecords', 'appRecordMeta', 'appOutbox', 'categoryNotes', 'questionImageBlobs']) tx.objectStore(store).clear();
+    tx.objectStore('appData').delete(IDBKeyRange.bound(LEARNING_VALUE_PREFIX, LEARNING_VALUE_PREFIX + '\uffff'));
+    learning.forEach(value => queueLearningValue(tx, value));
+    if (learning.length) queueLearningFence(tx);
     records.forEach(row => tx.objectStore('appRecords').put(row, row.key)); outbox.forEach(row => tx.objectStore('appOutbox').put(row, row.key));
     records.filter(row => row.collection === 'indexedDbNotes' && row.raw !== null).forEach(row => tx.objectStore('categoryNotes').put(row.raw, row.id));
     images.forEach(image => tx.objectStore('questionImageBlobs').put(image, image.id));

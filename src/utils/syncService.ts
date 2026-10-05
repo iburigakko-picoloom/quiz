@@ -283,7 +283,8 @@ export function clearSyncLocalBackups(): number {
 }
 
 export function cleanupLegacySyncBackups(): void {
-  clearSyncLocalBackups();
+  // Unknown old temporary formats may be the only remaining original. Keep
+  // them until recovery is verified; explicit user cleanup remains available.
 }
 
 export function getStoredSyncId(): string {
@@ -667,7 +668,7 @@ async function importQuizMakeDataUnlocked(
       onlyChanged: true,
     });
     assertExpectedSyncConnection(expectedSyncId);
-    replaceQuizMakeLocalStorage(nextLocalStorage);
+    await replaceQuizMakeLocalStorage(nextLocalStorage);
     assertExpectedSyncConnection(expectedSyncId);
 
     if (expectedSyncId) {
@@ -1925,7 +1926,7 @@ function collectCurrentQuizMakeLocalStorage(): Record<string, string> {
   try {
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
-      if (!key || !isQuizMakeStorageKey(key) || key === APP_DATA_STORAGE_KEY || isCategoryNoteKey(key)) continue;
+      if (!key || !isQuizMakeStorageKey(key) || isChunkInternal('localStorage',key) || key === APP_DATA_STORAGE_KEY || isCategoryNoteKey(key)) continue;
       const value = localStorage.getItem(key);
       if (value !== null) result[key] = value;
     }
@@ -1953,7 +1954,7 @@ async function restoreImportedData(
     failures.push('ノート');
   }
   try {
-    replaceQuizMakeLocalStorage(localStorageSnapshot);
+    await replaceQuizMakeLocalStorage(localStorageSnapshot);
   } catch {
     failures.push('設定');
   }
@@ -2000,18 +2001,24 @@ function setOrRemoveLocalStorage(key: string, value: string | null): void {
   else localStorage.setItem(key, value);
 }
 
-function replaceQuizMakeLocalStorage(next: Record<string, string>): void {
+async function replaceQuizMakeLocalStorage(next: Record<string, string>): Promise<void> {
   const before = collectCurrentQuizMakeLocalStorage();
+  const { isLearningStorageKey } = await import('./learningStorageKeys');
+  const { saveSyncedLocalStorage } = await import('./localStorageRecords');
+  const keys = [...new Set([...Object.keys(before), ...Object.keys(next)])];
+  const learning = (values: Record<string, string>) => Object.fromEntries(keys.filter(isLearningStorageKey).map(key => [key, values[key] ?? null]));
   try {
+    if (keys.some(isLearningStorageKey)) await saveSyncedLocalStorage(learning(next));
     const keysToRemove = Object.keys(before).filter((key) => next[key] === undefined);
     Object.entries(next).forEach(([key, value]) => {
+      if (isLearningStorageKey(key)) return;
       if (localStorage.getItem(key) !== value) localStorage.setItem(key, value);
     });
-    keysToRemove.forEach((key) => localStorage.removeItem(key));
+    keysToRemove.filter(key => !isLearningStorageKey(key)).forEach((key) => localStorage.removeItem(key));
   } catch (error) {
     try {
-      Object.keys(collectCurrentQuizMakeLocalStorage()).forEach((key) => localStorage.removeItem(key));
-      Object.entries(before).forEach(([key, value]) => localStorage.setItem(key, value));
+      if (keys.some(isLearningStorageKey)) await saveSyncedLocalStorage(learning(before));
+      keys.filter(key => !isLearningStorageKey(key)).forEach(key => setOrRemoveLocalStorage(key, before[key] ?? null));
     } catch {
       // The outer import transaction reports that rollback was incomplete.
     }
