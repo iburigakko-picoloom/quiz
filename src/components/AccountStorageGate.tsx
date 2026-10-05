@@ -18,6 +18,7 @@ export function AccountStorageGate({ children }: { children: ReactNode }) {
   const mounted=useRef(false),sequence=useRef(0);
   const checkpointDatabase=useRef('');
   const openSession=async(session:AccountStorageSession)=>{
+    await session.claimUnionWindow();session.assertCurrent();
     activateAccountStorage(session);
     const previous=typeof indexedDB==='undefined'?null:await readLatestAccountWork(indexedDB,session);
     if(previous){setSnapshot(previous);setState('resume');setMessage('このアカウントで編集中だった作業の控えがあります。');}else setState('ready');

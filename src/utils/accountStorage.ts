@@ -60,6 +60,8 @@ export class AccountStorageSession {
   readonly staging: boolean;
   private readonly expectedGeneration: string | null;
   private readonly decodedValues = new Map<string, { stored: string; raw: string }>();
+  private windowLocks?: LockManager;
+  private windowLease?: { release(): void; closed: Promise<void> };
   constructor(nativeStorage: Storage, decision: AccountStorageDecision, options: { generation?: string; staging?: boolean } = {}) {
     this.nativeStorage = nativeStorage;
     this.identity = decision.identity ? Object.freeze({ ...validateLocalAccountIdentity(decision.identity) }) : null;
@@ -118,7 +120,26 @@ export class AccountStorageSession {
   }
   fenceNetwork() { this.networkFenced = true; }
   resumeNetwork(identity: LocalAccountIdentity | null) { this.assertCurrent(identity); this.networkFenced = false; }
-  invalidate() { this.invalidated = true; }
+  async claimUnionWindow(locks = typeof navigator === 'undefined' ? undefined : navigator.locks): Promise<void> {
+    this.assertCurrent(); if (!this.generation || this.staging || this.windowLease || !locks) return;
+    this.windowLocks = locks; let release!: () => void, admit!: () => void, fail!: (error: unknown) => void;
+    const held = new Promise<void>(resolve => { release = resolve; }), ready = new Promise<void>((resolve, reject) => { admit = resolve; fail = reject; });
+    const closed = locks.request('quiz-make-union-window:' + this.namespace + ':' + this.generation, { mode: 'shared' }, async () => { admit(); await held; });
+    void closed.catch(fail); this.windowLease = { release, closed };
+    try { await ready; this.assertCurrent(); } catch (error) { release(); await closed.catch(() => {}); this.windowLease = undefined; throw error; }
+  }
+  /** Rollback must not strand unsaved input in another window of this generation.
+   * Keep an exclusive lease through the pointer commit; a new window waits before
+   * mounting and rechecks its captured generation after acquiring its lease. */
+  async withExclusiveUnionWindow<T>(operation: () => Promise<T>): Promise<T> {
+    this.assertCurrent(); const locks = this.windowLocks;
+    if (!this.generation || !locks || !this.windowLease) throw new Error('巻き戻しに必要な画面間の保護を確認できません。原本は保持しています。');
+    this.windowLease.release(); await this.windowLease.closed; this.windowLease = undefined;
+    try { return await locks.request('quiz-make-union-window:' + this.namespace + ':' + this.generation, { mode: 'exclusive', ifAvailable: true }, async lock => {
+      if (!lock) throw new Error('ほかのQuizMake画面がこの統合先を使用しています。入力を保管して閉じてから巻き戻してください。'); this.assertCurrent(); return operation(); });
+    } finally { if (!this.invalidated && readAccountGeneration(this.nativeStorage, this.identity) === this.expectedGeneration) await this.claimUnionWindow(locks); }
+  }
+  invalidate() { this.invalidated = true; this.windowLease?.release(); }
 }
 
 let activeSession: AccountStorageSession | null = null;
