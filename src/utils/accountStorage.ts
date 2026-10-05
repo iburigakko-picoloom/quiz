@@ -79,8 +79,8 @@ export class AccountStorageSession {
         if (stored === null || !owner.generation) return stored; const cached = owner.decodedValues.get(key); if (cached?.stored === stored) return cached.raw;
         const raw = decodeAccountValue(stored); owner.decodedValues.set(key, { stored, raw }); return raw; },
       setItem(key: string, value: string) { owner.assertCurrent(); owner.assertKey(key); const raw = String(value); owner.nativeStorage.setItem(owner.physicalKey(key), owner.generation ? encodeAccountValue(raw) : raw); owner.decodedValues.delete(key); },
-      removeItem(key: string) { owner.assertCurrent(); owner.assertKey(key); owner.nativeStorage.removeItem(owner.physicalKey(key)); },
-      clear() { owner.assertCurrent(); for (const key of owner.keys()) owner.nativeStorage.removeItem(owner.physicalKey(key)); },
+      removeItem(key: string) { owner.assertCurrent(); owner.assertKey(key); owner.nativeStorage.removeItem(owner.physicalKey(key)); owner.decodedValues.delete(key); },
+      clear() { owner.assertCurrent(); for (const key of owner.keys()) owner.nativeStorage.removeItem(owner.physicalKey(key)); owner.decodedValues.clear(); },
     };
   }
   private assertKey(key: string) { if (!ownsKey(key)) throw new Error('アカウントの保存領域以外には書き込めません。'); }
