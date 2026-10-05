@@ -1,5 +1,6 @@
 import { appRecordKey, type AppRecord, type AppRecordState, type AppOutboxOperation } from './appRecordStorage';
 import { chunkIds, parseChunkManifest } from './recordChunkFormat';
+import { queueUserEditGeneration } from './userEditGeneration';
 
 export const NOTE_CURRENT_STORE = 'categoryNotes';
 export const NOTE_BACKUP_STORE = 'categoryNoteBackups';
@@ -27,14 +28,14 @@ export function abortPendingNoteTransactions(): void {
 /** Queue one auxiliary value in the same transaction as its primary store write.
  * The revision is shared by every note in this transaction.
  */
-export function queueNoteRecordWrite(tx: IDBTransaction, id: string, raw: string | null): void {
-  queueAuxiliaryRecordWrite(tx, 'indexedDbNotes', id, raw);
+export function queueNoteRecordWrite(tx: IDBTransaction, id: string, raw: string | null, userEdit=true): void {
+  queueAuxiliaryRecordWrite(tx, 'indexedDbNotes', id, raw,userEdit);
 }
 export function rememberChunkGarbage(tx: IDBTransaction, old: AppRecord | undefined): void {
   const manifest=old&&parseChunkManifest(old.raw,old.collection,old.id);
   if(manifest)tx.objectStore('appRecordMeta').put({parentKey:old!.key,ids:chunkIds(manifest)},'chunkGc:'+manifest.parentHash+':'+manifest.version);
 }
-export function queueAuxiliaryRecordWrite(tx: IDBTransaction, collection: 'indexedDbNotes' | 'localStorage' | 'questionImages', id: string, raw: string | null): void {
+export function queueAuxiliaryRecordWrite(tx: IDBTransaction, collection: 'indexedDbNotes' | 'localStorage' | 'questionImages', id: string, raw: string | null, userEdit=true): void {
   trackNoteTransaction(tx);
   const meta = tx.objectStore('appRecordMeta');
   let shared = transactionStates.get(tx);
@@ -49,6 +50,7 @@ export function queueAuxiliaryRecordWrite(tx: IDBTransaction, collection: 'index
       const old = oldRequest.result as AppRecord | undefined;
       if (!state) throw new Error('問題データのレコード移行が完了していません。');
       if ((old && (old.logicalRaw ?? old.raw) === raw) || (!old && raw === null)) return;
+      if(userEdit)queueUserEditGeneration(tx);
       rememberChunkGarbage(tx,old);
       const revision = state.revision + 1;
       if (!Number.isSafeInteger(revision)) throw new Error('保存Revisionの上限に達しました。');

@@ -43,6 +43,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
   const [companion, setCompanion] = useState(isStudyCompanionEnabled);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState('');
+  const [preferenceBusy, setPreferenceBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
@@ -169,8 +170,8 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
           {!page ? <>
             <SettingsRow icon={<AccountAvatar userId={session?.user.id} />} title={session ? displayName || 'アカウント' : '未ログイン'} detail={session ? 'ログイン中' : undefined} arrow onClick={() => onNavigate('account')} />
             <section className="settings-section"><div className="settings-section__heading"><h2>学習</h2></div>
-              <label className="settings-row"><span className="settings-row__icon"><SettingsIcon kind="companion" /></span><span className="settings-row__text"><strong>学習応援キャラクター</strong></span><input type="checkbox" role="switch" checked={companion} onChange={(event) => { try { setStudyCompanionEnabled(event.target.checked); setCompanion(event.target.checked); setMessage(''); } catch { setMessage('設定を保存できませんでした。'); } }} /></label>
-              <label className="settings-row"><span className="settings-row__icon"><SettingsIcon kind="sound" /></span><span className="settings-row__text"><strong>解答効果音</strong></span><input type="checkbox" role="switch" checked={sound} onChange={(event) => { try { setAnswerSoundEnabled(event.target.checked); setSound(event.target.checked); setMessage(''); if (event.target.checked) { prepareAnswerAudio(); playAnswerFeedback('correct'); } } catch { setMessage('設定を保存できませんでした。'); } }} /></label>
+              <label className="settings-row"><span className="settings-row__icon"><SettingsIcon kind="companion" /></span><span className="settings-row__text"><strong>学習応援キャラクター</strong></span><input type="checkbox" role="switch" checked={companion} disabled={preferenceBusy} onChange={(event) => { const enabled=event.target.checked; setPreferenceBusy(true); void setStudyCompanionEnabled(enabled).then(()=>{setCompanion(enabled);setMessage('')}).catch(()=>setMessage('設定を保存できませんでした。')).finally(()=>setPreferenceBusy(false)); }} /></label>
+              <label className="settings-row"><span className="settings-row__icon"><SettingsIcon kind="sound" /></span><span className="settings-row__text"><strong>解答効果音</strong></span><input type="checkbox" role="switch" checked={sound} disabled={preferenceBusy} onChange={(event) => { const enabled=event.target.checked; if(enabled)prepareAnswerAudio(); setPreferenceBusy(true); void setAnswerSoundEnabled(enabled).then(()=>{setSound(enabled);setMessage('');if(enabled)playAnswerFeedback('correct')}).catch(()=>setMessage('設定を保存できませんでした。')).finally(()=>setPreferenceBusy(false)); }} /></label>
             </section>
             <section className="settings-section"><div className="settings-section__heading"><h2>データ</h2></div>
               <SettingsRow icon={<SettingsIcon kind="sync" />} title="同期" arrow onClick={onOpenSync} />

@@ -26,7 +26,7 @@ export async function openCoLocatedNoteDb(migrate = true): Promise<IDBDatabase> 
   if (!migrate) return legacy;
   const raw = await exportAppDataRaw({ coordinationLockHeld: true });
   assertNoteOperationEpoch(epoch);
-  await saveAppRecords(db, JSON.parse(raw) as AppData, new Date().toISOString(), () => ({ raw, savedAt: new Date().toISOString() }));
+  await saveAppRecords(db, JSON.parse(raw) as AppData, new Date().toISOString(), () => ({ raw, savedAt: new Date().toISOString() }),[],undefined,false);
   assertNoteOperationEpoch(epoch);
   // Include durable localStorage fallbacks, which can be newer than the old
   // note DB after a quota error. Recovery mode preserves available values and
@@ -53,7 +53,7 @@ export async function openCoLocatedNoteDb(migrate = true): Promise<IDBDatabase> 
         });
         Object.entries(authoritativeNotes).forEach(([key,value]) => {
           tx.objectStore(NOTE_CURRENT_STORE).put(value,key);
-          queueNoteRecordWrite(tx,key,value);
+          queueNoteRecordWrite(tx,key,value,false);
         });
         tx.objectStore('appRecordMeta').put(1, MIGRATION);
       } catch { tx.abort(); }

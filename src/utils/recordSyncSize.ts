@@ -1,6 +1,8 @@
 import { SyncProtocolError } from './syncInterruption';
 
 export const MAX_RECORD_BATCH_BYTES = 900 * 1024;
+// Existing server record-dataset quota; complete local recovery must cover it.
+export const MAX_RECORD_DATASET_BYTES = 128 * 1024 * 1024;
 export const SYNC_RECORD_KIND_LABELS = [
   '学習計画', '今日の計画目標', '手書きノート', 'ノート管理情報', '苦手メモ一覧',
   '解説の依頼履歴', '削除済みメモ', '問題', '回答履歴', '復習状態', '教材情報',

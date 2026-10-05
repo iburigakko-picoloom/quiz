@@ -7,11 +7,19 @@ process.on('exit',()=>hook.deregister());
 const items=new Map();let deny=false;
 globalThis.localStorage={get length(){return items.size;},key:i=>[...items.keys()][i]??null,
   getItem:key=>items.get(key)??null,removeItem:key=>items.delete(key),setItem(key,value){if(deny&&key==='quizMake:settings-cache')throw new Error('projection failed');items.set(key,String(value));}};
-globalThis.window={dispatchEvent(){}};globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
+const events=[];globalThis.window={dispatchEvent(event){events.push(event.type)}};globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
 const storage=await import('../src/storage.ts');
 const {saveSyncedLocalStorage,replayLocalStorageProjections,captureSyncedLocalStorage}=await import('../src/utils/localStorageRecords.ts');
 const {readAppOutbox}=await import('../src/utils/appRecordStorage.ts');
 async function get(db,store,key){const tx=db.transaction(store);const result=tx.objectStore(store).get(key);await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});return result.result;}
+
+test('a remote character preference refreshes the same mounted tab after projection without a new user edit',async()=>{
+  await storage.saveAppData(storage.createEmptyAppData());const db=await storage.openAppDb(),key='quiz-make-study-companion';
+  const generation=await get(db,'appRecordMeta','userEditGenerationV1');
+  const tx=db.transaction('localProjections','readwrite');tx.objectStore('localProjections').put('off',key);await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error)});
+  events.length=0;await replayLocalStorageProjections(db,[key]);assert.equal(localStorage.getItem(key),'off');assert.equal(events.filter(event=>event==='quiz-make-study-companion-change').length,1);assert.equal(await get(db,'appRecordMeta','userEditGenerationV1'),generation);
+  await replayLocalStorageProjections(db,[key]);assert.equal(events.filter(event=>event==='quiz-make-study-companion-change').length,1);
+});
 test('localStorage projection replays after a crash without dropping atomic Outbox and two keys share one commit',async()=>{
   assert.equal(await storage.saveAppData(storage.createEmptyAppData()),true);
   const main='quizMake:settings-cache',recovery=`${main}-recovery`;

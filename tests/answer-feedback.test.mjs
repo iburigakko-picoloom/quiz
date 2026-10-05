@@ -44,17 +44,17 @@ test('audio is unlocked by the gesture and closed contexts are recreated', async
   }
 });
 
-test('answer sound defaults on and persists a per-device preference', () => {
+test('answer sound defaults on and persists a preference', async () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   const values = new Map();
   Object.defineProperty(globalThis, 'localStorage', {configurable: true, value: {getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value)}});
   try {
     assert.equal(isAnswerSoundEnabled(), true);
-    setAnswerSoundEnabled(false);
+    await setAnswerSoundEnabled(false);
     assert.equal(values.get(ANSWER_SOUND_KEY), 'off');
     assert.equal(isAnswerSoundEnabled(), false);
     assert.doesNotThrow(() => playAnswerFeedback('correct'));
-    setAnswerSoundEnabled(true);
+    await setAnswerSoundEnabled(true);
     assert.equal(isAnswerSoundEnabled(), true);
     assert.doesNotThrow(() => playAnswerFeedback('wrong'));
     assert.doesNotThrow(() => playAnswerFeedback('correct'), 'unavailable audio must not interrupt learning');

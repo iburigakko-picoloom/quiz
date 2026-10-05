@@ -75,6 +75,11 @@ export async function replayLocalStorageProjections(db?: IDBDatabase, onlyKeys?:
     current.onsuccess=()=>{if(current.result===values.result[index]) ack.objectStore(LOCAL_PROJECTION_STORE).delete(key);};
   });
   await ackDone;
+  // A remote preference or a restored file must refresh the mounted character
+  // in this same tab; browsers do not send it a storage event for this write.
+  if (projected.some(index => keys.result[index] === 'quiz-make-study-companion') && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('quiz-make-study-companion-change'));
+  }
   if (failures.length) throw failures[0];
 }
 
