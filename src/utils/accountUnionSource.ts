@@ -10,6 +10,7 @@ import { parseQuestionImageDescriptor } from './recordQuestionImageSync';
 import { createQuestionImageTransport, storedQuestionImage, verifyQuestionImageBlob } from './questionImageCloud';
 import { describeQuestionImage, type StoredQuestionImage } from './questionImageRecords';
 import type { RecordPushAcknowledgement } from './recordSyncOutbox';
+import { CATEGORY_NOTES_RECOVERY_REQUIRED_KEY } from './noteStorage';
 
 const done = (tx: IDBTransaction) => new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error ?? new Error('原本を読み取れません。')); });
 export async function openUnionOriginal(factory: IDBFactory, name: string): Promise<IDBDatabase | null> {
@@ -92,6 +93,7 @@ export function archivedLegacyOwnedBy(native: Storage, identity: LocalAccountIde
 }
 export async function readArchivedUnionLocal(factory: IDBFactory, native: Storage, identity: LocalAccountIdentity, assertCurrent: () => void, storageKeyFilter?: (key: string) => boolean): Promise<UnionSnapshot> {
   assertCurrent(); if (!archivedLegacyOwnedBy(native, identity)) throw new Error('このアカウントの保管済み端末データではありません。');
+  if (native.getItem('quiz-make-app-data-v1:recovery-required') !== null || native.getItem(CATEGORY_NOTES_RECOVERY_REQUIRED_KEY) !== null) throw new Error('保管した端末データの復旧確認が必要です。原本と控えを保持して統合を止めました。');
   const binding = await readStoredAccountBinding(factory, 'quiz-make-app-data-v1'); assertCurrent(); if (binding && !sameLocalAccount(binding, identity)) throw new Error('旧端末データは別のアカウントに所属しています。');
   const isQuizMakeStorageKey = storageKeyFilter ?? (await import('./syncService')).isQuizMakeStorageKey;
   const db = await openUnionOriginal(factory, 'quiz-make-app-data-v1'); let records: UnionRecord[] = [], notesMigrated = false, imagesMigrated = false;
@@ -173,7 +175,7 @@ export async function settleUnionSourceSend() {
   const binding = await readStoredAccountBinding(indexedDB, owner.databaseName('quiz-make-app-data-v1')); reader.assertCurrent();
   if (!binding || !sameLocalAccount(binding, owner.identity) || getStoredSyncId() !== binding.syncId) throw new Error('元の送信先が変わりました。送信原本は保持しています。');
   const proof = parseAccountResolverResult(await reader.resolveOwned(binding.syncId)); reader.assertCurrent();
-  if (!['ok', 'migration_required'].includes(proof.code)) throw new Error('元の送信先の所有権を確認できません。再送を止めました。');
+  if (!['ok', 'migration_required'].includes(proof.code) || proof.code === 'ok' && proof.syncId !== binding.syncId) throw new Error('元の送信先の所有権を確認できません。再送を止めました。');
   const db = await openUnionOriginal(indexedDB, owner.databaseName('quiz-make-app-data-v1')); if (!db) throw new Error('元の送信原本を読み取れません。');
   try {
     const batch = await getPendingRecordPushBatch(db, binding); if (!batch) return;
