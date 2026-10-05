@@ -5,7 +5,7 @@ import {IDBFactory} from 'fake-indexeddb';
 const hook=registerHooks({resolve(s,c,next){return next(/^\.\.?\//u.test(s)&&!/\.[cm]?[jt]sx?$/u.test(s)&&c.parentURL?.endsWith('.ts')?s+'.ts':s,c)}});after(()=>hook.deregister());
 Object.defineProperty(navigator,'locks',{configurable:true,value:{request:async(_name,_options,fn)=>fn()}});
 const {AccountStorageSession,decideAccountStorage,ACCOUNT_VAULT_MANIFEST_KEY}=await import('../src/utils/accountStorage.ts');
-const {hasUnclaimedLegacyData,preserveUnclaimedLegacyData,adoptUnclaimedLegacyData}=await import('../src/utils/accountLegacyAdoption.ts');
+const {hasUnclaimedLegacyData,hasPreservedLegacyData,preserveUnclaimedLegacyData,adoptUnclaimedLegacyData}=await import('../src/utils/accountLegacyAdoption.ts');
 const {captureAccountWork,saveAccountWork,readLatestAccountWork,accountWorkDatabase}=await import('../src/utils/accountWork.ts');
 function memory(){const values=new Map();return {get length(){return values.size},key:i=>[...values.keys()][i]??null,getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k),clear:()=>values.clear()}}
 const a={project:'https://test.supabase.co',userId:'a'},b={...a,userId:'b'};
@@ -13,6 +13,7 @@ async function populate(factory,binding){const db=await new Promise((resolve,rej
 test('absence/read-only inspection does not create or upgrade stores; decline preserves originals without assigning an owner',async()=>{
   const factory=new IDBFactory(),native=memory();assert.equal(await hasUnclaimedLegacyData(factory,native,a),false);assert.deepEqual(await factory.databases(),[]);
   native.setItem('quizMake:plan:1','{"kept":true}');assert.equal(await hasUnclaimedLegacyData(factory,native,a),true);preserveUnclaimedLegacyData(native,a);assert.equal(await hasUnclaimedLegacyData(factory,native,a),false);assert.equal(await hasUnclaimedLegacyData(factory,native,b),true);assert.equal(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY),null);assert.equal(native.getItem('quizMake:plan:1'),'{"kept":true}');
+  assert.equal(await hasPreservedLegacyData(factory,native),true);assert.equal(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY),null);
 });
 test('explicit adoption keeps DB/blob bytes and logical IDs in place; transfers a copy of guest drafts and isolates logout/B',async()=>{
   const factory=new IDBFactory(),native=memory();await populate(factory);const guest=new AccountStorageSession(native,decideAccountStorage(native,null,null)),copy=captureAccountWork(guest);copy.work={create:{title:'draft kept'}};await saveAccountWork(factory,accountWorkDatabase(guest),copy);
@@ -29,13 +30,16 @@ test('bound, competing and stale-account adoptions fail without changing manifes
     if(mode==='competing')native.setItem(ACCOUNT_VAULT_MANIFEST_KEY,JSON.stringify({version:1,legacyOwner:b}));
     if(mode==='destination')new AccountStorageSession(native,decideAccountStorage(native,a,null)).storage.setItem('quizMake:plan:2','A kept');
     const before=native.getItem(ACCOUNT_VAULT_MANIFEST_KEY);await assert.rejects(adoptUnclaimedLegacyData(factory,native,a,()=>{if(mode==='stale')throw Error('account changed')}));assert.equal(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY),before);assert.equal(native.getItem('quizMake:plan:1'),'kept');
+    if(mode!=='stale')assert.equal(await hasPreservedLegacyData(factory,native),false);
   }
 });
 test('explicit adoption with a nonempty account archives the original scope and routes to union preview without replacing either side',async()=>{
   const factory=new IDBFactory(),native=memory();native.setItem('quiz-make-app-data-v1','legacy-original');
   const account=new AccountStorageSession(native,decideAccountStorage(native,a,null));account.storage.setItem('quiz-make-app-data-v1','account-original');
+  preserveUnclaimedLegacyData(native,a);assert.equal(await hasUnclaimedLegacyData(factory,native,a),false);assert.equal(await hasPreservedLegacyData(factory,native),true);
   await adoptUnclaimedLegacyData(factory,native,a,()=>{});const manifest=JSON.parse(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY));assert.equal(manifest.archived,true);assert.equal(manifest.legacyOwner.userId,a.userId);
   const current=new AccountStorageSession(native,decideAccountStorage(native,a,null));assert.notEqual(current.namespace,'legacy');assert.equal(current.storage.getItem('quiz-make-app-data-v1'),'account-original');assert.equal(native.getItem('quiz-make-app-data-v1'),'legacy-original');assert.equal(current.storage.getItem('quizMake:sync:unionLegacyPending'),'true');
+  assert.equal(await hasPreservedLegacyData(factory,native),false);
 });
 
 test('local-only fallback notes, backups and unsaved guest work are detected even without a main DB',async()=>{

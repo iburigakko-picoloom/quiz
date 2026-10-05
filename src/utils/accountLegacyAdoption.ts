@@ -32,6 +32,12 @@ export async function hasUnclaimedLegacyData(factory:IDBFactory,native:Storage,i
   if(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY)||native.getItem(choiceKey(identity)))return false;
   return hasData(factory,new AccountStorageSession(native,{identity:null,namespace:'legacy',legacyUnclaimed:true}));
 }
+/** A previous preserve-only choice stays in force until the user explicitly
+ * selects this source again. Availability reads metadata, never another owner's payload. */
+export async function hasPreservedLegacyData(factory:IDBFactory,native:Storage){
+  if(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY)||await readStoredAccountBinding(factory,'quiz-make-app-data-v1'))return false;
+  return hasData(factory,new AccountStorageSession(native,{identity:null,namespace:'legacy',legacyUnclaimed:true}));
+}
 export function preserveUnclaimedLegacyData(native:Storage,identity:LocalAccountIdentity){
   const key=choiceKey(validateLocalAccountIdentity(identity));native.setItem(key,'preserved');if(native.getItem(key)!=='preserved')throw new Error('端末データの保管方針を保存できません。');
 }

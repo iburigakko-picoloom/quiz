@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { accountLocalStorage, getAccountStorageSession, sameLocalAccount } from '../utils/accountStorage';
-import { getCachedCloudAccountIdentity } from '../utils/cloudService';
+import { getCachedCloudAccountIdentity, getCloudAccessToken } from '../utils/cloudService';
+import { adoptUnclaimedLegacyData, hasPreservedLegacyData } from '../utils/accountLegacyAdoption';
 import { getStoredSyncId } from '../utils/syncService';
 import { withCoordinatedDataRead } from '../utils/dataCoordination';
 import { archivedLegacyOwnedBy, createUnionCloudReader, readActiveUnionLocal, readArchivedUnionLocal, readOwnedUnionCloud, readUnionImage, settleUnionSourceSend, type UnionCloudReader } from '../utils/accountUnionSource';
@@ -17,6 +18,7 @@ export function AccountUnionPanel({ state, open, onOpenChange, onBusyChange }: P
   const [entry, setEntry] = useState<UnionJournal | null>(null), [saved, setSaved] = useState<UnionJournal[]>([]), [sourceId, setSourceId] = useState('');
   const [legacy, setLegacy] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmedDelete, setConfirmedDelete] = useState(false);
   const [candidates,setCandidates]=useState<Array<{syncId:string;updatedAt:string}>>([]);
+  const [preserved, setPreserved] = useState(false);
   const owner = getAccountStorageSession(), destinationId = state.syncId;
   const assertCurrent = () => { if (!owner?.identity || !sameLocalAccount(owner.identity, getCachedCloudAccountIdentity())) throw new Error('アカウントが変わりました。元の控えは保持しています。'); owner.assertNetworkCurrent(owner.identity); };
   const comparison = useMemo(() => { try { return { preview: entry && entry.phase === 'draft' ? previewUnionMigration(entry) : null, error: '' }; } catch (e) { return { preview: null, error: e instanceof Error ? e.message : '保存した確認内容を読み取れません。' }; } }, [entry]);
@@ -32,6 +34,14 @@ export function AccountUnionPanel({ state, open, onOpenChange, onBusyChange }: P
   const run = async (operation: () => Promise<void>) => { if (busy) return; setBusy(true); onBusyChange(true); setError(''); try { assertCurrent(); await operation(); } catch (e) { setError(e instanceof Error ? e.message : '統合を完了できません。両方の原本は保持しています。'); } finally { setBusy(false); onBusyChange(false); } };
   const recheck = (reader: UnionCloudReader) => async (snapshot: UnionSnapshot) => { const latest = await readOwnedUnionCloud(reader, snapshot.syncId!, snapshot.label); if (await unionFingerprint(latest) !== await unionFingerprint(snapshot)) throw new Error('保存先の内容が更新されました。新しいプレビューを作成してください。以前の控えは残ります。'); };
   const local = () => readActiveUnionLocal(assertCurrent);
+  useEffect(() => { if (!open) return; let stopped = false;
+    void withCoordinatedDataRead([], () => hasPreservedLegacyData(indexedDB, globalThis.localStorage), { requireCrossContext: true }).then(value => { if (!stopped) setPreserved(value); }).catch(() => { if (!stopped) setError('保管した旧端末領域を確認できません。原本は保持しています。'); }); return () => { stopped = true; };
+  }, [open]);
+  const selectPreserved = () => run(async () => { if (!owner?.identity) return; const access = await getCloudAccessToken(); assertCurrent();
+    if (!access.ok || access.userId !== owner.identity.userId) throw new Error('端末データを取り込むアカウントを確認できません。原本は保持しています。');
+    await adoptUnclaimedLegacyData(indexedDB, globalThis.localStorage, owner.identity, assertCurrent); assertCurrent();
+    accountLocalStorage.removeItem('quizMake:sync:unionLegacyPending'); setLegacy(true); setPreserved(false); setEntry(null); setConfirmedDelete(false);
+  });
   const makePreview = () => run(async () => {
     if (!owner?.identity || !destinationId) throw new Error('アカウントの保存先を確認してから統合してください。');
     const reader = await createUnionCloudReader(), current = await withCoordinatedDataRead(['app', 'notes'], local, { requireCrossContext: true });
@@ -53,6 +63,7 @@ export function AccountUnionPanel({ state, open, onOpenChange, onBusyChange }: P
   const download = () => { if (!entry) return; assertCurrent(); const url = URL.createObjectURL(new Blob([JSON.stringify(entry, null, 2)], { type: 'application/json' })), link = document.createElement('a'); link.href = url; link.download = 'QuizMake-union-originals-' + entry.id + '.json'; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); };
   return <section className="sync-section account-union"><button className="sync-subpage-row" disabled={busy} onClick={() => onOpenChange(!open)}>以前の教材・履歴をまとめる<span aria-hidden="true">{open ? '⌃' : '⌄'}</span></button>
     {open ? <div className="account-union__body"><p>同じアカウントが所有する保存先と端末データを比較します。両方の原本と回答IDを保持し、違いを確認してから統合します。</p><p>文章一致ではまとめません。個人の計画・学習日のタイムゾーン・保存済み日次目標を勝手に変更しません。</p>
+      {!legacy && preserved ? <div><p>以前「保管のみ」を選んだ、未所属の旧端末データがあります。選ぶとこのアカウントの原本として保管し、統合内容の確認へ進みます。</p><button className="sync-button" disabled={busy} onClick={selectPreserved}>保管した旧端末データを統合元に選ぶ</button></div> : null}
       {legacy ? <p>このアカウント用に保管した端末データが対象です。</p> : <>
         {candidates.length?<label className="sync-label">同じアカウントの以前の保存先<select className="sync-input" disabled={busy} value={sourceId} onChange={e=>setSourceId(e.target.value)}><option value="">この端末のデータだけ</option>{candidates.map((row,i)=><option key={row.syncId} value={row.syncId}>保存先 {i+1}（最終保存 {new Date(row.updatedAt).toLocaleString('ja-JP')}）</option>)}</select></label>:null}
         <details><summary>別の端末で使っていた保存先を指定</summary><label className="sync-label">以前の保存先ID（この端末だけを含める場合は空欄）<input className="sync-input" value={sourceId} onChange={e => setSourceId(e.target.value.trim())} disabled={busy} autoComplete="off" /></label></details>
