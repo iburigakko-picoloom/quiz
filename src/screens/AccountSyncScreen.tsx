@@ -32,6 +32,7 @@ export function AccountSyncScreen({onBack,onImported,onProtectionChange,onOpenBa
       {['legacy_connection','not_found'].includes(state.phase)?<button className="sync-button" onClick={()=>setLegacy(true)}>旧データの復旧を確認</button>:null}
     </>}
     {message?<p role="status">{message}</p>:null}{error?<p role="alert">{error}</p>:null}</section>
+    {account&&state.phase!=='signed_out'?<AccountUnionPanel state={state} open={unionOpen} onOpenChange={setUnionOpen} onBusyChange={setBusy}/>:null}
     {onOpenBackups?<button className="sync-subpage-row" onClick={onOpenBackups}>バックアップと復旧<span aria-hidden="true">›</span></button>:null}
   </div></main>;
 }
