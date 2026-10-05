@@ -2032,7 +2032,7 @@ async function replaceQuizMakeLocalStorage(next: Record<string, string>): Promis
   }
 }
 export function isQuizMakeStorageKey(key: string): boolean {
-  if (WEAKNESS_STORAGE_KEYS.some(item => item === key)) return true;
+  if (WEAKNESS_STORAGE_KEYS.some(item => item === key) || key === 'quiz-make-study-companion' || key === 'quiz-make-answer-sound') return true;
   if (key === APP_DATA_FALLBACK_META_KEY) return false;
   if (key === APP_DATA_EXPECTED_KEY) return false;
   if (key === APP_DATA_RECOVERY_REQUIRED_KEY) return false;

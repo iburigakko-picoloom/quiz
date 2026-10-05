@@ -25,7 +25,7 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
   if (origin !== options.connection.project) throw new Error('差分同期のプロジェクトが一致しません。');
   const request = async (name: string, body: Record<string, unknown>) => {
     options.assertCurrent();
-    try { options.onRequest?.(name.endsWith('_push') ? 'push' : name.endsWith('_pull') ? 'pull' : 'open'); } catch { /* Informational only. */ }
+    try { options.onRequest?.(/_(push|begin|part|finish)$/.test(name) ? 'push' : /_(pull|read)$/.test(name) ? 'pull' : 'open'); } catch { /* Informational only. */ }
     const access = await options.access();
     options.assertCurrent();
     if (access.userId !== options.connection.userId || !access.accessToken) throw new Error('差分同期中にアカウントが変わりました。');

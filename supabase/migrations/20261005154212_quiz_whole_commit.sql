@@ -48,7 +48,7 @@ begin
   return jsonb_build_object('code','ok','revision',h.revision,'rows',rows,'afterKey',last_key,'hasMore',more);
 end $$;
 
-create function private.quiz_whole_begin(p_sync_id text,p_operation_id uuid,p_expected_revision bigint,p_parts integer,p_records integer,p_digest text,p_device text)
+create function private.quiz_whole_begin(p_sync_id text,p_operation_id uuid,p_expected_revision bigint,p_parts integer,p_records integer,p_digest text,p_device text,p_replace boolean default true)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare h private.quiz_sync_heads; old private.quiz_sync_operations; manifest jsonb;
 begin
@@ -57,9 +57,9 @@ begin
   select * into h from private.quiz_sync_heads where sync_id=p_sync_id for update;
   if not found then return jsonb_build_object('code','not_initialized'); end if;
   if not h.whole_enabled then return jsonb_build_object('code','not_enabled'); end if;
-  if p_operation_id is null or p_expected_revision is null or p_parts is null or p_records is null or p_parts not between 1 and 512 or p_records not between 0 and 200000
+  if p_operation_id is null or p_expected_revision is null or p_replace is null or p_parts is null or p_records is null or p_parts not between 1 and 512 or p_records not between 0 and 200000
     or p_digest is null or p_digest !~ '^[0-9a-f]{64}$' or p_device is null or octet_length(p_device) not between 1 and 160 then return jsonb_build_object('code','invalid'); end if;
-  manifest:=jsonb_build_object('kind','whole-commit','expectedRevision',p_expected_revision,'parts',p_parts,'records',p_records,'digest',p_digest,'device',p_device);
+  manifest:=jsonb_build_object('kind','whole-commit','expectedRevision',p_expected_revision,'parts',p_parts,'records',p_records,'digest',p_digest,'device',p_device,'replace',p_replace);
   select * into old from private.quiz_sync_operations where sync_id=p_sync_id and operation_id=p_operation_id;
   if found then
     if old.operation-'state'-'expiresAt'<>manifest then return jsonb_build_object('code','operation_reused'); end if;
@@ -95,7 +95,8 @@ begin
     if jsonb_typeof(row)<>'object' or not row ?& array['key','collection','id','raw','position'] or row->>'key' is null or row->>'id' is null
       or coalesce(row->>'collection','') not in('folders','problemSets','questions','progress','answerLogs','localStorage','indexedDbNotes','questionImages')
       or octet_length(row->>'id') not between 1 and 1024 or octet_length(row->>'key')>2048
-      or row->>'key'<>private.quiz_sync_record_key(row->>'collection',row->>'id') or jsonb_typeof(row->'raw')<>'string'
+      or row->>'key'<>private.quiz_sync_record_key(row->>'collection',row->>'id') or jsonb_typeof(row->'raw') not in('string','null')
+      or (jsonb_typeof(row->'raw')='null' and (commit_row.operation->>'replace')::boolean)
       or octet_length(row->>'raw')>1048576 or coalesce(row->>'position','') !~ '^[0-9]{1,9}$'
       or not private.quiz_sync_record_value_valid(row->>'collection',row->>'id',row->>'raw') then return jsonb_build_object('code','invalid'); end if;
   end loop;
@@ -133,6 +134,10 @@ begin
     from private.quiz_sync_operations o cross join lateral jsonb_array_elements((o.operation->>'raw')::jsonb) x
     where o.sync_id=p_sync_id and o.operation->>'kind'='whole-part' and o.operation->>'commitId'=p_operation_id::text;
   if row_count<>(c.operation->>'records')::integer or (select count(distinct value->>'key') from jsonb_array_elements(rows))<>row_count then return jsonb_build_object('code','invalid');end if;
+  if not (c.operation->>'replace')::boolean then
+    select h.payload_bytes+coalesce(sum(coalesce(octet_length(x->>'raw'),0)-coalesce(octet_length(r.raw),0)),0) into total_bytes
+      from jsonb_array_elements(rows) x left join private.quiz_sync_records r on r.sync_id=p_sync_id and r.record_key=x->>'key';
+  end if;
   perform private.quiz_sync_lock_quota_actor(private.quiz_sync_actor_hash());
   select coalesce(sum(d.payload_bytes),0)+coalesce((select sum(head.payload_bytes) from private.quiz_sync_heads head join public.quiz_sync_data ds on ds.sync_id=head.sync_id where ds.creator_hash=private.quiz_sync_actor_hash() and head.sync_id<>p_sync_id),0) into account_bytes
     from public.quiz_sync_data d where d.creator_hash=private.quiz_sync_actor_hash();
@@ -140,7 +145,9 @@ begin
   next_revision:=h.revision+1;if next_revision>9007199254740991 then return jsonb_build_object('code','revision_exhausted');end if;
   -- Existing rows absent from the chosen whole snapshot become tombstones.
   -- No records from the nonchosen snapshot are unioned into the selected one.
-  update private.quiz_sync_records r set raw=null,revision=next_revision where sync_id=p_sync_id and raw is not null and not exists(select 1 from jsonb_array_elements(rows) x where x->>'key'=r.record_key);
+  if (c.operation->>'replace')::boolean then
+    update private.quiz_sync_records r set raw=null,revision=next_revision where sync_id=p_sync_id and raw is not null and not exists(select 1 from jsonb_array_elements(rows) x where x->>'key'=r.record_key);
+  end if;
   insert into private.quiz_sync_records(sync_id,record_key,collection,record_id,raw,position,revision)
     select p_sync_id,x->>'key',x->>'collection',x->>'id',x->>'raw',(x->>'position')::integer,next_revision from jsonb_array_elements(rows) x
     on conflict(sync_id,record_key) do update set raw=excluded.raw,position=excluded.position,revision=excluded.revision;
@@ -202,7 +209,7 @@ begin perform private.quiz_sync_v2_access(p_sync_id);if exists(select 1 from pri
 create function public.quiz_whole_status(p_sync_id text) returns jsonb language sql security invoker set search_path='' as $$select private.quiz_whole_status(p_sync_id)$$;
 create function public.quiz_whole_open(p_sync_id text,p_expected_revision bigint) returns jsonb language sql security invoker set search_path='' as $$select private.quiz_whole_open(p_sync_id,p_expected_revision)$$;
 create function public.quiz_whole_read(p_sync_id text,p_expected_revision bigint,p_after_key text default '',p_limit integer default 200) returns jsonb language sql security invoker set search_path='' as $$select private.quiz_whole_read(p_sync_id,p_expected_revision,p_after_key,p_limit)$$;
-create function public.quiz_whole_begin(p_sync_id text,p_operation_id uuid,p_expected_revision bigint,p_parts integer,p_records integer,p_digest text,p_device text) returns jsonb language sql security invoker set search_path='' as $$select private.quiz_whole_begin(p_sync_id,p_operation_id,p_expected_revision,p_parts,p_records,p_digest,p_device)$$;
+create function public.quiz_whole_begin(p_sync_id text,p_operation_id uuid,p_expected_revision bigint,p_parts integer,p_records integer,p_digest text,p_device text,p_replace boolean default true) returns jsonb language sql security invoker set search_path='' as $$select private.quiz_whole_begin(p_sync_id,p_operation_id,p_expected_revision,p_parts,p_records,p_digest,p_device,p_replace)$$;
 create function public.quiz_whole_part(p_sync_id text,p_commit_id uuid,p_operation_id uuid,p_number integer,p_raw text) returns jsonb language sql security invoker set search_path='' as $$select private.quiz_whole_part(p_sync_id,p_commit_id,p_operation_id,p_number,p_raw)$$;
 create function public.quiz_whole_finish(p_sync_id text,p_operation_id uuid) returns jsonb language sql security invoker set search_path='' as $$select private.quiz_whole_finish(p_sync_id,p_operation_id)$$;
 create function public.quiz_whole_abort(p_sync_id text,p_operation_id uuid) returns jsonb language sql security invoker set search_path='' as $$select private.quiz_whole_abort(p_sync_id,p_operation_id)$$;

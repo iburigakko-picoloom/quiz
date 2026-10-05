@@ -19,6 +19,9 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
   const cursor = meta.get('pullCursor');
   const stage = meta.get('pullStage');
   const batch = meta.get('pushBatch');
+  const wholeConflict = meta.get('wholeConflict');
+  const wholeFrozen = meta.get('wholeFrozen');
+  const wholeIncoming = meta.get('wholeIncoming');
   const pending = tx.objectStore('appOutbox').count();
   const conflicts = tx.objectStore('appRecordConflicts').getAll();
   await completion;
@@ -26,10 +29,10 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
   const saved = receipt.result as Receipt | undefined;
   const matches = saved && sameRecordSyncConnection(saved.connection, connection);
   return { lastSuccessAt: matches ? saved.lastSuccessAt : '', phase: matches ? saved.phase : 'idle',
-    pending: Math.max(pending.result, batch.result && sameRecordSyncConnection(batch.result.connection, connection) ? batch.result.operations.length : 0),
-    conflicts: stage.result && sameRecordSyncConnection(stage.result.connection, connection)
+    pending: Math.max(pending.result, batch.result && sameRecordSyncConnection(batch.result.connection, connection) ? batch.result.operations.length : 0, wholeFrozen.result && sameRecordSyncConnection(wholeFrozen.result.connection,connection)?Math.max(1,wholeFrozen.result.records):0),
+    conflicts: wholeConflict.result && sameRecordSyncConnection(wholeConflict.result.connection,connection)?1:stage.result && sameRecordSyncConnection(stage.result.connection, connection)
       ? (conflicts.result as RecordConflict[]).filter(item => item.operationId && item.remote && item.connection && sameRecordSyncConnection(item.connection, connection)).length : 0,
-    staged: Boolean(stage.result && sameRecordSyncConnection(stage.result.connection, connection)),
+    staged: Boolean(stage.result && sameRecordSyncConnection(stage.result.connection, connection)||wholeIncoming.result && sameRecordSyncConnection(wholeIncoming.result.connection,connection)),
     cursor: cursor.result && sameRecordSyncConnection(cursor.result.connection, connection) ? cursor.result.cursor : 0 };
 }
 

@@ -57,6 +57,15 @@ test('one shared transaction replaces app/notes/images/settings and stores a ful
   assert.equal((await restoreFileBackup(original)).ok,true);assert.equal((await listWholeRecovery()).length,count);
 });
 
+test('a newer durable native note fallback is archived before restore and cannot supersede the chosen restored note',async()=>{
+  const fallback=JSON.stringify({dataUrl:'fallback-newer',updatedAt:'2030-01-01T00:00:00Z'});
+  values.set(noteKey,fallback);
+  const result=await restoreFileBackup(original);assert.equal(result.ok,true,result.error);
+  assert.equal(values.has(noteKey),false);assert.equal(await notes.loadCategoryNoteRaw(noteKey),raw);
+  let found=false;for(const row of await listWholeRecovery()){const file=JSON.parse(await getWholeRecovery(row.id));if(file.indexedDbNotes[noteKey]===fallback)found=true}
+  assert.equal(found,true,'sole newer fallback survives in the complete local copy');
+});
+
 test('a real 25 MiB PDF and its index survive file export, whole restore and local recovery without the 32 MiB base64 regression',async()=>{
   for(const row of await listWholeRecovery())await deleteWholeRecovery(row.id);
   const key='quizMake:notes:s:__material_pdf_pdf';

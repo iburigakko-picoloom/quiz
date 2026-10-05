@@ -73,7 +73,7 @@ export async function openQuestionImageRecordDb():Promise<IDBDatabase>{
     if(current.result===1)return;
     for(const {image,descriptor} of snapshots){
       tx.objectStore(IMAGE_BLOB_STORE).put(image,image.id);
-      queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor));
+      queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor),false);
     }
     tx.objectStore('appRecordMeta').put(1,MARKER);
   };

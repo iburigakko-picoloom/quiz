@@ -117,14 +117,14 @@ export async function prepareRecordChunks(db: IDBDatabase, connection: RecordSyn
 
 /** Hydrate against this connection's staged and stored parts before any live write. */
 export async function hydrateChunkChanges<T extends {collection:RecordCollection;id:string;key:string;raw:string|null;revision:number}>(
-  db:IDBDatabase,incoming:T[],connection:RecordSyncConnection,
+  db:IDBDatabase,incoming:T[],connection:RecordSyncConnection,completeSnapshot=false,
 ):Promise<Array<T&{logicalRaw?:string}>>{
   const manifests=incoming.flatMap(row=>{const manifest=parseChunkManifest(row.raw,row.collection,row.id);return manifest?[{row,manifest}]:[]});
   if(!manifests.length)return incoming;
   const tx=db.transaction(['appRecords','appRecordMeta'],'readonly'),completion=done(tx);
   const binding=tx.objectStore('appRecordMeta').get('recordSyncConnection');
   const ids=[RECORD_CHUNK_GUARD_ID,...new Set(manifests.flatMap(item=>chunkIds(item.manifest)))];
-  const requests=ids.map(id=>tx.objectStore('appRecords').get(appRecordKey('localStorage',id)));
+  const requests=completeSnapshot?[]:ids.map(id=>tx.objectStore('appRecords').get(appRecordKey('localStorage',id)));
   await completion;assertBinding(binding.result,connection);
   const values=new Map<string,string>();
   requests.forEach((request,index)=>{if(typeof request.result?.raw==='string')values.set(ids[index],request.result.raw)});

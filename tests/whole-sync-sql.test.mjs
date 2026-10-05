@@ -16,7 +16,7 @@ const status=(sync=id)=>call('quiz_whole_status',[sync],['text']);
 const open=(rev,sync=id)=>call('quiz_whole_open',[sync,rev],['text','bigint']);
 const record=(key,name)=>({key:JSON.stringify(['folders',key]),collection:'folders',id:key,raw:JSON.stringify({id:key,name}),position:0});
 const sha=text=>createHash('sha256').update(text).digest('hex');
-async function prepare(rows,revision,sync=id){const raw=JSON.stringify(rows),commit=randomUUID(),part=randomUUID();const beginArgs=[sync,commit,revision,1,rows.length,sha(sha(raw)),'QA device'];return {commit,part,raw,beginArgs,begin:()=>call('quiz_whole_begin',beginArgs,['text','uuid','bigint','integer','integer','text','text']),upload:()=>call('quiz_whole_part',[sync,commit,part,0,raw],['text','uuid','uuid','integer','text']),finish:()=>call('quiz_whole_finish',[sync,commit],['text','uuid'])}}
+async function prepare(rows,revision,sync=id,replace=true){const raw=JSON.stringify(rows),commit=randomUUID(),part=randomUUID();const beginArgs=[sync,commit,revision,1,rows.length,sha(sha(raw)),'QA device',replace];return {commit,part,raw,beginArgs,begin:()=>call('quiz_whole_begin',beginArgs,['text','uuid','bigint','integer','integer','text','text','boolean']),upload:()=>call('quiz_whole_part',[sync,commit,part,0,raw],['text','uuid','uuid','integer','text']),finish:()=>call('quiz_whole_finish',[sync,commit],['text','uuid'])}}
 
 test('whole mode fences old record and Snapshot writers only for its enabled dataset',async()=>{
   assert.equal((await status()).enabled,false);assert.equal((await open(99)).code,'conflict');assert.equal((await open(0)).code,'ok');
@@ -61,8 +61,30 @@ test('invalid and cross-account requests do not alter live data or allocate temp
   assert.equal((await next.upload()).code,'ok');assert.equal((await next.finish()).code,'ok');
 });
 
+test('normal delta transport still commits once against the entire head, preserves unchanged rows and respects existing quota',async()=>{
+  const first=await prepare([record('a','A'),record('b','B')],3);await first.begin();await first.upload();assert.equal((await first.finish()).revision,4);
+  const update=await prepare([record('a','A2'),{...record('b','unused'),raw:null}],4,id,false);assert.equal((await update.begin()).code,'ok');assert.equal((await update.upload()).code,'ok');assert.equal((await update.finish()).revision,5);
+  const live=await call('quiz_whole_read',[id,5,'',200],['text','bigint','text','integer']);assert.deepEqual(live.rows.map(r=>JSON.parse(r.raw).name),['A2']);
+  const refused=await prepare([record('q','must not write')],5,id,false);await refused.begin();await refused.upload();
+  await pg.query('update public.quiz_sync_data set payload_bytes=134217728 where sync_id=$1',[oldId]);assert.equal((await refused.finish()).code,'quota');assert.equal((await status()).revision,5);
+  await pg.query('update public.quiz_sync_data set payload_bytes=0 where sync_id=$1',[oldId]);assert.equal((await call('quiz_whole_abort',[id,refused.commit],['text','uuid'])).code,'not_committed');
+  assert.equal((await call('quiz_whole_begin',[id,randomUUID(),5,null,0,'a'.repeat(64),'QA',true],['text','uuid','bigint','integer','integer','text','text','boolean'])).code,'invalid');
+});
+
+test('fenced old unknown receipts can be resolved without another write; abort never erases a committed receipt',async()=>{
+  const old={operationId:randomUUID(),...record('old','Old'),baseRevision:0};
+  assert.equal((await call('quiz_sync_v2_push',[oldId,JSON.stringify([old])],['text','jsonb'])).code,'ok');await open(1,oldId);
+  assert.equal((await call('quiz_sync_v2_push',[oldId,JSON.stringify([old])],['text','jsonb'])).code,'whole_required');
+  const checked=await call('quiz_whole_receipts',[oldId,JSON.stringify([old])],['text','jsonb']);assert.equal(checked.code,'ok');assert.equal(checked.ack[0].operationId,old.operationId);
+  assert.equal((await call('quiz_whole_receipts',[oldId,JSON.stringify([{...old,raw:'{}'}])],['text','jsonb'])).code,'operation_reused');
+  assert.equal((await call('quiz_whole_receipts',[oldId,JSON.stringify([{...old,operationId:randomUUID()}])],['text','jsonb'])).code,'not_committed');
+  const discarded=await prepare([],1,oldId);await discarded.begin();await discarded.upload();assert.equal((await call('quiz_whole_abort',[oldId,discarded.commit],['text','uuid'])).code,'not_committed');assert.equal((await discarded.finish()).code,'not_found');
+  const committed=await prepare([],1,oldId);await committed.begin();await committed.upload();const result=await committed.finish();assert.equal(result.revision,2);assert.deepEqual(await call('quiz_whole_abort',[oldId,committed.commit],['text','uuid']),{code:'committed',revision:2});
+});
+
 test('permission matrix exposes only authenticated invoker RPCs; underlying bypass functions remain inaccessible',async()=>{
   const rows=(await pg.query("select n.nspname,p.proname,p.prosecdef,p.proconfig,has_function_privilege('anon',p.oid,'EXECUTE') anon,has_function_privilege('authenticated',p.oid,'EXECUTE') authenticated,has_function_privilege('service_role',p.oid,'EXECUTE') service from pg_proc p join pg_namespace n on n.oid=p.pronamespace where p.proname like 'quiz_whole_%' or p.proname in('quiz_sync_v2_push_record','quiz_sync_v2_pull_record')")).rows;
   for(const row of rows){assert.equal(row.anon,false,row.proname);assert.equal(row.service,false,row.proname);assert.ok(row.proconfig.includes('search_path=""'),row.proname);if(row.nspname==='public'){assert.equal(row.prosecdef,false);assert.equal(row.authenticated,true)}else if(['quiz_sync_v2_push_record','quiz_sync_v2_pull_record','quiz_whole_snapshot_fence'].includes(row.proname))assert.equal(row.authenticated,false)}
   await pg.exec('set role anon');await assert.rejects(status(),/permission denied/);await pg.exec('reset role');
+  await pg.exec('set role authenticated');assert.equal((await status()).code,'ok');await pg.exec('reset role');
 });

@@ -1,8 +1,9 @@
 import { accountLocalStorage as localStorage } from './accountStorage';
 import { exportQuizMakeData, exportQuizMakeRecoveryData, validateHydratedSyncPayload, isQuizMakeStorageKey, waitForLocalPersistence, type SyncPayload, type SyncResult } from './syncService';
-import { openAppDb, loadAppDataAsync, establishCurrentAppDataAuthority } from '../storage';
+import { loadAppDataAsync, establishCurrentAppDataAuthority } from '../storage';
 import { withCoordinatedDataRead, withCoordinatedDataMutation, assertDataEpochSnapshotCurrent } from './dataCoordination';
-import { getNoteBackupIssues, CATEGORY_NOTES_MANIFEST_KEY, CATEGORY_NOTES_RECOVERY_REQUIRED_KEY } from './noteStorage';
+import { getNoteBackupIssues, exportCategoryNotesRaw, CATEGORY_NOTES_MANIFEST_KEY, CATEGORY_NOTES_RECOVERY_REQUIRED_KEY } from './noteStorage';
+import { openCoLocatedNoteDb } from './noteRecordMigration';
 import { materialFileEntry, validMaterialRecord, type MaterialIndex } from './materialModel';
 import { openQuestionImageRecordDb, readQuestionImages, describeQuestionImage, validQuestionImageDescriptor, questionImageMetadataKey, type StoredQuestionImage, type QuestionImageDescriptor } from './questionImageRecords';
 import { verifyQuestionImageBlob } from './questionImageCloud';
@@ -17,11 +18,19 @@ import type { AppData } from '../types';
 import { prepareWholeRecovery } from './wholeRecovery';
 import { NOTES_EVENT } from './weaknessNotes';
 import { PLAN_EVENT } from './studyPlanStorage';
+import { readUserEditGeneration } from './userEditGeneration';
 
 export type FileBackup = SyncPayload & {
   backupManifest: { schema:1; completeness:'complete'|'partial'; issues:string[]; questionCount:number; noteCount:number; imageCount:number; contentDigest:string };
   questionImageFiles: Array<{descriptor:QuestionImageDescriptor;dataUrl:string}>;
 };
+export async function createCompleteFileBackup(payload:SyncPayload,images:readonly StoredQuestionImage[]):Promise<FileBackup>{
+  const data=JSON.parse(payload.localStorage['quiz-make-app-data-v1']) as AppData;
+  const files:FileBackup['questionImageFiles']=[];
+  for(const image of images)files.push({descriptor:await describeQuestionImage(image),dataUrl:await encode(image.blob)});
+  const result:FileBackup={...payload,questionImageFiles:files,backupManifest:{schema:1,completeness:'complete',issues:[],questionCount:data.questions.length,noteCount:Object.keys(payload.indexedDbNotes??{}).length,imageCount:files.length,contentDigest:await digest(payload,files)}};
+  const checked=await validateFileBackup(result);if(!checked.ok)throw new Error(checked.error);return result;
+}
 const hash=async(text:string)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))].map(n=>n.toString(16).padStart(2,'0')).join('');
 const sorted=(value:Record<string,string>)=>Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));
 const digest=(payload:SyncPayload,images:FileBackup['questionImageFiles'])=>hash(JSON.stringify({localStorage:sorted(payload.localStorage),indexedDbNotes:sorted(payload.indexedDbNotes??{}),images:[...images].sort((a,b)=>a.descriptor.id.localeCompare(b.descriptor.id)).map(image=>image.descriptor)}));
@@ -102,52 +111,70 @@ export async function validateFileBackup(value:unknown):Promise<SyncResult<{payl
 
 /** New complete files use the existing shared database transaction. Old formats
  * keep their documented legacy restore route and cannot claim media completeness. */
-export async function restoreFileBackup(payload:FileBackup):Promise<SyncResult<number>&{committed?:boolean}>{
+export function restoreFileBackup(payload:FileBackup):Promise<SyncResult<number>&{committed?:boolean}>{
+  return replaceCompleteFile(payload);
+}
+/** The existing sync UI owns the origin lock and protected-work guard. This
+ * route replaces the chosen whole snapshot without creating ordinary history. */
+export function applyWholeSyncFile(payload:FileBackup,expectedGeneration:number,finalize:(tx:IDBTransaction)=>void,archiveConflict=false):Promise<SyncResult<number>&{committed?:boolean}>{
+  return replaceCompleteFile(payload,{expectedGeneration,finalize,archiveConflict});
+}
+async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:number;finalize:(tx:IDBTransaction)=>void;archiveConflict:boolean}):Promise<SyncResult<number>&{committed?:boolean}>{
   const checked=await validateFileBackup(payload);if(!checked.ok)return checked;
   if(payload.backupManifest.completeness!=='complete')return {ok:false,code:'invalid',error:'このファイルは部分的な救出コピーです。欠落一覧を確認し、完全コピーとして上書き復元しないでください。'};
-  const ready=await waitForLocalPersistence();if(!ready.ok)return ready;
+  if(!sync){const ready=await waitForLocalPersistence();if(!ready.ok)return ready;}
   let committed=false;
-  try{return await withCoordinatedDataMutation(['app','notes'],async()=>{
-    const db=await openAppDb();
+  const operation=async():Promise<SyncResult<number>>=>{
+    await openCoLocatedNoteDb();
+    const db=await openQuestionImageRecordDb();
+    if(sync&&await readUserEditGeneration(db)!==sync.expectedGeneration)throw new Error('選択後に端末の内容が変更されました。両方を保持して再確認します。');
     // A verified current copy is mandatory; it remains on this device. Reading
     // under the already-held lock avoids a nested export lock.
     const previous=await loadAppDataAsync({coordinationLockHeld:true});
     const snapshot=await readAppRecordSnapshot(db);if(!snapshot)throw new Error('現在の保存状態を確認できません。');
     const target=JSON.parse(checked.value.payload.localStorage['quiz-make-app-data-v1']) as AppData;
     const notes=checked.value.payload.indexedDbNotes??{},settings=Object.fromEntries(Object.entries(checked.value.payload.localStorage).filter(([key])=>key!=='quiz-make-app-data-v1'&&!key.startsWith('quizMake:notes:')&&!key.startsWith('quizMake:image:')));
-    const existingSettings=new Set<string>(),existingImageKeys=new Set<string>();for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith('quizMake:image:'))existingImageKeys.add(key);if(key&&isQuizMakeStorageKey(key)&&key!=='quiz-make-app-data-v1'&&!key.startsWith('quizMake:notes:')&&!key.startsWith('quizMake:image:')&&!isChunkInternal('localStorage',key))existingSettings.add(key);}
+    const existingSettings=new Set<string>(),existingImageKeys=new Set<string>(),existingNoteKeys=new Set<string>();for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith('quizMake:image:'))existingImageKeys.add(key);if(key?.startsWith('quizMake:notes:'))existingNoteKeys.add(key);if(key&&isQuizMakeStorageKey(key)&&key!=='quiz-make-app-data-v1'&&!key.startsWith('quizMake:notes:')&&!key.startsWith('quizMake:image:')&&!isChunkInternal('localStorage',key))existingSettings.add(key);}
     const previousLearning=await readLearningValues(db);
     const allSettings=new Set([...existingSettings,...Object.keys(settings)]),learning=new Map(await Promise.all([...allSettings].filter(isLearningStorageKey).map(async key=>[key,{...await prepareLearningValue(key,settings[key]??null),...(previousLearning.get(key)?.nativeCleanup?{nativeCleanup:previousLearning.get(key)!.nativeCleanup}:{})}] as const)));
-    const read=db.transaction(['categoryNotes','questionImageBlobs']),oldNotes=read.objectStore('categoryNotes').getAll(),oldNoteKeys=read.objectStore('categoryNotes').getAllKeys(),oldImages=read.objectStore('questionImageBlobs').getAll();await new Promise<void>((r,j)=>{read.oncomplete=()=>r();read.onabort=()=>j(read.error);});
-    const previousNotes=Object.fromEntries(oldNoteKeys.result.map((key,index)=>[String(key),oldNotes.result[index]]));
+    const read=db.transaction(['categoryNotes','questionImageBlobs']),oldNoteKeys=read.objectStore('categoryNotes').getAllKeys(),oldImages=read.objectStore('questionImageBlobs').getAll();await new Promise<void>((r,j)=>{read.oncomplete=()=>r();read.onabort=()=>j(read.error);});
+    const storedNoteKeys=oldNoteKeys.result.map(String);
+    const previousNotes=await exportCategoryNotesRaw({coordinationLockHeld:true});
     if(getNoteBackupIssues(previousNotes).length)throw new Error('現在のノートを完全に退避できないため、復元を中止しました。');
     const previousOwners=imageOwners(previous),previousImages=oldImages.result as StoredQuestionImage[];
     for(const [id,owner] of previousOwners){const image=previousImages.find(image=>image.id===id&&image.questionId===owner),raw=snapshot.records.get(appRecordKey('questionImages',id))?.raw;if(!image||!raw||!await verifyQuestionImageBlob(image.blob,JSON.parse(raw)))throw new Error('現在の画像を完全に退避できないため、復元を中止しました。');}
     const previousSettings=Object.fromEntries([...existingSettings].map(key=>[key,localStorage.getItem(key)!]));
     if(materialIssues({version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes},previous).length)throw new Error('現在のPDF・参照資料を完全に退避できないため、復元を中止しました。');
-    const archiveImages:FileBackup['questionImageFiles']=[];
-    for(const image of previousImages.filter(image=>previousOwners.has(image.id)))archiveImages.push({descriptor:await describeQuestionImage(image),dataUrl:await encode(image.blob)});
-    const archivePayload:SyncPayload={version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes};
-    const archive:FileBackup={...archivePayload,questionImageFiles:archiveImages,backupManifest:{schema:1,completeness:'complete',issues:[],questionCount:previous.questions.length,noteCount:Object.keys(previousNotes).length,imageCount:archiveImages.length,contentDigest:await digest(archivePayload,archiveImages)}};
-    const queueArchive=await prepareWholeRecovery(db,archive,'before-restore',new Blob([JSON.stringify(payload)]).size);
+    let queueArchive:(tx:IDBTransaction)=>void=()=>{};
+    if(!sync||sync.archiveConflict){
+      const archivePayload:SyncPayload={version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes};
+      const archive=await createCompleteFileBackup(archivePayload,previousImages.filter(image=>previousOwners.has(image.id)));
+      queueArchive=await prepareWholeRecovery(db,archive,sync?'conflict':'before-restore',new Blob([JSON.stringify(payload)]).size);
+    }
     await saveAppRecords(db,target,new Date().toISOString(),undefined,[],tx=>{
       queueArchive(tx);
-      for(const key of new Set([...Object.keys(previousNotes),...Object.keys(notes)])){
+      for(const key of new Set([...storedNoteKeys,...Object.keys(previousNotes),...Object.keys(notes)])){
         if(notes[key]===undefined)tx.objectStore('categoryNotes').delete(key);else tx.objectStore('categoryNotes').put(notes[key],key);
-        queueAuxiliaryRecordWrite(tx,'indexedDbNotes',key,notes[key]??null);
+        queueAuxiliaryRecordWrite(tx,'indexedDbNotes',key,notes[key]??null,!sync);
       }
+      for(const key of existingNoteKeys)tx.objectStore('localProjections').put(null,key);
       if(learning.size)queueLearningFence(tx);
-      for(const key of allSettings){const value=learning.get(key);if(value)queueLearningValue(tx,value);else tx.objectStore('localProjections').put(settings[key]??null,key);queueAuxiliaryRecordWrite(tx,'localStorage',key,settings[key]??null);}
+      for(const key of allSettings){const value=learning.get(key);if(value)queueLearningValue(tx,value);else tx.objectStore('localProjections').put(settings[key]??null,key);queueAuxiliaryRecordWrite(tx,'localStorage',key,settings[key]??null,!sync);}
       tx.objectStore('questionImageBlobs').clear();
       for(const key of existingImageKeys)tx.objectStore('localProjections').put(null,key);
       const incoming=new Set(checked.value.images.map(image=>image.id));
-      for(const image of previousImages)if(!incoming.has(image.id))queueAuxiliaryRecordWrite(tx,'questionImages',image.id,null);
-      for(const image of checked.value.images){tx.objectStore('questionImageBlobs').put(image,image.id);const descriptor=payload.questionImageFiles.find(file=>file.descriptor.id===image.id)!.descriptor;queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor));tx.objectStore('localProjections').put(JSON.stringify(descriptor),questionImageMetadataKey(image.id));}
+      for(const image of previousImages)if(!incoming.has(image.id))queueAuxiliaryRecordWrite(tx,'questionImages',image.id,null,!sync);
+      for(const image of checked.value.images){tx.objectStore('questionImageBlobs').put(image,image.id);const descriptor=payload.questionImageFiles.find(file=>file.descriptor.id===image.id)!.descriptor;queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor),!sync);tx.objectStore('localProjections').put(JSON.stringify(descriptor),questionImageMetadataKey(image.id));}
       tx.objectStore('localProjections').put(JSON.stringify({version:1,keys:Object.keys(notes).sort()}),CATEGORY_NOTES_MANIFEST_KEY);
       tx.objectStore('localProjections').put(null,CATEGORY_NOTES_RECOVERY_REQUIRED_KEY);
-    });
+      if(sync){
+        const generation=tx.objectStore('appRecordMeta').get('userEditGenerationV1');
+        generation.onsuccess=()=>{try{if((generation.result??0)!==sync.expectedGeneration){tx.abort();return;}sync.finalize(tx)}catch{tx.abort()}};
+      }
+    },!sync);
     committed=true;await replayLocalStorageProjections(db);
     if(!establishCurrentAppDataAuthority())throw new Error('復元データは保存しましたが、表示の保護状態を更新できません。再読み込みしてください。');
     advanceLocalDataRevision();window.dispatchEvent(new Event(PLAN_EVENT));window.dispatchEvent(new Event(NOTES_EVENT));return {ok:true,value:target.questions.length};
-  },{requireCrossContext:true});}catch(error){return {ok:false,committed,code:'local_persistence_failed',error:error instanceof Error?error.message:'復元を保存できません。現在のコピーは保持しています。'};}
+  };
+  try{return await (sync?operation():withCoordinatedDataMutation(['app','notes'],operation,{requireCrossContext:true}));}catch(error){return {ok:false,committed,code:'local_persistence_failed',error:error instanceof Error?error.message:'復元を保存できません。現在のコピーは保持しています。'};}
 }

@@ -925,3 +925,7 @@
     justify-self: center;
   }
 }
+
+.whole-conflict__option { padding: 16px; margin: 16px 0; border: 1px solid var(--border, #d6dce5); border-radius: 16px; }
+.whole-conflict__option h3 { margin: 0 0 8px; }
+.whole-conflict .sync-button { min-height: 48px; white-space: normal; overflow-wrap: anywhere; }

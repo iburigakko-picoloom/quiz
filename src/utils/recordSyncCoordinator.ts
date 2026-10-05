@@ -23,6 +23,9 @@ import { isAutoUploadBlocked } from './autoSyncScheduler';
 import { getActiveProtectedWorkReason } from './protectedWork';
 import { isSyncInteractionProtected } from './syncInteraction';
 import { SyncInterruptedError, SyncLocalPersistenceError } from './syncInterruption';
+import { WHOLE_SYNC_ROLLOUT_ENABLED } from './wholeSyncRollout';
+import { runWholeRecordSync } from './wholeSyncEngine';
+import { buildWholeIncomingFile } from './wholeSyncIncoming';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -81,6 +84,22 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
     return openQuestionImageRecordDb();
   },{requireCrossContext:true});
   const imageTransport = createQuestionImageTransport(config, initialAccess);
+  const materialTransport = createMaterialTransport(config,initialAccess);
+  if(WHOLE_SYNC_ROLLOUT_ENABLED){
+    const result=await runWholeRecordSync(db,connection,rpc,{assertCurrent,apply,step,
+      device:/Android/i.test(navigator.userAgent)?'Android':/iPhone|iPad/i.test(navigator.userAgent)?'iPhone / iPad':/Windows/i.test(navigator.userAgent)?'Windows':'ブラウザ',
+      prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent),
+      incoming:rows=>buildWholeIncomingFile(db,rows,materialTransport,assertCurrent),
+      prepareOutgoing:async()=>{
+        await assertCurrent();
+        const media=await prepareRecordMaterialOutbox(db,materialTransport,assertCurrent);
+        const images=await prepareQuestionImageOutbox(db,imageTransport,assertCurrent);
+        if(media.more||images.more)return {more:true};
+        await prepareRecordChunks(db,connection);await assertCurrent();
+      },
+    });
+    await assertCurrent();step('receipt');await writeRecordSyncReceipt(db,connection,result);return result;
+  }
   step('materials'); const media = await prepareRecordMaterialOutbox(db,createMaterialTransport(config,initialAccess),assertCurrent);
   if(media.more)return {status:'more',uploaded:0,downloaded:0};
   step('images'); const images = await prepareQuestionImageOutbox(db,imageTransport,assertCurrent);
