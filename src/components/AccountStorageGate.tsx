@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { activateAccountStorage, AccountStorageSession, accountGenerationKey, accountNamespace, readAccountGeneration, sameLocalAccount, type LocalAccountIdentity } from '../utils/accountStorage';
+import { activateAccountStorage, AccountStorageSession, accountGenerationKey, readAccountGeneration, sameLocalAccount, type LocalAccountIdentity } from '../utils/accountStorage';
 import { initializeAccountStorage } from '../utils/accountStorageBootstrap';
 import { cloudAuthStorageKey, getCachedCloudAccountIdentity, getCloudAccessToken, localIdentityForCloudSession, onCloudAuthStateChange, sendMagicLink } from '../utils/cloudService';
 import { accountWorkDatabase, approveAccountWorkReload, captureAccountWork, flushAccountWork, isAccountWorkReloadApproved, readLatestAccountWork, restoreAccountWork, saveAccountWork, type AccountWorkSnapshot } from '../utils/accountWork';
@@ -105,7 +105,7 @@ export function AccountStorageGate({ children }: { children: ReactNode }) {
   };
   const reopenGeneration=async()=>{
     const previous=owner.current;if(!previous?.identity||!sameLocalAccount(previous.identity,getCachedCloudAccountIdentity()))return;
-    try{const next=new AccountStorageSession(globalThis.localStorage,{identity:previous.identity,namespace:accountNamespace(previous.identity),legacyUnclaimed:false});
+    try{const next=await initializeAccountStorage(previous.identity);
       const {readUnionMigrations,previewUnionMigration}=await import('../utils/accountUnionJournal'),{remapUnionWork}=await import('../utils/accountUnionWork');
       const migrations=await readUnionMigrations(indexedDB,globalThis.localStorage,previous.identity),chain=[];let generation=next.generation;
       while(generation!==previous.generation){const migration=migrations.find(row=>row.generation===generation);if(!migration||chain.length>=migrations.length)throw new Error('移行の由来を確認できません。');chain.unshift(migration);generation=migration.previousGeneration;}
