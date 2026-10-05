@@ -32,15 +32,24 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
     try {
-      const response = await (options.fetch ?? fetch)(`${origin}/rest/v1/rpc/${name}`, {
-        method: 'POST', headers: { apikey: options.anonKey, Authorization: `Bearer ${access.accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ p_sync_id: options.connection.syncId, ...body }), signal: controller.signal,
+      const requestBody = JSON.stringify({ p_sync_id: options.connection.syncId, ...body });
+      const send = (token: string) => (options.fetch ?? fetch)(`${origin}/rest/v1/rpc/${name}`, {
+        method: 'POST', headers: { apikey: options.anonKey, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: requestBody, signal: controller.signal,
         redirect: 'error',
       });
+      let response = await send(access.accessToken);
       options.assertCurrent();
+      if (response.status === 401) {
+        const renewed = await options.access(); options.assertCurrent();
+        if (renewed.userId !== options.connection.userId || !renewed.accessToken) throw new Error('差分同期中にアカウントが変わりました。');
+        // Retry only a definitively rejected request, once, with a newly
+        // verified same-account JWT. Frozen operation IDs and bytes stay exact.
+        if (renewed.accessToken !== access.accessToken) { response = await send(renewed.accessToken); options.assertCurrent(); }
+      }
       if (!response.ok) {
         // Do not embed server responses or credentials in user-facing logs.
-        const code = response.status === 429 ? 'rate_limited' : response.status === 401 || response.status === 403 ? 'authentication_required'
+        const code = response.status === 429 ? 'rate_limited' : response.status === 401 ? 'authentication_required' : response.status === 403 ? 'permission_denied'
           : response.status === 404 ? 'unavailable' : response.status === 413 ? 'payload_too_large'
           : response.status === 400 ? 'invalid_request' : 'network';
         throw new RecordSyncRpcError(code, `差分同期に失敗しました（HTTP ${response.status}）。端末データを保持しています。`);

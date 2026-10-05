@@ -4,7 +4,7 @@ import {BackButton} from '../components/BackButton';
 import {SyncStatus} from '../components/SyncStatus';
 import {LineLoginButton} from '../components/LineLoginButton';
 import {RecordConflictPanel} from '../components/RecordConflictPanel';
-import {getCloudSession,sendMagicLink} from '../utils/cloudService';
+import {onCloudSessionSnapshot,sendMagicLink} from '../utils/cloudService';
 import {ACCOUNT_SYNC_EVENT,getAccountSyncState,requestAccountSyncConnection} from '../utils/accountSync';
 import {getAutoSyncSettings,getLastSyncState,setAutoSyncEnabled} from '../utils/syncService';
 import {setSyncInteractionProtected} from '../utils/syncInteraction';
@@ -15,7 +15,7 @@ const messages={connecting:'アカウントの保存先を確認しています�
 export function AccountSyncScreen({onBack,onImported,onProtectionChange,onOpenBackups,onExitGuardChange,page,onNavigatePage}:Props){
   const [state,setState]=useState(getAccountSyncState),[last,setLast]=useState(getLastSyncState),[account,setAccount]=useState<{id:string;label:string}|null>(null);
   const [email,setEmail]=useState(''),[loginBusy,setLoginBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[review,setReview]=useState(false),[busy,setBusy]=useState(false),[legacy,setLegacy]=useState(page==='recovery');
-  useEffect(()=>{let stopped=false;void getCloudSession().then(s=>{if(!stopped)setAccount(s?.user&&!s.user.is_anonymous?{id:s.user.id,label:s.user.email??'ログイン中のアカウント'}:null)});const update=()=>{setState(getAccountSyncState());setLast(getLastSyncState())};window.addEventListener(ACCOUNT_SYNC_EVENT,update);window.addEventListener('quiz-make-sync-settings-change',update);return()=>{stopped=true;window.removeEventListener(ACCOUNT_SYNC_EVENT,update);window.removeEventListener('quiz-make-sync-settings-change',update)}},[]);
+  useEffect(()=>{const stop=onCloudSessionSnapshot(s=>setAccount(s?.user&&!s.user.is_anonymous?{id:s.user.id,label:s.user.email??'ログイン中のアカウント'}:null));const update=()=>{setState(getAccountSyncState());setLast(getLastSyncState())};window.addEventListener(ACCOUNT_SYNC_EVENT,update);window.addEventListener('quiz-make-sync-settings-change',update);return()=>{stop();window.removeEventListener(ACCOUNT_SYNC_EVENT,update);window.removeEventListener('quiz-make-sync-settings-change',update)}},[]);
   useLayoutEffect(()=>{const protectedWork=busy||loginBusy||review;setSyncInteractionProtected(protectedWork);onProtectionChange?.(protectedWork);onExitGuardChange?.(()=>!protectedWork);return()=>{setSyncInteractionProtected(false);onProtectionChange?.(false);onExitGuardChange?.(null)}},[busy,loginBusy,review,onProtectionChange,onExitGuardChange]);
   if(legacy)return <LegacySyncScreen page={page??'recovery'} onNavigatePage={onNavigatePage} onBack={()=>{if(page==='recovery')onBack();else{setLegacy(false);requestAccountSyncConnection()}}} onImported={onImported} onOpenBackups={onOpenBackups} onProtectionChange={onProtectionChange} onExitGuardChange={onExitGuardChange}/>;
   const id=state.syncId??getAutoSyncSettings().syncId;

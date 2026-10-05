@@ -173,7 +173,7 @@ test('native projects and cloud client are wired without changing web auth behav
   assert.match(cloudService, /detectSessionInUrl:\s*!nativeAuthPlatform/);
   assert.match(cloudService, /flowType:\s*'pkce'/);
   assert.match(cloudService, /appendPkceFlowIdToRedirects:\s*true/);
-  assert.match(cloudService, /getUser\(session\.access_token\)/);
+  assert.match(cloudService, /verifiedCloudAccess\(cloudClient\.auth,/);
   assert.doesNotMatch(cloudService, /signInAnonymously/);
   assert.match(app, /onNativeAuthResult\([\s\S]*?initializeCloudNativeAuth\(\)/);
   assert.match(app, /event\.returnTarget\s*\?\?\s*\{\s*name:\s*'settings'\s*\}/);

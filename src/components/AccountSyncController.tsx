@@ -1,6 +1,7 @@
 import {useEffect} from 'react';
 import {getAccountStorageSession,assertAccountNetworkCurrent} from '../utils/accountStorage';
 import {getCachedCloudAccountIdentity,getCloudAccessToken} from '../utils/cloudService';
+import {cloudAccessFailureCode} from '../utils/cloudAuthAccess';
 import {readStoredAccountBinding} from '../utils/accountStorageBootstrap';
 import {ACCOUNT_SYNC_RETRY_EVENT,getAccountSyncState,publishAccountSyncState,readAccountSyncMarker,resolveAccountSync,writeAccountSyncMarker} from '../utils/accountSync';
 import {getRemoteSyncConfig,getStoredSyncId,setStoredSyncId} from '../utils/syncService';
@@ -27,11 +28,11 @@ export function AccountSyncController(){
         const next=await resolveAccountSync({identity,assertCurrent,readSyncId:getStoredSyncId,
           readBinding:()=>readStoredAccountBinding(indexedDB,owner.databaseName('quiz-make-app-data-v1')),
           resolve:async(candidate)=>{
-            const access=await getCloudAccessToken();assertCurrent();if(!access.ok||access.userId!==identity.userId)throw new Error('authentication_required');
+             const access=await getCloudAccessToken();assertCurrent();if(!access.ok)throw new Error(cloudAccessFailureCode(access.reason));if(access.userId!==identity.userId)throw new Error('connection_changed');
             const controller=new AbortController(),timeout=window.setTimeout(()=>controller.abort(),15000);
             try{
               const response=await fetch(config.url+'/rest/v1/rpc/quiz_sync_resolve_account',{method:'POST',headers:{apikey:config.anonKey,Authorization:'Bearer '+access.accessToken,'Content-Type':'application/json'},body:JSON.stringify({p_existing_sync_id:candidate}),signal:controller.signal});assertCurrent();
-              if(!response.ok)throw new Error(response.status===404?'unavailable':response.status===401||response.status===403?'authentication_required':'network');
+               if(!response.ok)throw new Error(response.status===404?'unavailable':response.status===401?'authentication_required':response.status===403?'permission_denied':'network');
               return response.json();
             }finally{window.clearTimeout(timeout)}
           },install:async(syncId)=>withCoordinatedDataRead(['app','notes'],async()=>{
@@ -53,7 +54,7 @@ export function AccountSyncController(){
         if(disposed)return;
         const code=error instanceof Error?error.message:'';
         publishAccountSyncState({phase:code==='unavailable'?'unavailable':!navigator.onLine?'offline':'failed'});
-        if(code==='network'||error instanceof TypeError||error instanceof DOMException&&error.name==='AbortError')retryTimer=window.setTimeout(()=>void run(),30000);
+         if(code==='network'||error instanceof TypeError||error instanceof DOMException&&error.name==='AbortError')retryTimer=window.setTimeout(()=>void run(),30000);
       }finally{running=false}
     };
     const retry=(event:Event)=>void run((event as CustomEvent<{syncId?:string}>).detail?.syncId);

@@ -60,7 +60,7 @@ export function AccountStorageGate({ children }: { children: ReactNode }) {
     const unsubscribe=onCloudAuthStateChange((event,session)=>{
       // The native cache remains available during offline token refresh. A null
       // INITIAL_SESSION must not turn an offline account into local-only data.
-      if(event==='INITIAL_SESSION'&&!session){try{if(getCachedCloudAccountIdentity())return;}catch{/* Fail closed in change. */}}
+      if(event!=='SIGNED_OUT'&&!session){try{const cached=getCachedCloudAccountIdentity();if(cached&&(!owner.current||sameLocalAccount(owner.current.identity,cached)))return;}catch{/* Fail closed in change. */}}
       change(localIdentityForCloudSession(session));
     });
     const storage=(event:StorageEvent)=>{if(event.key===null||event.key===cloudAuthStorageKey)change();};window.addEventListener('storage',storage);

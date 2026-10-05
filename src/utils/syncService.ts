@@ -59,6 +59,8 @@ export type SyncPayload = {
 
 export type SyncErrorCode =
   | 'authentication_required'
+  | 'network'
+  | 'permission_denied'
   | 'connection_changed'
   | 'conflict'
   | 'deleted'
@@ -875,7 +877,7 @@ async function uploadSyncDataUnlocked(
       }
       return {
         ok: false,
-        code: isConflict ? 'conflict' : undefined,
+        code: isConflict ? 'conflict' : syncHttpFailureCode(response.status),
         error: isConflict
           ? 'クラウド側に、この端末が最後に確認したものより新しいデータがあります。先にクラウドから読み込んでください。'
           : `クラウドへの保存に失敗しました。${details.message ? ` ${details.message}` : ''}`,
@@ -927,7 +929,7 @@ export async function downloadSyncData(syncId: string, options: { materialFiles?
 
     if (!response.ok && await isMissingSyncRpc(response)) return { ok: false, error: '安全な同期RPCが見つかりません。Supabaseへ最新の同期マイグレーションを適用してください。' };
 
-    if (!response.ok) return { ok: false, error: await responseError(response, 'クラウドからの読み込みに失敗しました。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await responseError(response, 'クラウドからの読み込みに失敗しました。') };
 
     const rows = (await response.json()) as unknown;
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
@@ -991,7 +993,7 @@ export async function getRemoteSyncMeta(syncId: string): Promise<SyncResult<Remo
 
     if (!response.ok && await isMissingSyncRpc(response)) return { ok: false, error: '安全な同期RPCが見つかりません。Supabaseへ最新の同期マイグレーションを適用してください。' };
 
-    if (!response.ok) return { ok: false, error: await responseError(response, 'クラウドの更新確認に失敗しました。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await responseError(response, 'クラウドの更新確認に失敗しました。') };
     const rows = (await response.json()) as unknown;
     if (!Array.isArray(rows) || rows.length === 0) return { ok: true, value: null };
     const row = rows[0];
@@ -1315,7 +1317,7 @@ export async function deleteRemoteSyncData(
       }),
     });
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
-    if (!response.ok) return { ok: false, error: await responseError(response, 'クラウドデータの削除に失敗しました。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await responseError(response, 'クラウドデータの削除に失敗しました。') };
     const rows = await response.json() as unknown;
     const first = Array.isArray(rows) ? rows[0] : null;
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
@@ -1376,7 +1378,7 @@ export async function createSyncPairingCode(syncId: string): Promise<SyncResult<
       body: JSON.stringify({ p_sync_id: normalizedSyncId }),
     });
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
-    if (!response.ok) return { ok: false, error: await syncRpcHttpError(response, '接続コードを発行できませんでした。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await syncRpcHttpError(response, '接続コードを発行できませんでした。') };
     const rows = await response.json() as unknown;
     const first = Array.isArray(rows) ? rows[0] : null;
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
@@ -1419,7 +1421,7 @@ export async function redeemSyncPairingCode(pairingCode: string): Promise<SyncRe
       headers: authenticatedHeaders.value,
       body: JSON.stringify({ p_pairing_code: normalizedCode }),
     });
-    if (!response.ok) return { ok: false, error: await syncRpcHttpError(response, '接続コードを確認できませんでした。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await syncRpcHttpError(response, '接続コードを確認できませんでした。') };
     const rows = await response.json() as unknown;
     const first = Array.isArray(rows) ? rows[0] : null;
     const rpcFailure = syncRpcFailureFromRow(first, 'pair_redeem');
@@ -1589,7 +1591,7 @@ async function completePendingLegacySyncUpgrade(
         p_candidate_sync_id: pending.candidateSyncId,
       }),
     });
-    if (!response.ok) return { ok: false, error: await syncRpcHttpError(response, '旧同期IDを移行できませんでした。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await syncRpcHttpError(response, '旧同期IDを移行できませんでした。') };
     const rows = await response.json() as unknown;
     const first = Array.isArray(rows) ? rows[0] : null;
     const rpcFailure = syncRpcFailureFromRow(first, 'legacy_upgrade');
@@ -1745,6 +1747,10 @@ function syncRpcFailureFromRow(value: unknown, operation: SyncRpcOperation): Syn
   return { ok: false, error: `同期処理を完了できませんでした（${code}）。` };
 }
 
+function syncHttpFailureCode(status: number): SyncErrorCode | undefined {
+  return status === 401 ? 'authentication_required' : status === 403 ? 'permission_denied'
+    : status === 429 ? 'rate_limited' : status === 413 ? 'payload_too_large' : status >= 500 ? 'network' : undefined;
+}
 async function syncRpcHttpError(response: Response, fallback: string): Promise<string> {
   const details = await readSupabaseError(response);
   if (response.status === 429 || details.code === 'rate_limited') {
@@ -1813,7 +1819,7 @@ async function readSupabaseError(response: Response): Promise<{ message: string;
 function getDiagnosticSuggestion(errorText: string): string | undefined {
   const value = errorText.toLowerCase();
   if (value.includes('invalid api key') || value.includes('jwt')) {
-    return 'ログイン状態を確認して、必要なら一度ログアウトしてから再ログインしてください。解決しない場合は公開APIキーとSupabase URLの組み合わせを確認してください。';
+    return '通信状態を確認して同期を再試行してください。有効期限切れのトークンは自動更新を試みます。繰り返す場合は公開APIキーとSupabase URLの組み合わせを確認してください。';
   }
   if (value.includes('relation') && value.includes('quiz_sync_data') && value.includes('does not exist')) {
     return 'Supabase側に quiz_sync_data テーブルがまだ作成されていません。';
@@ -1843,7 +1849,7 @@ async function getAuthenticatedSyncHeaders(
   if (!access.ok) {
     return {
       ok: false,
-      code: access.reason === 'not-configured' ? undefined : 'authentication_required',
+      code: access.reason === 'not-configured' ? undefined : access.reason === 'temporarily-unavailable' ? 'network' : access.reason === 'account-changed' ? 'connection_changed' : 'authentication_required',
       error: access.message,
     };
   }

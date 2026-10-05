@@ -48,7 +48,7 @@ import {
 } from '../utils/syncService';
 import { isStrongSyncId } from '../utils/syncState';
 import { saveJsonBackup, writeClipboardText } from '../utils/nativePlatform';
-import { getCloudSession, onCloudAuthStateChange, sendMagicLink } from '../utils/cloudService';
+import { getCloudSession, onCloudSessionSnapshot, sendMagicLink } from '../utils/cloudService';
 import { LineLoginButton } from '../components/LineLoginButton';
 import { RecordConflictPanel } from '../components/RecordConflictPanel';
 import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
@@ -140,15 +140,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
       setAuthReady(true);
     };
 
-    void getCloudSession()
-      .then(applySession)
-      .catch(() => {
-        if (!cancelled) {
-          setCloudAccount(null);
-          setAuthReady(true);
-        }
-      });
-    const unsubscribe = onCloudAuthStateChange((_event, session) => applySession(session));
+    const unsubscribe = onCloudSessionSnapshot(applySession);
     return () => {
       cancelled = true;
       unsubscribe();
