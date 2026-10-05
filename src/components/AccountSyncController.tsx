@@ -1,5 +1,5 @@
 import {useEffect} from 'react';
-import {getAccountStorageSession,assertAccountNetworkCurrent} from '../utils/accountStorage';
+import {getAccountStorageSession,assertAccountNetworkCurrent,accountLocalStorage} from '../utils/accountStorage';
 import {getCachedCloudAccountIdentity,getCloudAccessToken} from '../utils/cloudService';
 import {cloudAccessFailureCode} from '../utils/cloudAuthAccess';
 import {readStoredAccountBinding} from '../utils/accountStorageBootstrap';
@@ -47,7 +47,7 @@ export function AccountSyncController(){
             const opted=setRecordSyncOptIn(syncId,true);if(!opted.ok)throw new Error('local_persistence_failed');
             writeAccountSyncMarker(identity,syncId);
           },{requireCrossContext:true})},selection);
-        assertCurrent();publishAccountSyncState(next);
+        assertCurrent();if(next.choices)accountLocalStorage.setItem('quizMake:sync:ownedCandidates:v1',JSON.stringify({identity,choices:next.choices}));publishAccountSyncState(next);
         if(next.phase==='ready')window.dispatchEvent(new Event('quiz-make-sync-settings-change'));
         if(next.phase==='failed')retryTimer=window.setTimeout(()=>void run(),30000);
       }catch(error){

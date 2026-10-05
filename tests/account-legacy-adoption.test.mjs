@@ -22,14 +22,20 @@ test('explicit adoption keeps DB/blob bytes and logical IDs in place; transfers 
   assert.equal((await readLatestAccountWork(factory,own)).work.create.title,'draft kept');assert.throws(()=>accountWorkDatabase(guest),/所有者/);assert.ok((await factory.databases()).some(db=>db.name.endsWith(':signed-out')));
   assert.equal((await factory.databases()).find(db=>db.name==='quiz-make-app-data-v1').version,7);
 });
-test('bound, competing, nonempty destination and stale-account adoptions fail without changing manifest or local data',async()=>{
-  for(const mode of ['bound','competing','destination','stale']){
+test('bound, competing and stale-account adoptions fail without changing manifest or local data',async()=>{
+  for(const mode of ['bound','competing','stale']){
     const factory=new IDBFactory(),native=memory();native.setItem('quizMake:plan:1','kept');
     if(mode==='bound')await populate(factory,{...b,syncId:'b'.repeat(36)});
     if(mode==='competing')native.setItem(ACCOUNT_VAULT_MANIFEST_KEY,JSON.stringify({version:1,legacyOwner:b}));
     if(mode==='destination')new AccountStorageSession(native,decideAccountStorage(native,a,null)).storage.setItem('quizMake:plan:2','A kept');
     const before=native.getItem(ACCOUNT_VAULT_MANIFEST_KEY);await assert.rejects(adoptUnclaimedLegacyData(factory,native,a,()=>{if(mode==='stale')throw Error('account changed')}));assert.equal(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY),before);assert.equal(native.getItem('quizMake:plan:1'),'kept');
   }
+});
+test('explicit adoption with a nonempty account archives the original scope and routes to union preview without replacing either side',async()=>{
+  const factory=new IDBFactory(),native=memory();native.setItem('quiz-make-app-data-v1','legacy-original');
+  const account=new AccountStorageSession(native,decideAccountStorage(native,a,null));account.storage.setItem('quiz-make-app-data-v1','account-original');
+  await adoptUnclaimedLegacyData(factory,native,a,()=>{});const manifest=JSON.parse(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY));assert.equal(manifest.archived,true);assert.equal(manifest.legacyOwner.userId,a.userId);
+  const current=new AccountStorageSession(native,decideAccountStorage(native,a,null));assert.notEqual(current.namespace,'legacy');assert.equal(current.storage.getItem('quiz-make-app-data-v1'),'account-original');assert.equal(native.getItem('quiz-make-app-data-v1'),'legacy-original');assert.equal(current.storage.getItem('quizMake:sync:unionLegacyPending'),'true');
 });
 
 test('local-only fallback notes, backups and unsaved guest work are detected even without a main DB',async()=>{

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { accountLocalStorage as localStorage } from './utils/accountStorage';
 import type { AppData, AppScreen, Folder, ProblemSet, Question, QuizResult, QuizSession, MaterialReference } from './types';
 import { linkQuestionMaterialPage } from './utils/materialModel';
 import { applyReferenceLinks, type ReferenceLink } from './utils/referenceLinking';
@@ -102,7 +103,7 @@ type PendingBackupImport =
   | { kind: 'legacy'; data: AppData };
 export default function App() {
   const recovered = useRestoredAccountWork<{ screen: AppScreen; pendingBackupImport: PendingBackupImport | null; createDraftDirty: boolean }>('app');
-  const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' }));
+  const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : localStorage.getItem('quizMake:sync:unionLegacyPending') === 'true' ? { name: 'sync' } : { name: 'home' }));
   const [data, setData] = useState<AppData>(() => createEmptyAppData());
   const [storageReady, setStorageReady] = useState(false);
   const [receivingSharedImage,setReceivingSharedImage] = useState(()=>new URL(location.href).searchParams.has('sharedImage')||new URL(location.href).searchParams.has('sharedImageError'));

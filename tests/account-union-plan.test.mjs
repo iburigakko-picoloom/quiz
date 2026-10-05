@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { previewAccountUnion, unionFingerprint } from '../src/utils/accountUnionPlan.ts';
+import { APP_COLLECTIONS, appRecordKey } from '../src/utils/appRecordStorage.ts';
+import { normalizeAppData } from '../src/utils/appDataValidation.ts';
+import { advanceAnswerProgress, createInitialProgress } from '../src/utils/quiz.ts';
+import { questionRevision } from '../src/utils/studyPlans.ts';
+const owner={project:'https://union-qa.invalid',userId:'owner'},stamp='2026-10-05T00:00:00.000Z';
+function data(prefix='a') {const f=prefix+'-f',s=prefix+'-s',q=prefix+'-q';return normalizeAppData({version:1,folders:[{id:f,name:prefix,createdAt:stamp,updatedAt:stamp}],problemSets:[{id:s,folderId:f,title:prefix,source:'',createdAt:stamp,updatedAt:stamp}],questions:[{id:q,setId:s,question:'Question',choices:['A','B','C','D'],answerIndex:0,answerText:'A',explanation:'',sourcePage:'',category:'',difficulty:'standard',createdAt:stamp,updatedAt:stamp}],progress:[],answerLogs:[]}).data;}
+function snapshot(app,side='destination',extra=[]) {return {identity:owner,label:side,kind:'cloud',syncId:(side==='destination'?'a':'b').repeat(36),head:1,records:[...APP_COLLECTIONS.flatMap(collection=>app[collection].map((value,position)=>{const id=collection==='progress'?value.questionId:value.id;return {key:appRecordKey(collection,id),collection,id,position,revision:1,raw:JSON.stringify(value)}})),...extra]};}
+function answer(app,id,time=stamp,correct=true){const q=app.questions[0],s=app.problemSets[0];app.answerLogs.push({id,questionId:q.id,setId:s.id,folderId:s.folderId,selectedIndex:correct?0:1,selectedIndexes:[correct?0:1],isCorrect:correct,answeredAt:time,questionRevision:questionRevision(q)});app.progress[0]=advanceAnswerProgress(app.progress[0],correct?0:1,correct,time);}
+test('dry run retains both unique materials and distinct saved events without changing either original',()=>{
+  const a=data('a'),b=data('b');answer(a,'a-event');answer(b,'b-event');const d=snapshot(a),s=snapshot(b,'source'),original=JSON.stringify([d,s]);const preview=previewAccountUnion(d,s);assert.equal(preview.unresolved,0);assert.equal(preview.data.problemSets.length,2);assert.equal(preview.data.answerLogs.length,2);assert.equal(JSON.stringify([d,s]),original);
+});
+test('same event ID deduplicates while equal independent counters replay both events instead of max/add',()=>{
+  const a=data(),b=data();answer(a,'event-a');answer(b,'event-b','2026-10-05T00:01:00.000Z');const merged=previewAccountUnion(snapshot(a),snapshot(b,'source'));assert.equal(merged.unresolved,0);assert.equal(merged.data.answerLogs.length,2);assert.equal(merged.data.progress[0].answeredCount,2);
+  const repeated=previewAccountUnion(snapshot(a),snapshot(structuredClone(a),'source'));assert.equal(repeated.data.answerLogs.length,1);assert.equal(repeated.data.progress[0].answeredCount,1);
+});
+test('true content and answer-event-ID conflicts retain both candidates and require per-record choices',()=>{
+  const a=data(),b=data();answer(a,'same-event');answer(b,'same-event',stamp,false);b.questions[0].explanation='changed';const preview=previewAccountUnion(snapshot(a),snapshot(b,'source'));assert.ok(preview.conflicts.some(c=>c.collection==='questions'));assert.ok(preview.conflicts.some(c=>c.collection==='answerLogs'));assert.equal(preview.data,undefined);assert.ok(preview.unresolved>0);const selected=previewAccountUnion(snapshot(a),snapshot(b,'source'),Object.fromEntries(preview.conflicts.map(c=>[c.key,'source'])));assert.equal(selected.data.questions[0].explanation,'changed');assert.equal(selected.data.answerLogs.length,1);assert.equal(selected.data.answerLogs[0].isCorrect,false);assert.ok(selected.conflicts.every(c=>c.destination&&c.source));
+});
+test('timestamps are not content conflicts and older/newer timestamps never choose differing content',()=>{
+  const a=data(),b=data();b.questions[0].updatedAt='2026-10-05T01:00:00.000Z';assert.equal(previewAccountUnion(snapshot(a),snapshot(b,'source')).unresolved,0);b.questions[0].explanation='real edit';assert.ok(previewAccountUnion(snapshot(a),snapshot(b,'source')).conflicts.some(c=>c.collection==='questions'));
+});
+test('stable lineage remaps new question IDs and immutable answer IDs; plan target count stays fixed',()=>{
+  const a=data(),b=data();a.questions[0].logicalId='logical-1';b.questions[0].logicalId='logical-1';b.questions[0].id='copy-q';b.progress[0]=createInitialProgress('copy-q');answer(a,'a-event');answer(b,'b-event','2026-10-05T00:01:00.000Z');const id='quizMake:plan:test',raw=JSON.stringify({targets:[{questionId:'copy-q',question:structuredClone(b.questions[0])}],timeZone:'Etc/UTC'}),extra=[{key:appRecordKey('localStorage',id),collection:'localStorage',id,position:0,revision:1,raw}];const preview=previewAccountUnion(snapshot(a),snapshot(b,'source',extra));assert.equal(preview.aliases['copy-q'],'a-q');assert.equal(preview.data.questions.length,1);assert.deepEqual(preview.data.answerLogs.map(l=>l.id),['a-event','b-event']);assert.ok(preview.data.answerLogs.every(l=>l.questionId==='a-q'));const plan=JSON.parse(preview.records.find(r=>r.id===id).raw);assert.equal(plan.targets.length,1);assert.equal(plan.targets[0].questionId,'a-q');assert.equal(plan.timeZone,'Etc/UTC');
+});
+test('publication identity does not mix edited content or collapse separate local material copies',()=>{
+  const a=data(),b=data();for(const app of [a,b])app.questions[0].origin={setId:'published',logicalId:'logical',publicationVersionId:'version',contentRevision:'rev',importedContent:questionRevision(app.questions[0])};b.questions[0].id='different-q';b.progress[0]=createInitialProgress('different-q');b.questions[0].explanation='personal edit';assert.ok(previewAccountUnion(snapshot(a),snapshot(b,'source')).conflicts.some(c=>c.collection==='questions'));
+  const c=data('another-copy');c.questions[0].origin=structuredClone(a.questions[0].origin);const separate=previewAccountUnion(snapshot(a),snapshot(c,'source'));assert.equal(separate.data.questions.length,2);assert.deepEqual(separate.aliases,{});
+});
+test('unknown old copies are retained even with identical text and duplicate lineages remain separate',()=>{
+  const a=data(),b=data();b.questions[0].id='unknown-copy';b.progress[0]=createInitialProgress('unknown-copy');const preview=previewAccountUnion(snapshot(a),snapshot(b,'source'));assert.equal(preview.data.questions.length,2);assert.ok(preview.warnings.some(w=>w.includes('文章一致')));
+});
+test('tombstones cannot resurrect edits silently; explicit delete lists dependent history and keeps originals',()=>{
+  const a=data(),b=data();answer(b,'saved-event');const destination=snapshot(a);const q=destination.records.find(r=>r.collection==='questions');q.previousRaw=q.raw;q.raw=null;destination.records=destination.records.filter(r=>r.collection!=='progress');const source=snapshot(b,'source'),before=JSON.stringify(source);const preview=previewAccountUnion(destination,source);assert.equal(preview.conflicts[0].kind,'delete-edit');assert.equal(preview.data,undefined);const selected=previewAccountUnion(destination,source,{[q.key]:'destination'});assert.equal(selected.data.questions.length,0);assert.equal(selected.data.answerLogs.length,0);assert.ok(selected.dependentDeletions.some(r=>r.collection==='answerLogs'));assert.equal(JSON.stringify(source),before);const keep=previewAccountUnion(destination,source,{[q.key]:'source'});assert.equal(keep.data.answerLogs.length,1);
+});
+test('incomplete/manual progress and independent same-time transitions require selection rather than adding counters',()=>{
+  const a=data(),b=data();answer(a,'a',stamp,true);answer(b,'b',stamp,false);assert.ok(previewAccountUnion(snapshot(a),snapshot(b,'source')).conflicts.some(c=>c.collection==='progress'));b.progress[0].isAmbiguous=true;assert.ok(previewAccountUnion(snapshot(a),snapshot(b,'source')).conflicts.some(c=>c.kind==='progress'));
+});
+test('different account/project, malformed references and stale choices fail closed; fingerprint includes tombstones',async()=>{
+  const a=snapshot(data()),b=snapshot(data('b'),'source');for(const identity of [{...owner,userId:'other'},{...owner,project:'https://other-qa.invalid'}])assert.throws(()=>previewAccountUnion(a,{...b,identity}),/別のアカウント/);assert.throws(()=>previewAccountUnion(a,b,{unknown:'source'}),/古いプレビュー/);const malformed=structuredClone(b);malformed.records.find(r=>r.collection==='questions').raw='{}';assert.throws(()=>previewAccountUnion(a,malformed),/ID/);const hash=await unionFingerprint(a),deleted=structuredClone(a);deleted.records[0].raw=null;assert.notEqual(await unionFingerprint(deleted),hash);
+});

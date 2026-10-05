@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { activateAccountStorage, sameLocalAccount, type AccountStorageSession, type LocalAccountIdentity } from '../utils/accountStorage';
+import { activateAccountStorage, AccountStorageSession, accountGenerationKey, accountNamespace, readAccountGeneration, sameLocalAccount, type LocalAccountIdentity } from '../utils/accountStorage';
 import { initializeAccountStorage } from '../utils/accountStorageBootstrap';
 import { cloudAuthStorageKey, getCachedCloudAccountIdentity, getCloudAccessToken, localIdentityForCloudSession, onCloudAuthStateChange, sendMagicLink } from '../utils/cloudService';
 import { accountWorkDatabase, approveAccountWorkReload, captureAccountWork, flushAccountWork, isAccountWorkReloadApproved, readLatestAccountWork, restoreAccountWork, saveAccountWork, type AccountWorkSnapshot } from '../utils/accountWork';
@@ -10,7 +10,7 @@ import { getActiveProtectedWorkReason } from '../utils/protectedWork';
 import './AccountStorageGate.css';
 let boot: Promise<AccountStorageSession> | undefined;
 function bootStorage() { return boot ??= initializeAccountStorage(getCachedCloudAccountIdentity()); }
-type State = 'loading' | 'ready' | 'switching' | 'failed' | 'resume' | 'legacy';
+type State = 'loading' | 'ready' | 'switching' | 'failed' | 'resume' | 'legacy' | 'generation';
 export function AccountStorageGate({ children }: { children: ReactNode }) {
   const [state,setState]=useState<State>('loading'),[message,setMessage]=useState('端末データを確認しています…');
   const [snapshot,setSnapshot]=useState<AccountWorkSnapshot|null>(null),[email,setEmail]=useState('');
@@ -44,6 +44,7 @@ export function AccountStorageGate({ children }: { children: ReactNode }) {
       const session=owner.current;if (!session) return;
       let current=identity;try{if(current===undefined)current=getCachedCloudAccountIdentity();}catch{current=null;}
       if (sameLocalAccount(session.identity,current??null)) {
+        if(session.identity&&readAccountGeneration(globalThis.localStorage,session.identity)!==session.generation){setState('generation');setMessage('統合後の保存先に切り替わっています。元の入力を控えてから開き直してください。');return;}
         if(switching.current){sequence.current++;session.resumeNetwork(current??null);switching.current=false;delete document.documentElement.dataset.quizAccountFenced;if(container.current){container.current.hidden=false;container.current.inert=false;}setState('ready');window.setTimeout(()=>requestAccountSyncConnection(),0);}
         return;
       }
@@ -63,7 +64,15 @@ export function AccountStorageGate({ children }: { children: ReactNode }) {
       if(event!=='SIGNED_OUT'&&!session){try{const cached=getCachedCloudAccountIdentity();if(cached&&(!owner.current||sameLocalAccount(owner.current.identity,cached)))return;}catch{/* Fail closed in change. */}}
       change(localIdentityForCloudSession(session));
     });
-    const storage=(event:StorageEvent)=>{if(event.key===null||event.key===cloudAuthStorageKey)change();};window.addEventListener('storage',storage);
+    const storage=(event:StorageEvent)=>{
+      const session=owner.current;
+      if(session?.identity&&(event.key===null||event.key===accountGenerationKey(session.identity))&&readAccountGeneration(globalThis.localStorage,session.identity)!==session.generation){
+        if(container.current){container.current.hidden=true;container.current.inert=true;}session.fenceNetwork();
+        if(getActiveProtectedWorkReason()){setState('generation');setMessage('別の画面でデータが統合されました。編集中の入力はこの画面に保持しています。作業を控えてから新しい保存先を開いてください。');}
+        else window.location.reload();return;
+      }
+      if(event.key===null||event.key===cloudAuthStorageKey)change();
+    };window.addEventListener('storage',storage);
     void bootStorage().then(async session=>{
       if(cancelled)return;
       if(!sameLocalAccount(session.identity,getCachedCloudAccountIdentity())){window.location.reload();return;}
@@ -93,12 +102,24 @@ export function AccountStorageGate({ children }: { children: ReactNode }) {
     const session=owner.current;if(!session||!snapshot)return;
     try{await saveAccountWork(indexedDB,accountWorkDatabase(session),{...snapshot,resumed:true});if(restore)restoreAccountWork(snapshot,session);setSnapshot(null);setState('ready');}catch{setMessage('作業の控えを読み込めません。原本は保持しています。');}
   };
+  const reopenGeneration=async()=>{
+    const previous=owner.current;if(!previous?.identity||!sameLocalAccount(previous.identity,getCachedCloudAccountIdentity()))return;
+    try{const next=new AccountStorageSession(globalThis.localStorage,{identity:previous.identity,namespace:accountNamespace(previous.identity),legacyUnclaimed:false});
+      const {readUnionMigrations,previewUnionMigration}=await import('../utils/accountUnionJournal'),{remapUnionWork}=await import('../utils/accountUnionWork');
+      const migrations=await readUnionMigrations(indexedDB,globalThis.localStorage,previous.identity),chain=[];let generation=next.generation;
+      while(generation!==previous.generation){const migration=migrations.find(row=>row.generation===generation);if(!migration||chain.length>=migrations.length)throw new Error('移行の由来を確認できません。');chain.unshift(migration);generation=migration.previousGeneration;}
+      const work=captureAccountWork(previous);let recovered=work.work;for(const migration of chain)recovered=remapUnionWork(recovered,previewUnionMigration(migration).aliases);
+      if(!sameLocalAccount(previous.identity,getCachedCloudAccountIdentity()))throw new Error('アカウントが変わりました。');
+      await saveAccountWork(indexedDB,accountWorkDatabase(next),{...work,namespace:next.namespace,work:recovered});next.assertCurrent();approveAccountWorkReload();window.location.reload();
+    }catch{setMessage('入力の控えを保存できませんでした。この画面の入力と元の保存領域を保持しています。');}
+  };
   if(state==='ready')mounted.current=true;
   return <>
     <div ref={container} hidden={state!=='ready'} inert={state!=='ready'}>{mounted.current?children:null}</div>
     {state!=='ready'?<main className="account-storage-gate" aria-live="polite"><h1>{state==='resume'?'前の作業を再開':state==='failed'?'端末データを保持しています':'アカウントを確認'}</h1><p>{message}</p>
       {state==='resume'?<><button onClick={()=>void resume(true)}>作業を再開する</button><button onClick={()=>void resume(false)}>控えを残してホームへ</button></>:null}
       {state==='legacy'?<><button onClick={()=>void legacyChoice(true)}>このアカウントで使う</button><button onClick={()=>void legacyChoice(false)}>端末データを保管してアカウントを開く</button></>:null}
+      {state==='generation'?<button onClick={()=>void reopenGeneration()}>作業を保管して開き直す</button>:null}
       {state==='failed'&&switching.current?<><button onClick={()=>{setState('switching');void finish();}}>保存を再試行</button><label>前のアカウントのメールアドレス<input type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email"/></label><button disabled={!email.trim()} onClick={()=>void sendMagicLink(email.trim()).then(()=>setMessage('ログイン用リンクを送信しました。メールから前のアカウントへ戻ってください。')).catch(()=>setMessage('ログイン用リンクを送信できませんでした。通信状態を確認してください。'))}>ログイン用リンクを送る</button></>:null}
       {state==='failed'&&switching.current?<><a href={window.location.href} target="_blank" rel="noopener noreferrer">別のタブでログイン</a><p>LINEで戻る場合は、新しいタブの設定から前のアカウントへログインしてください。この画面の入力は保持されます。</p></>:null}
       {state==='failed'&&!switching.current?<button onClick={()=>window.location.reload()}>画面を開き直す</button>:null}

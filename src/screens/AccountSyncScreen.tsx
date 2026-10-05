@@ -4,6 +4,8 @@ import {BackButton} from '../components/BackButton';
 import {SyncStatus} from '../components/SyncStatus';
 import {LineLoginButton} from '../components/LineLoginButton';
 import {RecordConflictPanel} from '../components/RecordConflictPanel';
+import {accountLocalStorage} from '../utils/accountStorage';
+import {AccountUnionPanel} from '../components/AccountUnionPanel';
 import {onCloudSessionSnapshot,sendMagicLink} from '../utils/cloudService';
 import {ACCOUNT_SYNC_EVENT,getAccountSyncState,requestAccountSyncConnection} from '../utils/accountSync';
 import {getAutoSyncSettings,getLastSyncState,setAutoSyncEnabled} from '../utils/syncService';
@@ -15,8 +17,9 @@ const messages={connecting:'アカウントの保存先を確認しています�
 export function AccountSyncScreen({onBack,onImported,onProtectionChange,onOpenBackups,onExitGuardChange,page,onNavigatePage}:Props){
   const [state,setState]=useState(getAccountSyncState),[last,setLast]=useState(getLastSyncState),[account,setAccount]=useState<{id:string;label:string}|null>(null);
   const [email,setEmail]=useState(''),[loginBusy,setLoginBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[review,setReview]=useState(false),[busy,setBusy]=useState(false),[legacy,setLegacy]=useState(page==='recovery');
+  const [unionOpen,setUnionOpen]=useState(()=>accountLocalStorage.getItem('quizMake:sync:unionLegacyPending')==='true');
   useEffect(()=>{const stop=onCloudSessionSnapshot(s=>setAccount(s?.user&&!s.user.is_anonymous?{id:s.user.id,label:s.user.email??'ログイン中のアカウント'}:null));const update=()=>{setState(getAccountSyncState());setLast(getLastSyncState())};window.addEventListener(ACCOUNT_SYNC_EVENT,update);window.addEventListener('quiz-make-sync-settings-change',update);return()=>{stop();window.removeEventListener(ACCOUNT_SYNC_EVENT,update);window.removeEventListener('quiz-make-sync-settings-change',update)}},[]);
-  useLayoutEffect(()=>{const protectedWork=busy||loginBusy||review;setSyncInteractionProtected(protectedWork);onProtectionChange?.(protectedWork);onExitGuardChange?.(()=>!protectedWork);return()=>{setSyncInteractionProtected(false);onProtectionChange?.(false);onExitGuardChange?.(null)}},[busy,loginBusy,review,onProtectionChange,onExitGuardChange]);
+  useLayoutEffect(()=>{const protectedWork=busy||loginBusy||review||unionOpen;setSyncInteractionProtected(protectedWork);onProtectionChange?.(protectedWork);onExitGuardChange?.(()=>!protectedWork);return()=>{setSyncInteractionProtected(false);onProtectionChange?.(false);onExitGuardChange?.(null)}},[busy,loginBusy,review,unionOpen,onProtectionChange,onExitGuardChange]);
   if(legacy)return <LegacySyncScreen page={page??'recovery'} onNavigatePage={onNavigatePage} onBack={()=>{if(page==='recovery')onBack();else{setLegacy(false);requestAccountSyncConnection()}}} onImported={onImported} onOpenBackups={onOpenBackups} onProtectionChange={onProtectionChange} onExitGuardChange={onExitGuardChange}/>;
   const id=state.syncId??getAutoSyncSettings().syncId;
   return <main className="sync-screen sync-screen--simple sync-screen--account"><header className="sync-screen__header"><BackButton className="sync-screen__back" onClick={onBack}/><div className="sync-screen__header-text"><h1>同期</h1></div></header><div className="sync-screen__body">
@@ -25,7 +28,8 @@ export function AccountSyncScreen({onBack,onImported,onProtectionChange,onOpenBa
       {state.phase==='selection_required'?state.choices?.map((choice,index)=><button className="sync-button" key={choice.syncId} onClick={()=>requestAccountSyncConnection(choice.syncId)}>保存先 {index+1}（最終保存 {new Date(choice.updatedAt).toLocaleString('ja-JP')}）を使う</button>):null}
       {['failed','offline','unavailable'].includes(state.phase)?<button className="sync-button" onClick={()=>requestAccountSyncConnection()}>接続を再確認</button>:null}
       {state.phase==='paused'?<button className="sync-button" onClick={()=>{const result=setAutoSyncEnabled(true);if(!result.ok)setError(result.error)}}>クラウドとの同期を再開</button>:null}
-      {['migration_required','legacy_connection','not_found'].includes(state.phase)?<button className="sync-button" onClick={()=>setLegacy(true)}>旧データの復旧を確認</button>:null}
+      {state.phase==='migration_required'?<button className="sync-button" onClick={()=>setUnionOpen(true)}>両方の教材・回答履歴を統合</button>:null}
+      {['legacy_connection','not_found'].includes(state.phase)?<button className="sync-button" onClick={()=>setLegacy(true)}>旧データの復旧を確認</button>:null}
     </>}
     {message?<p role="status">{message}</p>:null}{error?<p role="alert">{error}</p>:null}</section>
     {onOpenBackups?<button className="sync-subpage-row" onClick={onOpenBackups}>バックアップと復旧<span aria-hidden="true">›</span></button>:null}

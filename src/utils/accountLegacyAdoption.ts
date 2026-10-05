@@ -45,7 +45,14 @@ export async function adoptUnclaimedLegacyData(factory:IDBFactory,native:Storage
     if(raw){const manifest=JSON.parse(raw);if(manifest.version!==1||!sameLocalAccount(validateLocalAccountIdentity(manifest.legacyOwner),account))throw new Error('端末データは別のアカウントに所属しています。');return;}
     if(await readStoredAccountBinding(factory,'quiz-make-app-data-v1'))throw new Error('既存の同期接続があります。所有記録の確認が必要です。');
     const scoped=new AccountStorageSession(native,{identity:account,namespace:accountNamespace(account),legacyUnclaimed:true});
-    if(await hasData(factory,scoped))throw new Error('このアカウントにも端末データがあります。両方の原本を保持しています。端末データを保管してアカウントを開いてください。');
+    if(await hasData(factory,scoped)){
+      // The explicit adoption choice records ownership, but never replaces an
+      // already populated account. Archive the old scope and open union preview.
+      await assertCurrent();if(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY)!==null)throw new Error('所有記録が変わりました。原本は保持しています。');
+      const next=JSON.stringify({version:1,legacyOwner:account,archived:true});native.setItem(ACCOUNT_VAULT_MANIFEST_KEY,next);
+      if(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY)!==next)throw new Error('保管した原本の所有者を記録できません。');
+      scoped.storage.setItem('quizMake:sync:unionLegacyPending','true');return;
+    }
     const guest=new AccountStorageSession(native,{identity:null,namespace:'legacy',legacyUnclaimed:true}),previous=await readLatestAccountWork(factory,guest);
     if(previous){const target=guest.databaseName('quiz-make-account-work-v1:'+accountNamespace(account));await saveAccountWork(factory,target,{...previous,id:crypto.randomUUID(),identity:account,resumed:false});}
     await assertCurrent();if(native.getItem(ACCOUNT_VAULT_MANIFEST_KEY)!==null)throw new Error('端末データの所有記録が変わりました。原本は保持しています。');

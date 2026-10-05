@@ -1,6 +1,13 @@
 export type LocalAccountIdentity = { project: string; userId: string };
 export type AccountStorageDecision = { identity: LocalAccountIdentity | null; namespace: string; legacyUnclaimed: boolean };
 export const ACCOUNT_VAULT_MANIFEST_KEY = 'quizMakeAccountVault:v1';
+export const accountGenerationKey = (identity: LocalAccountIdentity) => 'quizMakeAccountVault:generation:' + accountNamespace(identity);
+export function readAccountGeneration(storage: Pick<Storage, 'getItem'>, identity: LocalAccountIdentity | null): string | null {
+  if (!identity) return null;
+  const value = storage.getItem(accountGenerationKey(identity));
+  if (value !== null && !/^union-[a-f0-9-]{36}$/u.test(value)) throw new Error('移行後の端末保存先を確認できません。原本は保持しています。');
+  return value;
+}
 const PREFIX = 'quiz-make-account-v1:';
 const ownsKey = (key: string) => (key.startsWith('quizMake:') || key.startsWith('quiz-make')) && !key.startsWith(PREFIX);
 
@@ -22,7 +29,7 @@ export function decideAccountStorage(storage: Pick<Storage, 'getItem' | 'setItem
   const raw = storage.getItem(ACCOUNT_VAULT_MANIFEST_KEY);
   let owner: LocalAccountIdentity | null = null;
   if (raw !== null) {
-    const manifest = JSON.parse(raw) as { version?: unknown; legacyOwner?: unknown };
+    const manifest = JSON.parse(raw) as { version?: unknown; legacyOwner?: unknown; archived?: unknown };
     if (!manifest || manifest.version !== 1 || !manifest.legacyOwner) throw new Error('端末データの所有記録を読み取れません。元のデータは保持しています。');
     owner = validateLocalAccountIdentity(manifest.legacyOwner);
   }
@@ -35,7 +42,8 @@ export function decideAccountStorage(storage: Pick<Storage, 'getItem' | 'setItem
     owner = bound;
   }
   // Unclaimed local-only data remains available signed out. Login never silently adopts it.
-  const legacy = owner ? sameLocalAccount(owner, account) : !account;
+  const archived = raw !== null && JSON.parse(raw).archived === true;
+  const legacy = !readAccountGeneration(storage, account) && !archived && (owner ? sameLocalAccount(owner, account) : !account);
   return { identity: account, namespace: legacy ? 'legacy' : account ? accountNamespace(account) : 'guest', legacyUnclaimed: !owner };
 }
 
@@ -47,11 +55,19 @@ export class AccountStorageSession {
   private networkFenced = false;
   private readonly nativeStorage: Storage;
   readonly storage: Storage;
-  constructor(nativeStorage: Storage, decision: AccountStorageDecision) {
+  readonly generation: string | null;
+  readonly staging: boolean;
+  private readonly expectedGeneration: string | null;
+  constructor(nativeStorage: Storage, decision: AccountStorageDecision, options: { generation?: string; staging?: boolean } = {}) {
     this.nativeStorage = nativeStorage;
     this.identity = decision.identity ? Object.freeze({ ...validateLocalAccountIdentity(decision.identity) }) : null;
     this.namespace = decision.namespace;
     this.legacyUnclaimed = decision.legacyUnclaimed;
+    this.expectedGeneration = readAccountGeneration(nativeStorage, this.identity);
+    this.generation = options.generation ?? this.expectedGeneration;
+    this.staging = options.staging === true;
+    if (this.generation !== null && !/^union-[a-f0-9-]{36}$/u.test(this.generation)) throw new Error('移行先の形式を確認できません。');
+    if (options.generation && !this.staging) throw new Error('移行先は準備中として作成してください。');
     if (this.namespace !== 'legacy' && this.namespace !== 'guest' && (!this.identity || this.namespace !== accountNamespace(this.identity))) throw new Error('端末データの保存先を確認できません。');
     const owner = this;
     this.storage = {
@@ -64,7 +80,8 @@ export class AccountStorageSession {
     };
   }
   private assertKey(key: string) { if (!ownsKey(key)) throw new Error('アカウントの保存領域以外には書き込めません。'); }
-  private physicalKey(key: string) { return this.namespace === 'legacy' ? key : PREFIX + this.namespace + ':' + key; }
+  private scopedPrefix() { return PREFIX + this.namespace + (this.generation ? ':' + this.generation : '') + ':'; }
+  private physicalKey(key: string) { return this.namespace === 'legacy' ? key : this.scopedPrefix() + key; }
   private keys() {
     const result: string[] = [];
     for (let i = 0; i < this.nativeStorage.length; i++) { const physical = this.nativeStorage.key(i); if (!physical) continue; const logical = this.eventKey(physical); if (logical) result.push(logical); }
@@ -73,16 +90,18 @@ export class AccountStorageSession {
   eventKey(physical: string | null): string | null {
     if (physical === null) return null;
     if (this.namespace === 'legacy') return ownsKey(physical) ? physical : null;
-    const prefix = PREFIX + this.namespace + ':';
+    const prefix = this.scopedPrefix();
+    if (!this.generation && physical.startsWith(prefix + 'union-')) return null;
     return physical.startsWith(prefix) && ownsKey(physical.slice(prefix.length)) ? physical.slice(prefix.length) : null;
   }
   databaseName(base: string) {
     this.assertCurrent();
     if (!base.startsWith('quiz-make')) throw new Error('アカウントの保存領域以外には接続できません。');
-    return this.namespace === 'legacy' ? base : PREFIX + this.namespace + ':' + base;
+    return this.namespace === 'legacy' ? base : this.scopedPrefix() + base;
   }
   assertCurrent(identity?: LocalAccountIdentity | null) {
     if (this.invalidated || identity !== undefined && !sameLocalAccount(this.identity, identity)) throw new Error('アカウントが変わりました。元の端末データは保持しています。');
+    if (readAccountGeneration(this.nativeStorage, this.identity) !== this.expectedGeneration) throw new Error('端末の移行状態が変わりました。画面を開き直してください。原本は保持しています。');
     if(this.namespace==='legacy'){
       const raw=this.nativeStorage.getItem(ACCOUNT_VAULT_MANIFEST_KEY);
       if(raw){const manifest=JSON.parse(raw);if(manifest.version!==1||!sameLocalAccount(validateLocalAccountIdentity(manifest.legacyOwner),this.identity))throw new Error('端末データの所有者が変わりました。元の作業は保持しています。');}
@@ -101,6 +120,7 @@ export class AccountStorageSession {
 let activeSession: AccountStorageSession | null = null;
 /** One JS realm has one owner. Account changes must fence it and reload, never retarget pending async writes. */
 export function activateAccountStorage(session: AccountStorageSession) {
+  if (session.staging) throw new Error('準備中の移行先は利用できません。');
   if (activeSession && activeSession !== session) throw new Error('作業中の保存先は切り替えられません。先に作業を保管して画面を開き直してください。');
   activeSession = session;
 }
