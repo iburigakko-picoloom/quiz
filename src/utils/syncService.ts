@@ -507,7 +507,7 @@ export function exportQuizMakeData(
 
       for (let index = 0; index < localStorage.length; index += 1) {
         const key = localStorage.key(index);
-        if (key && isQuizMakeStorageKey(key) && key !== APP_DATA_STORAGE_KEY && !isCategoryNoteKey(key)) keys.push(key);
+        if (key && isQuizMakeStorageKey(key) && !isChunkInternal('localStorage',key) && key !== APP_DATA_STORAGE_KEY && !isCategoryNoteKey(key)) keys.push(key);
       }
 
       keys.sort().forEach((key) => {
