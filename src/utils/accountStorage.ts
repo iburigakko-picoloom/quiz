@@ -1,3 +1,4 @@
+import { decodeAccountValue, encodeAccountValue } from './accountStorageCodec';
 export type LocalAccountIdentity = { project: string; userId: string };
 export type AccountStorageDecision = { identity: LocalAccountIdentity | null; namespace: string; legacyUnclaimed: boolean };
 export const ACCOUNT_VAULT_MANIFEST_KEY = 'quizMakeAccountVault:v1';
@@ -58,6 +59,7 @@ export class AccountStorageSession {
   readonly generation: string | null;
   readonly staging: boolean;
   private readonly expectedGeneration: string | null;
+  private readonly decodedValues = new Map<string, { stored: string; raw: string }>();
   constructor(nativeStorage: Storage, decision: AccountStorageDecision, options: { generation?: string; staging?: boolean } = {}) {
     this.nativeStorage = nativeStorage;
     this.identity = decision.identity ? Object.freeze({ ...validateLocalAccountIdentity(decision.identity) }) : null;
@@ -73,8 +75,10 @@ export class AccountStorageSession {
     this.storage = {
       get length() { return owner.keys().length; },
       key(index: number) { return owner.keys()[index] ?? null; },
-      getItem(key: string) { return ownsKey(key) ? owner.nativeStorage.getItem(owner.physicalKey(key)) : null; },
-      setItem(key: string, value: string) { owner.assertCurrent(); owner.assertKey(key); owner.nativeStorage.setItem(owner.physicalKey(key), value); },
+      getItem(key: string) { if (!ownsKey(key)) return null; const stored = owner.nativeStorage.getItem(owner.physicalKey(key));
+        if (stored === null || !owner.generation) return stored; const cached = owner.decodedValues.get(key); if (cached?.stored === stored) return cached.raw;
+        const raw = decodeAccountValue(stored); owner.decodedValues.set(key, { stored, raw }); return raw; },
+      setItem(key: string, value: string) { owner.assertCurrent(); owner.assertKey(key); const raw = String(value); owner.nativeStorage.setItem(owner.physicalKey(key), owner.generation ? encodeAccountValue(raw) : raw); owner.decodedValues.delete(key); },
       removeItem(key: string) { owner.assertCurrent(); owner.assertKey(key); owner.nativeStorage.removeItem(owner.physicalKey(key)); },
       clear() { owner.assertCurrent(); for (const key of owner.keys()) owner.nativeStorage.removeItem(owner.physicalKey(key)); },
     };

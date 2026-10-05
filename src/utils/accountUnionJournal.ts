@@ -113,7 +113,7 @@ export async function prepareUnionMigration(factory: IDBFactory, native: Storage
   await assertSavedJournal(factory, native, entry, deps.assertCurrent);
   // App-specific display settings come only from the active local account.
   const project = (key: string, value: string | null) => { if (value === null) staged.storage.removeItem(key); else staged.storage.setItem(key, value); if (staged.storage.getItem(key) !== value) throw new Error('統合先の計画・設定を保存できません。原本は保持しています。'); };
-  for (const [key, value] of Object.entries(entry.localSettings)) if (!key.startsWith('quizMake:sync:') && !key.startsWith('quizMake:coord:') && !key.startsWith('quizMake:notes:')) project(key, value);
+  for (const [key, value] of Object.entries(entry.localSettings)) if (!key.startsWith('quizMake:sync:') && !key.startsWith('quizMake:coord:') && !key.startsWith('quizMake:notes:') && !key.startsWith('quiz-make-app-data-v1')) project(key, value);
   for (const row of preview.records) if (row.collection === 'localStorage') project(row.id, row.raw);
   for (const row of preview.records) if (row.collection === 'questionImages') project('quizMake:image:' + row.id, row.raw);
   project(CATEGORY_NOTES_MANIFEST_KEY, JSON.stringify({ version: 1, keys: preview.records.filter(row => row.collection === 'indexedDbNotes' && row.raw !== null).map(row => row.id).sort() }));
@@ -121,7 +121,8 @@ export async function prepareUnionMigration(factory: IDBFactory, native: Storage
   project('quizMake:sync:id', connection.syncId);
   project('quizMake:sync:recordV2OptIn', connection.syncId);
   project('quizMake:sync:accountConnection:v1', JSON.stringify({ schema: 1, identity: entry.identity, syncId: connection.syncId, paused: false }));
-  project('quiz-make-app-data-v1', JSON.stringify(preview.data));
+  // Complete AppData lives in the durable record transaction below. Do not
+  // duplicate it into localStorage alongside untouched source generations.
   project('quiz-make-app-data-v1:expected', entry.createdAt);
   const destinationRows = new Map(entry.destination.records.map(row => [row.key, row]));
   const records: AppRecord[] = preview.records.map(row => ({ key: row.key, collection: row.collection, id: row.id, raw: row.raw, position: row.position, localRevision: 1, serverRevision: destinationRows.get(row.key)?.revision ?? 0 }));
