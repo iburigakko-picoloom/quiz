@@ -166,7 +166,10 @@ export const accountNativeStorage = () => activeSession?.storage ?? globalThis.l
 let learningView: { owner: AccountStorageSession | null; native: Storage; values: Map<string, string | null> } | undefined;
 function currentLearningView() {
   if (!learningView || learningView.owner !== activeSession || learningView.native !== globalThis.localStorage) return undefined;
-  activeSession?.assertCurrent(); return learningView.values;
+  // Like native scoped reads, keep this owner's captured values readable while
+  // a generation switch hides the screen and checkpoints unsaved input. Writes,
+  // DB access, publishing and network requests still require the current owner.
+  return learningView.values;
 }
 export function publishLearningStorage(values: Map<string, string | null>, owner = activeSession, native = globalThis.localStorage) {
   owner?.assertCurrent(); if (owner !== activeSession || native !== globalThis.localStorage) throw new Error('学習データの保存先が変わりました。原本は保持しています。');

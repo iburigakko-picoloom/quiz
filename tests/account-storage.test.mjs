@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {AccountStorageSession,accountNamespace,accountGenerationKey,decideAccountStorage,activateAccountStorage,ACCOUNT_VAULT_MANIFEST_KEY} from '../src/utils/accountStorage.ts';
+import {AccountStorageSession,accountNamespace,accountGenerationKey,decideAccountStorage,activateAccountStorage,accountLocalStorage,publishLearningStorage,ACCOUNT_VAULT_MANIFEST_KEY} from '../src/utils/accountStorage.ts';
 import {ACCOUNT_VALUE_PREFIX,encodeAccountValue,decodeAccountValue} from '../src/utils/accountStorageCodec.ts';
 function memory(){const values=new Map();return {get length(){return values.size},key:i=>[...values.keys()][i]??null,getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k),clear:()=>values.clear()}}
 const a={project:'https://project.supabase.co',userId:'account-a'},b={...a,userId:'account-b'};
@@ -61,4 +61,20 @@ test('a stale unclaimed guest cannot write into legacy data after another tab ad
 });
 test('shadow generations are hidden until commit and late writers cannot write or open databases after activation',()=>{
   const native=memory(),old=new AccountStorageSession(native,decideAccountStorage(native,a,null)),generation='union-'+crypto.randomUUID(),shadow=new AccountStorageSession(native,decideAccountStorage(native,a,null),{generation,staging:true});old.storage.setItem('quizMake:plan:one','old');shadow.storage.setItem('quizMake:plan:one','new');assert.equal(old.storage.getItem('quizMake:plan:one'),'old');assert.equal(old.storage.length,1);assert.throws(()=>activateAccountStorage(shadow),/準備中/);native.setItem(accountGenerationKey(a),generation);assert.throws(()=>old.storage.setItem('quizMake:plan:one','late'),/移行状態/);assert.throws(()=>old.databaseName('quiz-make-app-data-v1'),/移行状態/);const active=new AccountStorageSession(native,decideAccountStorage(native,a,null));assert.equal(active.storage.getItem('quizMake:plan:one'),'new');assert.equal(new AccountStorageSession(native,decideAccountStorage(native,b,null)).storage.getItem('quizMake:plan:one'),null);
+});
+test('captured IndexedDB values and coordination epochs remain readable for checkpointing while a generation switch fences every write',()=>{
+  const native=memory();globalThis.localStorage=native;
+  const owner=new AccountStorageSession(native,decideAccountStorage(native,a,null));
+  owner.storage.setItem('quizMake:coord:noteEpoch','captured-epoch');activateAccountStorage(owner);
+  publishLearningStorage(new Map([['quizMake:plan:captured','old owned plan']]));
+  native.setItem(accountGenerationKey(a),'union-'+crypto.randomUUID());
+  assert.equal(accountLocalStorage.getItem('quizMake:plan:captured'),'old owned plan');
+  assert.equal(accountLocalStorage.getItem('quizMake:coord:noteEpoch'),'captured-epoch');
+  assert.ok(Array.from({length:accountLocalStorage.length},(_,i)=>accountLocalStorage.key(i)).includes('quizMake:plan:captured'));
+  assert.throws(()=>accountLocalStorage.setItem('quizMake:plan:captured','late'),/IndexedDB/);
+  assert.throws(()=>accountLocalStorage.setItem('quizMake:coord:noteEpoch','late'),/移行状態/);
+  assert.throws(()=>owner.databaseName('quiz-make-app-data-v1'),/移行状態/);
+  assert.throws(()=>publishLearningStorage(new Map([['quizMake:plan:captured','retargeted']])),/移行状態/);
+  assert.equal(accountLocalStorage.getItem('quizMake:plan:captured'),'old owned plan');
+  assert.equal(new AccountStorageSession(native,decideAccountStorage(native,b,null)).storage.getItem('quizMake:plan:captured'),null);
 });
