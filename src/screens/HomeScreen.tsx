@@ -24,6 +24,8 @@ interface HomeScreenProps {
   onDeleteFolder: (folderId: string) => void;
   onOpenFolder: (folderId: string) => void;
   onOpenStudyRecord: () => void;
+  onOpenPlans: () => void;
+  onOpenSearch: () => void;
   onSave: (data: AppData) => Promise<boolean>;
 }
 
@@ -34,14 +36,18 @@ export function HomeScreen({
   onDeleteFolder,
   onOpenFolder,
   onOpenStudyRecord,
+  onOpenPlans,
+  onOpenSearch,
   onSave,
 }: HomeScreenProps) {
   const [folderName, setFolderName] = useState('');
   const { summary, day } = useStudyRecord(data.answerLogs);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('recent');
   const editMode = false;
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Folder | null>(null);
-  const folders = useMemo(() => buildAppDataView(data).folders.filter(({ folder }) => !folder.parentFolderId), [data, day]);
+  const folders = useMemo(() => buildAppDataView(data).folders.filter(({ folder }) => !folder.parentFolderId).filter(({ folder }) => folder.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a, b) => sort === 'name' ? a.folder.name.localeCompare(b.folder.name, 'ja') : b.folder.updatedAt.localeCompare(a.folder.updatedAt)), [data, day, query, sort]);
 
   const handleCreateFolder = () => {
     const name = folderName.trim();
@@ -53,14 +59,19 @@ export function HomeScreen({
 
   return (
     <Layout>
-      <div className="quiz-home">
+      <div className="quiz-home quiz-home--plans">
         <header className="quiz-home__header">
           <h1 className="quiz-home__title">Quiz Make</h1>
-          <HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} />
+          <button type="button" className="quiz-home__plans-link" onClick={onOpenPlans}>学習計画</button>
         </header>
 
+        <div className="quiz-home__content">
+        <section className="quiz-home__library" aria-label="学習フォルダ">
+          <div className="quiz-home__section-heading"><h2>学習フォルダ</h2><button type="button" className="quiz-home__search-entry" onClick={onOpenSearch}>教材検索</button><HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} /></div>
+          <details className="quiz-home__folder-options"><summary>検索・並び替え{query ? ` · ${query}` : sort === 'name' ? ' · 名前順' : ''}</summary><div className="quiz-home__folder-tools"><input type="search" aria-label="フォルダを検索" placeholder="フォルダを検索" value={query} onChange={e => setQuery(e.target.value)} /><select aria-label="フォルダの並び順" value={sort} onChange={e => setSort(e.target.value)}><option value="recent">更新順</option><option value="name">名前順</option></select></div></details>
+
         <section className="quiz-home__folder-list" aria-label="フォルダ一覧">
-          {folders.length === 0 ? (
+          {folders.length === 0 && !query ? (
             <div className="quiz-home__empty">
               <div className="quiz-home__empty-icon" aria-hidden="true"><PlusIcon size={24} /></div>
               <h2>学習フォルダを作りましょう</h2>
@@ -87,13 +98,20 @@ export function HomeScreen({
             );
           })}
         </section>
+        {!folders.length && query ? <p className="quiz-home__no-results">該当するフォルダがありません</p> : null}
+        </section>
 
-        <StudyCompanion scene="home">
-          <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
-            <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
-            <StudyActivity summary={summary} compact />
-          </button>
-        </StudyCompanion>
+        <section className="quiz-home__today" aria-label="今日のがんばり">
+          <h2 className="sr-only">今日のがんばり</h2>
+          <StudyCompanion scene="home">
+            <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
+              <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
+              <StudyActivity summary={summary} compact />
+            </button>
+          </StudyCompanion>
+        </section>
+
+        </div>
 
         {createOpen ? (
           <CreateFolderDialog

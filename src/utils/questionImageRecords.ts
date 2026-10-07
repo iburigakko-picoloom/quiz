@@ -1,9 +1,9 @@
 import { exportAppDataRaw, openAppDb } from '../storage';
-import { saveAppRecords } from './appRecordStorage';
+import { saveAppRecords, appRecordKey } from './appRecordStorage';
 import { queueAuxiliaryRecordWrite } from './auxiliaryRecordStorage';
 import { MAX_LOCAL_QUESTION_IMAGE_BYTES } from './imageLimits';
-import type { AppData } from '../types';
-import { advanceLocalDataRevision } from './localDataRevision';
+import type { AppData, Question } from '../types';
+import { createId } from './id';
 
 export const IMAGE_BLOB_STORE='questionImageBlobs';
 export const IMAGE_SYNC_STORES=[IMAGE_BLOB_STORE,'appRecordMeta','appRecords','appRecordBackups','appOutbox'];
@@ -12,6 +12,11 @@ const OLD_DB='quiz-make-local-question-images-v1';
 const OLD_STORE='images';
 export interface StoredQuestionImage { id:string;questionId:string;name:string;type:string;blob:Blob;addedAt:string }
 export interface QuestionImageDescriptor { id:string;questionId:string;name:string;type:string;size:number;sha256:string;path?:string;addedAt:string }
+export interface PreparedQuestionImageCopy {
+  image: StoredQuestionImage;
+  descriptor: QuestionImageDescriptor;
+  source: { id: string; questionId: string; sha256: string };
+}
 function done(tx:IDBTransaction):Promise<void>{return new Promise((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error??new Error('画像の保存を完了できませんでした。'));});}
 function request<T>(value:IDBRequest<T>):Promise<T>{return new Promise((resolve,reject)=>{value.onsuccess=()=>resolve(value.result);value.onerror=()=>reject(value.error);});}
 export const questionImageMetadataKey=(id:string)=>`quizMake:image:${id}`;
@@ -37,7 +42,7 @@ let legacyDb:Promise<IDBDatabase>|null=null;
 function openLegacy():Promise<IDBDatabase>{
   if(legacyDb)return legacyDb;
   legacyDb=new Promise((resolve,reject)=>{
-    const opening=indexedDB.open(OLD_DB,2);let blocked=false;
+    const opening=indexedDB.open(accountDatabaseName(OLD_DB),2);let blocked=false;
     opening.onupgradeneeded=()=>{if(!opening.result.objectStoreNames.contains(OLD_STORE))opening.result.createObjectStore(OLD_STORE,{keyPath:'id'});};
     opening.onsuccess=()=>{if(blocked){opening.result.close();return;}opening.result.onversionchange=()=>{opening.result.close();legacyDb=null;};opening.result.onclose=()=>{legacyDb=null;};resolve(opening.result);};
     opening.onerror=()=>reject(opening.error);
@@ -56,7 +61,7 @@ export async function openQuestionImageRecordDb():Promise<IDBDatabase>{
   const marker=markerTx.objectStore('appRecordMeta').get(MARKER);await markerDone;
   if(marker.result===1)return db;
   const raw=await exportAppDataRaw({coordinationLockHeld:true});
-  await saveAppRecords(db,JSON.parse(raw) as AppData,new Date().toISOString(),()=>({raw,savedAt:new Date().toISOString()}));
+  await saveAppRecords(db,JSON.parse(raw) as AppData,new Date().toISOString(),()=>({raw,savedAt:new Date().toISOString()}),[],undefined,false);
   const old=await openLegacy();
   const read=old.transaction(OLD_STORE);const readDone=done(read);
   const originals=read.objectStore(OLD_STORE).getAll();await readDone;
@@ -68,7 +73,7 @@ export async function openQuestionImageRecordDb():Promise<IDBDatabase>{
     if(current.result===1)return;
     for(const {image,descriptor} of snapshots){
       tx.objectStore(IMAGE_BLOB_STORE).put(image,image.id);
-      queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor));
+      queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor),false);
     }
     tx.objectStore('appRecordMeta').put(1,MARKER);
   };
@@ -80,10 +85,40 @@ export async function saveQuestionImage(image:StoredQuestionImage):Promise<void>
   const descriptor=await describeQuestionImage(image);
   const db=await openQuestionImageRecordDb();
   const tx=db.transaction(IMAGE_SYNC_STORES,'readwrite');const completed=done(tx);
-  tx.objectStore(IMAGE_BLOB_STORE).put(image,image.id);
-  queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor));
+  const existing=tx.objectStore(IMAGE_BLOB_STORE).get(image.id);
+  const metadata=tx.objectStore('appRecords').get(appRecordKey('questionImages',image.id));
+  metadata.onsuccess=()=>{
+    try{
+      const owner=metadata.result?.raw?JSON.parse(metadata.result.raw).questionId:null;
+      if((existing.result && existing.result.questionId!==image.questionId) || (owner && owner!==image.questionId)){tx.abort();return;}
+      tx.objectStore(IMAGE_BLOB_STORE).put(image,image.id);
+      queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor),false);
+    }catch{tx.abort();}
+  };
   await completed;
-  advanceLocalDataRevision();
+}
+/** Prepare bytes before opening the AppData transaction. All copies are committed
+ * with their new question references; an unreadable source never becomes success. */
+export async function prepareCopiedQuestionImages(pairs: readonly { sourceId: string; question: Question }[]): Promise<{ questions: Question[]; images: PreparedQuestionImageCopy[] }> {
+  const images: PreparedQuestionImageCopy[]=[];
+  const questions: Question[]=[];
+  for(const {sourceId,question} of pairs){
+    const ids=[...new Set([...(question.questionImageIds??[]),...(question.detailedAnswer?.imageIds??[])])];
+    const originals=await readQuestionImages(sourceId,ids);
+    if(originals.length!==ids.length)throw new Error('コピー元の画像をすべて確認できません。元の問題で画像を確認してから再試行してください。');
+    const replacements=new Map<string,string>();
+    for(const original of originals){
+      const sourceDescriptor=await describeQuestionImage(original);
+      const image={...original,id:createId('image'),questionId:question.id,blob:new Blob([original.blob],{type:original.type}),addedAt:new Date().toISOString()};
+      const descriptor=await describeQuestionImage(image);
+      images.push({image,descriptor,source:{id:original.id,questionId:sourceId,sha256:sourceDescriptor.sha256}});
+      replacements.set(original.id,image.id);
+    }
+    const replace=(list:readonly string[])=>list.map(id=>replacements.get(id)!);
+    questions.push({...question,questionImageIds:question.questionImageIds?replace(question.questionImageIds):undefined,
+      detailedAnswer:question.detailedAnswer?{...question.detailedAnswer,imageIds:replace(question.detailedAnswer.imageIds)}:undefined});
+  }
+  return {questions,images};
 }
 export async function readQuestionImages(questionId:string,imageIds:readonly string[]):Promise<StoredQuestionImage[]>{
   if(!imageIds.length)return [];
@@ -94,13 +129,12 @@ export async function readQuestionImages(questionId:string,imageIds:readonly str
 }
 export async function removeQuestionImages(predicate:(image:StoredQuestionImage)=>boolean):Promise<void>{
   const db=await openQuestionImageRecordDb();const tx=db.transaction(IMAGE_SYNC_STORES,'readwrite');const completed=done(tx);
-  let changed=false;
   const cursor=tx.objectStore(IMAGE_BLOB_STORE).openCursor();
   cursor.onsuccess=()=>{const current=cursor.result;if(!current)return;
     const image=current.value as StoredQuestionImage;
-    if(predicate(image)){changed=true;current.delete();queueAuxiliaryRecordWrite(tx,'questionImages',image.id,null);}
+    if(predicate(image)){current.delete();queueAuxiliaryRecordWrite(tx,'questionImages',image.id,null);}
     current.continue();
   };
   await completed;
-  if(changed)advanceLocalDataRevision();
 }
+import { accountDatabaseName } from './accountStorage';

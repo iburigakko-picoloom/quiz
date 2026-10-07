@@ -1,10 +1,12 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
+import { saveSyncedPreference } from './syncedPreference';
 export const STUDY_COMPANION_KEY = 'quiz-make-study-companion';
 export const STUDY_COMPANION_EVENT = 'quiz-make-study-companion-change';
 export function isStudyCompanionEnabled(): boolean {
   try { return localStorage.getItem(STUDY_COMPANION_KEY) !== 'off'; } catch { return true; }
 }
-export function setStudyCompanionEnabled(enabled: boolean): void {
-  localStorage.setItem(STUDY_COMPANION_KEY, enabled ? 'on' : 'off');
+export async function setStudyCompanionEnabled(enabled: boolean): Promise<void> {
+  await saveSyncedPreference(STUDY_COMPANION_KEY, enabled ? 'on' : 'off');
   window.dispatchEvent(new Event(STUDY_COMPANION_EVENT));
 }
 function pickMessage(messages: string[], variant: number): string {

@@ -26,7 +26,7 @@ export async function openCoLocatedNoteDb(migrate = true): Promise<IDBDatabase> 
   if (!migrate) return legacy;
   const raw = await exportAppDataRaw({ coordinationLockHeld: true });
   assertNoteOperationEpoch(epoch);
-  await saveAppRecords(db, JSON.parse(raw) as AppData, new Date().toISOString(), () => ({ raw, savedAt: new Date().toISOString() }));
+  await saveAppRecords(db, JSON.parse(raw) as AppData, new Date().toISOString(), () => ({ raw, savedAt: new Date().toISOString() }),[],undefined,false);
   assertNoteOperationEpoch(epoch);
   // Include durable localStorage fallbacks, which can be newer than the old
   // note DB after a quota error. Recovery mode preserves available values and
@@ -53,7 +53,7 @@ export async function openCoLocatedNoteDb(migrate = true): Promise<IDBDatabase> 
         });
         Object.entries(authoritativeNotes).forEach(([key,value]) => {
           tx.objectStore(NOTE_CURRENT_STORE).put(value,key);
-          queueNoteRecordWrite(tx,key,value);
+          queueNoteRecordWrite(tx,key,value,false);
         });
         tx.objectStore('appRecordMeta').put(1, MIGRATION);
       } catch { tx.abort(); }
@@ -66,7 +66,7 @@ export async function openCoLocatedNoteDb(migrate = true): Promise<IDBDatabase> 
 function openLegacyNoteDb(): Promise<IDBDatabase> {
   if (legacyPromise) return legacyPromise;
   legacyPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const opening = indexedDB.open('quiz-make-notes-v1', 2);
+    const opening = indexedDB.open(accountDatabaseName('quiz-make-notes-v1'), 2);
     let rejected = false;
     opening.onupgradeneeded = () => {
       for (const name of [NOTE_CURRENT_STORE, NOTE_BACKUP_STORE]) if (!opening.result.objectStoreNames.contains(name)) opening.result.createObjectStore(name);
@@ -83,3 +83,4 @@ function openLegacyNoteDb(): Promise<IDBDatabase> {
   void legacyPromise.catch(() => { legacyPromise = null; });
   return legacyPromise;
 }
+import { accountDatabaseName } from './accountStorage';

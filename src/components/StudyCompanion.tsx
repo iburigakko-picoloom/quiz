@@ -12,7 +12,7 @@ import restImage from '../assets/companion/rest.webp';
 
 const poses = [helloImage, praiseImage, tiltImage, sitImage, lookImage, standImage, turnImage, restImage];
 
-export function StudyCompanion({ scene, answered = 0, correct = 0, children }: { scene: 'home' | 'result'; answered?: number; correct?: number; children?: ReactNode }) {
+export function StudyCompanion({ scene, answered = 0, correct = 0, children, compact = false }: { scene: 'home' | 'result'; answered?: number; correct?: number; children?: ReactNode; compact?: boolean }) {
   const [enabled, setEnabled] = useState(isStudyCompanionEnabled);
   const [pose] = useState(() => poses[Math.floor(Math.random() * poses.length)]);
   const [messageVariant] = useState(() => Math.random());
@@ -23,10 +23,10 @@ export function StudyCompanion({ scene, answered = 0, correct = 0, children }: {
     return () => { window.removeEventListener(STUDY_COMPANION_EVENT, refresh); window.removeEventListener('storage', refresh); };
   }, []);
   if (!enabled && !children) return null;
-  return <aside className={`study-companion study-companion--${scene}${children ? ' study-companion--summary' : ''}${!enabled ? ' study-companion--no-dog' : ''}`} aria-label="学習応援">
+  return <aside className={`study-companion study-companion--${scene}${children ? ' study-companion--summary' : ''}${compact ? ' study-companion--compact' : ''}${!enabled ? ' study-companion--no-dog' : ''}`} aria-label="学習応援">
     {children ?? <p className="study-companion__bubble">{scene === 'home' ? companionGreeting(messageVariant) : companionPraise(answered, correct, messageVariant)}</p>}
     {enabled && (children ? <div className="study-companion__dog">
-      <p className="study-companion__bubble">{companionGreeting(messageVariant)}</p>
+      {!compact ? <p className="study-companion__bubble">{companionGreeting(messageVariant)}</p> : null}
       <img src={pose} alt="" draggable={false} />
     </div> : <img src={pose} alt="" draggable={false} />)}
   </aside>;

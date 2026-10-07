@@ -1,11 +1,12 @@
 import type { AnswerLog, AppData, Question } from '../types';
 import { toLocalDateKey } from './date';
 import { getReviewDueAt, isReviewTarget } from './reviewTargets';
+import { studyDay } from './studyPlans';
 
-export function getDailyAnswerCounts(logs: readonly AnswerLog[]): Map<string, number> {
+export function getDailyAnswerCounts(logs: readonly AnswerLog[], timeZone?: string): Map<string, number> {
   const counts = new Map<string, number>();
   for (const log of logs) {
-    const key = toLocalDateKey(log.answeredAt);
+    const key = log.studyDay || (timeZone ? studyDay(log.answeredAt, timeZone) : toLocalDateKey(log.answeredAt));
     if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return counts;

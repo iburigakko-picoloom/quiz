@@ -1,4 +1,7 @@
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
+import { CloudSessionReadError, verifiedCloudAccess, watchCloudSession, type CloudAccessTokenResult } from './cloudAuthAccess';
+export type { CloudAccessTokenResult } from './cloudAuthAccess';
+import { accountLocalStorage, assertAccountNetworkCurrent, getAccountStorageSession, validateLocalAccountIdentity, type LocalAccountIdentity } from './accountStorage';
 import { beginLineLinkAttempt, clearLineLinkAttempt } from './lineAuthReturn';
 import { getLineAvatarUrl } from './lineAvatar';
 import { lineWebLoginQuery } from './linePwaLogin';
@@ -18,10 +21,46 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
 
 export const cloudConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const cloudAuthStorageKey = supabaseUrl ? `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token` : '';
+/** Local storage selection only. This cache never authorizes network access;
+ * getCloudAccessToken still verifies the exact token with the Auth server. */
+export function getCachedCloudAccountIdentity(): LocalAccountIdentity | null {
+  if (!cloudConfigured || typeof globalThis.localStorage === 'undefined') return null;
+  const raw = globalThis.localStorage.getItem(cloudAuthStorageKey);
+  if (raw === null) return null;
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { throw new Error('ログインの保存状態を確認できません。端末データは保持しています。'); }
+  const session = value as { access_token?: unknown; user?: { id?: unknown; is_anonymous?: unknown } } | null;
+  if (!session?.user || session.user.is_anonymous === true) return null;
+  if (typeof session.access_token !== 'string' || typeof session.user.id !== 'string') throw new Error('ログインの保存状態を確認できません。端末データは保持しています。');
+  return validateLocalAccountIdentity({ project: new URL(supabaseUrl).origin, userId: session.user.id });
+}
+export function localIdentityForCloudSession(session: Session | null): LocalAccountIdentity | null {
+  return cloudConfigured && session?.user && !session.user.is_anonymous ? { project: new URL(supabaseUrl).origin, userId: session.user.id } : null;
+}
+/** Check immediately before the SDK transmits data. A queued RPC assembled
+ * under A must never acquire B's token after an auth change in another tab. */
+async function accountGuardedCloudFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+  if (url.origin === new URL(supabaseUrl).origin && !url.pathname.startsWith('/auth/v1/')) {
+    assertAccountNetworkCurrent(getCachedCloudAccountIdentity());
+    const owner = getAccountStorageSession()?.identity;
+    if (owner) {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      const bearer = headers.get('Authorization')?.replace(/^Bearer\s+/iu, '') ?? '';
+      let subject: unknown;
+      try { subject = JSON.parse(atob(bearer.split('.')[1].replace(/-/gu, '+').replace(/_/gu, '/'))).sub; } catch { /* Fail closed below. */ }
+      if (subject !== owner.userId) throw new Error('アカウントが変わりました。元の端末データは保持しています。');
+    }
+  }
+  return fetch(input, init);
+}
 const nativeAuthPlatform = isNativeAuthPlatform();
 export const cloudClient = cloudConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
+      global: { fetch: accountGuardedCloudFetch },
       auth: {
+        storageKey: cloudAuthStorageKey,
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: !nativeAuthPlatform,
@@ -39,6 +78,8 @@ export { onNativeAuthResult };
 export type { NativeAuthResultEvent, NativeAuthReturnTarget };
 
 export interface CloudQuestion {
+  logicalId?: string;
+  contentRevision?: string;
   distractors?: string[];
   shuffleChoices?: boolean;
   question: string;
@@ -53,6 +94,7 @@ export interface CloudQuestion {
 }
 
 export interface CloudProblemSet {
+  versionId?: string;
   folderPath?: SharedFolderPart[];
   id: string;
   localSetId: string;
@@ -88,6 +130,7 @@ export interface CloudGroupMember {
 }
 
 export interface CloudPublishResult {
+  versionId?: string;
   id: string;
   shareToken: string;
   visibility: ProblemSetVisibility;
@@ -95,7 +138,16 @@ export interface CloudPublishResult {
 
 export function getCloudSession() {
   if (!cloudClient) return Promise.resolve<Session | null>(null);
-  return cloudClient.auth.getSession().then(({ data }) => data.session);
+  return cloudClient.auth.getSession().then(({ data, error }) => { if (error) throw new CloudSessionReadError(error); return data.session; });
+}
+
+function cachedCloudDisplaySession(): Session | null {
+  if (!getCachedCloudAccountIdentity()) return null;
+  // Display only. All network credentials still pass exact-token verification.
+  return JSON.parse(globalThis.localStorage.getItem(cloudAuthStorageKey)!) as Session;
+}
+export function onCloudSessionSnapshot(callback: (session: Session | null) => void) {
+  return watchCloudSession({ read: getCloudSession, cached: cachedCloudDisplaySession, subscribe: onCloudAuthStateChange, emit: callback });
 }
 
 export function onCloudAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void) {
@@ -168,57 +220,19 @@ export async function initializeCloudNativeAuth(): Promise<() => Promise<void>> 
   return startNativeAuthListener(cloudClient);
 }
 
-export type CloudAccessTokenResult =
-  | { ok: true; accessToken: string; userId: string }
-  | {
-      ok: false;
-      reason: 'not-configured' | 'signed-out' | 'validation-failed';
-      message: string;
-    };
-
 export async function getCloudAccessToken(): Promise<CloudAccessTokenResult> {
   if (!cloudClient) {
     return { ok: false, reason: 'not-configured', message: 'クラウド接続が設定されていません。' };
   }
 
-  try {
-    const { data: sessionData, error: sessionError } = await cloudClient.auth.getSession();
-    const session = sessionData.session;
-    if (sessionError) {
-      return {
-        ok: false,
-        reason: 'validation-failed',
-        message: 'ログイン状態を確認できませんでした。通信状態を確認して、もう一度お試しください。',
-      };
-    }
-    if (!session?.access_token || session.user.is_anonymous) {
-      return { ok: false, reason: 'signed-out', message: 'クラウド同期を使うにはログインが必要です。' };
-    }
-
-    // getSession() alone reads client storage. Validate this exact JWT with the
-    // Auth server before another service uses it as a Bearer credential.
-    const { data: userData, error: userError } = await cloudClient.auth.getUser(session.access_token);
-    if (userError || !userData.user || userData.user.is_anonymous || userData.user.id !== session.user.id) {
-      return {
-        ok: false,
-        reason: 'validation-failed',
-        message: 'ログイン状態を確認できませんでした。通信状態を確認して、もう一度ログインしてください。',
-      };
-    }
-
-    return { ok: true, accessToken: session.access_token, userId: userData.user.id };
-  } catch {
-    return {
-      ok: false,
-      reason: 'validation-failed',
-      message: 'ログイン状態を確認できませんでした。通信状態を確認して、もう一度お試しください。',
-    };
-  }
+  return verifiedCloudAccess(cloudClient.auth,
+    userId => assertAccountNetworkCurrent({ project: new URL(supabaseUrl).origin, userId }),
+    () => getCachedCloudAccountIdentity()?.userId ?? null);
 }
 
 export async function signOutCloud(): Promise<void> {
   const client = requireCloudClient();
-  const { error } = await client.auth.signOut();
+  const { error } = await client.auth.signOut({ scope: 'local' });
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
@@ -282,7 +296,7 @@ export async function publishLocalProblemSet(params: {
   const questions = params.data.questions.filter((item) => item.setId === params.setId);
   if (questions.length === 0) throw new Error('問題がないセットは共有できません。');
 
-  const { data, error } = await client.rpc('publish_problem_set', {
+  const payload = {
     p_set: {
       local_set_id: problemSet.id,
       ...(params.folderPath !== undefined ? { folder_path: params.folderPath } : params.includeFolder ? { folder_path: localFolderPath(params.data.folders, problemSet.folderId) } : {}),
@@ -299,6 +313,7 @@ export async function publishLocalProblemSet(params: {
       add_destinations: params.addDestinations ?? false,
     },
     p_questions: questions.map((question, position) => ({
+      logical_id: question.logicalId ?? question.origin?.logicalId ?? question.id,
       position,
       question: question.question,
       choices: question.choices,
@@ -312,14 +327,20 @@ export async function publishLocalProblemSet(params: {
       category: question.category,
       difficulty: question.difficulty,
     })),
-  });
+  };
+  let response = await client.rpc('publish_problem_set_versioned', payload);
+  // An unprepared server retains existing publication behavior. Such copies
+  // carry no version and cannot participate in common-version progress.
+  if (response.error?.code === 'PGRST202' || response.error?.code === '42883') response = await client.rpc('publish_problem_set', payload);
+  const { data, error } = response;
   if (error) throw new Error(toFriendlyCloudError(error.message));
-  const value = data as { id?: unknown; share_token?: unknown; visibility?: unknown } | null;
+  const value = data as { id?: unknown; share_token?: unknown; visibility?: unknown; version_id?: unknown } | null;
   if (!value || typeof value.id !== 'string' || typeof value.share_token !== 'string') {
     throw new Error('共有結果を確認できませんでした。');
   }
   return {
     id: value.id,
+    versionId: typeof value.version_id === 'string' ? value.version_id : undefined,
     shareToken: value.share_token,
     visibility: normalizeVisibility(value.visibility),
   };
@@ -382,10 +403,13 @@ export async function unpublishCloudProblemSet(setId: string): Promise<void> {
 
 export async function getSharedProblemSet(setId: string, shareToken = ''): Promise<CloudProblemSet> {
   const client = requireCloudClient();
-  const { data, error } = await client.rpc('get_shared_problem_set', {
+  const payload = {
     p_set_id: setId,
     p_share_token: shareToken || null,
-  });
+  };
+  let response = await client.rpc('get_shared_problem_set_versioned', payload);
+  if (response.error?.code === 'PGRST202' || response.error?.code === '42883') response = await client.rpc('get_shared_problem_set', payload);
+  const { data, error } = response;
   if (error) throw new Error(toFriendlyCloudError(error.message));
   const value = data as Record<string, unknown> | null;
   if (!value || typeof value.id !== 'string') throw new Error('問題セットを表示できません。リンクを確認してください。');
@@ -466,6 +490,18 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
+export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
+  const access = await getCloudAccessToken();
+  if (!access.ok || access.userId !== expectedUserId) throw new Error('アカウントが変更されています。開き直してください。');
+  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, { method: 'POST', headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${access.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(params), redirect: 'error', signal: controller.signal });
+    if ((await getCloudSession())?.user.id !== expectedUserId) throw new Error('アカウントが変更されています。');
+    if (!response.ok) throw new Error(response.status === 404 ? '共有進捗はサーバーの準備待ちです。個人の回答は共有されていません。' : '共有進捗を確認できません。共有状態・会員資格・公開版を開き直して確認してください。');
+    return response.json();
+  } finally { clearTimeout(timeout); }
+}
+
 export async function renameCloudGroup(groupId: string, name: string, previousName: string): Promise<string> {
   const nextName = name.trim();
   if (!groupId || !nextName || nextName.length > 60) throw new Error('グループ名は1〜60文字で入力してください。');
@@ -521,12 +557,15 @@ function mapProblemSetRow(row: Record<string, unknown>): CloudProblemSet {
 
 function mapProblemSetJson(value: Record<string, unknown>): CloudProblemSet {
   const result = mapProblemSetRow(value);
+  result.versionId = typeof value.version_id === 'string' ? value.version_id : undefined;
   const questions = value.questions;
   if (Array.isArray(questions)) {
     result.questions = questions.map((item) => {
       const row = item as Record<string, unknown>;
       const answerIndexes = row.answer_indexes ?? row.answerIndexes;
       return {
+        logicalId: typeof row.logical_id === 'string' ? row.logical_id : undefined,
+        contentRevision: typeof row.content_revision === 'string' ? row.content_revision : undefined,
         question: String(row.question ?? ''),
         choices: Array.isArray(row.choices) ? row.choices.map(String) : [],
         distractors: Array.isArray(row.distractors) ? row.distractors.filter((text): text is string => typeof text === 'string') : undefined,
@@ -566,10 +605,10 @@ function normalizeGroupRole(value: unknown): CloudGroup['role'] {
 
 function getInstallationId(): string {
   const key = 'quizMake:cloud:installationId';
-  const stored = window.localStorage.getItem(key);
+  const stored = accountLocalStorage.getItem(key);
   if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(stored)) return stored;
   const value = crypto.randomUUID();
-  window.localStorage.setItem(key, value);
+  accountLocalStorage.setItem(key, value);
   return value;
 }
 

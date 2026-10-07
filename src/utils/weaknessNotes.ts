@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 import type { AppData, Question } from '../types';
 import { withCoordinatedDataMutation } from './dataCoordination';
 import { advanceLocalDataRevision } from './localDataRevision';

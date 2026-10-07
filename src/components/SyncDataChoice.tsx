@@ -1,3 +1,5 @@
+import './SyncDataChoice.css';
+
 interface SyncDataChoiceProps {
   name: string;
   value: string;

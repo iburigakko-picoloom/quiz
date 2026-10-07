@@ -14,8 +14,7 @@ import {
   cloudConfigured,
   deleteCloudAccount,
   getCloudDisplayName,
-  getCloudSession,
-  onCloudAuthStateChange,
+  onCloudSessionSnapshot,
   sendMagicLink,
   signOutCloud,
   updateCloudDisplayName,
@@ -34,15 +33,17 @@ interface SettingsScreenProps {
   onImportBackup: (file: File) => Promise<string | null>;
   onClearAll: () => Promise<boolean>;
   onOpenSync: () => void;
+  onOpenSyncSettings: () => void;
   onOpenPrivacy: () => void;
   onOpenGuide: () => void;
 }
 
-export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBackup, onClearAll, onOpenSync, onOpenPrivacy, onOpenGuide }: SettingsScreenProps) {
+export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBackup, onClearAll, onOpenSync, onOpenSyncSettings, onOpenPrivacy, onOpenGuide }: SettingsScreenProps) {
   const [sound, setSound] = useState(isAnswerSoundEnabled);
   const [companion, setCompanion] = useState(isStudyCompanionEnabled);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [message, setMessage] = useState('');
+  const [preferenceBusy, setPreferenceBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
@@ -57,8 +58,10 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
   useEffect(() => {
     if (!cloudConfigured) return;
     let active = true;
+    let sessionRevision = 0;
     const applySession = async (value: Session | null) => {
       if (!active) return;
+      const revision = ++sessionRevision;
       setSession(value);
       setAuthReady(true);
       if (!value) {
@@ -68,13 +71,12 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
       const fallback = value.user.email?.split('@')[0] ?? 'Quiz Make ユーザー';
       try {
         const storedName = await getCloudDisplayName();
-        if (active) setDisplayName(storedName || fallback);
+        if (active && revision === sessionRevision) setDisplayName(storedName || fallback);
       } catch {
-        if (active) setDisplayName(fallback);
+        if (active && revision === sessionRevision) setDisplayName(fallback);
       }
     };
-    void getCloudSession().then((value) => void applySession(value));
-    const unsubscribe = onCloudAuthStateChange((_event, value) => void applySession(value));
+    const unsubscribe = onCloudSessionSnapshot((value) => void applySession(value));
     return () => {
       active = false;
       unsubscribe();
@@ -161,20 +163,21 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
       <div className="settings-screen">
         <header className="settings-screen__header">
           {page ? <BackButton onClick={onBack} /> : null}
-          <h1>{page === 'account' ? 'アカウント' : page === 'transfer' ? 'インポート・エクスポート' : page === 'backups' ? 'バックアップ' : page === 'logout' ? 'ログアウト' : '設定'}</h1>
+          <h1>{page === 'account' ? 'アカウント' : page === 'transfer' ? '端末データの削除' : page === 'backups' ? 'バックアップ・復元' : page === 'logout' ? 'ログアウト' : '設定'}</h1>
         </header>
 
         <main className="settings-screen__body">
           {!page ? <>
             <SettingsRow icon={<AccountAvatar userId={session?.user.id} />} title={session ? displayName || 'アカウント' : '未ログイン'} detail={session ? 'ログイン中' : undefined} arrow onClick={() => onNavigate('account')} />
             <section className="settings-section"><div className="settings-section__heading"><h2>学習</h2></div>
-              <label className="settings-row"><span className="settings-row__icon"><SettingsIcon kind="companion" /></span><span className="settings-row__text"><strong>学習応援キャラクター</strong></span><input type="checkbox" role="switch" checked={companion} onChange={(event) => { try { setStudyCompanionEnabled(event.target.checked); setCompanion(event.target.checked); setMessage(''); } catch { setMessage('設定を保存できませんでした。'); } }} /></label>
-              <label className="settings-row"><span className="settings-row__icon"><SettingsIcon kind="sound" /></span><span className="settings-row__text"><strong>解答効果音</strong></span><input type="checkbox" role="switch" checked={sound} onChange={(event) => { try { setAnswerSoundEnabled(event.target.checked); setSound(event.target.checked); setMessage(''); if (event.target.checked) { prepareAnswerAudio(); playAnswerFeedback('correct'); } } catch { setMessage('設定を保存できませんでした。'); } }} /></label>
+              <label className="settings-row"><span className="settings-row__icon"><SettingsIcon kind="companion" /></span><span className="settings-row__text"><strong>学習応援キャラクター</strong></span><input type="checkbox" role="switch" checked={companion} disabled={preferenceBusy} onChange={(event) => { const enabled=event.target.checked; setPreferenceBusy(true); void setStudyCompanionEnabled(enabled).then(()=>{setCompanion(enabled);setMessage('')}).catch(()=>setMessage('設定を保存できませんでした。')).finally(()=>setPreferenceBusy(false)); }} /></label>
+              <label className="settings-row"><span className="settings-row__icon"><SettingsIcon kind="sound" /></span><span className="settings-row__text"><strong>解答効果音</strong></span><input type="checkbox" role="switch" checked={sound} disabled={preferenceBusy} onChange={(event) => { const enabled=event.target.checked; if(enabled)prepareAnswerAudio(); setPreferenceBusy(true); void setAnswerSoundEnabled(enabled).then(()=>{setSound(enabled);setMessage('');if(enabled)playAnswerFeedback('correct')}).catch(()=>setMessage('設定を保存できませんでした。')).finally(()=>setPreferenceBusy(false)); }} /></label>
             </section>
             <section className="settings-section"><div className="settings-section__heading"><h2>データ</h2></div>
               <SettingsRow icon={<SettingsIcon kind="sync" />} title="同期" arrow onClick={onOpenSync} />
-              <SettingsRow icon={<SettingsIcon kind="backup" />} title="バックアップ" arrow onClick={() => onNavigate('backups')} />
-              <SettingsRow icon={<SettingsIcon kind="transfer" />} title="インポート・エクスポート" arrow onClick={() => onNavigate('transfer')} />
+              <SettingsRow icon={<SettingsIcon kind="sync" />} title="同期設定" arrow onClick={onOpenSyncSettings} />
+              <SettingsRow icon={<SettingsIcon kind="backup" />} title="バックアップと復旧" arrow onClick={() => onNavigate('backups')} />
+              <SettingsRow icon={<TrashIcon />} title="端末データの削除" arrow onClick={() => onNavigate('transfer')} />
             </section>
           </> : null}
           {page === 'account' ? <>
@@ -215,7 +218,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
           <SettingsRow icon={<SettingsIcon kind="sync" />} title="同期" arrow onClick={onOpenSync} />
           </> : null}
 
-          {page === 'transfer' || page === 'backups' ? <>
+          {page === 'backups' ? <>
           <section className="settings-section" aria-labelledby="settings-data-title">
             <div className="settings-section__heading"><h2 id="settings-data-title">データ管理</h2></div>
             <SettingsRow icon={<UploadIcon />} title="アプリデータを読み込む" onClick={() => fileInputRef.current?.click()} />
@@ -250,7 +253,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
         <ConfirmDialog
           open={clearConfirmOpen}
           title="端末の学習データを削除しますか？"
-          message="フォルダ、問題、回答記録、復習状態、詳細解説、苦手メモ、AIへの依頼履歴、カテゴリーノートをこの端末から削除します。自動同期はOFFになります。クラウドデータと保存済みバックアップは残ります。バックアップも消す場合は別途削除してください。"
+          message="フォルダ、問題、回答記録、復習状態、追加解説・メモ、苦手メモ、AIへの依頼履歴、カテゴリーノートをこの端末から削除します。自動同期はOFFになります。クラウドデータと保存済みバックアップは残ります。バックアップも消す場合は別途削除してください。"
           confirmLabel={clearBusy ? '削除中…' : '学習データを削除'}
           busy={clearBusy}
           onCancel={() => setClearConfirmOpen(false)}

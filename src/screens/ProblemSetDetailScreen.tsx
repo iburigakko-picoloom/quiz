@@ -37,6 +37,7 @@ interface ProblemSetDetailScreenProps {
   onOpenNoteList: () => void;
   onOpenMaterials?: () => void;
   onShare: () => void;
+  onCreatePlan: () => void;
   onToggleStudyCompleted: (setId: string) => Promise<boolean>;
   onStartSession: (params: {
     questions: Question[];
@@ -58,6 +59,7 @@ export function ProblemSetDetailScreen({
   onOpenNoteList,
   onOpenMaterials,
   onShare,
+  onCreatePlan,
   onToggleStudyCompleted,
   onStartSession,
 }: ProblemSetDetailScreenProps) {
@@ -162,11 +164,10 @@ export function ProblemSetDetailScreen({
             <section className="quiz-detail__start-panel" aria-labelledby="quiz-detail-start-title">
               <h2 id="quiz-detail-start-title" className="sr-only">出題条件と学習開始</h2>
 
-              <section className="quiz-detail__filters" aria-labelledby="quiz-detail-filter-title">
-                <div className="quiz-detail__filters-heading">
-                  <span id="quiz-detail-filter-title">{'\u51fa\u984c\u6761\u4ef6'}</span>
-                </div>
+              <details className="quiz-detail__filters" open>
+                <summary className="quiz-detail__conditions-summary">出題条件：{selectedLabel}・{reviewFilterLabel}・{filteredStartQuestions.length}問</summary>
                 <div className="quiz-detail__filters-body">
+                  {questions.some(question => question.category.trim() && question.category !== '未分類') ? <>
                   <div className="quiz-detail__segment-caption">{'\u5206\u985e'}</div>
                   <div className="quiz-detail__segments" aria-label={'\u5206\u985e\u4e00\u89a7'}>
                     {categories.map((item, index) => {
@@ -185,6 +186,7 @@ export function ProblemSetDetailScreen({
                       );
                     })}
                   </div>
+                  </> : null}
 
                   <div className="quiz-detail__segment-caption">Level</div>
                   <div className="quiz-detail__segments" aria-label={'Level\u6761\u4ef6'}>
@@ -201,7 +203,7 @@ export function ProblemSetDetailScreen({
                     ))}
                   </div>
                 </div>
-              </section>
+              </details>
 
               {filteredStartQuestions.length === 0 ? (
                 <p className="quiz-detail__empty-condition">{'\u3053\u306e\u6761\u4ef6\u306b\u8a72\u5f53\u3059\u308b\u554f\u984c\u304c\u3042\u308a\u307e\u305b\u3093'}</p>
@@ -241,6 +243,7 @@ export function ProblemSetDetailScreen({
 
             <section className="quiz-detail__body">
               <div className="quiz-detail__entry-grid">
+                <button type="button" className="quiz-detail__list-entry" onClick={onCreatePlan}><strong>この問題セットで計画を作成</strong><b aria-hidden="true">›</b></button>
                 {onOpenMaterials ? <button type="button" className="quiz-detail__list-entry" onClick={onOpenMaterials}><strong>資料</strong><b aria-hidden="true">›</b></button> : null}
                 <button type="button" className="quiz-detail__list-entry" onClick={onOpenProblemList}>
                   <span>
@@ -251,7 +254,7 @@ export function ProblemSetDetailScreen({
                 {(
                   <button type="button" className="quiz-detail__list-entry quiz-detail__note-list-entry" onClick={onOpenNoteList}>
                     <span>
-                      <strong>詳細解説一覧</strong>
+                      <strong>追加解説・メモ一覧</strong>
                     </span>
                     <b aria-hidden="true">{'\u203a'}</b>
                   </button>

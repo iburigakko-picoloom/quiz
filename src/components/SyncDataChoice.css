@@ -1,0 +1,13 @@
+.sync-data-choices { display: grid; gap: 14px; border: 0; margin: 20px 0 0; padding: 0; min-width: 0; }
+.sync-data-choice { display: flex; align-items: center; gap: 20px; padding: 16px 18px; min-height: 108px; border: 1px solid #cdd1d6; border-radius: 9px; background: #fff; cursor: pointer; text-align: left; color: #142032; }
+.sync-data-choice--selected { border: 2px solid #1689ed; padding: 15px 17px; background: #eef7ff; }
+.sync-data-choice input { appearance: none; flex: 0 0 28px; width: 28px; height: 28px; margin: 0; border: 2px solid #8c949d; border-radius: 50%; background: #fff; }
+.sync-data-choice input:checked { border-color: #1689ed; background: radial-gradient(circle, #1689ed 0 8px, transparent 9px); }
+.sync-data-choice:focus-within { outline: 3px solid #80bfff; outline-offset: 3px; }
+.sync-data-choice:has(input:disabled) { cursor: default; }
+.sync-data-choice__content { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.sync-data-choice__content strong { font-size: 20px; line-height: 1.4; }
+.sync-data-choice__content span, .sync-data-choice__content small { font-size: 14px; color: #586574; line-height: 1.5; }
+.sync-data-choice__content .sync-data-choice__note { font-size: 12px; }
+.sync-choice-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sync-selection-note { text-align: center; color: #697482; line-height: 1.6; }

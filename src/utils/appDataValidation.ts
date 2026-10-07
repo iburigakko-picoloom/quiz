@@ -12,6 +12,7 @@ import type {
 import { normalizeFolderHierarchy } from './folderHierarchy';
 import { isFolderColor } from './folderColors';
 import { MAX_QUESTION_DETAIL_IMAGES } from './imageLimits';
+import { validDay, validTimeZone } from './studyPlans';
 
 export type AppDataNormalizationResult =
   | { ok: true; data: AppData }
@@ -122,6 +123,11 @@ function normalizeProblemSets(
     copyOptionalString(value, item, 'audience');
     copyOptionalString(value, item, 'difficulty');
     copyOptionalString(value, item, 'sourceSetId');
+    copyOptionalString(value, item, 'sourceVersionId');
+    if (value.sourceManifest !== undefined) {
+      if (!Array.isArray(value.sourceManifest) || !value.sourceManifest.every(row => isRecord(row) && isNonEmptyString(row.logicalId) && isNonEmptyString(row.contentRevision))) return invalid(`problemSets[${index}].sourceManifest が不正です。`);
+      item.sourceManifest = value.sourceManifest.map(row => ({ logicalId: row.logicalId as string, contentRevision: row.contentRevision as string }));
+    }
     copyOptionalString(value, item, 'sourceOwnerId');
     copyOptionalString(value, item, 'sourceOwnerName');
     copyOptionalString(value, item, 'cloudSetId');
@@ -180,6 +186,12 @@ function normalizeQuestions(
       updatedAt: normalizeDate(value.updatedAt, createdAt),
     };
     if (typeof value.detailedExplanation === 'string') item.detailedExplanation = value.detailedExplanation;
+    if (isNonEmptyString(value.logicalId)) item.logicalId = value.logicalId;
+    if (value.origin !== undefined) {
+      const origin = value.origin;
+      if (!isRecord(origin) || !['setId', 'logicalId', 'publicationVersionId', 'contentRevision', 'importedContent'].every(key => isNonEmptyString(origin[key]))) return invalid(`questions[${index}].origin が不正です。`);
+      item.origin = { setId: String(origin.setId), logicalId: String(origin.logicalId), publicationVersionId: String(origin.publicationVersionId), contentRevision: String(origin.contentRevision), importedContent: String(origin.importedContent) };
+    }
     if (value.distractors !== undefined) {
       if (!Array.isArray(value.distractors) || value.distractors.length > 50 || !value.distractors.every((text) => isNonEmptyString(text) && text.length <= 10000)) return invalid(`questions[${index}].distractors が不正です。`);
       item.distractors = [...new Set(value.distractors as string[])];
@@ -278,17 +290,21 @@ function normalizeAnswerLogs(
     const selectedIndexes = Array.isArray(value.selectedIndexes)
       ? value.selectedIndexes
       : (Number.isInteger(value.selectedIndex) && (value.selectedIndex as number) >= 0 ? [value.selectedIndex] : []);
-    if (!selectedIndexes.every((item) => Number.isInteger(item) && item >= 0 && item < question.choices.length)) continue;
+    const choiceCount = Array.isArray(value.presentedChoices) ? value.presentedChoices.length : question.choices.length;
+    if (!selectedIndexes.every((item) => Number.isInteger(item) && item >= 0 && item < choiceCount)) continue;
     const indexes = [...new Set(selectedIndexes as number[])].sort((a, b) => a - b);
     const selectedIndex = indexes[0] ?? -1;
     const normalized: AnswerLog = {
+      ...(typeof value.questionRevision === 'string' ? { questionRevision: value.questionRevision } : {}),
+      ...(typeof value.studyDay === 'string' && validDay(value.studyDay) ? { studyDay: value.studyDay } : {}),
+      ...(typeof value.studyTimeZone === 'string' && validTimeZone(value.studyTimeZone) ? { studyTimeZone: value.studyTimeZone } : {}),
       id: value.id,
       questionId: question.id,
       setId: set.id,
       folderId: set.folderId,
       selectedIndex,
       ...(indexes.length > 0 ? { selectedIndexes: indexes } : {}),
-      ...(Array.isArray(value.presentedChoices) && value.presentedChoices.length === question.choices.length && value.presentedChoices.every((text) => typeof text === 'string') ? { presentedChoices: value.presentedChoices as string[] } : {}),
+      ...(Array.isArray(value.presentedChoices) && value.presentedChoices.every((text) => typeof text === 'string') ? { presentedChoices: value.presentedChoices as string[] } : {}),
       isCorrect: typeof value.isCorrect === 'boolean' ? value.isCorrect : false,
       answeredAt,
     };

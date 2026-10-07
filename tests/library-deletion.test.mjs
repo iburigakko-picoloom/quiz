@@ -25,6 +25,16 @@ const previousData = {
 };
 const nextData = { ...previousData, folders: [] };
 
+test('inbound material reference is checked inside deletion coordination and refuses every destructive write',async()=>{
+  let locked=false,writes=0;
+  const current={...previousData,problemSets:[{id:'owner',title:'資料の持ち主'},{id:'dependent',title:'参照する教材'}],questions:[{id:'q',setId:'dependent',materialReferences:[{materialId:'pdf-1',pageId:'p'}]}]};
+  const deps={waitForAppSaves:async()=>true,waitForNoteSaves:async()=>{},coordinate:async operation=>{locked=true;try{return await operation();}finally{locked=false;}},loadAppData:async()=>current,saveAppData:async()=>{writes++;return true;},deleteNotes:async()=>{writes++;},readMaterialIds:async ids=>{assert.equal(locked,true);assert.deepEqual(ids,['owner']);return new Set(['pdf-1']);}};
+  const result=await persistLibraryDeletion({buildPlan:()=>({nextData,problemSetIds:['owner']})},deps);
+  assert.equal(result.ok,false);assert.equal(result.reason,'referenced-material');assert.match(result.error.message,/参照する教材/);assert.equal(writes,0);
+  const together=await persistLibraryDeletion({buildPlan:()=>({nextData,problemSetIds:['owner','dependent']})},{...deps,readMaterialIds:async()=>new Set(['pdf-1'])});
+  assert.equal(together.ok,true);assert.equal(writes,2);
+});
+
 function createDependencies({ noteError = null, restoreSucceeds = true, coordinateError = null } = {}) {
   const calls = [];
   let saveCount = 0;

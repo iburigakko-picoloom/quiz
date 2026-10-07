@@ -1,6 +1,8 @@
 import type { AppData } from '../types';
 import { normalizeAppData } from './appDataValidation';
 import { recordSyncMetric } from './syncMetrics';
+import type { PreparedQuestionImageCopy } from './questionImageRecords';
+import { queueUserEditGeneration } from './userEditGeneration';
 
 export const APP_RECORD_STORES = ['appRecords', 'appRecordMeta', 'appOutbox', 'appRecordBackups', 'appPullStage', 'appRecordConflicts', 'categoryNotes', 'categoryNoteBackups', 'localProjections', 'questionImageBlobs', 'appPullMedia'] as const;
 export const APP_COLLECTIONS = ['folders', 'problemSets', 'questions', 'progress', 'answerLogs'] as const;
@@ -12,6 +14,8 @@ export type AppRecord = {
   collection: RecordCollection;
   id: string;
   raw: string | null;
+  /** Complete local value when raw is a chunk manifest. Never sent as an operation. */
+  logicalRaw?: string;
   position: number;
   serverRevision: number;
   localRevision: number;
@@ -25,6 +29,8 @@ export type AppOutboxOperation = {
   position: number;
   baseRevision: number;
   localRevision: number;
+  /** Exact acknowledged ancestor, retained while unsent changes coalesce. */
+  baseContent?: { raw: string | null; position: number };
 };
 export type AppRecordState = {
   schema: 1;
@@ -196,6 +202,9 @@ export async function readPreviousAppRecords(db: IDBDatabase): Promise<{ data: A
 export async function saveAppRecords(
   db: IDBDatabase, data: AppData, savedAt: string,
   migrationFallback?: () => { raw: string | null; savedAt: string | null },
+  imageCopies: readonly PreparedQuestionImageCopy[] = [],
+  extraCommit?: (transaction: IDBTransaction) => void,
+  userEdit = true,
 ): Promise<void> {
   const started = performance.now();
   const readTx = db.transaction('appRecordMeta', 'readonly');
@@ -228,14 +237,28 @@ export async function saveAppRecords(
   previous?.records.forEach(old => {
     if (APP_COLLECTIONS.some(name => name === old.collection) && old.raw !== null && !liveKeys.has(old.key)) changes.push({ ...old, raw: null, localRevision: revision });
   });
-  if (previous && changes.length === 0) { recordSyncMetric('recordSaveUnchanged'); return; }
+  for(const {image,descriptor,source} of imageCopies){
+    const original=previous?.records.get(appRecordKey('questionImages',source.id));
+    const originalDescriptor=original?.raw?JSON.parse(original.raw):null;
+    const key=appRecordKey('questionImages',image.id);
+    const target=data.questions.find(question=>question.id===image.questionId);
+    if(!originalDescriptor || originalDescriptor.questionId!==source.questionId || originalDescriptor.sha256!==source.sha256
+      || rows.has(key) || liveKeys.has(key) || image.id!==descriptor.id || image.questionId!==descriptor.questionId
+      || image.blob.size!==descriptor.size || image.blob.type!==descriptor.type || descriptor.sha256!==source.sha256
+      || !target || ![...(target.questionImageIds??[]),...(target.detailedAnswer?.imageIds??[])].includes(image.id)) {
+      throw new Error('コピー元の画像または保存先が変更されています。問題を確認してから再試行してください。');
+    }
+    liveKeys.add(key);
+    changes.push({key,collection:'questionImages',id:image.id,raw:JSON.stringify(descriptor),position:0,serverRevision:0,localRevision:revision});
+  }
+  if (previous && changes.length === 0 && !extraCommit) { recordSyncMetric('recordSaveUnchanged'); return; }
   const nextState: AppRecordState = { schema: 1, revision, commitId: crypto.randomUUID(), savedAt, counts };
   const fallback = !previous ? migrationFallback?.() : undefined;
   const operations = changes.map(row => ({
     operationId: crypto.randomUUID(), key: row.key, collection: row.collection, id: row.id,
     raw: row.raw, position: row.position, baseRevision: row.serverRevision, localRevision: revision,
   } satisfies AppOutboxOperation));
-  const tx = db.transaction([...APP_RECORD_STORES, LEGACY_STORE], 'readwrite');
+  const tx = db.transaction([...APP_RECORD_STORES, LEGACY_STORE, ...(extraCommit ? ['appDataBackups'] : [])], 'readwrite');
   const done = transactionDone(tx);
   const check = tx.objectStore('appRecordMeta').get('state');
   let conflict = false;
@@ -243,19 +266,40 @@ export async function saveAppRecords(
   check.onsuccess = () => {
     try {
     if (check.result?.commitId !== previous?.state.commitId) { conflict = true; tx.abort(); return; }
+    for(const {image,descriptor,source} of imageCopies){
+      const sourceBlob=tx.objectStore('questionImageBlobs').get(source.id);
+      sourceBlob.onsuccess=()=>{
+        try {
+          const original=sourceBlob.result;
+          if(!original || original.questionId!==source.questionId || original.blob?.size!==descriptor.size || original.blob?.type!==descriptor.type){conflict=true;tx.abort();return;}
+          tx.objectStore('questionImageBlobs').put(image,image.id);
+        } catch(error) { writeFailure=error;tx.abort(); }
+      };
+    }
     changes.forEach((row, index) => {
       const old = previous?.records.get(row.key);
       if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, row.key);
       tx.objectStore('appRecords').put(row, row.key);
       // Coalesce unsent changes. A transport must durably freeze a batch before
       // sending and only acknowledge the exact operationId it sent.
-      tx.objectStore('appOutbox').put(operations[index], row.key);
+      const pending = tx.objectStore('appOutbox').get(row.key);
+      pending.onsuccess = () => {
+        try {
+          const prior = pending.result as AppOutboxOperation | undefined;
+          const baseContent = prior
+            ? (prior.baseRevision === row.serverRevision ? prior.baseContent : undefined)
+            : old && old.serverRevision > 0 ? { raw: old.raw, position: old.position } : undefined;
+          tx.objectStore('appOutbox').put({ ...operations[index], ...(baseContent ? { baseContent } : {}) }, row.key);
+        } catch (error) { writeFailure = error; tx.abort(); }
+      };
       rows.set(row.key, row);
     });
     tx.objectStore('appRecordMeta').put(nextState, 'state');
     if (!previous) tx.objectStore(LEGACY_STORE).put(1, RECORD_AUTHORITY_KEY);
     if (previous) tx.objectStore('appRecordMeta').put(previous.state, 'previousState');
     if (fallback?.raw) tx.objectStore('appRecordMeta').put(fallback, 'migrationFallback');
+    if(changes.length&&userEdit)queueUserEditGeneration(tx);
+    extraCommit?.(tx);
     } catch (error) { writeFailure = error; tx.abort(); }
   };
   try { await done; } catch (error) {
@@ -263,8 +307,8 @@ export async function saveAppRecords(
     if (conflict) throw new Error('別のタブで保存レコードが変更されました。再読み込みしてください。');
     throw writeFailure ?? error;
   }
-  snapshots.set(db, { state: nextState, records: rows });
-  rememberAppRecordData(db, nextState.commitId, data);
+  if(extraCommit){snapshots.delete(db);materialized.delete(db);}
+  else {snapshots.set(db, { state: nextState, records: rows });rememberAppRecordData(db, nextState.commitId, data);}
   recordSyncMetric('recordCommit', performance.now() - started);
   changes.forEach(row => recordSyncMetric('recordWrite', 0, row.raw?.length ?? 0));
 }

@@ -20,8 +20,16 @@ test('account/project changes, invalid responses, HTTP failures and aborts never
   assert.throws(()=>createRecordSyncRpc(options({url:'https://other.supabase.co'})),/プロジェクト/);
   await assert.rejects(createRecordSyncRpc(options({access:async()=>({userId:'other',accessToken:'token'}),fetch:()=>assert.fail('must not send')})).pull(0),/アカウント/);
   await assert.rejects(createRecordSyncRpc(options({fetch:async()=>Response.json([])})).pull(0),/応答/);
-  for(const [status,code] of [[401,'authentication_required'],[403,'authentication_required'],[429,'rate_limited'],[404,'unavailable'],[500,'network']]) {
+  for(const [status,code] of [[400,'invalid_request'],[413,'payload_too_large'],[401,'authentication_required'],[403,'permission_denied'],[429,'rate_limited'],[404,'unavailable'],[500,'network']]) {
     await assert.rejects(createRecordSyncRpc(options({fetch:async()=>new Response('private server details',{status})})).push([]),error=>error.code===code&&!error.message.includes('private server details'));
   }
   await assert.rejects(createRecordSyncRpc(options({timeoutMs:5,fetch:async(_url,{signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(new Error('aborted'))))})).push([]),/aborted/);
+});
+test('RPC token expiry retries once with a verified rotated token and preserves exact frozen operation bytes',async()=>{
+  let calls=0;const seen=[];const ops=[{operationId:'frozen-operation',raw:'fixture'}];const rpc=createRecordSyncRpc(options({access:async()=>{calls++;if(calls===2)ops[0].raw='changed-during-token-refresh';return{userId:'owner',accessToken:calls===1?'old':'new'}},fetch:async(_url,init)=>{seen.push(init);return seen.length===1?new Response('',{status:401}):Response.json({code:'ok'})}}));
+  assert.equal((await rpc.push(ops)).code,'ok');assert.equal(seen.length,2);assert.equal(seen[0].body,seen[1].body);assert.equal(seen[0].headers.Authorization,'Bearer old');assert.equal(seen[1].headers.Authorization,'Bearer new');
+});
+test('permission errors do not refresh/retry and an account change after 401 never transmits new-account credentials',async()=>{
+  let calls=0,sends=0;const deny=createRecordSyncRpc(options({access:async()=>{calls++;return{userId:'owner',accessToken:'current'}},fetch:async()=>{sends++;return new Response('',{status:403})}}));await assert.rejects(deny.pull(0),e=>e.code==='permission_denied');assert.equal(calls,1);assert.equal(sends,1);
+  calls=0;sends=0;const changed=createRecordSyncRpc(options({access:async()=>({userId:++calls===1?'owner':'B',accessToken:'fixture'}),fetch:async()=>{sends++;return new Response('',{status:401})}}));await assert.rejects(changed.push([]),/アカウント/);assert.equal(sends,1);
 });

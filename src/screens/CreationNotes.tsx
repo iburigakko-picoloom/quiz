@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
 import type { AppData } from '../types';
 import { readClipboardText, writeClipboardText } from '../utils/nativePlatform';
 import { changeWeaknessNotes, detailBody, explanationPrompt, finishExplanationBatch, makeExplanationRequest, NOTES_EVENT, readExplanationBatch, readWeaknessNotes, rememberExplanationRequest, type ExplanationBatch, type WeaknessNote } from '../utils/weaknessNotes';
@@ -16,14 +17,17 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   onBackRef: { current: (()=>boolean) | null };
 }) {
   const pendingEdits = useRef(0);
+  const workKey=`creation-notes:${purpose}:${importOnly}`;
+  const recovered=useRestoredAccountWork<{view:'list'|'set'|'question'|'prompt'|'import';history:('list'|'set'|'question'|'prompt'|'import')[];setId:string;selectedId:string;selected:string[];showAll:boolean;tables:boolean;images:boolean;examples:boolean;paste:string;batch:ExplanationBatch|null;stage:'paste'|'review'}>(workKey);
   const [notes,setNotes]=useState<WeaknessNote[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
-  const [view,setView]=useState<'list'|'set'|'question'|'prompt'|'import'>(importOnly ? 'import' : 'list');
-  const [history,setHistory]=useState<(typeof view)[]>([]);
+  const [view,setView]=useState<'list'|'set'|'question'|'prompt'|'import'>(recovered?.view??(importOnly ? 'import' : 'list'));
+  const [history,setHistory]=useState<(typeof view)[]>(recovered?.history??[]);
   const [direction,setDirection]=useState<'forward'|'back'>('forward');
   // Orphan memos stay hidden, but are retained: a restore may bring their questions back.
-  const [setId,setSetId]=useState(''),[selectedId,setSelectedId]=useState(''),[selected,setSelected]=useState<string[]>([]),[showAll,setShowAll]=useState(false);
-  const [tables,setTables]=useState(true),[images,setImages]=useState(false),[examples,setExamples]=useState(true);
-  const [paste,setPaste]=useState(''),[batch,setBatch]=useState<ExplanationBatch|null>(null),[stage,setStage]=useState<'paste'|'review'>('paste'),[failed,setFailed]=useState(false);
+  const [setId,setSetId]=useState(recovered?.setId??''),[selectedId,setSelectedId]=useState(recovered?.selectedId??''),[selected,setSelected]=useState<string[]>(recovered?.selected??[]),[showAll,setShowAll]=useState(recovered?.showAll??false);
+  const [tables,setTables]=useState(recovered?.tables??true),[images,setImages]=useState(recovered?.images??false),[examples,setExamples]=useState(recovered?.examples??true);
+  const [paste,setPaste]=useState(recovered?.paste??''),[batch,setBatch]=useState<ExplanationBatch|null>(recovered?.batch??null),[stage,setStage]=useState<'paste'|'review'>(recovered?.stage??'paste'),[failed,setFailed]=useState(false);
+  useAccountWork(workKey,()=>({view,history,setId,selectedId,selected,showAll,tables,images,examples,paste,batch,stage}),async()=>{if(pendingEdits.current||busy||failed)throw new Error('メモの保存完了を待っています。');});
   const note=notes.find(n=>n.id===selectedId),question=data.questions.find(q=>q.id===note?.questionId);
   useEffect(()=>{const load=()=>{if(pendingEdits.current)return;try{setNotes(readWeaknessNotes());}catch{setError('メモを読み込めません。再読み込みしてください。');}};load();window.addEventListener(NOTES_EVENT,load);window.addEventListener('storage',load);return()=>{window.removeEventListener(NOTES_EVENT,load);window.removeEventListener('storage',load);};},[]);
   useEffect(()=>{onDirtyChange(failed||busy||Boolean(paste));return()=>onDirtyChange(false);},[failed,busy,paste,onDirtyChange]);
@@ -55,7 +59,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   const apply=async()=>{if(!batch||busy)return;setBusy(true);setError('');try{const verified=readExplanationBatch(paste);await onApplyBatch(verified);await finishExplanationBatch(verified);setPaste('');setBatch(null);setMessage(`${verified.replies.length}件を反映しました`);setHistory(setId?['list']:[]);setStage('paste');setView(importOnly?'import':setId?'set':'list');}catch(e){setError(e instanceof Error?e.message:'保存できませんでした。回答を残しています。');}finally{setBusy(false);}};
   const visibleNotes=purpose==='questions'?notes.filter(n=>hasAnsweredMemo(n,data)):notes;
   const inSet=visibleNotes.filter(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===setId)&&n.body.trim());
-  const title=view==='set'?data.problemSets.find(s=>s.id===setId)?.title:view==='prompt'?'AIへの依頼':view==='import'?'回答を取り込む':view==='question'?'解説・メモ':null;
+  const title=view==='set'?data.problemSets.find(s=>s.id===setId)?.title:view==='prompt'?'AIへの依頼':view==='import'?'回答を取り込む':view==='question'?'追加解説・メモ':null;
   const chooseAll=(id:string)=>{setSetId(id);const ns=visibleNotes.filter(n=>n.questionId&&n.body.trim()&&!n.draft&&(purpose==='questions'||n.resolvedBody!==n.body)&&data.questions.some(q=>q.id===n.questionId&&q.setId===id));setSelected(ns.map(n=>n.id));go('set');};
   return <section key={view} className={`weakness-workspace weakness-workspace--${direction}${view==='list'?' weakness-workspace--list':''}`} aria-label="苦手メモ">
     {title&&!importOnly?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}

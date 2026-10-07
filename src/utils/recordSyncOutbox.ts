@@ -1,5 +1,7 @@
 import type { AppOutboxOperation, AppRecord, AppRecordState } from './appRecordStorage';
 import { recordSyncMetric } from './syncMetrics';
+import { MAX_RECORD_BATCH_BYTES, SyncRecordTooLargeError } from './recordSyncSize';
+import { chunkFailure, chunkIds, parseChunkManifest, RECORD_CHUNK_GUARD_ID, RECORD_CHUNK_GUARD_RAW, validateChunkWire } from './recordChunkFormat';
 
 export type RecordSyncConnection = { project: string; userId: string; syncId: string };
 export type RecordPushBatch = { id: string; connection: RecordSyncConnection; operations: AppOutboxOperation[] };
@@ -7,7 +9,7 @@ export type RecordPushAcknowledgement = { code: 'ok'; revision: number; ack: Arr
 export const sameRecordSyncConnection = (a: RecordSyncConnection, b: RecordSyncConnection) =>
   a.project === b.project && a.userId === b.userId && a.syncId === b.syncId;
 
-const MAX_BATCH_BYTES = 900 * 1024; // Leave room for JSON and RPC parameter framing.
+const MAX_BATCH_BYTES = MAX_RECORD_BATCH_BYTES; // Leave room for JSON and RPC parameter framing.
 
 export class RecordSyncLocalChangedError extends Error {
   constructor() { super('差分の検証後に端末データが更新されました。最新の変更を再確認します。'); }
@@ -105,7 +107,13 @@ export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordS
   validateOperation?: (operation: AppOutboxOperation) => void;
 } = {}): Promise<RecordPushBatch | null> {
   await bindRecordSyncConnection(db, connection);
-  const tx = db.transaction(['appRecordMeta', 'appOutbox'], 'readwrite');
+  const probe = db.transaction(['appRecordMeta', 'appOutbox'], 'readonly');
+  const probed = done(probe);
+  const existingBatch = probe.objectStore('appRecordMeta').get('pushBatch');
+  const pendingCount = probe.objectStore('appOutbox').count();
+  await probed;
+  if (!existingBatch.result && pendingCount.result === 0) return null;
+  const tx = db.transaction(['appRecordMeta', 'appOutbox', 'appRecords'], 'readwrite');
   const completion = done(tx);
   let batch: RecordPushBatch | null = null;
   let failure: Error | undefined;
@@ -137,24 +145,54 @@ export async function freezeRecordPushBatch(db: IDBDatabase, connection: RecordS
       try {
         const cursor = pending.result;
         if (!cursor) { persist(); return; }
-        const operation = cursor.value as AppOutboxOperation;
+        // Ancestor evidence stays local; the wire request needs only the CAS revision.
+        const { baseContent: _baseContent, ...operation } = cursor.value as AppOutboxOperation;
         // A new attachment can arrive after asynchronous Storage preparation.
         // Abort before persisting a batch so preparation can retry next run.
         options.validateOperation?.(operation);
-        const size = new TextEncoder().encode(JSON.stringify(operation)).byteLength + 1;
-        if (size > MAX_BATCH_BYTES) {
-          failure = new Error('1レコードの同期サイズが大きすぎます。データは端末に保持しています。'); tx.abort(); return;
-        }
-        if (bytes + size > MAX_BATCH_BYTES) { persist(); return; }
-        bytes += size; operations.push(operation);
-        if (operations.length === 500) { persist(); return; }
-        cursor.continue();
+        const accept = () => {
+          const size = new TextEncoder().encode(JSON.stringify(operation)).byteLength + 1;
+          if (2 + size > MAX_BATCH_BYTES) {
+            failure = new SyncRecordTooLargeError(operation.collection, operation.id, 2 + size); tx.abort(); return;
+          }
+          if (bytes + size > MAX_BATCH_BYTES) { persist(); return; }
+          bytes += size; operations.push(operation);
+          if (operations.length === 500) { persist(); return; }
+          cursor.continue();
+        };
+        const manifest = parseChunkManifest(operation.raw,operation.collection,operation.id);
+        if (!manifest) { accept(); return; }
+        const dependencies=[RECORD_CHUNK_GUARD_ID,...chunkIds(manifest)];
+        let remaining=dependencies.length,ready=true;
+        dependencies.forEach((id,index)=>{
+          const key=JSON.stringify(['localStorage',id]);
+          const row=tx.objectStore('appRecords').get(key),queued=tx.objectStore('appOutbox').get(key);
+          queued.onsuccess=()=>{
+            try{
+              const dependency=row.result as AppRecord|undefined;
+              if(!dependency?.raw||(!queued.result&&dependency.serverRevision<1))throw chunkFailure();
+              validateChunkWire('localStorage',id,dependency.raw);
+              if(index===0?dependency.raw!==RECORD_CHUNK_GUARD_RAW:JSON.parse(dependency.raw).hash!==manifest.hashes[index-1])throw chunkFailure();
+              if(queued.result)ready=false;
+              if(--remaining===0){if(ready)accept();else cursor.continue()}
+            }catch(error){failure=error instanceof Error?error:chunkFailure();tx.abort()}
+          };
+        });
       } catch (error) { failure = error instanceof Error ? error : new Error(String(error)); tx.abort(); }
     };
   };
   try { await completion; } catch (error) { throw failure ?? error; }
   if (batch) recordSyncMetric('pushBatchFrozen');
   return batch;
+}
+
+/** A concurrent local save after an empty freeze must not be reported as done. */
+export async function hasPendingRecordPushOperations(db: IDBDatabase): Promise<boolean> {
+  const tx = db.transaction('appOutbox', 'readonly');
+  const completion = done(tx);
+  const request = tx.objectStore('appOutbox').count();
+  await completion;
+  return request.result > 0;
 }
 
 function validateAcknowledgement(batch: RecordPushBatch, response: RecordPushAcknowledgement): void {
@@ -204,7 +242,9 @@ export async function acknowledgeRecordPushBatch(
           if (pending.operationId === ack.operationId) tx.objectStore('appOutbox').delete(ack.key);
           else {
             // The remote now contains the sent ancestor of this newer edit.
-            tx.objectStore('appOutbox').put({ ...pending, baseRevision: Math.max(pending.baseRevision, ack.revision) }, ack.key);
+            const sent = batch.operations.find(operation => operation.key === ack.key)!;
+            tx.objectStore('appOutbox').put({ ...pending, baseRevision: Math.max(pending.baseRevision, ack.revision),
+              baseContent: { raw: sent.raw, position: sent.position } }, ack.key);
           }
         };
       }

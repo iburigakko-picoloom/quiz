@@ -1,15 +1,23 @@
+import { accountLocalStorage as localStorage, accountDatabaseName, assertAccountStorageCurrent } from './utils/accountStorage';
 import type { AppData } from './types';
+import type { PreparedQuestionImageCopy } from './utils/questionImageRecords';
 import { normalizeAppData } from './utils/appDataValidation';
 import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './utils/dataCoordination';
 import { advanceLocalDataRevision } from './utils/localDataRevision';
 import { hasPersistedSyncHistory } from './utils/syncState';
 import { readAppRecords, readPreviousAppRecords, saveAppRecords, upgradeAppRecordStores } from './utils/appRecordStorage';
+import { appSaveFailure, type AppSaveFailure } from './utils/appSaveFailure';
+import { cleanupNativeOriginals } from './utils/learningValueStorage';
 
 export const APP_DATA_STORAGE_KEY = 'quiz-make-app-data-v1';
 export const APP_DATA_FALLBACK_META_KEY = 'quiz-make-app-data-v1:fallback-saved-at';
 export const APP_DATA_EXPECTED_KEY = 'quiz-make-app-data-v1:expected';
 export const APP_DATA_RECOVERY_REQUIRED_KEY = 'quiz-make-app-data-v1:recovery-required';
 const APP_DATA_FALLBACK_RECORD_KEY = 'quiz-make-app-data-v1:fallback-record';
+async function cleanupLegacyAppData() {
+  const originals = Object.fromEntries([APP_DATA_STORAGE_KEY, APP_DATA_FALLBACK_META_KEY, APP_DATA_FALLBACK_RECORD_KEY].map(key => [key, localStorage.getItem(key)]));
+  await cleanupNativeOriginals(await openAppDb(), originals);
+}
 
 const APP_DB_NAME = 'quiz-make-app-data-v1';
 const APP_STORE_NAME = 'appData';
@@ -100,16 +108,19 @@ async function loadAppDataUnlocked(): Promise<AppData> {
     markAppDataExpectedBestEffort(indexedRecord.savedAt ?? fallbackRecord.savedAt ?? new Date().toISOString());
   }
 
-  if (preferredRaw !== fallbackRaw) {
-    safeLocalStorageRemove(APP_DATA_STORAGE_KEY);
-    safeLocalStorageRemove(APP_DATA_FALLBACK_META_KEY);
-    safeLocalStorageRemove(APP_DATA_FALLBACK_RECORD_KEY);
-  }
+  if (preferredRaw !== fallbackRaw) await cleanupLegacyAppData();
   return preferredData;
 }
 
 export function saveAppData(data: AppData): Promise<boolean> {
   return saveAppDataAsync(data);
+}
+
+/** A per-call result keeps concurrent saves' failure reasons separate. */
+export async function saveAppDataResult(data: AppData, options: { questionImages?: readonly PreparedQuestionImageCopy[] } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
+  let failure: AppSaveFailure | undefined;
+  const saved = await saveAppDataAsync(data, { ...options, onFailure: value => { failure = value; } });
+  return saved ? { ok: true } : { ok: false, failure: failure ?? appSaveFailure([{ stage: 'indexeddb', error: new Error() }]) };
 }
 
 export function establishCurrentAppDataAuthority(): boolean {
@@ -125,16 +136,17 @@ export function establishCurrentAppDataAuthority(): boolean {
 
 export async function saveAppDataAsync(
   data: AppData,
-  options: { coordinationLockHeld?: boolean } = {},
+  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[] } = {},
 ): Promise<boolean> {
-  if (options.coordinationLockHeld) return saveAppDataNow(data);
+  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure, options.questionImages);
   const queuedSave = appSaveQueue
     .catch(() => true)
     .then(async () => {
       try {
-        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data));
+        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data, options.onFailure, options.questionImages));
       } catch (error) {
         console.error('Refused to overwrite app data changed in another tab.', error);
+        try { options.onFailure?.(appSaveFailure([{ stage: 'coordination', error }])); } catch { /* Informational only. */ }
         return false;
       }
     });
@@ -150,28 +162,34 @@ export async function waitForPendingAppDataSaves(): Promise<boolean> {
   }
 }
 
-async function saveAppDataNow(data: AppData): Promise<boolean> {
+async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailure) => void, imageCopies: readonly PreparedQuestionImageCopy[] = []): Promise<boolean> {
   const normalized = normalizeAppData(data);
   if (!normalized.ok) {
     console.error('Refused to save invalid Quiz make data.');
+    try { onFailure?.(appSaveFailure([{ stage: 'validation', error: new Error() }], normalized.error)); } catch { /* Informational only. */ }
     return false;
   }
   const savedAt = new Date().toISOString();
+  const attempts: Array<{ stage: 'indexeddb' | 'fallback'; error: unknown }> = [];
 
   if (isIndexedDbAvailable()) {
     try {
-      await saveAppRecords(await openAppDb(), normalized.data, savedAt, getLocalFallbackRecord);
+      await saveAppRecords(await openAppDb(), normalized.data, savedAt, getLocalFallbackRecord, imageCopies);
       markAppDataExpectedBestEffort(savedAt);
-      safeLocalStorageRemove(APP_DATA_STORAGE_KEY);
-      safeLocalStorageRemove(APP_DATA_FALLBACK_META_KEY);
-      safeLocalStorageRemove(APP_DATA_FALLBACK_RECORD_KEY);
+      await cleanupLegacyAppData();
       advanceLocalDataRevision();
       return true;
     } catch (error) {
       console.error('Failed to save Quiz make data to IndexedDB.', error);
+      attempts.push({ stage: 'indexeddb', error });
     }
   }
 
+  // A native fallback cannot include the Blob half of an atomic image copy.
+  if(imageCopies.length){
+    try { onFailure?.(appSaveFailure(attempts.length?attempts:[{stage:'indexeddb',error:new Error('画像の保存領域を利用できません。')}])); } catch { /* Informational only. */ }
+    return false;
+  }
   try {
     const raw = JSON.stringify(normalized.data);
     // Keep payload and timestamp in one localStorage value so a quota failure
@@ -184,6 +202,8 @@ async function saveAppDataNow(data: AppData): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('Failed to save Quiz make data.', error);
+    attempts.push({ stage: 'fallback', error });
+    try { onFailure?.(appSaveFailure(attempts)); } catch { /* Informational only. */ }
     return false;
   }
 }
@@ -334,11 +354,12 @@ function isIndexedDbAvailable(): boolean {
 }
 
 export function openAppDb(): Promise<IDBDatabase> {
+  assertAccountStorageCurrent();
   if (!isIndexedDbAvailable()) return Promise.reject(new Error('IndexedDB is not available.'));
   if (appDbPromise) return appDbPromise;
 
   appDbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(APP_DB_NAME, 7);
+    const request = indexedDB.open(accountDatabaseName(APP_DB_NAME), 7);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(APP_STORE_NAME)) db.createObjectStore(APP_STORE_NAME);

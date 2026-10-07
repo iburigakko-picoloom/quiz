@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 import { advanceLocalDataRevision } from './localDataRevision';
 import { validMaterialRecord } from './materialModel';
 import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './dataCoordination';
@@ -5,12 +6,20 @@ import { hasPersistedSyncHistory } from './syncState';
 
 import { openCoLocatedNoteDb } from './noteRecordMigration';
 import { NOTE_RECORD_TRANSACTION_STORES, queueNoteRecordWrite, abortPendingNoteTransactions } from './auxiliaryRecordStorage';
+import { cleanupNativeOriginals } from './learningValueStorage';
 const NOTE_STORE_NAME = 'categoryNotes';
 const NOTE_BACKUP_STORE_NAME = 'categoryNoteBackups';
 const NOTE_STORAGE_OPERATION_TIMEOUT_MS = 4_500;
 export const CATEGORY_NOTE_KEY_PREFIX = 'quizMake:notes:';
 export const CATEGORY_NOTES_MANIFEST_KEY = 'quiz-make-note-storage-v1:manifest';
 export const CATEGORY_NOTES_RECOVERY_REQUIRED_KEY = 'quiz-make-note-storage-v1:recovery-required';
+export function getNoteBackupIssues(notes: Record<string,string>): string[] {
+  const manifest=readCategoryNotesManifest(),issues:string[]=[];
+  if(manifest.kind==='invalid' || manifest.kind==='missing' && hasPersistedSyncHistory())issues.push('ノートの保存一覧を確認できません。');
+  if(manifest.kind==='valid')for(const key of manifest.keys)if(notes[key]===undefined)issues.push(`ノート未収録: ${key}`);
+  if(isCategoryNotesRecoveryRequired())issues.push('ノートの復旧確認が必要です。');
+  return issues;
+}
 
 export class CategoryNoteStorageTimeoutError extends Error {
   constructor() {
@@ -39,8 +48,9 @@ export function isIndexedDbAvailable(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
-export async function loadCategoryNoteRaw(key: string): Promise<string | null> {
+export async function loadCategoryNoteRaw(key: string, options: { coordinationLockHeld?: boolean } = {}): Promise<string | null> {
   if (!isCategoryNoteKey(key)) return null;
+  if (options.coordinationLockHeld) return loadCategoryNoteRawUnlocked(key);
   await waitForPendingCategoryNoteSaves();
   return loadLatestCoordinatedData(['notes'], () => loadCategoryNoteRawUnlocked(key));
 }
@@ -204,7 +214,7 @@ async function saveCategoryNoteRawNow(key: string, raw: string): Promise<void> {
   if (isIndexedDbAvailable()) {
     try {
       await waitForCategoryNoteStorage(setRawToIndexedDb(key, raw));
-      safeLocalStorageRemove(key);
+      await cleanupNativeOriginals(await openCoLocatedNoteDb(), { [key]: localStorage.getItem(key) });
       await ensureCategoryNoteManifestIncludesBestEffort(key);
       return;
     } catch (indexedDbError) {
@@ -373,7 +383,7 @@ export function replaceCategoryNotesRaw(
   return enqueueCategoryNoteOperation(async () => {
     if (isIndexedDbAvailable()) {
       await replaceIndexedDbNotes(validNotes, options.onlyChanged);
-      removeAllLegacyLocalStorageNotes();
+      await cleanupNativeOriginals(await openCoLocatedNoteDb(), Object.fromEntries(collectLegacyLocalStorageNotes()));
       if (writeCategoryNotesManifestBestEffort(Object.keys(validNotes)) && options.establishAuthority) {
         safeLocalStorageRemove(CATEGORY_NOTES_RECOVERY_REQUIRED_KEY);
       }

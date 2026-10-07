@@ -1,4 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
+import { isAccountWorkReloadApproved } from '../utils/accountWork';
 import { createPortal } from 'react-dom';
 import type { AppData, Difficulty, ProblemSet, ProblemSetCreationMethod } from '../types';
 import { BackButton } from '../components/BackButton';
@@ -28,6 +30,9 @@ import './CreateProblemSetScreen.css';
 import { buildSimpleCreationPrompt, buildMemoQuestionPrompt, applyCreationConditions } from '../utils/simpleCreationPrompt';
 import { loadMaterials } from '../utils/materialStorage';
 import { materialReferencePrompt, type StudyMaterial } from '../utils/materialModel';
+import { createId } from '../utils/id';
+import { captureDraftDeletion, restoreDraftDeletion, type DraftDeletion } from '../utils/draftUndo';
+import { readPlans } from '../utils/studyPlanStorage';
 
 export interface CreateProblemSetSubmission {
   folderId: string;
@@ -75,27 +80,40 @@ interface SetMeta {
   difficulty: Difficulty;
   source: string;
 }
+type CreateWork = {
+  view: CreationView; notesPurpose: 'questions'|'answer'; meta: SetMeta; originalMeta: SetMeta;
+  drafts: BulkQuestionDraft[]; initialDrafts: BulkQuestionDraft[]; deletedDrafts: DraftDeletion<BulkQuestionDraft>[];
+  questionEditor: BulkQuestionDraft; editingIndex: number|null; pasteText: string; sourceSetId?: string;
+  creationRequest: string; memoContext: string; aiStep: 1|2; aiMethod: 'simple'|'material'|'past-exam';
+  referenceMaterialId: string; choiceCount: 4|5; questionCount: string; allowMultiple: boolean;
+  pendingMethod: CreationView|null; pendingQuestionSave: PendingManualQuestion|null; editingBaseline: string|null;
+};
 
 export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, startWithAi = false, startWithExplanationImport = false, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
+  const workKey = `create:${editSetId ?? copySetId ?? initialFolderId ?? 'new'}`;
+  const recovered = useRestoredAccountWork<CreateWork>(workKey);
   const editingProblemSet = data.problemSets.find((problemSet) => problemSet.id === editSetId);
-  const initialDraftsRef = useRef<BulkQuestionDraft[]>(createDraftsFromProblemSet(data, editingProblemSet));
-  const [view, setView] = useState<CreationView>(startWithExplanationImport ? 'notes' : editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods');
-  const [notesPurpose, setNotesPurpose] = useState<'questions'|'answer'>('answer');
-  const [meta, setMeta] = useState<SetMeta>(() => createInitialMeta(data, initialFolderId, editingProblemSet));
-  const [drafts, setDrafts] = useState<BulkQuestionDraft[]>(() => initialDraftsRef.current);
-  const [questionEditor, setQuestionEditor] = useState<BulkQuestionDraft>(() => createBlankDraft('manual-editor'));
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [pasteText, setPasteText] = useState('');
-  const [sourceSetId, setSourceSetId] = useState<string | undefined>();
+  const editingBaseline = useRef(recovered?.editingBaseline ?? (editingProblemSet ? JSON.stringify({ set:editingProblemSet, questions:data.questions.filter(q=>q.setId===editSetId) }) : null));
+  const initialDraftsRef = useRef<BulkQuestionDraft[]>(recovered?.initialDrafts ?? createDraftsFromProblemSet(data, editingProblemSet));
+  const [view, setView] = useState<CreationView>(recovered?.view ?? (startWithExplanationImport ? 'notes' : editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods'));
+  const [notesPurpose, setNotesPurpose] = useState<'questions'|'answer'>(recovered?.notesPurpose ?? 'answer');
+  const [meta, setMeta] = useState<SetMeta>(() => recovered?.meta ?? createInitialMeta(data, initialFolderId, editingProblemSet));
+  const [drafts, setDrafts] = useState<BulkQuestionDraft[]>(() => recovered?.drafts ?? initialDraftsRef.current);
+  const [deletedDrafts, setDeletedDrafts] = useState<DraftDeletion<BulkQuestionDraft>[]>(recovered?.deletedDrafts ?? []);
+  const lastReviewId = useRef('');
+  const [questionEditor, setQuestionEditor] = useState<BulkQuestionDraft>(() => recovered?.questionEditor ?? createBlankDraft('manual-editor'));
+  const [editingIndex, setEditingIndex] = useState<number | null>(recovered?.editingIndex ?? null);
+  const [pasteText, setPasteText] = useState(recovered?.pasteText ?? '');
+  const [sourceSetId, setSourceSetId] = useState<string | undefined>(recovered?.sourceSetId);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [copiedTemplate, setCopiedTemplate] = useState<'simple' | 'material' | 'past-exam' | ''>('');
-  const [creationRequest, setCreationRequest] = useState('');
-  const [memoContext, setMemoContext] = useState('');
-  const [aiStep, setAiStep] = useState<1 | 2>(1);
-  const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>('simple');
+  const [creationRequest, setCreationRequest] = useState(recovered?.creationRequest ?? '');
+  const [memoContext, setMemoContext] = useState(recovered?.memoContext ?? '');
+  const [aiStep, setAiStep] = useState<1 | 2>(recovered?.aiStep ?? 1);
+  const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>(recovered?.aiMethod ?? 'simple');
   const [registeredMaterials, setRegisteredMaterials] = useState<{ setTitle: string; material: StudyMaterial }[]>([]);
-  const [referenceMaterialId, setReferenceMaterialId] = useState('');
+  const [referenceMaterialId, setReferenceMaterialId] = useState(recovered?.referenceMaterialId ?? '');
   const [materialsError, setMaterialsError] = useState('');
   useEffect(() => {
     if (aiMethod !== 'material') return;
@@ -105,19 +123,20 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     }).catch(() => { if (!cancelled) setMaterialsError('登録済み資料を読み込めませんでした。'); });
     return () => { cancelled = true; };
   }, [aiMethod, data.problemSets]);
-  const [choiceCount, setChoiceCount] = useState<4 | 5>(4);
-  const [questionCount, setQuestionCount] = useState('');
-  const [allowMultiple, setAllowMultiple] = useState(false);
+  const [choiceCount, setChoiceCount] = useState<4 | 5>(recovered?.choiceCount ?? 4);
+  const [questionCount, setQuestionCount] = useState(recovered?.questionCount ?? '');
+  const [allowMultiple, setAllowMultiple] = useState(recovered?.allowMultiple ?? false);
   const jsonFileRef = useRef<HTMLInputElement>(null);
-  const [pendingMethod, setPendingMethod] = useState<CreationView | null>(null);
-  const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(null);
+  const [pendingMethod, setPendingMethod] = useState<CreationView | null>(recovered?.pendingMethod ?? null);
+  const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(recovered?.pendingQuestionSave ?? null);
   const [notesDirty, setNotesDirty] = useState(false);
   const notesBackRef = useRef<(()=>boolean)|null>(null);
-  const initializedCopyRef = useRef<string | undefined>(undefined);
+  const initializedCopyRef = useRef<string | undefined>(recovered ? copySetId : undefined);
   const saveInFlightRef = useRef(false);
-  const initialMetaRef = useRef(meta);
+  const initialMetaRef = useRef(recovered?.originalMeta ?? meta);
   const activeMethodRef = useRef<CreationView | null>(editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : null);
   const copiedTemplateTimerRef = useRef<number | null>(null);
+  useAccountWork(workKey, () => ({ view, notesPurpose, meta, originalMeta:initialMetaRef.current, drafts, initialDrafts:initialDraftsRef.current, deletedDrafts, questionEditor, editingIndex, pasteText, sourceSetId, creationRequest, memoContext, aiStep, aiMethod, referenceMaterialId, choiceCount, questionCount, allowMultiple, pendingMethod, pendingQuestionSave, editingBaseline:editingBaseline.current }), async () => { if(busy||saveInFlightRef.current)throw new Error('教材の読み込み・保存完了を待っています。'); });
 
   useEffect(() => () => {
     if (copiedTemplateTimerRef.current !== null) window.clearTimeout(copiedTemplateTimerRef.current);
@@ -159,6 +178,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   useEffect(() => {
     if (!isDirty) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if(isAccountWorkReloadApproved())return;
       event.preventDefault();
       event.returnValue = '';
     };
@@ -174,6 +194,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const resetAndStartMethod = (next: CreationView) => {
     setMeta(createInitialMeta(data, initialFolderId));
     setDrafts([]);
+    setDeletedDrafts([]);
     setQuestionEditor(createBlankDraft('manual-editor'));
     setEditingIndex(null);
     setPasteText('');
@@ -206,7 +227,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
       setError(nextQuestion.issues.join('。'));
       return;
     }
-    if (editingIndex === null) setDrafts((items) => [...items, { ...nextQuestion, id: `manual-${items.length + 1}` }]);
+    if (editingIndex === null) setDrafts((items) => [...items, { ...nextQuestion, id: createId('draft') }]);
     else setDrafts((items) => items.map((item, index) => index === editingIndex ? { ...nextQuestion, id: item.id } : item));
     setQuestionEditor(createBlankDraft(`manual-${drafts.length + 2}`));
     setEditingIndex(null);
@@ -216,12 +237,20 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const editQuestion = (index: number) => {
     const target = reviewedDrafts[index];
     if (!target) return;
+    if (hasUncommittedQuestion && editingIndex !== index) {
+      const pending = refreshIssues(questionEditor);
+      setDrafts(items => editingIndex === null ? [...items, { ...pending, id: createId('draft') }] : items.map((item, i) => i === editingIndex ? { ...pending, id: item.id } : item));
+    }
     setQuestionEditor({ ...target, choices: [...target.choices] });
     setEditingIndex(index);
-    document.querySelector<HTMLElement>('.app-layout__scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
+    requestAnimationFrame(() => { const field = document.querySelector<HTMLElement>(`.create-set__manual-editor [data-field="${firstIssueField(target)}"]`); field?.scrollIntoView({ block: 'center' }); field?.focus({ preventScroll: true }); });
   };
 
   const deleteQuestion = (index: number) => {
+    const deleted = captureDraftDeletion(drafts, index);
+    if (!deleted.item) return;
+    if (editingIndex === index && hasUncommittedQuestion) deleted.item = { ...refreshIssues(questionEditor), id: deleted.item.id };
+    setDeletedDrafts(items => [...items.slice(-19), deleted]);
     setDrafts((items) => items.filter((_, itemIndex) => itemIndex !== index));
     if (editingIndex === index) {
       setEditingIndex(null);
@@ -229,6 +258,23 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     } else if (editingIndex !== null && editingIndex > index) {
       setEditingIndex(editingIndex - 1);
     }
+  };
+
+  const undoDraftDelete = () => {
+    const deleted = deletedDrafts[deletedDrafts.length - 1]; if (!deleted) return;
+    const currentEditorId = editingIndex === null ? null : drafts[editingIndex]?.id;
+    const restored = restoreDraftDeletion(drafts, deleted);
+    setDrafts(restored); setDeletedDrafts(items => items.slice(0, -1));
+    if (currentEditorId) setEditingIndex(restored.findIndex(item => item.id === currentEditorId));
+  };
+  const jumpToReview = () => {
+    const pending = reviewedDrafts.filter(draft => draft.issues.length);
+    if (!pending.length) return;
+    const next = pending[(pending.findIndex(draft => draft.id === lastReviewId.current) + 1) % pending.length];
+    lastReviewId.current = next.id;
+    if (view === 'manual') { editQuestion(reviewedDrafts.findIndex(draft => draft.id === next.id)); return; }
+    const card = [...document.querySelectorAll<HTMLDetailsElement>('[data-draft-id]')].find(el => el.dataset.draftId === next.id);
+    if (card) { card.open = true; requestAnimationFrame(() => requestAnimationFrame(() => { const field = card.querySelector<HTMLElement>(`[data-field="${firstIssueField(next)}"]`); field?.closest('details')?.setAttribute('open', ''); field?.scrollIntoView({ block: 'center' }); field?.focus({ preventScroll: true }); })); }
   };
 
   const parsePastedContent = () => {
@@ -271,6 +317,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   };
 
   const persistDrafts = async (finalDrafts: BulkQuestionDraft[]) => {
+    if(editSetId && editingBaseline.current!==JSON.stringify({set:editingProblemSet,questions:data.questions.filter(q=>q.setId===editSetId)})) { setError('教材が別の操作で更新されました。復元した入力を控えて、更新後の教材を確認してください。');return false; }
     if (saveInFlightRef.current) return false;
     saveInFlightRef.current = true;
     setBusy(true);
@@ -296,6 +343,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     const metaError = getMetaError(meta);
     if (metaError) {
       setError(metaError);
+      const field = document.querySelector<HTMLElement>(`[data-field="${!meta.folderId && !meta.newFolderName.trim() ? 'new-folder' : 'set-title'}"]`); field?.scrollIntoView({ block: 'center' }); field?.focus({ preventScroll: true });
       return;
     }
     const finalDrafts = reviewedDrafts.map(normalizeEditableQuestionDraft).map(refreshIssues);
@@ -306,6 +354,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     if (finalDrafts.some((draft) => draft.issues.length > 0)) {
       setDrafts(finalDrafts);
       setError('確認が必要な問題を修正してください。正解は自動では決めません。');
+      jumpToReview();
       return;
     }
     if (view === 'manual') {
@@ -362,8 +411,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     if (!problemSet) return;
     const copiedQuestions = data.questions
       .filter((question) => question.setId === setId)
-      .map((question, index) => refreshIssues({
-        id: `copy-${index + 1}`,
+      .map((question) => refreshIssues({
+        id: question.id,
         question: question.question,
         choices: [...question.choices],
         distractors: question.distractors,
@@ -428,7 +477,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   return (
     <Layout>
       <main className={`create-set${view === 'methods' ? ' create-set--chooser' : ''}`}>
-        <header className={`create-set__header${view === 'methods' && !onBack ? ' create-set__header--root' : ''}${view === 'notes' ? ' create-set__header--notes' : ''}`}>
+        <header className={`create-set__header${view === 'methods' && !onBack ? ' create-set__header--root' : ''}${view === 'notes' ? ' create-set__header--notes' : ''}${reviewedDrafts.length && view !== 'methods' && view !== 'notes' ? ' create-set__header--action' : ''}`}>
           {view === 'methods' ? (
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
@@ -438,8 +487,9 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             />
           )}
           <div>
-            <h1>{startWithExplanationImport ? 'AIの回答を取り込む' : editingProblemSet ? '問題セットを編集' : view === 'methods' ? '作成' : view === 'notes' ? notesPurpose === 'questions' ? 'メモから問題を作る' : 'メモから詳細解説を作る' : getViewTitle(view, sourceSetId)}</h1>
+            <h1>{startWithExplanationImport ? 'AIの回答を取り込む' : editingProblemSet ? '問題セットを編集' : view === 'methods' ? '作成' : view === 'notes' ? notesPurpose === 'questions' ? 'メモから問題を作る' : 'メモから追加解説を作る' : getViewTitle(view, sourceSetId)}</h1>
           </div>
+          {reviewedDrafts.length && view !== 'methods' && view !== 'notes' ? <button type="button" className="create-set__text-button create-set__header-action" disabled={busy} onClick={needsReviewCount ? jumpToReview : () => void submit()}>{busy ? '保存中…' : needsReviewCount ? '次の要確認' : '保存'}</button> : null}
         </header>
 
         {view === 'methods' ? <MethodChooser onSelect={(next, purpose='answer')=>{setNotesPurpose(purpose);startMethod(next);}} /> : null}
@@ -449,9 +499,9 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
 
         {view === 'manual' ? (
           <div className="create-set__flow">
-            {editingProblemSet ? <p className="create-set__notice">問題セットの情報と問題を編集できます。内容を変更した問題は、学習記録をリセットします。</p> : null}
-            <SetMetaFields data={data} value={meta} onChange={setMeta} />
-            <section className="create-set__panel">
+            {editingProblemSet ? <p className="create-set__notice">問題文・選択肢・正解を変えた問題は現在版の復習状態を初期化します。旧版の回答履歴は残ります。</p> : null}
+            <SetMetaFields data={data} value={meta} onChange={next => { setMeta(next); setError(''); }} />
+            <section className="create-set__panel create-set__manual-editor">
               <div className="create-set__section-heading">
                 <div><span>問題 {drafts.length + 1}</span><h2>{editingIndex === null ? '問題を追加' : `${editingIndex + 1}問目を編集中`}</h2></div>
                 {editingIndex !== null ? <button type="button" className="create-set__text-button" onClick={() => { setEditingIndex(null); setQuestionEditor(createBlankDraft('manual-editor')); }}>編集をやめる</button> : null}
@@ -462,6 +512,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               </button>
             </section>
             <DraftList drafts={reviewedDrafts} onEdit={editQuestion} onDelete={deleteQuestion} />
+            {editingProblemSet ? <p className="plan-warning">固定計画の対象・分母は変わりません。{readPlanCount(editingProblemSet.id) ? `この教材の固定計画${readPlanCount(editingProblemSet.id)}件は旧版のままです。` : ''}{editingProblemSet.sourceVersionId ? '編集後の回答は共通の公開版進捗に含めません。' : ''}削除する問題の回答履歴は削除対象です。</p> : null}
             {reviewedDrafts.length > 0 ? <SaveBar count={reviewedDrafts.length} busy={busy} disabled={false} label={editingProblemSet ? '変更を保存' : '問題セットを保存'} onSave={() => void submit()} /> : null}
           </div>
         ) : null}
@@ -508,7 +559,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               {aiMethod === 'simple' ? <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button> : null}
             </section> : null}
             {(view !== 'chatgpt' || aiStep === 2) && (view !== 'memo-questions' || reviewedDrafts.length > 0) ? <>
-            <SetMetaFields data={data} value={meta} onChange={setMeta} />
+            <SetMetaFields data={data} value={meta} onChange={next => { setMeta(next); setError(''); }} />
             {view !== 'memo-questions' ? <section className="create-set__panel">
               <h2>{view === 'chatgpt' ? 'JSONを取り込む' : '複数の問題'}</h2>
               <input ref={jsonFileRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importJsonFile(file); }} />
@@ -528,7 +579,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
                     index={index}
                     value={draft}
                     onChange={(next) => setDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? next : item))}
-                    onDelete={() => setDrafts((items) => items.filter((_, itemIndex) => itemIndex !== index))}
+                    onDelete={() => deleteQuestion(index)}
                   />
                 ))}
               </section>
@@ -553,7 +604,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
 
         {view === 'other' ? (
           <section className="create-set__panel create-set__other">
-            <SetMetaFields data={data} value={meta} onChange={setMeta} compact />
+            <SetMetaFields data={data} value={meta} onChange={next => { setMeta(next); setError(''); }} compact />
             <button type="button" className="create-set__method" onClick={openLegacyImport}>
               <span className="create-set__method-icon"><DocumentOutlineIcon /></span><span><strong>問題セットファイルを読み込む</strong></span><ChevronRightIcon />
             </button>
@@ -561,6 +612,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
         ) : null}
 
         {error ? <div className="create-set__error" role="alert">{error}</div> : null}
+        {needsReviewCount ? <div className="create-set__review-jump" role="status"><span>保存前に{needsReviewCount}問の確認が必要です。</span><button type="button" disabled={busy} onClick={jumpToReview}>次の要確認</button></div> : null}
+        {deletedDrafts.length ? <div className="create-set__undo" role="status"><span>下書きの問題を削除しました。</span><button type="button" disabled={busy} onClick={undoDraftDelete}>削除を取り消す</button></div> : null}
       </main>
       <ConfirmDialog
         open={pendingMethod !== null}
@@ -722,9 +775,12 @@ function MethodChooser({ onSelect }: { onSelect: (view: CreationView, purpose?: 
     {title:'問題を作成',methods:[
       {view:'chatgpt',title: '生成AIで作る',icon: <AiCreationIcon />},
       {view:'notes',purpose:'questions',title:'メモから作る',icon: <WeaknessMemoIcon />},
+      {view:'manual',title:'手入力で作る',icon: <DocumentOutlineIcon />},
+      {view:'bulk',title:'まとめて貼り付ける',icon: <CopyIcon />},
+      {view:'other',title:'教材JSONを取り込む',icon: <DocumentOutlineIcon />},
     ]},
     {title:'解説を作成',methods:[
-      {view:'notes',purpose:'answer',title:'メモから詳細解説を作る',icon: <MemoExplanationIcon />},
+      {view:'notes',purpose:'answer',title:'メモから追加解説を作る',icon: <MemoExplanationIcon />},
     ]},
   ];
   return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">{groups.map(group=><section className="create-set__purpose-group" key={group.title}><h2>{group.title}</h2>{group.methods.map((method) => <button key={method.title} data-guide={method.view === 'chatgpt' ? 'create-ai' : method.purpose === 'answer' ? 'create-explanation' : 'create-memo'} type="button" className="create-set__method" onClick={() => onSelect(method.view,method.purpose)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}</section>)}
@@ -737,9 +793,9 @@ function SetMetaFields({ data, value, onChange, compact = false }: { data: AppDa
     <section className={`create-set__panel${compact ? ' create-set__panel--compact' : ''}`}>
       {!compact ? <h2>問題セットの基本情報</h2> : <h2>追加先</h2>}
       <label className="create-set__field"><span>フォルダ</span><select value={value.folderId || '__new__'} onChange={(event) => onChange({ ...value, folderId: event.target.value === '__new__' ? '' : event.target.value })}>{data.folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}<option value="__new__">新しいフォルダを作る</option></select></label>
-      {useNewFolder ? <label className="create-set__field"><span>新しいフォルダ名</span><input value={value.newFolderName} onChange={(event) => onChange({ ...value, newFolderName: event.target.value })} /></label> : null}
+      {useNewFolder ? <label className="create-set__field"><span>新しいフォルダ名</span><input data-field="new-folder" value={value.newFolderName} onChange={(event) => onChange({ ...value, newFolderName: event.target.value })} /></label> : null}
       {!compact ? <>
-        <label className="create-set__field"><span>問題セット名 <b>必須</b></span><input value={value.title} onChange={(event) => onChange({ ...value, title: event.target.value })} /></label>
+        <label className="create-set__field"><span>問題セット名 <b>必須</b></span><input data-field="set-title" value={value.title} onChange={(event) => onChange({ ...value, title: event.target.value })} /></label>
       </> : null}
     </section>
   );
@@ -750,15 +806,15 @@ function QuestionFields({ value, onChange }: { value: BulkQuestionDraft; onChang
   const answerIndexes = getDraftAnswerIndexes({ ...value, choices });
   return (
     <div className="create-set__question-fields">
-      <label className="create-set__field"><span>問題文 <b>必須</b></span><textarea value={value.question} onChange={(event) => onChange({ ...value, question: event.target.value })} /></label>
-      <fieldset className="create-set__choices"><legend>選択肢と正解 <b>必須・複数選択可</b></legend>{choices.map((choice, index) => <div key={index} className="create-set__choice-row"><input type="checkbox" checked={answerIndexes.includes(index)} onChange={(event) => onChange(updateDraftAnswerSelection(value, choices, index, event.target.checked))} aria-label={`${index + 1}番を正解にする`} /><input value={choice} onChange={(event) => onChange({ ...value, choices: choices.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} aria-label={`選択肢 ${index + 1}`} />{index === 4 ? <button type="button" aria-label="5番目の選択肢を削除" onClick={() => onChange(normalizeDraftAnswers({ ...value, choices: choices.slice(0, 4) }))}>×</button> : null}</div>)}{choices.length === 4 ? <button type="button" className="create-set__text-button" onClick={() => onChange({ ...value, choices: [...choices, ''] })}>＋ 5番目の選択肢</button> : null}</fieldset>
+      <label className="create-set__field"><span>問題文 <b>必須</b></span><textarea data-field="question" value={value.question} onChange={(event) => onChange({ ...value, question: event.target.value })} /></label>
+      <fieldset className="create-set__choices"><legend>選択肢と正解 <b>必須・複数選択可</b></legend>{choices.map((choice, index) => <div key={index} className="create-set__choice-row"><input data-field={`answer-${index}`} type="checkbox" checked={answerIndexes.includes(index)} onChange={(event) => onChange(updateDraftAnswerSelection(value, choices, index, event.target.checked))} aria-label={`${index + 1}番を正解にする`} /><input data-field={`choice-${index}`} value={choice} onChange={(event) => onChange({ ...value, choices: choices.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} aria-label={`選択肢 ${index + 1}`} />{index === 4 ? <button type="button" aria-label="5番目の選択肢を削除" onClick={() => onChange(normalizeDraftAnswers({ ...value, choices: choices.slice(0, 4) }))}>×</button> : null}</div>)}{choices.length === 4 ? <button type="button" className="create-set__text-button" onClick={() => onChange({ ...value, choices: [...choices, ''] })}>＋ 5番目の選択肢</button> : null}</fieldset>
       <label className="create-set__field"><span>解説</span><textarea value={value.explanation} onChange={(event) => onChange({ ...value, explanation: event.target.value })} /></label>
       <details>
         <summary>選択肢のランダム出題</summary>
         <label><input type="checkbox" checked={value.shuffleChoices !== false && (value.shuffleChoices === true || Boolean(value.distractors?.length))} onChange={(event) => onChange({ ...value, shuffleChoices: event.target.checked })} />誤答の抽選・位置の入れ替え</label>
-        <label className="create-set__field"><span>追加の誤答候補（1行に1つ・50個まで）</span><textarea value={value.distractors?.join('\n') ?? ''} onChange={(event) => onChange({ ...value, distractors: event.target.value.split('\n'), shuffleChoices: true })} /></label>
+        <label className="create-set__field"><span>追加の誤答候補（1行に1つ・50個まで）</span><textarea data-field="distractors" value={value.distractors?.join('\n') ?? ''} onChange={(event) => onChange({ ...value, distractors: event.target.value.split('\n'), shuffleChoices: true })} /></label>
       </details>
-      <label className="create-set__field"><span>詳細解説</span><textarea value={value.detailedExplanation ?? ''} onChange={(event) => onChange({ ...value, detailedExplanation: event.target.value })} /></label>
+      <label className="create-set__field"><span>追加解説・メモ</span><textarea value={value.detailedExplanation ?? ''} onChange={(event) => onChange({ ...value, detailedExplanation: event.target.value })} /></label>
       <label className="create-set__field"><span>難易度</span><select value={value.difficulty ?? ''} onChange={(event) => onChange({ ...value, difficulty: event.target.value || undefined })}><option value="">問題セットと同じ</option><option value="basic">基礎</option><option value="standard">標準</option><option value="advanced">発展</option></select></label>
       <div className="create-set__field-grid"><label className="create-set__field"><span>分類</span><input value={value.category} onChange={(event) => onChange({ ...value, category: event.target.value })} /></label><label className="create-set__field"><span>参照</span><input value={value.sourcePage} onChange={(event) => onChange({ ...value, sourcePage: event.target.value })} /></label></div>
       {value.issues.length > 0 ? <ul className="create-set__issues">{value.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : null}
@@ -768,11 +824,12 @@ function QuestionFields({ value, onChange }: { value: BulkQuestionDraft; onChang
 
 function DraftList({ drafts, onEdit, onDelete }: { drafts: BulkQuestionDraft[]; onEdit: (index: number) => void; onDelete: (index: number) => void }) {
   if (drafts.length === 0) return null;
-  return <section className="create-set__panel"><div className="create-set__section-heading"><div><span>追加済み</span><h2>{drafts.length}問</h2></div></div><div className="create-set__draft-list">{drafts.map((draft, index) => { const answers = getDraftAnswerIndexes(draft).map((answerIndex) => draft.choices[answerIndex]).filter(Boolean); return <article key={draft.id} className="create-set__draft"><span>{index + 1}</span><div><strong>{draft.question}</strong><small>正解：{answers.length ? answers.join(' / ') : '未確認'}</small></div><button type="button" onClick={() => onEdit(index)}>編集</button><button type="button" className="create-set__delete" onClick={() => onDelete(index)}>削除</button></article>; })}</div></section>;
+  return <section className="create-set__panel"><div className="create-set__section-heading"><div><span>追加済み</span><h2>{drafts.length}問</h2></div></div><div className="create-set__draft-list">{drafts.map((draft, index) => { const answers = getDraftAnswerIndexes(draft).map((answerIndex) => draft.choices[answerIndex]).filter(Boolean); return <article key={draft.id} className="create-set__draft"><span>{index + 1}</span><div><strong>{draft.question}</strong><small>正解：{answers.length ? answers.join(' / ') : '未確認'}</small>{draft.issues.length ? <span className="create-set__issues">要確認：{draft.issues.join('・')}</span> : null}</div><button type="button" onClick={() => onEdit(index)}>編集</button><button type="button" className="create-set__delete" onClick={() => onDelete(index)}>削除</button></article>; })}</div></section>;
 }
 
 function InlineDraftCard({ index, value, onChange, onDelete }: { index: number; value: BulkQuestionDraft; onChange: (value: BulkQuestionDraft) => void; onDelete: () => void }) {
-  return <details className={`create-set__review-card${value.issues.length ? ' create-set__review-card--warning' : ''}`} open={value.issues.length > 0}><summary><span>{index + 1}</span><div><strong>{value.question || '問題文が未入力です'}</strong><small>{value.issues.length ? `要確認：${value.issues.join('・')}` : '確認済み'}</small></div></summary><QuestionFields value={value} onChange={(next) => onChange(refreshIssues(next))} /><button type="button" className="create-set__delete-draft" onClick={onDelete}>この問題を削除</button></details>;
+  const [expanded, setExpanded] = useState(index === 0 && value.issues.length > 0);
+  return <details data-draft-id={value.id} className={`create-set__review-card${value.issues.length ? ' create-set__review-card--warning' : ''}`} open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}><summary><span>{index + 1}</span><div><strong>{value.question || '問題文が未入力です'}</strong><small>{value.issues.length ? `要確認：${value.issues.join('・')}` : '確認済み'}</small></div></summary>{expanded ? <QuestionFields value={value} onChange={(next) => onChange(refreshIssues(next))} /> : null}<button type="button" className="create-set__delete-draft" onClick={onDelete}>この問題を削除</button></details>;
 }
 
 function SaveBar({ count, busy, disabled, label = '問題セットを保存', onSave }: { count: number; busy: boolean; disabled: boolean; label?: string; onSave: () => void }) {
@@ -866,6 +923,15 @@ function getMetaError(meta: SetMeta) {
   if (!meta.title.trim()) return '問題セット名を入力してください。';
   return '';
 }
+
+function firstIssueField(draft: BulkQuestionDraft) {
+  if (!draft.question.trim()) return 'question';
+  const empty = draft.choices.findIndex(choice => !choice.trim());
+  if (empty >= 0) return `choice-${empty}`;
+  if (!getDraftAnswerIndexes(draft).length) return 'answer-0';
+  return draft.issues.some(issue => issue.includes('誤答候補')) ? 'distractors' : 'question';
+}
+function readPlanCount(setId: string) { try { return readPlans().filter(plan => plan.setId === setId).length; } catch { return 0; } }
 
 function getViewTitle(view: CreationView, sourceSetId?: string) {
   if (view === 'memo-questions') return '回答から問題を作る';

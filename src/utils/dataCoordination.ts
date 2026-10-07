@@ -1,3 +1,4 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
 export type DataDomain = 'app' | 'notes';
 
 const DATA_LOCK_NAME = 'quiz-make-origin-data-v1';
@@ -22,6 +23,13 @@ export class CrossContextLockUnavailableError extends Error {
   constructor() {
     super('このブラウザでは複数タブ間の安全なデータ読み込みを利用できません。OSまたはブラウザを更新してからやり直してください。');
     this.name = 'CrossContextLockUnavailableError';
+  }
+}
+
+export class DataLockTimeoutError extends Error {
+  constructor() {
+    super('別のタブの保存処理を待機しましたが完了しませんでした。ほかのQuizMake画面を閉じて、もう一度お試しください。');
+    this.name = 'DataLockTimeoutError';
   }
 }
 
@@ -116,8 +124,8 @@ function reserveNextEpoch(domain: DataDomain): void {
   const next = createEpochToken();
   try {
     localStorage.setItem(EPOCH_KEYS[domain], next);
-  } catch {
-    throw new Error('複数タブ間の保存状態を記録できないため、データの変更を中止しました。');
+  } catch (error) {
+    throw Object.assign(new Error('複数タブ間の保存状態を記録できないため、データの変更を中止しました。'), { cause: error });
   }
   if (readEpoch(domain) !== next) throw new ExternalDataChangeError();
   knownEpochs[domain] = next;
@@ -169,7 +177,7 @@ async function withOriginDataLock<T>(
       );
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error('別のタブの保存処理を待機しましたが完了しませんでした。ほかのQuizMake画面を閉じて、もう一度お試しください。');
+        throw new DataLockTimeoutError();
       }
       throw error;
     } finally {

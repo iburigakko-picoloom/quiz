@@ -21,7 +21,7 @@ import {
   deleteCloudGroup,
   createGroupInvite,
   getCloudDisplayName,
-  getCloudSession,
+  onCloudSessionSnapshot,
   getSharedProblemSet,
   joinCloudGroup,
   listCloudGroupMembers,
@@ -30,7 +30,6 @@ import {
   listMyPublishedSets,
   listPublicFolderSets,
   listPublicProblemSets,
-  onCloudAuthStateChange,
   publishLocalProblemSet,
   recordCloudCopy,
   removeCloudGroupMember,
@@ -44,6 +43,7 @@ import {
   unpublishCloudProblemSet,
 } from '../utils/cloudService';
 import './CommunityScreen.css';
+import { GroupProgress } from '../components/GroupProgress';
 
 export type CommunityTab = 'mine' | 'groups' | 'discover';
 
@@ -85,6 +85,7 @@ export function CommunityScreen({
   onUnpublished,
 }: CommunityScreenProps) {
   const [tab, setTab] = useState<CommunityTab>(shareToken ? 'discover' : initialTab);
+  const [progressOpen, setProgressOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -94,6 +95,9 @@ export function CommunityScreen({
   const [error, setError] = useState('');
   const [publicSets, setPublicSets] = useState<CloudProblemSet[]>([]);
   const [publicLoading, setPublicLoading] = useState(false);
+  const [publicLoaded, setPublicLoaded] = useState(false);
+  const [publicError, setPublicError] = useState('');
+  const [publicAttempt, setPublicAttempt] = useState(0);
   const [publishedSets, setPublishedSets] = useState<CloudProblemSet[]>([]);
   const [groups, setGroups] = useState<CloudGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId ?? '');
@@ -174,12 +178,8 @@ export function CommunityScreen({
 
   useEffect(() => {
     let active = true;
-    void getCloudSession().then((value) => {
+    const unsubscribe = onCloudSessionSnapshot((value) => {
       if (!active) return;
-      setSession(value);
-      setAuthReady(true);
-    });
-    const unsubscribe = onCloudAuthStateChange((_event, value) => {
       setSession(value);
       setAuthReady(true);
       if (value) setLoginOpen(false);
@@ -193,15 +193,17 @@ export function CommunityScreen({
   useEffect(() => {
     if (!cloudConfigured || tab !== 'discover' || shareToken) return;
     const requestId = ++publicRequestIdRef.current;
+    setPublicLoading(true);
+    setPublicError('');
     const timer = window.setTimeout(() => {
       setPublicLoading(true);
       setError('');
       void listPublicProblemSets(query, sort)
         .then((nextSets) => {
-          if (publicRequestIdRef.current === requestId) setPublicSets(nextSets);
+          if (publicRequestIdRef.current === requestId) { setPublicSets(nextSets); setPublicLoaded(true); }
         })
         .catch((reason) => {
-          if (publicRequestIdRef.current === requestId) setError(getErrorMessage(reason));
+          if (publicRequestIdRef.current === requestId) setPublicError(getErrorMessage(reason));
         })
         .finally(() => {
           if (publicRequestIdRef.current === requestId) setPublicLoading(false);
@@ -211,7 +213,7 @@ export function CommunityScreen({
       window.clearTimeout(timer);
       if (publicRequestIdRef.current === requestId) publicRequestIdRef.current += 1;
     };
-  }, [tab, query, sort, shareToken]);
+  }, [tab, query, sort, shareToken, publicAttempt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -654,7 +656,9 @@ export function CommunityScreen({
       try {
         setPublishedSets(await listMyPublishedSets());
         if (selectedGroupId) setGroupSets(await listGroupProblemSets(selectedGroupId));
-        setPublicSets(await listPublicProblemSets(query, sort));
+        const requestId = publicRequestIdRef.current;
+        const nextPublic = await listPublicProblemSets(query, sort);
+        if (publicRequestIdRef.current === requestId) { setPublicSets(nextPublic); setPublicLoaded(true); setPublicError(''); }
       } catch { setError('公開結果は下に表示しています。一覧の更新には再読み込みが必要です。'); }
     } finally { addBusyRef.current = false; setBusy(false); }
   };
@@ -668,7 +672,7 @@ export function CommunityScreen({
         : tab === 'discover'
           ? '見つける'
           : isDirectShare ? '共有設定' : '共有の管理';
-  const handleHeaderBack = isGroupSetDetail ? () => setDirectSet(null) : onBack;
+  const handleHeaderBack = isGroupSetDetail ? () => { setProgressOpen(false); setDirectSet(null); } : onBack;
 
   return (
     <Layout>
@@ -688,9 +692,10 @@ export function CommunityScreen({
             {!isGroupSetDetail && !shareToken ? <button type="button" onClick={() => { setDirectSet(null); setTab(detailBackTab); }}>‹ 一覧へ戻る</button> : <span />}
             {directSet.ownerId === session?.user.id ? <div><span>自分の公開</span><PublicationMenu title={directSet.title} busy={busy} onRemove={() => requestRemove([directSet], directSet.title)} /></div> : null}
           </div> : null}
-          {isGroupDetail ? (
+           {progressOpen && isGroupSetDetail && directSet && session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onClose={() => setProgressOpen(false)} /> : isGroupDetail ? (
             isGroupSetDetail && directSet ? (
               <section className="community-section" aria-label="グループの問題セット詳細">
+                <button type="button" className="community-primary" disabled={!session || busy} onClick={() => setProgressOpen(true)}>みんなの進捗</button>
                 <ProblemSetCards
                   sets={[directSet]}
                   busy={busy}
@@ -743,7 +748,7 @@ export function CommunityScreen({
           {tab === 'mine' && !isDirectShare ? (
             <section className="community-section">
               <div className="community-section__heading">
-                <h2>自分の問題セット</h2>
+                <h2>自分の教材</h2>
                 <button type="button" onClick={onCreateProblemSet}>新規作成</button>
               </div>
               <div className="community-account">
@@ -823,11 +828,14 @@ export function CommunityScreen({
                     <div className="community-search__input"><SearchIcon size={19} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="公開問題セットを検索" /></div>
                     <button type="button" className="community-condition-trigger" aria-haspopup="dialog" onClick={() => setConditionDraft({ sort, audience: audienceFilter, difficulty: difficultyFilter })}>条件{audienceFilter !== 'all' || difficultyFilter !== 'all' || sort !== 'new' ? ' •' : ''}</button>
                   </div>
-                  <div className="community-section__heading"><h2>公開ライブラリ</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
+                  <div className="community-section__heading"><h2>全体公開</h2><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('public')}>＋公開する</button></div>
                   {publicLoading ? <div className="community-notice" role="status">公開問題セットを読み込み中…</div> : null}
-                  <div className="community-library-scroll" aria-label="公開ライブラリ" tabIndex={0}>
-                  {!publicLoading && !error ? <SharedLibrary key={visiblePublicSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={visiblePublicSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'discover')} onRemove={requestRemove} loadFolder={listPublicFolderSets} onMove={(set) => void openMove(set)} onAdd={(path) => openAdd('public', path)} /> : null}
-                  {cloudConfigured && visiblePublicSets.length === 0 && !publicLoading && !error ? <EmptyState title="条件に合うセットはありません" /> : null}
+                  {publicError ? <div className="community-notice--error" role="alert">取得できませんでした：{publicError}<button type="button" onClick={() => setPublicAttempt(n => n + 1)}>再試行</button></div> : null}
+                  {publicLoaded && (publicLoading || publicError) ? <p role="status">前回取得した結果を表示しています。</p> : null}
+                  {!publicLoaded && !publicLoading && !publicError ? <p role="status">全体公開の教材はまだ取得していません。</p> : null}
+                  <div className="community-library-scroll" aria-label="全体公開" tabIndex={0}>
+                  {publicLoaded ? <SharedLibrary key={visiblePublicSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={visiblePublicSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'discover')} onRemove={requestRemove} loadFolder={listPublicFolderSets} onMove={(set) => void openMove(set)} onAdd={(path) => openAdd('public', path)} /> : null}
+                  {cloudConfigured && publicLoaded && visiblePublicSets.length === 0 && !publicLoading && !publicError ? <EmptyState title="条件に合う教材は0件です" /> : null}
                   </div>
                 </>
               )}
@@ -894,7 +902,7 @@ export function CommunityScreen({
           <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)} publishing>
             <h2>{Object.keys(addResults).length ? busy ? '公開中…' : '公開結果' : addReview ? '公開の設定' : '公開する問題を選択'}</h2>
             {addReview && !Object.keys(addResults).length ? <fieldset disabled={busy} className="community-destinations"><legend>公開先（複数選択可）</legend>
-              <label className="community-check"><input type="checkbox" checked={addTarget.public} onChange={(event) => setAddTarget({ ...addTarget, public: event.target.checked })} />全体（見つける）</label>
+              <label className="community-check"><input type="checkbox" checked={addTarget.public} onChange={(event) => setAddTarget({ ...addTarget, public: event.target.checked })} />全体公開</label>
               {groups.map((group) => <label key={group.id} className="community-check"><input type="checkbox" checked={addTarget.groupIds.includes(group.id)} onChange={(event) => setAddTarget({ ...addTarget, groupIds: event.target.checked ? [...addTarget.groupIds, group.id] : addTarget.groupIds.filter((id) => id !== group.id) })} />{group.name}</label>)}
             </fieldset> : null}
             {addTarget.folderPath ? <p>{addTarget.folderPath.map((part) => part.name).join(' / ')}</p> : null}
@@ -924,7 +932,7 @@ export function CommunityScreen({
               {!shareResult ? (
                 <>
                   <fieldset disabled={busy} className="community-share-scope"><legend>共有先</legend>
-                    <div className="community-share-options">{([{ value: 'link', label: 'リンク' }, { value: 'public', label: '全体公開' }, { value: 'group', label: 'グループ' }] as const).map((option) => <label key={option.value}>
+                    <div className="community-share-options">{([{ value: 'link', label: 'リンク' }, { value: 'public', label: '全体公開' }, { value: 'group', label: 'グループ共有' }] as const).map((option) => <label key={option.value}>
                       <input type="radio" name="share-scope" value={option.value} checked={shareVisibility === option.value} onChange={() => setShareVisibility(option.value)} />{option.label}
                     </label>)}</div>
                     <p className="community-publication-note">{shareVisibility === 'public' ? '「見つける」で誰でも閲覧・コピーできます。' : shareVisibility === 'group' ? '選んだグループのメンバーに共有します。' : 'リンクを知っている人が閲覧できます。'}</p>

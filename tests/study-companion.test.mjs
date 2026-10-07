@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isStudyCompanionEnabled, setStudyCompanionEnabled, companionPraise, companionGreeting } from '../src/utils/studyCompanion.ts';
-test('companion preference persists and can be turned off', () => {
+test('companion preference persists and can be turned off', async () => {
   const saved = ['localStorage', 'window'].map((key) => Object.getOwnPropertyDescriptor(globalThis, key));
   let value = null; let events = 0;
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => value, setItem: (_, next) => { value = next; } } });
   Object.defineProperty(globalThis, 'window', { configurable: true, value: { dispatchEvent: () => events++ } });
   try {
     assert.equal(isStudyCompanionEnabled(), true);
-    setStudyCompanionEnabled(false); assert.equal(isStudyCompanionEnabled(), false);
-    setStudyCompanionEnabled(true); assert.equal(isStudyCompanionEnabled(), true);
+    await setStudyCompanionEnabled(false); assert.equal(isStudyCompanionEnabled(), false);
+    await setStudyCompanionEnabled(true); assert.equal(isStudyCompanionEnabled(), true);
     assert.equal(events, 2);
   } finally { ['localStorage', 'window'].forEach((key, index) => { if (saved[index]) Object.defineProperty(globalThis, key, saved[index]); else delete globalThis[key]; }); }
 });

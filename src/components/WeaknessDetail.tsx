@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAccountWork } from '../hooks/useAccountWork';
+import { isAccountWorkReloadApproved } from '../utils/accountWork';
 import { PinchImage } from './PinchImage';
 import { ActionMenu } from './ActionMenu';
 import ReactMarkdown from 'react-markdown';
@@ -32,6 +34,7 @@ export function ExplanationReader({ text, questionId = '', imageIds = [], onSave
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [localImages, setLocalImages] = useState<LocalQuestionImage[]>([]);
   const input = useRef<HTMLInputElement>(null), lock = useRef(false);
+  useAccountWork(`image-attachment:${questionId}`,()=>null,async()=>{if(lock.current)throw new Error('画像の保存完了を待っています。');});
   useEffect(() => {
     if (!questionId || !imageIds.length) { setLocalImages([]); return; }
     let cancelled = false;
@@ -70,14 +73,14 @@ export function ExplanationReader({ text, questionId = '', imageIds = [], onSave
     } catch (e) { setError(e instanceof Error && e.name !== 'NotAllowedError' ? e.message : '貼り付けを許可するか、写真に保存して「画像を追加」から選んでください。'); }
   };
   const remove = async () => {
-    if (!onSave || disabled || lock.current || (!text.trim() && !imageIds.length) || !window.confirm('詳細解説と添付画像を削除しますか？通常の解説と苦手メモは残ります。')) return;
+    if (!onSave || disabled || lock.current || (!text.trim() && !imageIds.length) || !window.confirm('追加解説・メモと添付画像を削除しますか？通常の解説と苦手メモは残ります。')) return;
     lock.current = true; setBusy(true); setError('');
     try { await onSave(''); }
     catch { setError('削除できませんでした。もう一度お試しください。'); }
     finally { lock.current = false; setBusy(false); }
   };
   return <div className="weakness-reader">
-    {onSave && !disabled && (text.trim() || imageIds.length) ? <ActionMenu className="weakness-reader-menu"><summary aria-label="詳細解説の操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>詳細解説を削除</button></ActionMenu> : null}
+    {onSave && !disabled && (text.trim() || imageIds.length) ? <ActionMenu className="weakness-reader-menu"><summary aria-label="追加解説・メモの操作">…</summary><button type="button" disabled={busy} onClick={()=>void remove()}>追加解説・メモを削除</button></ActionMenu> : null}
     {media.length || imageIds.length ? <div className="weakness-media" data-no-page-swipe aria-label="画像・表を横スクロール">
       {media.map((m, i) => <section className={`weakness-media-card${m.startsWith('![') ? ' weakness-media-card--image' : ''}`} key={`media-${i}`}><Markdown text={m} /></section>)}
       {imageIds.map((imageId, index) => {
@@ -121,6 +124,7 @@ export function WeaknessDetail({ questionId, text, imageIds, onSave, onAddImage,
   const writeSequence = useRef(0);
   const saveLock = useRef(false);
   const [savingMemo, setSavingMemo] = useState(false);
+  useAccountWork(`weakness-memo:${questionId}`,()=>({body,memoId,adding}),async()=>{if(failed.current||saveLock.current)throw new Error('メモの保存完了を待っています。');});
   const addImage = async (file: File) => {
     if (!onAddImage) return;
     onDirtyChange?.(true);
@@ -152,7 +156,7 @@ export function WeaknessDetail({ questionId, text, imageIds, onSave, onAddImage,
     catch {setError('メモを読み込めません。再読み込みしてください。');}
   },[questionId,guideExample]);
   useEffect(()=>()=>onDirtyChange?.(false),[onDirtyChange]);
-  useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if(failed.current){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[]);
+  useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if(failed.current&&!isAccountWorkReloadApproved()){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[]);
   const persist=async(value:string,draft:boolean)=>{
     if (guideExample !== undefined) return true;
     const sequence = ++writeSequence.current;

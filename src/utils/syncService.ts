@@ -1,3 +1,7 @@
+import { MAX_RECORD_DATASET_BYTES } from './recordSyncSize';
+import { accountLocalStorage as localStorage } from './accountStorage';
+import { accountAutomaticSyncEnabled, pauseAccountSync } from './accountSync';
+import { chunkFailure, hydrateChunkPayload, isChunkInternal, parseChunkManifest } from './recordChunkFormat';
 import {
   APP_DATA_FALLBACK_META_KEY,
   APP_DATA_EXPECTED_KEY,
@@ -45,8 +49,8 @@ import { materialFileEntry, materialMetadataOnly } from './materialModel';
 import { createMaterialTransport, hasMaterialFiles, hasRemoteMaterialFiles, hydrateMaterialDownload, prepareMaterialUpload } from './materialCloud';
 import { NOTES_KEY, REQUEST_KEY, WEAKNESS_STORAGE_KEYS, NOTES_EVENT, parseNotes, parseExplanationRequests } from './weaknessNotes';
 import { recordSyncMetric } from './syncMetrics';
-import { createQuestionImageTransport } from './questionImageCloud';
-import { exportSnapshotQuestionImages, hasSnapshotQuestionImages, hydrateSnapshotQuestionImages, isSnapshotImageKey, prepareSnapshotQuestionImageUpload, replaceSnapshotQuestionImages, snapshotImageMetadataOnly, validateSnapshotQuestionImages, verifySnapshotQuestionImages } from './snapshotQuestionImages';
+import { validatePlanStorage } from './studyPlanStorage';
+import { SyncLocalPersistenceError } from './syncInterruption';
 export type SyncPayload = {
   version: 1;
   updatedAt: string;
@@ -56,6 +60,8 @@ export type SyncPayload = {
 
 export type SyncErrorCode =
   | 'authentication_required'
+  | 'network'
+  | 'permission_denied'
   | 'connection_changed'
   | 'conflict'
   | 'deleted'
@@ -64,7 +70,8 @@ export type SyncErrorCode =
   | 'not_found'
   | 'payload_too_large'
   | 'quota'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'local_persistence_failed';
 
 export type SyncResult<T> = { ok: true; value: T } | {
   ok: false;
@@ -277,7 +284,8 @@ export function clearSyncLocalBackups(): number {
 }
 
 export function cleanupLegacySyncBackups(): void {
-  clearSyncLocalBackups();
+  // Unknown old temporary formats may be the only remaining original. Keep
+  // them until recovery is verified; explicit user cleanup remains available.
 }
 
 export function getStoredSyncId(): string {
@@ -362,7 +370,7 @@ function restoreSyncStateStorage(snapshot: ReadonlyMap<string, string | null>): 
 
 export function getAutoSyncSettings(): AutoSyncSettings {
   return {
-    enabled: safeGetItem(AUTO_SYNC_ENABLED_KEY) === 'true',
+    enabled: accountAutomaticSyncEnabled() ?? safeGetItem(AUTO_SYNC_ENABLED_KEY) === 'true',
     syncId: getStoredSyncId(),
     configured: isSyncConfigured(),
   };
@@ -380,6 +388,7 @@ export function setAutoSyncEnabled(enabled: boolean): SyncResult<boolean> {
     if (localStorage.getItem(AUTO_SYNC_ENABLED_KEY) !== storedValue) {
       return { ok: false, error: '自動同期設定を端末に保存できませんでした。端末の保存設定と空き容量を確認してください。' };
     }
+    pauseAccountSync(!enabled);
     setLastSyncState({ status: enabled ? '自動同期ON' : '自動同期OFF', error: '' });
     dispatchSyncSettingsChanged();
     return { ok: true, value: enabled };
@@ -443,12 +452,13 @@ export async function waitForLocalPersistence(): Promise<SyncResult<number>> {
       waitForPendingCategoryNoteSaves(),
     ]);
     if (!appDataSaved) {
-      return { ok: false, error: '端末内の問題データを保存できていないため、クラウド同期を中止しました。' };
+      return { ok: false, code: 'local_persistence_failed', error: '端末内の問題データを保存できていないため、クラウド同期を中止しました。' };
     }
     return { ok: true, value: getLocalDataRevision() };
   } catch (error) {
     return {
       ok: false,
+      code: 'local_persistence_failed',
       error: error instanceof Error
         ? `端末内のノートを保存できていないため、クラウド同期を中止しました: ${error.message}`
         : '端末内のノートを保存できていないため、クラウド同期を中止しました。',
@@ -488,7 +498,7 @@ export function exportQuizMakeData(
       throw new Error('前回のデータ読込が完了したことを確認できないため、クラウドへの保存を中止しました。先にクラウドまたはJSONバックアップから読み込み直してください。');
     }
     const beforeSnapshot = await waitForLocalPersistence();
-    if (!beforeSnapshot.ok) throw new Error(beforeSnapshot.error);
+    if (!beforeSnapshot.ok) throw new SyncLocalPersistenceError(beforeSnapshot.error);
     return withCoordinatedDataRead(['app', 'notes'], async () => {
       if (options.mode !== 'recovery' && isDataImportInProgress()) {
         throw new Error('前回のデータ読込が完了したことを確認できないため、クラウドへの保存を中止しました。先にクラウドまたはJSONバックアップから読み込み直してください。');
@@ -498,7 +508,7 @@ export function exportQuizMakeData(
 
       for (let index = 0; index < localStorage.length; index += 1) {
         const key = localStorage.key(index);
-        if (key && isQuizMakeStorageKey(key) && key !== APP_DATA_STORAGE_KEY && !isCategoryNoteKey(key)) keys.push(key);
+        if (key && isQuizMakeStorageKey(key) && !isChunkInternal('localStorage',key) && key !== APP_DATA_STORAGE_KEY && !isCategoryNoteKey(key)) keys.push(key);
       }
 
       keys.sort().forEach((key) => {
@@ -515,12 +525,12 @@ export function exportQuizMakeData(
       ]);
       localStorageData[APP_DATA_STORAGE_KEY] = appDataRaw;
 
-      const payload: SyncPayload = await exportSnapshotQuestionImages({
+      const payload: SyncPayload = {
         version: 1,
         updatedAt,
         localStorage: localStorageData,
         indexedDbNotes,
-      });
+      };
       const result = associateLocalDataRevision(
         associateDataEpochSnapshot(payload, ['app', 'notes']),
         beforeSnapshot.value,
@@ -592,32 +602,30 @@ async function importQuizMakeDataUnlocked(
   expectedLocalDigest?: string,
   canApply?: () => boolean,
 ): Promise<SyncResult<number>> {
-  const validation = validateSyncPayload(payload);
+  const validation = await validateHydratedSyncPayload(payload);
   if (!validation.ok) return validation;
+  payload = validation.value;
   const previousSyncState = getLastSyncState();
 
   let previousAppDataRaw: string;
   let previousNotes: Record<string, string>;
   let previousLocalStorage: Record<string, string>;
   let previousIntegrity: DataIntegritySnapshot;
-  let previousImagePayload: SyncPayload;
   try {
-    await verifySnapshotQuestionImages(validation.value);
     [previousAppDataRaw, previousNotes] = await Promise.all([
       exportAppDataRaw({ coordinationLockHeld: true, mode: 'recovery' }),
       exportCategoryNotesRaw({ coordinationLockHeld: true, mode: 'recovery' }),
     ]);
     previousIntegrity = captureDataIntegritySnapshot();
     previousLocalStorage = collectCurrentQuizMakeLocalStorage();
-    const previousPayload = await exportSnapshotQuestionImages({version:1, updatedAt:new Date().toISOString(), localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes});
-    previousImagePayload = previousPayload;
+    const previousPayload: SyncPayload = {version:1, updatedAt:'', localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes};
     if ((expectedLocalDigest && await computePayloadDigest(previousPayload) !== expectedLocalDigest) || (canApply && !canApply())) {
       return { ok: false, code: 'local_changed', error: '端末の変更または作業開始を検出したため、自動取り込みを見送りました。' };
     }
-    if (expectedLocalHash && computePayloadHash(previousPayload) !== expectedLocalHash) {
+    if (expectedLocalHash && computePayloadHash({version:1, updatedAt:'', localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes}) !== expectedLocalHash) {
       return { ok: false, code: 'local_changed', error: '確認中に端末データが更新されました。内容を確認し直してください。' };
     }
-    await saveBackupPayload(previousPayload, expectedSyncId ? 'before-sync' : 'before-import');
+    await saveBackupPayload({ version: 1, updatedAt: new Date().toISOString(), localStorage: { ...previousLocalStorage, [APP_DATA_STORAGE_KEY]: previousAppDataRaw }, indexedDbNotes: previousNotes }, expectedSyncId ? 'before-sync' : 'before-import');
     if (canApply && !canApply()) return { ok: false, code: 'local_changed', error: '作業が始まったため、自動取り込みを見送りました。' };
     localStorage.setItem(DATA_IMPORT_IN_PROGRESS_KEY, JSON.stringify({ version: 1, startedAt: new Date().toISOString() }));
   } catch (error) {
@@ -634,7 +642,7 @@ async function importQuizMakeDataUnlocked(
     const noteEntries: Record<string, string> = { ...(validation.value.indexedDbNotes ?? {}) };
     const nextLocalStorage: Record<string, string> = {};
     Object.entries(validation.value.localStorage).forEach(([key, value]) => {
-      if (key === APP_DATA_STORAGE_KEY || isSnapshotImageKey(key)) return;
+      if (key === APP_DATA_STORAGE_KEY) return;
       if (isCategoryNoteKey(key)) {
         noteEntries[key] = value;
         return;
@@ -661,11 +669,7 @@ async function importQuizMakeDataUnlocked(
       onlyChanged: true,
     });
     assertExpectedSyncConnection(expectedSyncId);
-    if (hasSnapshotQuestionImages(validation.value) || hasSnapshotQuestionImages(previousImagePayload)) {
-      await replaceSnapshotQuestionImages(validation.value);
-      assertExpectedSyncConnection(expectedSyncId);
-    }
-    replaceQuizMakeLocalStorage(nextLocalStorage);
+    await replaceQuizMakeLocalStorage(nextLocalStorage);
     assertExpectedSyncConnection(expectedSyncId);
 
     if (expectedSyncId) {
@@ -675,7 +679,7 @@ async function importQuizMakeDataUnlocked(
       // Commit the common ancestor before releasing the operation/write lock.
       // A queued upload must never use the pre-import ancestor.
       const importedPayload: SyncPayload = { version: 1, updatedAt: authoritativeUpdatedAt,
-        localStorage: { ...nextLocalStorage, ...Object.fromEntries(Object.entries(validation.value.localStorage).filter(([key]) => isSnapshotImageKey(key))), [APP_DATA_STORAGE_KEY]: appDataRaw }, indexedDbNotes: noteEntries };
+        localStorage: { ...nextLocalStorage, [APP_DATA_STORAGE_KEY]: appDataRaw }, indexedDbNotes: noteEntries };
       if (!setLastSyncStateForConnection(expectedSyncId, {
         lastSyncAt: authoritativeUpdatedAt, lastRemoteUpdatedAt: authoritativeUpdatedAt,
         lastUploadHash: computePayloadHash(importedPayload), lastSyncDigest: await computePayloadDigest(importedPayload),
@@ -703,7 +707,6 @@ async function importQuizMakeDataUnlocked(
       previousLocalStorage,
       previousIntegrity,
       true,
-      hasSnapshotQuestionImages(validation.value) || hasSnapshotQuestionImages(previousImagePayload) ? previousImagePayload : undefined,
     );
     if (expectedSyncId && isCurrentSyncConnection(expectedSyncId)) {
       setLastSyncStateForConnection(expectedSyncId, { ...previousSyncState, lastSyncDigest: previousSyncState.lastSyncDigest });
@@ -728,6 +731,7 @@ export async function uploadSyncData(
   payload: SyncPayload,
   options: UploadSyncOptions = {},
 ): Promise<SyncResult<RemoteSyncRecord>> {
+  if('backupManifest' in payload)return {ok:false,code:'invalid',error:'復元用ファイルはクラウド同期データとして送信できません。端末で内容を確認して復元してください。'};
   if (recoveryOnlyPayloads.has(payload)) {
     return {
       ok: false,
@@ -777,11 +781,6 @@ export async function uploadSyncData(
         const access = await syncAccessTokenProvider();
         if (!access.ok) return { ok: false, error: access.message };
         wirePayload = await prepareMaterialUpload(wirePayload, createMaterialTransport(config, access));
-      }
-      if (hasSnapshotQuestionImages(wirePayload)) {
-        const access = await syncAccessTokenProvider();
-        if (!access.ok) return { ok: false, error: access.message };
-        wirePayload = await prepareSnapshotQuestionImageUpload(wirePayload, createQuestionImageTransport(config, access));
       }
       const wireValidation = validateSyncPayload(wirePayload, { wire: true });
       if (!wireValidation.ok) return wireValidation;
@@ -881,7 +880,7 @@ async function uploadSyncDataUnlocked(
       }
       return {
         ok: false,
-        code: isConflict ? 'conflict' : undefined,
+        code: isConflict ? 'conflict' : syncHttpFailureCode(response.status),
         error: isConflict
           ? 'クラウド側に、この端末が最後に確認したものより新しいデータがあります。先にクラウドから読み込んでください。'
           : `クラウドへの保存に失敗しました。${details.message ? ` ${details.message}` : ''}`,
@@ -893,7 +892,7 @@ async function uploadSyncDataUnlocked(
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
     const rpcFailure = syncRpcFailureFromRow(first, 'upload');
     if (rpcFailure) return rpcFailure;
-    const record = parseRemoteRecord(first, normalizedSyncId, true);
+    const record = await parseRemoteRecord(first, normalizedSyncId, true);
     if (!record.ok) return record;
     if (computePayloadHash(record.value.payload) !== computePayloadHash(uploadPayload)) {
       return { ok: false, error: 'クラウド保存結果の内容が送信したデータと一致しません。保存状態を確認してから再試行してください。' };
@@ -933,26 +932,19 @@ export async function downloadSyncData(syncId: string, options: { materialFiles?
 
     if (!response.ok && await isMissingSyncRpc(response)) return { ok: false, error: '安全な同期RPCが見つかりません。Supabaseへ最新の同期マイグレーションを適用してください。' };
 
-    if (!response.ok) return { ok: false, error: await responseError(response, 'クラウドからの読み込みに失敗しました。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await responseError(response, 'クラウドからの読み込みに失敗しました。') };
 
     const rows = (await response.json()) as unknown;
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
     if (!Array.isArray(rows) || rows.length === 0) return { ok: true, value: null };
 
-    const record = parseRemoteRecord(rows[0], normalizedSyncId);
+    const record = await parseRemoteRecord(rows[0], normalizedSyncId);
     if (!record.ok) return record;
     if (options.materialFiles !== 'references' && hasRemoteMaterialFiles(record.value.payload)) {
       const access = await syncAccessTokenProvider();
       if (!access.ok) return { ok: false, error: access.message };
       const localPayload = options.localPayload ?? await exportQuizMakeData().catch(() => undefined);
       record.value.payload = await hydrateMaterialDownload(record.value.payload, createMaterialTransport(config, access), localPayload);
-    }
-    if (options.materialFiles !== 'references' && hasSnapshotQuestionImages(record.value.payload)) {
-      const access = await syncAccessTokenProvider();
-      if (!access.ok) return { ok: false, error: access.message };
-      record.value.payload = await hydrateSnapshotQuestionImages(record.value.payload, createQuestionImageTransport(config, access));
-    }
-    if (options.materialFiles !== 'references') {
       const hydrated = validateSyncPayload(record.value.payload);
       if (!hydrated.ok) return hydrated;
     }
@@ -1004,7 +996,7 @@ export async function getRemoteSyncMeta(syncId: string): Promise<SyncResult<Remo
 
     if (!response.ok && await isMissingSyncRpc(response)) return { ok: false, error: '安全な同期RPCが見つかりません。Supabaseへ最新の同期マイグレーションを適用してください。' };
 
-    if (!response.ok) return { ok: false, error: await responseError(response, 'クラウドの更新確認に失敗しました。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await responseError(response, 'クラウドの更新確認に失敗しました。') };
     const rows = (await response.json()) as unknown;
     if (!Array.isArray(rows) || rows.length === 0) return { ok: true, value: null };
     const row = rows[0];
@@ -1115,7 +1107,6 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
 }
 
 function canonicalPayloadText(payload: SyncPayload): string {
-  payload = snapshotImageMetadataOnly(payload, true);
   const stableEntries = (entries: Record<string, string>) => sortRecord(Object.fromEntries(Object.entries(entries).map(([key, raw]) => {
     const file = materialFileEntry(key, raw);
     return [key, file ? JSON.stringify(Object.fromEntries(Object.entries(file).sort(([a], [b]) => a.localeCompare(b)))) : raw];
@@ -1201,19 +1192,27 @@ export function summarizeSyncPayload(payload: SyncPayload): SyncPayloadSummary {
   };
 }
 
-export function validateSyncPayload(value: unknown, options: { wire?: boolean } = {}): SyncResult<SyncPayload> {
+export async function validateHydratedSyncPayload(value: unknown, options: { wire?: boolean; recordRecovery?: boolean } = {}): Promise<SyncResult<SyncPayload>> {
+  // Local backup PDFs obey their 50 MiB media limit and are counted separately,
+  // just as on export. The wire contract and metadata ceiling remain 32 MiB.
+  const separate=!options.wire && isRecord(value) && isStringRecord(value.localStorage)
+    && (value.indexedDbNotes===undefined || isStringRecord(value.indexedDbNotes));
+  const size=measureJsonBytes(separate?materialMetadataOnly(value as SyncPayload):value);
+  if(size!==null&&size>(options.recordRecovery&&!options.wire?MAX_RECORD_DATASET_BYTES:MAX_SYNC_PAYLOAD_BYTES))return {ok:false,code:'payload_too_large',error:SYNC_PAYLOAD_TOO_LARGE_MESSAGE};
+  try{return validateSyncPayload(await hydrateChunkPayload(value),options)}
+  catch{return {ok:false,code:'invalid',error:chunkFailure().message}}
+}
+export function validateSyncPayload(value: unknown, options: { wire?: boolean; recordRecovery?: boolean } = {}): SyncResult<SyncPayload> {
   if (!isRecord(value)) return { ok: false, error: '同期データの形式が正しくありません。' };
   const canSeparatePdfs = !options.wire && isStringRecord(value.localStorage)
     && (value.indexedDbNotes === undefined || isStringRecord(value.indexedDbNotes));
-  let byteSize: number | null;
-  try { byteSize = measureJsonBytes(canSeparatePdfs ? snapshotImageMetadataOnly(materialMetadataOnly(value as SyncPayload)) : value); }
-  catch { return { ok: false, code: 'invalid', error: '問題画像の保存情報が不正です。現在のデータは変更していません。' }; }
+  const byteSize = measureJsonBytes(canSeparatePdfs ? materialMetadataOnly(value as SyncPayload) : value);
   if (byteSize === null) return { ok: false, code: 'invalid', error: '同期データをJSONとして読み込めません。' };
-  if (byteSize > MAX_SYNC_PAYLOAD_BYTES) {
+  if (byteSize > (options.recordRecovery&&!options.wire?MAX_RECORD_DATASET_BYTES:MAX_SYNC_PAYLOAD_BYTES)) {
     return {
       ok: false,
       code: 'payload_too_large',
-      error: SYNC_PAYLOAD_TOO_LARGE_MESSAGE,
+      error: options.recordRecovery&&!options.wire ? '完全復旧コピーのメタデータが128 MBを超えています。' : SYNC_PAYLOAD_TOO_LARGE_MESSAGE,
     };
   }
   if (value.version !== 1) return { ok: false, error: '同期データのversionに対応していません。' };
@@ -1224,6 +1223,11 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
 
   const invalidKey = Object.keys(value.localStorage).find((key) => !isQuizMakeStorageKey(key));
   if (invalidKey) return { ok: false, error: 'Quiz make以外のキーが含まれています: ' + invalidKey };
+  try { Object.entries(value.localStorage).forEach(([key, raw]) => {
+    if(isChunkInternal('localStorage',key)||parseChunkManifest(raw as string,'localStorage',key))throw chunkFailure();
+    validatePlanStorage(key, raw as string);
+  }); }
+  catch { return { ok: false, code: 'invalid', error: '学習計画の形式が正しくありません。現在のデータは変更していません。' }; }
   try {
     for (const key of WEAKNESS_STORAGE_KEYS) {
       const raw = value.localStorage[key];
@@ -1251,7 +1255,10 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
   }
   const invalidNoteKey = Object.keys(indexedDbNotes).find((key) => !isCategoryNoteKey(key));
   if (invalidNoteKey) return { ok: false, error: 'ノート以外のキーが含まれています: ' + invalidNoteKey };
-  const invalidIndexedNote = Object.entries(indexedDbNotes).find(([, raw]) => !isValidCategoryNoteRaw(raw));
+  const invalidIndexedNote = Object.entries(indexedDbNotes).find(([key, raw]) => {
+    try { return Boolean(parseChunkManifest(raw,'indexedDbNotes',key)) || !isValidCategoryNoteRaw(raw); }
+    catch { return true; }
+  });
   if (invalidIndexedNote) return { ok: false, error: `ノートデータの形式が正しくありません: ${invalidIndexedNote[0]}` };
 
   const invalidLegacyNote = Object.entries(value.localStorage)
@@ -1270,8 +1277,6 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
   } catch {
     return { ok: false, error: '同期データの問題データJSONを読み込めません。既存データは変更していません。' };
   }
-  try { validateSnapshotQuestionImages(value as SyncPayload, Boolean(options.wire)); }
-  catch (error) { return { ok: false, code: 'invalid', error: error instanceof Error ? error.message : '問題画像を検証できません。' }; }
 
   return {
     ok: true,
@@ -1319,7 +1324,7 @@ export async function deleteRemoteSyncData(
       }),
     });
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
-    if (!response.ok) return { ok: false, error: await responseError(response, 'クラウドデータの削除に失敗しました。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await responseError(response, 'クラウドデータの削除に失敗しました。') };
     const rows = await response.json() as unknown;
     const first = Array.isArray(rows) ? rows[0] : null;
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
@@ -1380,7 +1385,7 @@ export async function createSyncPairingCode(syncId: string): Promise<SyncResult<
       body: JSON.stringify({ p_sync_id: normalizedSyncId }),
     });
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
-    if (!response.ok) return { ok: false, error: await syncRpcHttpError(response, '接続コードを発行できませんでした。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await syncRpcHttpError(response, '接続コードを発行できませんでした。') };
     const rows = await response.json() as unknown;
     const first = Array.isArray(rows) ? rows[0] : null;
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
@@ -1423,7 +1428,7 @@ export async function redeemSyncPairingCode(pairingCode: string): Promise<SyncRe
       headers: authenticatedHeaders.value,
       body: JSON.stringify({ p_pairing_code: normalizedCode }),
     });
-    if (!response.ok) return { ok: false, error: await syncRpcHttpError(response, '接続コードを確認できませんでした。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await syncRpcHttpError(response, '接続コードを確認できませんでした。') };
     const rows = await response.json() as unknown;
     const first = Array.isArray(rows) ? rows[0] : null;
     const rpcFailure = syncRpcFailureFromRow(first, 'pair_redeem');
@@ -1593,7 +1598,7 @@ async function completePendingLegacySyncUpgrade(
         p_candidate_sync_id: pending.candidateSyncId,
       }),
     });
-    if (!response.ok) return { ok: false, error: await syncRpcHttpError(response, '旧同期IDを移行できませんでした。') };
+    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await syncRpcHttpError(response, '旧同期IDを移行できませんでした。') };
     const rows = await response.json() as unknown;
     const first = Array.isArray(rows) ? rows[0] : null;
     const rpcFailure = syncRpcFailureFromRow(first, 'legacy_upgrade');
@@ -1749,6 +1754,10 @@ function syncRpcFailureFromRow(value: unknown, operation: SyncRpcOperation): Syn
   return { ok: false, error: `同期処理を完了できませんでした（${code}）。` };
 }
 
+function syncHttpFailureCode(status: number): SyncErrorCode | undefined {
+  return status === 401 ? 'authentication_required' : status === 403 ? 'permission_denied'
+    : status === 429 ? 'rate_limited' : status === 413 ? 'payload_too_large' : status >= 500 ? 'network' : undefined;
+}
 async function syncRpcHttpError(response: Response, fallback: string): Promise<string> {
   const details = await readSupabaseError(response);
   if (response.status === 429 || details.code === 'rate_limited') {
@@ -1817,7 +1826,7 @@ async function readSupabaseError(response: Response): Promise<{ message: string;
 function getDiagnosticSuggestion(errorText: string): string | undefined {
   const value = errorText.toLowerCase();
   if (value.includes('invalid api key') || value.includes('jwt')) {
-    return 'ログイン状態を確認して、必要なら一度ログアウトしてから再ログインしてください。解決しない場合は公開APIキーとSupabase URLの組み合わせを確認してください。';
+    return '通信状態を確認して同期を再試行してください。有効期限切れのトークンは自動更新を試みます。繰り返す場合は公開APIキーとSupabase URLの組み合わせを確認してください。';
   }
   if (value.includes('relation') && value.includes('quiz_sync_data') && value.includes('does not exist')) {
     return 'Supabase側に quiz_sync_data テーブルがまだ作成されていません。';
@@ -1847,7 +1856,7 @@ async function getAuthenticatedSyncHeaders(
   if (!access.ok) {
     return {
       ok: false,
-      code: access.reason === 'not-configured' ? undefined : 'authentication_required',
+      code: access.reason === 'not-configured' ? undefined : access.reason === 'temporarily-unavailable' ? 'network' : access.reason === 'account-changed' ? 'connection_changed' : 'authentication_required',
       error: access.message,
     };
   }
@@ -1893,7 +1902,7 @@ async function responseError(response: Response, fallback: string) {
   return syncRpcHttpError(response, fallback);
 }
 
-function parseRemoteRecord(value: unknown, expectedSyncId: string, requireSuccessCode = false): SyncResult<RemoteSyncRecord> {
+async function parseRemoteRecord(value: unknown, expectedSyncId: string, requireSuccessCode = false): Promise<SyncResult<RemoteSyncRecord>> {
   if (
     !isRecord(value)
     || (requireSuccessCode && value.result_code !== 'ok')
@@ -1905,7 +1914,7 @@ function parseRemoteRecord(value: unknown, expectedSyncId: string, requireSucces
     return { ok: false, error: 'クラウドデータの形式が正しくありません。' };
   }
 
-  const validation = validateSyncPayload(value.data, { wire: true });
+  const validation = await validateHydratedSyncPayload(value.data, { wire: true });
   if (!validation.ok) return validation;
 
   return {
@@ -1923,7 +1932,7 @@ function collectCurrentQuizMakeLocalStorage(): Record<string, string> {
   try {
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
-      if (!key || !isQuizMakeStorageKey(key) || key === APP_DATA_STORAGE_KEY || isCategoryNoteKey(key) || isSnapshotImageKey(key)) continue;
+      if (!key || !isQuizMakeStorageKey(key) || isChunkInternal('localStorage',key) || key === APP_DATA_STORAGE_KEY || isCategoryNoteKey(key)) continue;
       const value = localStorage.getItem(key);
       if (value !== null) result[key] = value;
     }
@@ -1938,7 +1947,6 @@ async function restoreImportedData(
   localStorageSnapshot: Record<string, string>,
   integritySnapshot: DataIntegritySnapshot,
   coordinationLockHeld = false,
-  imagePayload?: SyncPayload,
 ): Promise<SyncResult<true>> {
   const failures: string[] = [];
   try {
@@ -1951,12 +1959,8 @@ async function restoreImportedData(
   } catch {
     failures.push('ノート');
   }
-  if (imagePayload) {
-    try { await replaceSnapshotQuestionImages(imagePayload); }
-    catch { failures.push('問題画像'); }
-  }
   try {
-    replaceQuizMakeLocalStorage(localStorageSnapshot);
+    await replaceQuizMakeLocalStorage(localStorageSnapshot);
   } catch {
     failures.push('設定');
   }
@@ -2003,18 +2007,24 @@ function setOrRemoveLocalStorage(key: string, value: string | null): void {
   else localStorage.setItem(key, value);
 }
 
-function replaceQuizMakeLocalStorage(next: Record<string, string>): void {
+async function replaceQuizMakeLocalStorage(next: Record<string, string>): Promise<void> {
   const before = collectCurrentQuizMakeLocalStorage();
+  const { isLearningStorageKey } = await import('./learningStorageKeys');
+  const { saveSyncedLocalStorage } = await import('./localStorageRecords');
+  const keys = [...new Set([...Object.keys(before), ...Object.keys(next)])];
+  const learning = (values: Record<string, string>) => Object.fromEntries(keys.filter(isLearningStorageKey).map(key => [key, values[key] ?? null]));
   try {
+    if (keys.some(isLearningStorageKey)) await saveSyncedLocalStorage(learning(next));
     const keysToRemove = Object.keys(before).filter((key) => next[key] === undefined);
     Object.entries(next).forEach(([key, value]) => {
+      if (isLearningStorageKey(key)) return;
       if (localStorage.getItem(key) !== value) localStorage.setItem(key, value);
     });
-    keysToRemove.forEach((key) => localStorage.removeItem(key));
+    keysToRemove.filter(key => !isLearningStorageKey(key)).forEach((key) => localStorage.removeItem(key));
   } catch (error) {
     try {
-      Object.keys(collectCurrentQuizMakeLocalStorage()).forEach((key) => localStorage.removeItem(key));
-      Object.entries(before).forEach(([key, value]) => localStorage.setItem(key, value));
+      if (keys.some(isLearningStorageKey)) await saveSyncedLocalStorage(learning(before));
+      keys.filter(key => !isLearningStorageKey(key)).forEach(key => setOrRemoveLocalStorage(key, before[key] ?? null));
     } catch {
       // The outer import transaction reports that rollback was incomplete.
     }
@@ -2022,7 +2032,7 @@ function replaceQuizMakeLocalStorage(next: Record<string, string>): void {
   }
 }
 export function isQuizMakeStorageKey(key: string): boolean {
-  if (WEAKNESS_STORAGE_KEYS.some(item => item === key)) return true;
+  if (WEAKNESS_STORAGE_KEYS.some(item => item === key) || key === 'quiz-make-study-companion' || key === 'quiz-make-answer-sound') return true;
   if (key === APP_DATA_FALLBACK_META_KEY) return false;
   if (key === APP_DATA_EXPECTED_KEY) return false;
   if (key === APP_DATA_RECOVERY_REQUIRED_KEY) return false;

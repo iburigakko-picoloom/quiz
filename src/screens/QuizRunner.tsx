@@ -1,6 +1,10 @@
 import { Children, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
+import { isAccountWorkReloadApproved } from '../utils/accountWork';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
+import { PinchImage } from '../components/PinchImage';
+import { FullText } from '../components/FullText';
 import remarkGfm from 'remark-gfm';
 import type { AppData, Question, QuizResult, MaterialReference } from '../types';
 import { BackButton } from '../components/BackButton';
@@ -45,7 +49,7 @@ interface QuizRunnerProps {
     actionLabel?: string;
   };
   onBack: () => void;
-  onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean) => AnswerHandlerResult;
+  onAnswer: (question: Question, selectedIndexes: number[], isReviewMode: boolean, sourceQuestion: Question) => AnswerHandlerResult;
   onToggleAmbiguous: (questionId: string) => Promise<boolean>;
   onSaveDetailedExplanation: (questionId: string, detailedExplanation: string) => Promise<void>;
   onAddDetailedImage?: (questionId: string, file: File) => Promise<void>;
@@ -55,21 +59,25 @@ interface QuizRunnerProps {
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizRunner({ data, title, subtitle, questions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
-  const [currentIndex, setCurrentIndex] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(questions.length - 1, 0)));
-  const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
-  const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
-  const [hasAnswered, setHasAnswered] = useState(false);
-  const [correctCount, setCorrectCount] = useState(0);
-  const sessionAnswersRef = useRef<NonNullable<QuizResult['sessionAnswers']>>([]);
-  const submittedQuestionRef = useRef<string | null>(null);
+type QuizWork = { questions: Question[]; readOnly: boolean; currentIndex: number; selectedIndexes: number[]; lastCorrect: boolean|null; hasAnswered: boolean; correctCount: number; wrongCount: number; addedReviewCount: number; sessionAnswers: NonNullable<QuizResult['sessionAnswers']>; presentation: {index:number;question:Question|undefined}|null; answerSaveState:'idle'|'saving'|'saved'|'error'; savedLevelLabel:string };
+export function QuizRunner({ data, title, subtitle, questions: incomingQuestions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
+  const workKey=`quiz:${setId??'multi'}:${mode}:${readOnly}`;
+  const recovered=useRestoredAccountWork<QuizWork>(workKey);
+  const [questions]=useState(recovered?.questions??incomingQuestions);
+  const [currentIndex, setCurrentIndex] = useState(() => Math.min(Math.max(recovered?.currentIndex??initialIndex, 0), Math.max(questions.length - 1, 0)));
+  const [selectedIndexes, setSelectedIndexes] = useState<number[]>(recovered?.selectedIndexes??[]);
+  const [lastCorrect, setLastCorrect] = useState<boolean | null>(recovered?.lastCorrect??null);
+  const [hasAnswered, setHasAnswered] = useState(recovered?.hasAnswered??false);
+  const [correctCount, setCorrectCount] = useState(recovered?.correctCount??0);
+  const sessionAnswersRef = useRef<NonNullable<QuizResult['sessionAnswers']>>(recovered?.sessionAnswers??[]);
+  const submittedQuestionRef = useRef<string | null>(recovered?.hasAnswered ? questions[currentIndex]?.id??null : null);
   const [feedback, setFeedback] = useState<'correct' | 'relearned' | 'wrong' | null>(null);
-  const [wrongCount, setWrongCount] = useState(0);
-  const [addedReviewCount, setAddedReviewCount] = useState(0);
+  const [wrongCount, setWrongCount] = useState(recovered?.wrongCount??0);
+  const [addedReviewCount, setAddedReviewCount] = useState(recovered?.addedReviewCount??0);
   const [answerSheetState, setAnswerSheetState] = useState<AnswerSheetState>('default');
-  const [savedLevelLabel, setSavedLevelLabel] = useState('');
+  const [savedLevelLabel, setSavedLevelLabel] = useState(recovered?.savedLevelLabel??'');
   const [answerMessage, setAnswerMessage] = useState('');
-  const [answerSaveState, setAnswerSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [answerSaveState, setAnswerSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>(recovered?.answerSaveState??'idle');
   const answerRetryRef = useRef<(() => Promise<boolean>) | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [materialLauncherTarget, setMaterialLauncherTarget] = useState<HTMLSpanElement | null>(null);
@@ -160,11 +168,12 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   }, [noteAreaOpen]);
 
   const sourceQuestion = questions[currentIndex];
-  const presentationRef = useRef<{ index: number; question: Question | undefined } | null>(null);
+  const presentationRef = useRef<{ index: number; question: Question | undefined } | null>(recovered?.presentation??null);
   if (!presentationRef.current || presentationRef.current.index !== currentIndex || presentationRef.current.question?.id !== sourceQuestion?.id) {
     presentationRef.current = { index: currentIndex, question: sourceQuestion ? randomizeQuestionChoices(sourceQuestion) : undefined };
   }
   const currentQuestion = presentationRef.current.question;
+  useAccountWork(workKey, () => ({ questions, readOnly, currentIndex, selectedIndexes, lastCorrect, hasAnswered, correctCount, wrongCount, addedReviewCount, sessionAnswers:sessionAnswersRef.current, presentation:presentationRef.current, answerSaveState, savedLevelLabel }), async () => { if(answerSaveState==='saving'||answerSaveState==='error')throw new Error('回答の保存完了を待っています。'); });
   const currentDetailedExplanation = useMemo(
     () => resolveQuestionDetailedExplanation(data.questions, currentQuestion),
     [currentQuestion, data.questions],
@@ -221,6 +230,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
   useEffect(() => {
     if (answerSaveState !== 'saving' && answerSaveState !== 'error') return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if(isAccountWorkReloadApproved())return;
       event.preventDefault();
       event.returnValue = '';
     };
@@ -270,7 +280,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
     submittedQuestionRef.current = currentQuestion.id;
     const normalizedIndexes = Array.from(new Set(indexes)).sort((a, b) => a - b);
     const previousCorrect = progress?.lastAnswerCorrect;
-    const result = onAnswer(currentQuestion, normalizedIndexes, mode === 'review');
+    const result = onAnswer(currentQuestion, normalizedIndexes, mode === 'review', sourceQuestion);
     const kind = getAnswerFeedback(previousCorrect, result.isCorrect);
     setFeedback(kind);
     playAnswerFeedback(kind);
@@ -399,7 +409,7 @@ export function QuizRunner({ data, title, subtitle, questions, mode, setId, init
         <main key={currentQuestion.id} className="quiz-runner__main quiz-runner__question-stage flex min-h-0 flex-1 flex-col">
           <section className="quiz-runner__question-panel flex h-[clamp(104px,17dvh,132px)] shrink-0 items-center justify-center overflow-hidden px-5 py-3 text-center">
             <div className="min-h-0 w-full">
-              <div className="quiz-question-heading"><div className="quiz-question-kicker" aria-hidden="true">QUESTION {registeredQuestionNumber}</div><span className="quiz-question-material" ref={setMaterialLauncherTarget} /></div>
+              <div className="quiz-question-heading"><div className="quiz-question-kicker" aria-hidden="true">QUESTION {registeredQuestionNumber}</div><span className="quiz-question-material" ref={setMaterialLauncherTarget} />{currentQuestion.question.length > 90 || currentQuestion.choices.some(choice => choice.length > 60) ? <FullText key={currentQuestion.id} text={[currentQuestion.question, ...currentQuestion.choices.map((choice, index) => `${getChoiceLabel(index)}. ${choice}`)].join('\n\n')} /> : null}</div>
               {currentQuestion.category ? (
                 <div className="quiz-runner__question-category mb-1 truncate text-xs font-semibold">{currentQuestion.category}</div>
               ) : null}
@@ -1052,8 +1062,8 @@ export function AnswerPanel({
     >
       <div className="answer-sheet__page-navigation">
         <h2>解答</h2>
-        <button ref={detailOpenRef} type="button" className={'answer-sheet__detail-open' + (hasUnsavedDetail ? ' answer-sheet__detail-open--unsaved' : '')} onClick={openDetailPage} aria-label="右側の解説・メモへ">
-          <span>解説・メモ</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6" /></svg>
+        <button ref={detailOpenRef} type="button" className={'answer-sheet__detail-open' + (hasUnsavedDetail ? ' answer-sheet__detail-open--unsaved' : '')} onClick={openDetailPage} aria-label="右側の追加解説・メモへ">
+          <span>追加解説・メモ</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6" /></svg>
         </button>
       </div>
       <div className="answer-sheet__answer-box">
@@ -1078,7 +1088,7 @@ export function AnswerPanel({
         <button ref={detailBackRef} type="button" className="answer-sheet__detail-back" onClick={handleLeaveDetailPage} disabled={isSavingDetail} aria-label="左側の解答に戻る">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5m6-6-6 6 6 6" /></svg><span>解答に戻る</span>
         </button>
-        <h2>解説・メモ</h2>
+        <h2>追加解説・メモ</h2>
       </div>
       <WeaknessDetail key={questionId} questionId={questionId} text={detailedExplanation} imageIds={imageIds} onSave={onSaveDetailedExplanation} onAddImage={onAddDetailedImage} onRemoveImage={onRemoveDetailedImage} disabled={detailEditingDisabled} onDirtyChange={handleDetailDirtyChange} active={panelPage === 'detail' && state !== 'hidden'} guideExample={guidePage ? 'なぜ月の形は毎日変わって見えるの？ 図でも知りたい。' : undefined} />
     </div>
@@ -1166,7 +1176,7 @@ function ExplanationContent({ text, className }: { text: string; className: stri
           ) : <span>{children}</span>,
           input: ({ node: _node, ...props }) => <input {...props} disabled data-no-page-swipe />,
           img: ({ src, alt }) => src
-            ? <img src={src} alt={alt ?? ''} loading="lazy" data-no-page-swipe />
+            ? <PinchImage src={src} alt={alt ?? ''} />
             : <span>{alt ?? ''}</span>,
         }}
       >

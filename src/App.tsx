@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { accountLocalStorage as localStorage } from './utils/accountStorage';
 import type { AppData, AppScreen, Folder, ProblemSet, Question, QuizResult, QuizSession, MaterialReference } from './types';
 import { linkQuestionMaterialPage } from './utils/materialModel';
 import { applyReferenceLinks, type ReferenceLink } from './utils/referenceLinking';
@@ -7,19 +8,29 @@ import {
   establishCurrentAppDataAuthority,
   loadAppDataAsync,
   parseBackupJson,
-  saveAppData,
+  saveAppDataResult,
   waitForPendingAppDataSaves,
 } from './storage';
+import { appSaveFailureMessage } from './utils/appSaveFailure';
 import { HomeScreen } from './screens/HomeScreen';
+import { SearchScreen } from './screens/SearchScreen';
+import { tryCloseTransientDialog } from './utils/transientDialog';
+import { hasPendingImportSession } from './utils/importDraftSessions';
+import { PlansScreen } from './screens/PlansScreen';
+import { PlanEditorScreen } from './screens/PlanEditorScreen';
+import { questionRevision } from './utils/studyPlans';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
 import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
 import { deleteLocalQuestionImage, deleteLocalQuestionImages, MAX_QUESTION_DETAIL_IMAGES, pruneLocalQuestionImages, saveLocalQuestionImage } from './utils/localQuestionImages';
+import { prepareCopiedQuestionImages, type PreparedQuestionImageCopy } from './utils/questionImageRecords';
 import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
 import { applyQuestionExplanations } from './utils/weaknessNotes';
 import { replayLocalStorageProjections } from './utils/localStorageRecords';
-import { withCoordinatedDataMutation, withCoordinatedDataRead } from './utils/dataCoordination';
+import { withCoordinatedDataMutation, withCoordinatedDataRead, loadLatestCoordinatedData } from './utils/dataCoordination';
 import { isAutoUploadBlocked } from './utils/autoSyncScheduler';
+import { isManualSyncRequested } from './utils/syncRequest';
+import { isSyncDisplaySafe, isSyncInteractionProtected } from './utils/syncInteraction';
 import type { RecordSyncGuards } from './utils/recordSyncEngine';
 import { QuestionEditScreen } from './screens/QuestionEditScreen';
 import { DetailedAnswerScreen } from './screens/DetailedAnswerScreen';
@@ -34,6 +45,7 @@ import { saveBackupPayload } from './utils/backupRepository';
 import type { CreateProblemSetSubmission, LegacyImportTarget } from './screens/CreateProblemSetScreen';
 import { lineLinkReturn } from './utils/lineAuthReturn';
 import { AutoSyncController } from './components/AutoSyncController';
+import { AccountSyncController } from './components/AccountSyncController';
 import { UpdateNotices } from './components/UpdateNotices';
 import { WelcomeGuide } from './components/WelcomeGuide';
 import { UsageGuide } from './components/UsageGuide';
@@ -68,7 +80,10 @@ import { waitForPendingCategoryNoteSaves } from './utils/noteStorage';
 import { persistLibraryDeletion, type LibraryDeletionResult } from './utils/libraryDeletion';
 import { saveJsonBackup } from './utils/nativePlatform';
 import { createSampleAppData } from './utils/sampleData';
-import { setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
+import { beginRecordApply, setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
+import { validateHydratedSyncPayload } from './utils/syncService';
+import { exportFileBackup, validateFileBackup, restoreFileBackup, type FileBackup } from './utils/backupPayload';
+import { SyncProtocolError } from './utils/syncInterruption';
 import {
   initializeCloudNativeAuth,
   onNativeAuthResult,
@@ -82,13 +97,15 @@ const QuizRunner = lazy(() => import('./screens/QuizRunner').then((module) => ({
 const NoteListScreen = lazy(() => import('./screens/NoteListScreen').then((module) => ({ default: module.NoteListScreen })));
 const ImportScreen = lazy(() => import('./screens/ImportScreen').then((module) => ({ default: module.ImportScreen })));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then((module) => ({ default: module.SettingsScreen })));
-const SyncScreen = lazy(() => import('./screens/SyncScreen').then((module) => ({ default: module.SyncScreen })));
+const SyncScreen = lazy(() => import('./screens/AccountSyncScreen').then((module) => ({ default: module.AccountSyncScreen })));
 const PrivacyScreen = lazy(() => import('./screens/PrivacyScreen').then((module) => ({ default: module.PrivacyScreen })));
 const StudyRecordScreen = lazy(() => import('./screens/StudyRecordScreen').then((module) => ({ default: module.StudyRecordScreen })));
 type PendingBackupImport =
-  | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary }
+  | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary; file?: FileBackup }
   | { kind: 'legacy'; data: AppData };
 export default function App() {
+  const recovered = useRestoredAccountWork<{ screen: AppScreen; pendingBackupImport: PendingBackupImport | null; createDraftDirty: boolean }>('app');
+  const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : localStorage.getItem('quizMake:sync:unionLegacyPending') === 'true' ? { name: 'sync' } : { name: 'home' }));
   const [data, setData] = useState<AppData>(() => createEmptyAppData());
   const [storageReady, setStorageReady] = useState(false);
   const [receivingSharedImage,setReceivingSharedImage] = useState(()=>new URL(location.href).searchParams.has('sharedImage')||new URL(location.href).searchParams.has('sharedImageError'));
@@ -96,14 +113,14 @@ export default function App() {
   const [storageLoadAttempt, setStorageLoadAttempt] = useState(0);
   const dataRef = useRef(data);
   const durableDataRef = useRef(data);
-  const [screen, setScreen] = useState<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
+  const [screen, setScreen] = useState<AppScreen>(initialScreen.current);
   const [transitionDirection, setTransitionDirection] = useState<'forward' | 'back' | 'replace'>('replace');
   const [guideReturn, setGuideReturn] = useState<'home' | 'settings' | null>(null);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [pendingExitTarget, setPendingExitTarget] = useState<AppScreen | null>(null);
   const [pendingExitReason, setPendingExitReason] = useState<'quiz' | 'create' | null>(null);
-  const [createDraftDirty, setCreateDraftDirty] = useState(false);
-  const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(null);
+  const [createDraftDirty, setCreateDraftDirty] = useState(recovered?.createDraftDirty ?? false);
+  const [pendingBackupImport, setPendingBackupImport] = useState<PendingBackupImport | null>(recovered?.pendingBackupImport ?? null);
   const [backupImportBusy, setBackupImportBusy] = useState(false);
   const [backupImportError, setBackupImportError] = useState('');
   const [backupExportNotice, setBackupExportNotice] = useState('');
@@ -113,8 +130,12 @@ export default function App() {
   const [autoImportBusy, setAutoImportBusy] = useState(false);
   const autoImportBusyRef = useRef(false);
   const [storageError, setStorageError] = useState('');
-  const navigationStackRef = useRef<AppScreen[]>(lineLinkReturn ? [{ name: 'home' }, { name: 'settings', page: 'account' }] : [{ name: 'home' }]);
+  const navigationStackRef = useRef<AppScreen[]>(initialScreen.current.name === 'home' ? [{ name: 'home' }] : [{ name: 'home' }, initialScreen.current]);
   const noteExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
+  const importExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
+  const importHistoryPendingRef = useRef(false);
+  const newImportTargetRef = useRef<{ name: string; folderId: string } | null>(null);
+  const registerImportExitGuard = useCallback((guard: ((proceed: () => void) => Promise<boolean>) | null) => { importExitGuardRef.current = guard; }, []);
   const noteHistoryPendingRef = useRef(false);
   const browserDepthRef = useRef(0);
   const pendingBackTargetRef = useRef<AppScreen | null>(null);
@@ -123,14 +144,19 @@ export default function App() {
   const pendingExitModeRef = useRef<'back' | 'replace'>('back');
   const confirmedProtectedExitRef = useRef(false);
   const createDraftDirtyRef = useRef(false);
-  const screenRef = useRef<AppScreen>(lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' });
+  const screenRef = useRef<AppScreen>(initialScreen.current);
+  useAccountWork('app', () => ({ screen: screenRef.current, pendingBackupImport, createDraftDirty }));
   const dataRevisionRef = useRef(0);
   const libraryMutationBusyRef = useRef(false);
   const autoImportEligibleRef = useRef(false);
   const recordCheckEligibleRef = useRef(false);
-  // Import on the home screen only. Quiz/editor/viewer state stays untouched;
+  const [, setSyncInteractionActive] = useState(false);
+  const syncExitGuardRef = useRef<(() => boolean) | null>(null);
+  const backupExitStateRef = useRef({ pending: false, busy: false });
+  backupExitStateRef.current = { pending: pendingBackupImport !== null, busy: backupImportBusy };
+  // Home and the normal sync display can apply data. Quiz/editor/viewer state stays untouched;
   // downloading in the background never blocks interaction.
-  autoImportEligibleRef.current = screen.name === 'home' && !guideReturn && !waitingWorker
+  autoImportEligibleRef.current = isSyncDisplaySafe(screen.name) && !guideReturn && !waitingWorker
     && !receivingSharedImage && !pendingBackupImport && !backupImportBusy
     && !pendingExitTarget && !storageError && !storageLoadError;
   recordCheckEligibleRef.current = storageReady && !guideReturn && !waitingWorker
@@ -139,7 +165,7 @@ export default function App() {
   const canCheckRecordImport = () => recordCheckEligibleRef.current
     && !libraryMutationBusyRef.current && !autoImportBusyRef.current
     && !isAutoUploadBlocked(getSyncProtectedWorkReason(screenRef.current, createDraftDirtyRef.current, false, false));
-  const canAutoImport = () => autoImportEligibleRef.current && screenRef.current.name === 'home'
+  const canAutoImport = () => autoImportEligibleRef.current && isSyncDisplaySafe(screenRef.current.name)
     && !libraryMutationBusyRef.current && !autoImportBusyRef.current;
 
   const refreshImportedData = async () => {
@@ -160,8 +186,8 @@ export default function App() {
     try {
       const result = await importQuizMakeData(remote.payload, {
         expectedSyncId: remote.syncId, authoritativeUpdatedAt: remote.updatedAt, expectedLocalDigest,
-        canApply: () => autoImportEligibleRef.current && screenRef.current.name === 'home'
-          && document.visibilityState === 'visible' && getAutoSyncSettings().enabled
+        canApply: () => autoImportEligibleRef.current && isSyncDisplaySafe(screenRef.current.name)
+          && document.visibilityState === 'visible' && (getAutoSyncSettings().enabled || isManualSyncRequested(remote.syncId))
           && getAutoSyncSettings().syncId === remote.syncId,
       });
       if (!result.ok) {
@@ -192,13 +218,12 @@ export default function App() {
         return operation({ preserveLiveData: true });
       }, { requireCrossContext: true });
     }
+    const finishRecordApply = beginRecordApply();
     autoImportBusyRef.current = true;
-    libraryMutationBusyRef.current = true;
     setAutoImportBusy(true);
-    setLibraryMutationBusy(true);
     try {
       const result = await withCoordinatedDataMutation(['app','notes'], async () => {
-        if (!autoImportEligibleRef.current || screenRef.current.name !== 'home' || document.visibilityState !== 'visible') return null;
+        if (!autoImportEligibleRef.current || !isSyncDisplaySafe(screenRef.current.name) || document.visibilityState !== 'visible') return null;
         const applied = await operation();
         if (applied.applied) {
           await replayLocalStorageProjections();
@@ -214,13 +239,12 @@ export default function App() {
       }, { requireCrossContext: true });
       return result;
     } catch (error) {
-      setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
+      if(!(error instanceof SyncProtocolError))setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
       throw error;
     } finally {
+      finishRecordApply();
       autoImportBusyRef.current = false;
-      libraryMutationBusyRef.current = false;
       setAutoImportBusy(false);
-      setLibraryMutationBusy(false);
     }
   };
 
@@ -228,9 +252,15 @@ export default function App() {
     let cancelled = false;
     setStorageReady(false);
     setStorageLoadError('');
-    void loadAppDataAsync()
+    void waitForPendingAppDataSaves().then(() => loadLatestCoordinatedData(['app', 'notes'], async () => {
+      const loaded = await loadAppDataAsync({ coordinationLockHeld: true });
+      await replayLocalStorageProjections();
+      // A damaged old backup must not block unrelated learning saves.
+      try { await (await import('./utils/backupRepository')).migrateSavedBackups(); }
+      catch (error) { console.warn('Old backups retained without cleanup.', error); }
+      return loaded;
+    }))
       .then(async (loadedData) => {
-        await replayLocalStorageProjections();
         if (cancelled) return;
         dataRef.current = loadedData;
         durableDataRef.current = loadedData;
@@ -285,6 +315,10 @@ export default function App() {
     window.history.replaceState({ quizMake: true }, '');
 
     const handlePopState = () => {
+      if (backupExitStateRef.current.busy) { window.history.pushState({ quizMake: true }, ''); return; }
+      if (backupExitStateRef.current.pending) { setPendingBackupImport(null); window.history.pushState({ quizMake: true }, ''); return; }
+      if ((screenRef.current.name === 'sync' || (screenRef.current.name === 'settings' && screenRef.current.page === 'backups')) && syncExitGuardRef.current && !syncExitGuardRef.current()) { window.history.pushState({ quizMake: true }, ''); return; }
+      if (tryCloseTransientDialog()) { window.history.pushState({ quizMake: true }, ''); return; }
       if (autoImportBusyRef.current) {
         window.history.pushState({ quizMake: true }, '');
         return;
@@ -294,6 +328,15 @@ export default function App() {
       const historySteps = pendingBackStepsRef.current;
       pendingBackTargetRef.current = null;
       pendingBackStepsRef.current = 1;
+
+      if (current.name === 'import' && importExitGuardRef.current) {
+        if (importHistoryPendingRef.current) { window.history.pushState({ quizMake: true }, ''); return; }
+        importHistoryPendingRef.current = true;
+        void importExitGuardRef.current(() => applyBackNavigation(target, historySteps)).then(completed => {
+          if (!completed) window.history.pushState({ quizMake: true }, '');
+        }).finally(() => { importHistoryPendingRef.current = false; });
+        return;
+      }
 
       if (current.name === 'noteDetail' && noteExitGuardRef.current) {
         if (noteHistoryPendingRef.current) {
@@ -343,7 +386,8 @@ export default function App() {
     dataRevisionRef.current = revision;
     dataRef.current = nextData;
     setData(nextData);
-    const saved = await saveAppData(nextData);
+    const saveResult = await saveAppDataResult(nextData);
+    const saved = saveResult.ok;
     if (saved) {
       durableDataRef.current = nextData;
       void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
@@ -353,12 +397,12 @@ export default function App() {
     if (dataRevisionRef.current === revision) {
       dataRef.current = durableDataRef.current;
       setData(durableDataRef.current);
-      setStorageError('端末への保存に失敗しました。保存前の状態に戻しました。空き容量やブラウザの保存設定を確認して、もう一度お試しください。');
+      if (!saveResult.ok) setStorageError(appSaveFailureMessage(saveResult.failure));
     }
     return saved;
   };
 
-  const persistThenCommitData = async (nextData: AppData): Promise<boolean> => {
+  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = []): Promise<boolean> => {
     if (libraryMutationBusyRef.current) {
       setStorageError('削除処理が完了するまでお待ちください。');
       return false;
@@ -368,12 +412,13 @@ export default function App() {
     // Reserve the next snapshot immediately. Any action taken while this durable
     // save is pending will now build on top of it instead of an older snapshot.
     dataRef.current = nextData;
-    const saved = await saveAppData(nextData);
+    const saveResult = await saveAppDataResult(nextData, { questionImages });
+    const saved = saveResult.ok;
     if (!saved) {
       if (dataRevisionRef.current === revision) {
         dataRef.current = durableDataRef.current;
         setData(durableDataRef.current);
-        setStorageError('端末への保存に失敗しました。保存前の状態に戻しました。空き容量やブラウザの保存設定を確認して、もう一度お試しください。');
+        if (!saveResult.ok) setStorageError(appSaveFailureMessage(saveResult.failure));
       }
       return false;
     }
@@ -411,7 +456,8 @@ export default function App() {
     }
 
     // Keep the original entry point when a child supplies only the destination ID.
-    const resolvedTarget = targetIndex >= 0 ? { ...stack[targetIndex], ...target } : target;
+    const resolvedTarget: AppScreen = targetIndex >= 0 && stack[targetIndex].name === target.name
+      ? { ...stack[targetIndex], ...target } as AppScreen : target;
     navigationStackRef.current = targetIndex >= 0 ? [...stack.slice(0, targetIndex), resolvedTarget] : [resolvedTarget];
     browserDepthRef.current = Math.max(0, browserDepthRef.current - historySteps);
     pendingBackTargetRef.current = null;
@@ -436,6 +482,8 @@ export default function App() {
   };
 
   const goBackTo = (next: AppScreen) => {
+    if (tryCloseTransientDialog()) return;
+    if (screenRef.current.name === 'import' && importExitGuardRef.current) { void importExitGuardRef.current(() => performBackNavigation(next)); return; }
     const exitReason = getProtectedExitReason(screenRef.current, createDraftDirtyRef.current);
     if (exitReason) {
       pendingExitTargetRef.current = next;
@@ -611,7 +659,9 @@ export default function App() {
     targetLabel: 'フォルダ' | '問題セット' | '全データ',
   ): boolean => {
     if (!result.ok) {
-      if (result.reason === 'notes-delete-failed') {
+      if (result.reason === 'referenced-material') {
+        setStorageError(result.error instanceof Error ? result.error.message : 'ほかの教材から資料を参照しているため、削除を中止しました。');
+      } else if (result.reason === 'notes-delete-failed') {
         setStorageError(`ノートを削除できなかったため、${targetLabel}の削除を取り消しました。もう一度お試しください。`);
       } else if (result.reason === 'rollback-failed') {
         setStorageError(`ノートの削除と${targetLabel}の復元に失敗しました。復旧用バックアップを書き出してから再読み込みしてください。`);
@@ -716,17 +766,17 @@ export default function App() {
     return null;
   };
 
-  const handleAnswer = (question: Question, selectedIndexes: number[], isReviewMode: boolean) => {
+  const handleAnswer = (question: Question, selectedIndexes: number[], isReviewMode: boolean, sourceQuestion: Question) => {
     const answerLogId = createId('log');
-    const answerResult = recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId);
-    const savePromise = commitData(answerResult.data);
+    const answerResult = recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId, sourceQuestion);
+    const savePromise = persistThenCommitData(answerResult.data);
     const levelLabel = answerResult.progress.isGraduated ? '卒業' : `Level ${answerResult.progress.reviewLevel ?? 1}`;
     return {
       isCorrect: answerResult.isCorrect,
       addedToReview: answerResult.addedToReview,
       levelLabel,
       savePromise,
-      retrySave: () => commitData(recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId).data),
+      retrySave: () => persistThenCommitData(recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId, sourceQuestion).data),
     };
   };
 
@@ -762,10 +812,13 @@ export default function App() {
     }
 
     const setId = createId('set');
-    const questions: Question[] = submission.questions.map((question) => {
+    const initialQuestions: Question[] = submission.questions.map((question) => {
+      const sourceQuestion = submission.sourceSetId ? current.questions.find(q => q.id === question.id && q.setId === submission.sourceSetId) : undefined;
       const choices = question.choices.map((choice) => choice.trim()) as Question['choices'];
       const answerIndexes = getDraftAnswerIndexes({ ...question, choices });
       return {
+        logicalId: sourceQuestion?.logicalId ?? sourceQuestion?.id,
+        origin: sourceQuestion?.origin,
         id: createId('q'),
         setId,
         question: question.question.trim(),
@@ -787,6 +840,14 @@ export default function App() {
         updatedAt: timestamp,
       };
     });
+    let prepared: { questions: Question[]; images: PreparedQuestionImageCopy[] };
+    try {
+      prepared = submission.sourceSetId
+        ? await prepareCopiedQuestionImages(initialQuestions.map((question,index)=>({sourceId:submission.questions[index].id,question})))
+        : {questions:initialQuestions,images:[]};
+    } catch(error) { return error instanceof Error ? error.message : 'コピー元の画像を確認できませんでした。入力は保持しています。'; }
+    if(dataRef.current!==current)return 'コピーの準備中に教材が変更されました。入力を残して元の問題を確認してください。';
+    const questions=prepared.questions;
     const problemSet: ProblemSet = {
       id: setId,
       folderId,
@@ -798,7 +859,9 @@ export default function App() {
       difficulty: submission.difficulty,
       creationMethod: submission.creationMethod,
       visibility: 'private',
-      sourceSetId: submission.sourceSetId,
+      sourceSetId: current.problemSets.find(s => s.id === submission.sourceSetId)?.sourceSetId ?? submission.sourceSetId,
+      sourceVersionId: current.problemSets.find(s => s.id === submission.sourceSetId)?.sourceVersionId,
+      sourceManifest: current.problemSets.find(s => s.id === submission.sourceSetId)?.sourceManifest,
       copiedAt: submission.sourceSetId ? timestamp : undefined,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -807,7 +870,9 @@ export default function App() {
       ...current,
       folders,
       problemSets: [problemSet, ...current.problemSets],
-      questions: [...questions, ...current.questions],
+      // Global question order is not the set list's display order. Appending
+      // keeps all existing question/progress positions and submitted order.
+      questions: [...current.questions, ...questions],
       progress: [...current.progress, ...questions.map((question) => ({
         questionId: question.id,
         answeredCount: 0,
@@ -821,8 +886,8 @@ export default function App() {
         reviewLevel: null,
         isGraduated: false,
       }))],
-    });
-    if (!saved) return '問題セットを端末へ保存できませんでした。空き容量や保存設定を確認してください。';
+    }, prepared.images);
+    if (!saved) return '問題セットを端末へ保存できませんでした。入力内容はこの画面に保持しています。保存エラーの理由を確認してください。';
     if (screenRef.current.name === 'createProblemSet') {
       setCreateDraftDirty(false);
       replaceScreen({ name: 'problemSetDetail', setId });
@@ -859,6 +924,8 @@ export default function App() {
       const answerIndexes = getDraftAnswerIndexes({ ...draft, choices });
       const id = previous?.id ?? createId('q');
       const nextQuestion: Question = {
+        logicalId: previous?.logicalId ?? previous?.id ?? id,
+        origin: previous?.origin,
         id,
         setId,
         question: draft.question.trim(),
@@ -919,7 +986,7 @@ export default function App() {
           isGraduated: false,
         })),
       ],
-      answerLogs: current.answerLogs.filter((log) => !clearedQuestionIds.has(log.questionId)),
+      answerLogs: current.answerLogs.filter((log) => !removedQuestionIds.has(log.questionId)).map(log => !log.questionRevision && previousById.has(log.questionId) ? { ...log, questionRevision: questionRevision(previousById.get(log.questionId)!) } : log),
     });
     if (!saved) return '変更を端末へ保存できませんでした。入力内容を残したまま、空き容量や保存設定を確認してください。';
     if (screenRef.current.name === 'createProblemSet' && screenRef.current.editSetId === setId) {
@@ -948,6 +1015,8 @@ export default function App() {
       return null;
     }
     const folders = current.folders.map((folder) => folder.id === targetFolderId ? { ...folder, updatedAt: timestamp } : folder);
+    const existingCopy = sharedSet.versionId ? current.problemSets.find(set => set.sourceSetId === sharedSet.id && set.sourceVersionId === sharedSet.versionId && set.folderId === targetFolderId) : undefined;
+    if (existingCopy && current.questions.filter(q => q.setId === existingCopy.id).length === importedQuestions.length && current.questions.filter(q => q.setId === existingCopy.id).every(q => q.origin && questionRevision(q) === q.origin.importedContent)) return existingCopy.id;
     const setId = createId('set');
     const problemSet: ProblemSet = {
       id: setId,
@@ -961,6 +1030,8 @@ export default function App() {
       creationMethod: 'public-copy',
       visibility: 'private',
       sourceSetId: sharedSet.id,
+      sourceVersionId: sharedSet.versionId,
+      sourceManifest: sharedSet.versionId && importedQuestions.every(q => q.logicalId && q.contentRevision) ? importedQuestions.map(q => ({ logicalId: q.logicalId!, contentRevision: q.contentRevision! })) : undefined,
       sourceOwnerId: sharedSet.ownerId,
       sourceOwnerName: sharedSet.authorName,
       copiedAt: timestamp,
@@ -969,7 +1040,8 @@ export default function App() {
     };
     const questions: Question[] = importedQuestions.map((question) => {
       const answerIndexes = [...new Set(question.answerIndexes)].filter((index) => index >= 0 && index < question.choices.length);
-      return {
+      const imported: Question = {
+        logicalId: question.logicalId,
         id: createId('q'),
         setId,
         question: question.question,
@@ -987,6 +1059,8 @@ export default function App() {
         createdAt: timestamp,
         updatedAt: timestamp,
       };
+      if (sharedSet.versionId && question.logicalId && question.contentRevision) imported.origin = { setId: sharedSet.id, logicalId: question.logicalId, publicationVersionId: sharedSet.versionId, contentRevision: question.contentRevision, importedContent: questionRevision(imported) };
+      return imported;
     });
     const saved = await persistThenCommitData({
       ...current,
@@ -1097,11 +1171,15 @@ export default function App() {
 
   const handleOpenLegacyImport = (target: LegacyImportTarget) => {
     const existingFolder = dataRef.current.folders.some((folder) => folder.id === target.folderId);
-    const folderId = existingFolder ? target.folderId : createId('folder');
+    const name = target.newFolderName.trim() || 'マイ問題セット';
+    const pending = newImportTargetRef.current;
+    const folderId = existingFolder ? target.folderId : pending?.name === name && hasPendingImportSession(pending.folderId) ? pending.folderId : createId('folder');
+    if (!existingFolder) newImportTargetRef.current = { name, folderId };
+    const folderCreated = dataRef.current.folders.some(folder => folder.id === folderId);
     navigate({
       name: 'import',
       folderId,
-      ...(existingFolder ? {} : { newFolderName: target.newFolderName.trim() || 'マイ問題セット' }),
+      ...(folderCreated ? {} : { newFolderName: name }),
       backScreen: screenRef.current,
     });
   };
@@ -1118,7 +1196,7 @@ export default function App() {
     const nextData = updateQuestionDetailedExplanation(dataRef.current, questionId, detailedExplanation);
     const saved = await persistThenCommitData(nextData);
     if (!saved) {
-      const message = '詳細解説を端末へ保存できませんでした。入力内容は残っているので、空き容量や保存設定を確認して再試行してください。';
+      const message = '追加解説・メモを端末へ保存できませんでした。入力内容は残っているので、空き容量や保存設定を確認して再試行してください。';
       setStorageError(message);
       throw new Error(message);
     }
@@ -1140,13 +1218,13 @@ export default function App() {
     const latestData = dataRef.current;
     const latestQuestion = latestData.questions.find(question => question.id === questionId);
     if (!latestQuestion || (originalQuestion !== undefined && latestQuestion.question !== originalQuestion)) {
-      await deleteLocalQuestionImage(savedImageId);
+      await deleteLocalQuestionImage(questionId, savedImageId);
       throw new Error('問題が変更または削除されたため、画像を追加できませんでした。');
     }
     const latestImageIds = latestQuestion.detailedAnswer?.imageIds ?? [];
     if (latestImageIds.includes(savedImageId)) return;
     if (latestImageIds.length >= MAX_QUESTION_DETAIL_IMAGES) {
-      await deleteLocalQuestionImage(savedImageId);
+      await deleteLocalQuestionImage(questionId, savedImageId);
       throw new Error(`この問題に追加できる画像は${MAX_QUESTION_DETAIL_IMAGES}枚までです。`);
     }
     const body = latestQuestion.detailedAnswer?.body ?? latestQuestion.detailedExplanation ?? '';
@@ -1158,7 +1236,7 @@ export default function App() {
     };
     const nextData = { ...latestData, questions: latestData.questions.map(question => question.id === questionId ? updatedQuestion : question) };
     if (!await persistThenCommitData(nextData)) {
-      await deleteLocalQuestionImage(savedImageId);
+      await deleteLocalQuestionImage(questionId, savedImageId);
       throw new Error('画像の保存情報を端末に記録できませんでした。空き容量を確認して再試行してください。');
     }
   };
@@ -1166,7 +1244,7 @@ export default function App() {
   const handleRemoveDetailedImage = async (questionId: string, imageId: string): Promise<void> => {
     const current = dataRef.current;
     const question = current.questions.find(item => item.id === questionId);
-    if (!question) { await deleteLocalQuestionImage(imageId); return; }
+    if (!question) { await deleteLocalQuestionImage(questionId, imageId); return; }
     const imageIds = (question.detailedAnswer?.imageIds ?? []).filter(id => id !== imageId);
     const updatedAt = nowIso();
     const updatedQuestion: Question = {
@@ -1176,7 +1254,7 @@ export default function App() {
     };
     const nextData = { ...current, questions: current.questions.map(item => item.id === questionId ? updatedQuestion : item) };
     if (!await persistThenCommitData(nextData)) throw new Error('画像の削除情報を端末に保存できませんでした。もう一度お試しください。');
-    await deleteLocalQuestionImage(imageId);
+    await deleteLocalQuestionImage(questionId, imageId);
   };
 
   const handleLinkMaterialPage = async (questionId: string, reference: MaterialReference, linked: boolean): Promise<void> => {
@@ -1235,9 +1313,9 @@ export default function App() {
     try {
       setBackupImportError('');
       setBackupExportNotice('');
-      const payload = await exportQuizMakeRecoveryData();
+      const payload = await exportFileBackup({recovery:true});
       await saveJsonBackup(`quiz-make-backup-${formatBackupDate()}.json`, JSON.stringify(payload, null, 2));
-      setBackupExportNotice('バックアップを書き出しました。');
+      setBackupExportNotice(payload.backupManifest.completeness==='complete'?'画像・PDFを含む完全なバックアップを書き出しました。':`部分的な救出ファイルを書き出しました。完全復元用ではありません。${payload.backupManifest.issues.join(' ')}`);
     } catch (error) {
       setBackupImportError(error instanceof Error ? `バックアップの作成に失敗しました: ${error.message}` : 'バックアップの作成に失敗しました。');
     }
@@ -1286,7 +1364,13 @@ export default function App() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as unknown;
-      const syncValidation = validateSyncPayload(parsed);
+      if(parsed && typeof parsed==='object' && 'backupManifest' in parsed){
+        const checked=await validateFileBackup(parsed);
+        if(!checked.ok)return checked.error;
+        if(checked.value.payload.backupManifest.completeness!=='complete')return 'このファイルは部分的な救出コピーです。ファイル内の欠落一覧を確認してください。完全コピーとして上書き復元できません。';
+        setBackupImportError('');setPendingBackupImport({kind:'sync',payload:checked.value.payload,file:checked.value.payload,summary:summarizeSyncPayload(checked.value.payload)});return null;
+      }
+      const syncValidation = await validateHydratedSyncPayload(parsed);
       if (syncValidation.ok) {
         setBackupImportError('');
         setPendingBackupImport({ kind: 'sync', payload: syncValidation.value, summary: summarizeSyncPayload(syncValidation.value) });
@@ -1335,8 +1419,9 @@ export default function App() {
       return;
     }
 
-    const result = await importQuizMakeData(target.payload);
+    const result = target.file ? await restoreFileBackup(target.file) : await importQuizMakeData(target.payload);
     if (!result.ok) {
+      if('committed' in result && result.committed)setStorageLoadError(result.error);
       setBackupImportError(result.error);
       setBackupImportBusy(false);
       return;
@@ -1441,20 +1526,9 @@ export default function App() {
   if (storageLoadError) {
     if (storageRecoverySyncOpen) {
       return (
-        <>
-          <Suspense fallback={<div className="quiz-app-loading">同期設定を読み込み中...</div>}>
-            <SyncScreen onBack={() => setStorageRecoverySyncOpen(false)} onRestoreBackup={handleImportBackup} />
-          </Suspense>
-          <ConfirmDialog
-            open={pendingBackupImport !== null}
-            title="バックアップを読み込みますか？"
-            message={pendingBackupImport ? `${getBackupImportMessage(pendingBackupImport)}${backupImportError ? `\n\n${backupImportError}` : ''}` : ''}
-            confirmLabel={backupImportBusy ? '読み込み中…' : 'バックアップして読み込む'}
-            busy={backupImportBusy}
-            onCancel={cancelImportBackup}
-            onConfirm={() => void confirmImportBackup()}
-          />
-        </>
+        <Suspense fallback={<div className="quiz-app-loading">同期設定を読み込み中...</div>}>
+          <SyncScreen onBack={() => setStorageRecoverySyncOpen(false)} />
+        </Suspense>
       );
     }
     return (
@@ -1487,7 +1561,18 @@ export default function App() {
 
   let content;
 
-  if (screen.name === 'createProblemSet') {
+  if (screen.name === 'plans' || screen.name === 'planDetail') {
+    content = <PlansScreen data={data} planId={screen.name === 'planDetail' ? screen.planId : undefined}
+      onBack={() => goBackTo(screen.name === 'plans' ? { name: 'home' } : { name: 'plans' })}
+      onCreate={setId => navigate({ name: 'planEditor', setId, backScreen: screen })}
+      onOpen={planId => navigate({ name: 'planDetail', planId })}
+      onEdit={planId => navigate({ name: 'planEditor', planId, backScreen: screen })}
+      onStart={(questions, plan) => navigate({ name: 'quizSession', session: { title: plan.setTitle, subtitle: `${plan.title} · 固定版 ${questions.length}問`, questions, mode: 'quiz', setId: plan.setId, backScreen: screen } })} />;
+  } else if (screen.name === 'planEditor') {
+    content = <PlanEditorScreen data={data} planId={screen.planId} initialSetId={screen.setId}
+      onBack={() => goBackTo(screen.backScreen)} onDirtyChange={setCreateDraftDirty}
+      onSaved={planId => { setCreateDraftDirty(false); createDraftDirtyRef.current = false; confirmedProtectedExitRef.current = true; replaceScreen({ name: 'planDetail', planId }); }} />;
+  } else if (screen.name === 'createProblemSet') {
     const createBackScreen = getCreateProblemSetBackScreen(screen);
     content = (
       <Suspense fallback={<div className="quiz-app-loading">作成画面を読み込み中...</div>}>
@@ -1537,7 +1622,7 @@ export default function App() {
         if (!draft.question.trim() || choices.some((choice) => !choice) || !answers.length) return '問題文、選択肢、正解を確認してください。';
         const next = { ...latest, question: draft.question.trim(), choices, answerIndex: answers[0], answerIndexes: answers.length > 1 ? answers : undefined, answerText: answers.map((index) => choices[index]).join(' / '), explanation: draft.explanation, category: draft.category.trim() || '未分類', updatedAt: nowIso() };
         const reset = hasQuestionLearningContentChanged(latest, next);
-        const saved = await persistThenCommitData({ ...current, questions: current.questions.map((item) => item.id === next.id ? next : item), progress: reset ? current.progress.filter((item) => item.questionId !== next.id) : current.progress, answerLogs: reset ? current.answerLogs.filter((item) => item.questionId !== next.id) : current.answerLogs });
+        const saved = await persistThenCommitData({ ...current, questions: current.questions.map((item) => item.id === next.id ? next : item), progress: reset ? current.progress.filter((item) => item.questionId !== next.id) : current.progress, answerLogs: current.answerLogs.map(log => !log.questionRevision && log.questionId === latest.id ? { ...log, questionRevision: questionRevision(latest) } : log) });
         if (!saved) return '保存できませんでした。入力内容を残しています。';
         finishEdit(); return null;
       }} /> : <DetailedAnswerScreen question={question} editing={Boolean(screen.editing)} onBack={() => goBackTo(screen.backScreen)} onEdit={() => replaceScreen({ ...screen, editing: true })} onDirtyChange={setCreateDraftDirty} onAddImage={handleAddDetailedImage} onRemoveImage={handleRemoveDetailedImage} onSave={async (body, original) => {
@@ -1546,8 +1631,13 @@ export default function App() {
         await handleSaveDetailedExplanation(original.id, body);
         return null;
       }} />;
-  } else if (screen.name === 'community' || screen.name === 'search') {
-    const communityScreen: Extract<AppScreen, { name: 'community' }> = screen.name === 'search' ? { name: 'community', tab: 'discover' } : screen;
+  } else if (screen.name === 'search') {
+    content = <SearchScreen data={data} onBack={goHome}
+      onOpenSet={setId => navigate({ name: 'problemSetDetail', setId, backScreen: screen })}
+      onOpenQuestion={questionId => navigate({ name: 'questionDetail', questionId, backScreen: screen })}
+      onDiscover={() => navigate({ name: 'community', tab: 'discover', backScreen: screen })} />;
+  } else if (screen.name === 'community') {
+    const communityScreen = screen;
     const communityBackScreen = getCommunityBackScreen(communityScreen);
     content = (
       <Suspense fallback={<div className="quiz-app-loading">共有機能を読み込み中...</div>}>
@@ -1595,6 +1685,7 @@ export default function App() {
       <ProblemSetDetailScreen
         data={data}
         setId={screen.setId}
+        onCreatePlan={() => navigate({ name: 'planEditor', setId: screen.setId, backScreen: screen })}
         onToggleStudyCompleted={handleToggleProblemSetStudyCompleted}
         onBack={screen.backScreen ? () => goBackTo(screen.backScreen!) : problemSet && parentFolderExists
           ? () => goBackTo({ name: 'folder', folderId: problemSet.folderId })
@@ -1667,6 +1758,8 @@ export default function App() {
     const folder = data.folders.find((item) => item.id === screen.folderId);
     content = (
       <ImportScreen
+        sessionKey={screen.folderId}
+        registerExitGuard={registerImportExitGuard}
         folderName={folder?.name ?? screen.newFolderName ?? '新しいフォルダ'}
         onBack={() => goBackTo(screen.backScreen ?? { name: 'folder', folderId: screen.folderId })}
         onImport={(titleOverride, jsonText, stayOnScreen) => handleImportProblemSet(
@@ -1676,7 +1769,7 @@ export default function App() {
           jsonText,
           stayOnScreen,
         )}
-        onImportComplete={() => replaceScreen({ name: 'folder', folderId: screen.folderId })}
+        onImportComplete={() => { if (screenRef.current.name === 'import' && screenRef.current.folderId === screen.folderId) replaceScreen({ name: 'folder', folderId: screen.folderId }); }}
       />
     );
   } else if (screen.name === 'quiz') {
@@ -1746,7 +1839,9 @@ export default function App() {
   } else if (screen.name === 'sessionAnswers') {
     content = <SessionAnswersScreen result={screen.result} onBack={() => goBackTo({ name: 'result', result: screen.result })} />;
   } else if (screen.name === 'settings') {
-    content = screen.page === 'backups' ? <BackupScreen onBack={() => goBackTo({ name: 'settings' })} onRestore={handleImportBackup} /> : (
+    content = screen.page === 'backups' ? <BackupScreen onBack={() => goBackTo(navigationStackRef.current[navigationStackRef.current.length - 2] ?? { name: 'settings' })} onRestore={handleImportBackup}
+      onOpenSyncRecovery={() => navigate({ name: 'sync', page: 'recovery', backScreen: { name: 'settings', page: 'backups' } })}
+      onExitGuardChange={guard => { syncExitGuardRef.current = guard; }} /> : (
       <SettingsScreen
         page={screen.page}
         onNavigate={(page) => navigate({ name: 'settings', page })}
@@ -1755,12 +1850,16 @@ export default function App() {
         onImportBackup={handleImportBackup}
         onClearAll={handleClearAll}
         onOpenSync={() => navigate({ name: 'sync' })}
+        onOpenSyncSettings={() => navigate({ name: 'sync', page: 'settings', backScreen: { name: 'settings' } })}
         onOpenPrivacy={() => navigate({ name: 'privacy' })}
         onOpenGuide={() => { setGuideReturn('settings'); navigatePrimary('home'); }}
       />
     );
   } else if (screen.name === 'sync') {
-    content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} onImported={refreshImportedData} onRestoreBackup={handleImportBackup} />;
+    content = <SyncScreen page={screen.page} onBack={() => goBackTo(screen.backScreen ?? (screen.page ? { name: 'sync' } : { name: 'settings' }))} onImported={refreshImportedData}
+      onNavigatePage={page => navigate({ name: 'sync', page, backScreen: screen })}
+      onExitGuardChange={guard => { syncExitGuardRef.current = guard; }}
+      onProtectionChange={setSyncInteractionActive} onOpenBackups={() => navigate({ name: 'settings', page: 'backups' })} />;
   } else if (screen.name === 'privacy') {
     content = <PrivacyScreen onBack={() => goBackTo({ name: 'settings' })} />;
   } else if (screen.name === 'studyRecord') {
@@ -1774,6 +1873,8 @@ export default function App() {
       onDeleteFolder={handleDeleteFolder}
       onOpenFolder={(folderId) => navigate({ name: 'folder', folderId })}
       onOpenStudyRecord={() => navigate({ name: 'studyRecord' })}
+      onOpenPlans={() => navigate({ name: 'plans' })}
+      onOpenSearch={() => navigate({ name: 'search' })}
       onSave={commitData}
     />
   );
@@ -1781,6 +1882,7 @@ export default function App() {
 
   return (
     <>
+      <AccountSyncController />
       <AutoSyncController protectedWorkReason={protectedWorkReason} canAutoImport={canAutoImport}
         autoImportReady={autoImportEligibleRef.current && !libraryMutationBusy && !autoImportBusy} onAutoImport={handleAutoImport}
         onRecordApply={applyRecordImport} />
@@ -1822,7 +1924,7 @@ export default function App() {
         title={pendingExitReason === 'create' ? '作成途中の内容を破棄しますか？' : '演習を終了しますか？'}
         message={pendingExitReason === 'create'
           ? '入力した問題や貼り付け内容はまだ保存されていません。この画面を離れると破棄されます。'
-          : '途中の演習を終了して前の画面へ戻ります。\n詳細解説に未保存の入力がある場合、その入力も破棄されます。'}
+          : '途中の演習を終了して前の画面へ戻ります。\n追加解説・メモに未保存の入力がある場合、その入力も破棄されます。'}
         confirmLabel={pendingExitReason === 'create' ? '破棄して移動' : '終了する'}
         onCancel={cancelProtectedExit}
         onConfirm={confirmProtectedExit}
@@ -1864,7 +1966,7 @@ export default function App() {
 }
 
 function getScreenLoadingMessage(screen: AppScreen) {
-  if (screen.name === 'noteList') return '詳細解説を読み込み中…';
+  if (screen.name === 'noteList') return '追加解説・メモを読み込み中…';
   if (screen.name === 'noteDetail') return '資料を読み込み中…';
   if (screen.name === 'import') return '問題の取り込み画面を読み込み中…';
   if (screen.name === 'settings') return '設定画面を読み込み中…';
@@ -1891,7 +1993,7 @@ function isQuizInProgressScreen(screen: AppScreen) {
 
 function getProtectedExitReason(screen: AppScreen, createDraftDirty: boolean): 'quiz' | 'create' | null {
   if (isQuizInProgressScreen(screen)) return 'quiz';
-  if ((screen.name === 'createProblemSet' || screen.name === 'questionEdit' || (screen.name === 'detailedAnswer' && screen.editing)) && createDraftDirty) return 'create';
+  if ((screen.name === 'planEditor' || screen.name === 'createProblemSet' || screen.name === 'questionEdit' || (screen.name === 'detailedAnswer' && screen.editing)) && createDraftDirty) return 'create';
   return null;
 }
 
@@ -1904,8 +2006,10 @@ function getSyncProtectedWorkReason(
   if (libraryMutationActive) return 'library' as const;
   if (backupImportActive) return 'backup' as const;
   if (screen.name === 'import') return 'import' as const;
+  if (screen.name === 'planEditor') return 'create' as const;
   if (screen.name === 'noteList' || screen.name === 'noteDetail') return 'notes' as const;
-  if (screen.name === 'sync') return 'sync' as const;
+  if (screen.name === 'sync' && isSyncInteractionProtected()) return 'sync' as const;
+  if (screen.name === 'settings' && screen.page === 'backups') return 'backup' as const;
   return getProtectedExitReason(screen, createDraftDirty);
 }
 
@@ -1921,7 +2025,6 @@ function getUpdateBlockedMessage(reason: ProtectedWorkReason) {
 }
 
 function getPrimaryNavItem(screen: AppScreen): PrimaryNavItem | null {
-  if (screen.name === 'search') return 'discover';
   if (screen.name === 'home') return 'home';
   if (screen.name === 'settings' && !screen.page) return 'settings';
   if (screen.name === 'createProblemSet') return 'create';
@@ -1960,3 +2063,4 @@ function hasQuestionLearningContentChanged(previous: Question, next: Question): 
       !== JSON.stringify([...getAnswerIndexes(next)].sort((left, right) => left - right));
 }
 
+import { useAccountWork, useRestoredAccountWork } from './hooks/useAccountWork';

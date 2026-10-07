@@ -1,9 +1,11 @@
+import { accountLocalStorage as localStorage } from './accountStorage';
+import { saveSyncedPreference } from './syncedPreference';
 export const ANSWER_SOUND_KEY = 'quiz-make-answer-sound';
 export function isAnswerSoundEnabled(): boolean {
   try { return localStorage.getItem(ANSWER_SOUND_KEY) !== 'off'; } catch { return true; }
 }
-export function setAnswerSoundEnabled(enabled: boolean): void {
-  localStorage.setItem(ANSWER_SOUND_KEY, enabled ? 'on' : 'off');
+export async function setAnswerSoundEnabled(enabled: boolean): Promise<void> {
+  await saveSyncedPreference(ANSWER_SOUND_KEY, enabled ? 'on' : 'off');
 }
 export function getAnswerFeedback(previousCorrect: boolean | null | undefined, correct: boolean): 'correct' | 'relearned' | 'wrong' {
   return !correct ? 'wrong' : previousCorrect === false ? 'relearned' : 'correct';
