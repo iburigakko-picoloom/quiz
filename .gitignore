@@ -6,3 +6,6 @@ dist
 .env.local
 .env.*.local
 supabase/.temp/
+
+# Local verification logs, account data and recovery originals must stay private.
+/qa/
