@@ -4,6 +4,7 @@ import { getRemoteSyncConfig } from '../utils/syncService';
 import { chooseWholeConflict, readWholeMeta, WHOLE_EVENT, type WholeConflict, type WholeSummary } from '../utils/wholeSyncStorage';
 import { withCoordinatedDataRead } from '../utils/dataCoordination';
 import { requestSyncRetry } from '../utils/syncRequest';
+import { readSyncDevice } from '../utils/syncDevice';
 
 const counts=(value:WholeSummary)=>`問題集 ${value.sets.toLocaleString()}冊 ・ 問題 ${value.questions.toLocaleString()}問 ・ 回答 ${value.answers.toLocaleString()}回`;
 export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onOpenBackups,onBusyChange}:{syncId:string;accountId:string;open:boolean;onOpenChange:(value:boolean)=>void;onOpenBackups?:()=>void;onBusyChange?:(value:boolean)=>void}){
@@ -21,11 +22,12 @@ export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onOpenBac
   const select=(choice:'local'|'remote')=>{void choose(choice)};
   if(!conflict)return error?<p role="alert">{error}</p>:null;
   if(conflict.choice)return <p role="status">選択した全体データの反映を待っています。両方の原本を保持しています。</p>;
+  const remoteDevice=readSyncDevice(conflict.device),localDevice=readSyncDevice(conflict.localDevice);
   return <section className="sync-section whole-conflict" aria-labelledby="whole-conflict-title"><h2 id="whole-conflict-title">両方で変更されています</h2>
     <p>クラウドとこの端末のどちらを使うか、全体で一度選びます。選ばなかった全体データは、画像・PDFを含めこの端末の復旧コピーに保存します。</p>
     {!open?<button className="sync-button sync-button--primary" onClick={()=>onOpenChange(true)}>内容を確認して選ぶ</button>:<>
-      <div className="whole-conflict__option"><h3>クラウドの全体データ</h3><p>{counts(conflict.remote)}</p><p>保存端末：{conflict.device??'不明'}<br/>保存日時：{conflict.savedAt?new Date(conflict.savedAt).toLocaleString('ja-JP'):'不明'}</p><button className="sync-button sync-button--primary" disabled={busy} onClick={()=>select('remote')}>クラウドの全体データを使う</button></div>
-      <div className="whole-conflict__option"><h3>この端末の全体データ</h3><p>{counts(conflict.local)}</p><p>保存端末：{conflict.localDevice??'この端末'}<br/>保存日時：{conflict.localSavedAt?new Date(conflict.localSavedAt).toLocaleString('ja-JP'):'不明'}</p><p>この端末で保存した教材・回答・計画・設定をクラウドへ反映します。</p><button className="sync-button" disabled={busy} onClick={()=>select('local')}>この端末の全体データを使う</button></div>
+      <div className="whole-conflict__option"><h3>クラウドのデータ（{remoteDevice.name}）</h3><p>{counts(conflict.remote)}</p><p>更新日時：{conflict.savedAt?new Date(conflict.savedAt).toLocaleString('ja-JP'):'不明'}<br/>端末ID：{remoteDevice.id??'記録なし（旧端末）'}</p><button className="sync-button sync-button--primary" disabled={busy} onClick={()=>select('remote')}>クラウドのデータを使う</button></div>
+      <div className="whole-conflict__option"><h3>この端末のデータ</h3><p>{counts(conflict.local)}</p><p>端末名：{localDevice.name}<br/>更新日時：{conflict.localSavedAt?new Date(conflict.localSavedAt).toLocaleString('ja-JP'):'不明'}<br/>端末ID：{localDevice.id??'記録なし（旧端末）'}</p><p>この端末で保存した教材・回答・計画・設定をクラウドへ反映します。</p><button className="sync-button" disabled={busy} onClick={()=>select('local')}>この端末のデータを使う</button></div>
       <p>保存日時だけで自動選択しません。容量が不足する場合は入れ替えを止め、両方を保持します。</p><button className="sync-button" disabled={busy} onClick={()=>onOpenChange(false)}>今は選ばず閉じる</button>
     </>}{onOpenBackups?<button className="sync-button" disabled={busy} onClick={onOpenBackups}>復旧コピーを見る</button>:null}{error?<p role="alert">{error}</p>:null}
   </section>;

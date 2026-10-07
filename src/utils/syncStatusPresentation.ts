@@ -4,7 +4,7 @@ export function syncStatusPresentation(input: { online: boolean; loginRequired: 
   if (!input.online) return { text: 'オフライン', action: null } as const;
   if (input.readError) return { text: '同期状態を確認できません', action: 'retry' } as const;
   const attempt = input.attempt;
-  if (attempt?.phase === 'running') return { text: '同期中', action: null } as const;
+  if (attempt?.phase === 'running') return { text: attempt.step === 'authentication' ? '認証を確認しています' : '同期中', action: null } as const;
   if (attempt?.pauseReason === 'permission_denied') return { text: '同期先の権限を確認してください', action: 'retry' } as const;
   if (attempt?.pauseReason === 'local_persistence_failed') return { text: '端末への保存を確認してください', action: 'retry' } as const;
   if (attempt?.phase === 'paused' && attempt.lastFailure && attempt.pauseReason === attempt.lastFailure.code) return { text: '同期データの確認が必要です', action: 'retry' } as const;

@@ -26,6 +26,7 @@ import { SyncInterruptedError, SyncLocalPersistenceError } from './syncInterrupt
 import { WHOLE_SYNC_ROLLOUT_ENABLED } from './wholeSyncRollout';
 import { runWholeRecordSync } from './wholeSyncEngine';
 import { buildWholeIncomingFile } from './wholeSyncIncoming';
+import { getSyncDevice } from './syncDevice';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -87,7 +88,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   const materialTransport = createMaterialTransport(config,initialAccess);
   if(WHOLE_SYNC_ROLLOUT_ENABLED){
     const result=await runWholeRecordSync(db,connection,rpc,{assertCurrent,apply,step,
-      device:/Android/i.test(navigator.userAgent)?'Android':/iPhone|iPad/i.test(navigator.userAgent)?'iPhone / iPad':/Windows/i.test(navigator.userAgent)?'Windows':'ブラウザ',
+      device:getSyncDevice(),
       prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent),
       incoming:rows=>buildWholeIncomingFile(db,rows,materialTransport,assertCurrent),
       prepareOutgoing:async()=>{
