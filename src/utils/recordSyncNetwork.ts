@@ -49,6 +49,15 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
       }
       if (!response.ok) {
         // Do not embed server responses or credentials in user-facing logs.
+        let serverTimeout = false;
+        if (response.status === 500) {
+          try {
+            const error: unknown = await response.json();
+            serverTimeout = !!error && typeof error === 'object' && 'code' in error && error.code === '57014';
+          } catch { /* Non-JSON failures remain a network error. */ }
+          options.assertCurrent();
+        }
+        if (serverTimeout) throw new RecordSyncRpcError('server_timeout', 'クラウドの保存処理が時間切れになりました。');
         const code = response.status === 429 ? 'rate_limited' : response.status === 401 ? 'authentication_required' : response.status === 403 ? 'permission_denied'
           : response.status === 404 ? 'unavailable' : response.status === 413 ? 'payload_too_large'
           : response.status === 400 ? 'invalid_request' : 'network';

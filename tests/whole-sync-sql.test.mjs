@@ -6,6 +6,7 @@ import {createRecordProtocolDatabase} from './helpers/record-protocol-db.mjs';
 const pg=await createRecordProtocolDatabase();after(()=>pg.close());
 await pg.exec('create role service_role');
 await pg.exec(await readFile(new URL('../supabase/migrations/20261005154212_quiz_whole_commit.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261007105000_quiz_whole_finish_typed_rows.sql',import.meta.url),'utf8'));
 const stamp='2026-10-05T00:00:00Z',id='1'.repeat(36),oldId='2'.repeat(36);
 const app={version:1,folders:[],problemSets:[],questions:[],progress:[],answerLogs:[]};
 const payload={version:1,updatedAt:stamp,localStorage:{'quiz-make-app-data-v1':JSON.stringify(app)},indexedDbNotes:{}};
@@ -87,4 +88,35 @@ test('permission matrix exposes only authenticated invoker RPCs; underlying bypa
   for(const row of rows){assert.equal(row.anon,false,row.proname);assert.equal(row.service,false,row.proname);assert.ok(row.proconfig.includes('search_path=""'),row.proname);if(row.nspname==='public'){assert.equal(row.prosecdef,false);assert.equal(row.authenticated,true)}else if(['quiz_sync_v2_push_record','quiz_sync_v2_pull_record','quiz_whole_snapshot_fence'].includes(row.proname))assert.equal(row.authenticated,false)}
   await pg.exec('set role anon');await assert.rejects(status(),/permission denied/);await pg.exec('reset role');
   await pg.exec('set role authenticated');assert.equal((await status()).code,'ok');await pg.exec('reset role');
+});
+
+test('many-record replacement decodes all parts once and preserves exact bytes, omissions and immutable receipt',async()=>{
+  const sync='3'.repeat(36);
+  await pg.query('insert into public.quiz_sync_data(sync_id,updated_at,creator_hash,data) values($1,$2,private.quiz_sync_actor_hash(),$3)',[sync,stamp,JSON.stringify(payload)]);
+  assert.equal((await call('quiz_sync_v2_open',[sync,stamp],['text','timestamptz'])).code,'ok');
+  assert.equal((await open(0,sync)).code,'ok');
+  async function replace(rows,revision){
+    const parts=[];for(let i=0;i<rows.length;i+=500)parts.push(JSON.stringify(rows.slice(i,i+500)));
+    const commit=randomUUID(),digest=sha(parts.map(sha).join(''));
+    assert.equal((await call('quiz_whole_begin',[sync,commit,revision,parts.length,rows.length,digest,'Synthetic many-record device',true],['text','uuid','bigint','integer','integer','text','text','boolean'])).code,'ok');
+    for(let i=0;i<parts.length;i++)assert.equal((await call('quiz_whole_part',[sync,commit,randomUUID(),i,parts[i]],['text','uuid','uuid','integer','text'])).code,'ok');
+    const start=performance.now();const result=await call('quiz_whole_finish',[sync,commit],['text','uuid']);
+    console.log('WHOLE_MANY_RECORD_FINISH '+JSON.stringify({records:rows.length,rawBytes:rows.reduce((n,r)=>n+Buffer.byteLength(r.raw),0),parts:parts.length,finishMs:performance.now()-start}));
+    assert.deepEqual(result,{code:'ok',revision:revision+1});
+    assert.deepEqual(await call('quiz_whole_finish',[sync,commit],['text','uuid']),result);
+  }
+  await replace(Array.from({length:10000},(_,i)=>({...record('many-'+i,'previous '+i+'X'.repeat(1400)),position:i})),0);
+  const duplicateRaw=JSON.stringify([record('many-0','duplicate')]),duplicateCommit=randomUUID();
+  assert.equal((await call('quiz_whole_begin',[sync,duplicateCommit,1,2,2,sha(sha(duplicateRaw)+sha(duplicateRaw)),'Synthetic duplicate',true],['text','uuid','bigint','integer','integer','text','text','boolean'])).code,'ok');
+  for(let i=0;i<2;i++)assert.equal((await call('quiz_whole_part',[sync,duplicateCommit,randomUUID(),i,duplicateRaw],['text','uuid','uuid','integer','text'])).code,'ok');
+  assert.equal((await call('quiz_whole_finish',[sync,duplicateCommit],['text','uuid'])).code,'invalid');
+  assert.equal((await status(sync)).revision,1);
+  assert.equal((await call('quiz_whole_abort',[sync,duplicateCommit],['text','uuid'])).code,'not_committed');
+  const chosen=Array.from({length:9106},(_,i)=>({...record('many-'+(i+4894),'chosen '+i+'Y'.repeat(1400)),position:i}));
+  await replace(chosen,1);
+  const live=(await pg.query('select record_key key,collection,record_id id,raw,position from private.quiz_sync_records where sync_id=$1 and raw is not null order by position',[sync])).rows;
+  assert.deepEqual(live,chosen);
+  const summary=(await pg.query('select count(*) filter(where raw is null)::integer deleted,sum(octet_length(raw))::bigint bytes from private.quiz_sync_records where sync_id=$1',[sync])).rows[0];
+  assert.equal(summary.deleted,4894);assert.equal(Number(summary.bytes),chosen.reduce((n,r)=>n+Buffer.byteLength(r.raw),0));
+  assert.equal((await pg.query('select payload_bytes from private.quiz_sync_heads where sync_id=$1',[sync])).rows[0].payload_bytes,summary.bytes);
 });

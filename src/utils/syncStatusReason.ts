@@ -13,9 +13,10 @@ export function syncFailureReason(failure:SyncFailure):string {
   }
   if(message.includes('完全な復元コピー')||message.includes('この端末の画像・教材を完全'))return '端末の画像・資料を読み込めません。';
   const reasons:Record<string,string>={
-    local_persistence_failed:'端末に保存できません。空き容量を確認してください。',quota:'端末の空き容量が不足しています。',
+    local_persistence_failed:'端末に保存できません。空き容量を確認してください。',quota:'クラウドの保存容量が上限に達しました。',
     authentication_required:'ログインを確認できません。ログインし直してください。',permission_denied:'この保存先へのアクセス権限がありません。',
     network:'通信に失敗しました。再試行してください。',timeout:'通信が時間切れになりました。再試行してください。',rate_limited:'通信回数の上限に達しました。少し待つと再開します。',
+    server_timeout:'クラウドの保存処理が時間切れになりました。再試行します。',
     payload_too_large:'同期データが容量上限を超えています。',media_pending:'画像・PDFの保存が終わっていません。',media_unsupported:'画像・PDFの形式を確認できません。',
     remote_changed:'クラウドが更新されました。再試行します。',local_changed:'端末が更新されました。再試行します。',conflict:'端末とクラウドの両方に変更があります。',
     invalid_response:'同期データを読み込めません。',invalid:'同期データの形式に不備があります。',

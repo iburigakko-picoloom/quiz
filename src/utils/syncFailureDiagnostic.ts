@@ -2,6 +2,7 @@ import { SYNC_RECORD_KIND_LABELS } from './recordSyncSize';
 
 // Only static application messages and bounded kind/byte diagnostics are eligible.
 const safeMessages = new Set([
+  "クラウドの保存処理が時間切れになりました。",
   "クラウドの参照関係を確認できません。端末と受信原本を保持しています。",
   "分割された同期データが揃っていないか、内容を検証できません。既存データは保持しています。",
   "1レコードの同期サイズが大きすぎます。データは端末に保持しています。",

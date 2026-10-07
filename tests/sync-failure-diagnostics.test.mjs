@@ -18,6 +18,13 @@ test('diagnostic message does not echo IDs, tokens, URLs or arbitrary problem co
   assert.equal(safeSyncFailureMessage('questions に重複ID「private-question-id」があります。'),'questions に重複したIDがあります。');
   for(const value of ['Authorization: Bearer private-token','https://private.test/?key=secret','User answer private data','差分エラー private-answer','questions[1] private-answer'])assert.doesNotMatch(safeSyncFailureMessage(value),/private|secret|Bearer/);
 });
+
+test('server timeout and cloud quota show distinct causes without implying local storage is full',async()=>{
+  const {syncFailureReason}=await import('../src/utils/syncStatusReason.ts');
+  assert.equal(safeSyncFailureMessage('クラウドの保存処理が時間切れになりました。'),'クラウドの保存処理が時間切れになりました。');
+  assert.equal(syncFailureReason({code:'server_timeout',step:'receipt',message:'private SQL'}),'クラウドの保存処理が時間切れになりました。再試行します。');
+  assert.equal(syncFailureReason({code:'quota',step:'push',message:'private SQL'}),'クラウドの保存容量が上限に達しました。');
+});
 test('basic connection success never claims the record protocol succeeded',()=>{
   const screen=readFileSync(new URL('../src/screens/SyncScreen.tsx',import.meta.url),'utf8');assert.doesNotMatch(screen,/接続診断が完了しました。すべてOKです。/);assert.match(screen,/基本接続の診断が完了しました。差分同期の成否は前回の失敗欄/);
 });

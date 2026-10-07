@@ -29,6 +29,16 @@ test('RPC token expiry retries once with a verified rotated token and preserves 
   let calls=0;const seen=[];const ops=[{operationId:'frozen-operation',raw:'fixture'}];const rpc=createRecordSyncRpc(options({access:async()=>{calls++;if(calls===2)ops[0].raw='changed-during-token-refresh';return{userId:'owner',accessToken:calls===1?'old':'new'}},fetch:async(_url,init)=>{seen.push(init);return seen.length===1?new Response('',{status:401}):Response.json({code:'ok'})}}));
   assert.equal((await rpc.push(ops)).code,'ok');assert.equal(seen.length,2);assert.equal(seen[0].body,seen[1].body);assert.equal(seen[0].headers.Authorization,'Bearer old');assert.equal(seen[1].headers.Authorization,'Bearer new');
 });
+test('server statement timeout has a short safe cause and retries the same whole commit UUID',async()=>{
+  const sent=[],body={p_operation_id:'11111111-1111-4111-8111-111111111111'};
+  const rpc=createRecordSyncRpc(options({fetch:async(_url,init)=>{
+    sent.push(init.body);
+    return sent.length===1?Response.json({code:'57014',message:'private query with secret answer',details:'private-id'},{status:500}):Response.json({code:'ok',revision:9});
+  }}));
+  await assert.rejects(rpc.whole('finish',body),e=>e.code==='server_timeout'&&e.message==='クラウドの保存処理が時間切れになりました。');
+  assert.deepEqual(await rpc.whole('finish',body),{code:'ok',revision:9});
+  assert.equal(sent[0],sent[1]);
+});
 test('permission errors do not refresh/retry and an account change after 401 never transmits new-account credentials',async()=>{
   let calls=0,sends=0;const deny=createRecordSyncRpc(options({access:async()=>{calls++;return{userId:'owner',accessToken:'current'}},fetch:async()=>{sends++;return new Response('',{status:403})}}));await assert.rejects(deny.pull(0),e=>e.code==='permission_denied');assert.equal(calls,1);assert.equal(sends,1);
   calls=0;sends=0;const changed=createRecordSyncRpc(options({access:async()=>({userId:++calls===1?'owner':'B',accessToken:'fixture'}),fetch:async()=>{sends++;return new Response('',{status:401})}}));await assert.rejects(changed.push([]),/アカウント/);assert.equal(sends,1);

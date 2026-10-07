@@ -5,6 +5,7 @@ import {createRecordProtocolDatabase} from './helpers/record-protocol-db.mjs';
 const pg=await createRecordProtocolDatabase();after(()=>pg.close());
 await pg.exec('create role service_role');
 await pg.exec(await readFile(new URL('../supabase/migrations/20261005154212_quiz_whole_commit.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261007105000_quiz_whole_finish_typed_rows.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261007012207_quiz_record_pull_bounded.sql',import.meta.url),'utf8'));
 const id='a'.repeat(36),stamp='2026-10-07T00:00:00Z';
 const app={version:1,folders:[],problemSets:[],questions:[],progress:[],answerLogs:[]};

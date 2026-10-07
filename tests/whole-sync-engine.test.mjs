@@ -22,6 +22,7 @@ const {setStudyCompanionEnabled}=await import('../src/utils/studyCompanion.ts');
 const {readUserEditGeneration}=await import('../src/utils/userEditGeneration.ts');
 const {freezeRecordPushBatch,getPendingRecordPushBatch}=await import('../src/utils/recordSyncOutbox.ts');
 const pg=await createRecordProtocolDatabase();await pg.exec('create role service_role');await pg.exec(await readFile(new URL('../supabase/migrations/20261005154212_quiz_whole_commit.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261007105000_quiz_whole_finish_typed_rows.sql',import.meta.url),'utf8'));
 globalThis.window={dispatchEvent(){}};
 const stamp='2026-10-05T00:00:00Z',connection={project:'https://whole.invalid',userId:'11111111-1111-4111-8111-111111111111',syncId:'9'.repeat(36)};
 const folder=(id,name)=>({id,name,createdAt:stamp,updatedAt:stamp}),data=(name)=>({version:1,folders:[folder('f',name)],problemSets:[],questions:[],progress:[],answerLogs:[]});
