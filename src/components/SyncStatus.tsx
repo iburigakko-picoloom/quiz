@@ -7,6 +7,7 @@ import { readSyncAttemptStatus, SYNC_ATTEMPT_EVENT, type SyncAttemptStatus } fro
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { requestSyncRetry } from '../utils/syncRequest';
 import { safeSyncFailureMessage } from '../utils/syncFailureDiagnostic';
+import { syncStatusReason, syncStageLabel } from '../utils/syncStatusReason';
 
 export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, lastState, disabled, onLogin, detailsOpen = false, diagnosticsOnly = false, onInitialSync }: {
   syncId: string; accountId: string; recordEnabled: boolean; autoEnabled: boolean; lastState: LastSyncState; disabled: boolean; onLogin: () => void; detailsOpen?: boolean; diagnosticsOnly?: boolean; onInitialSync?: () => void;
@@ -51,9 +52,20 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const success = recordEnabled ? record?.lastSuccessAt : lastState.lastSyncAt;
   const presentation = syncStatusPresentation({ online, loginRequired, error: failed, readError: Boolean(readError), attempt, autoEnabled, recordEnabled, record, pending, success: success ?? '' });
   const summary = presentation.text === '変更の確認があります' && record?.conflicts ? `変更の確認が${record.conflicts}件あります` : presentation.text;
+  const reason = syncStatusReason(attempt, record?.conflicts ?? 0, readError, lastState.error ?? '');
+  const showProgress = attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt;
+  const progress = attempt?.progress;
+  const percentage = progress?.total ? Math.floor(progress.completed / progress.total * 100) : undefined;
   return <section className="sync-status-card" aria-live="polite">
     {!diagnosticsOnly && presentation.text === '同期済み' ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
     {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : summary}</h2> : null}
+    {!diagnosticsOnly && reason ? <p className="sync-status-reason">{reason}</p> : null}
+    {!diagnosticsOnly && showProgress ? <div className="sync-progress" aria-live="polite">
+      <div className="sync-progress__label"><span>{progress?.label ?? syncStageLabel(attempt?.step ?? '')}</span>{percentage !== undefined ? <strong>{percentage}%</strong> : null}</div>
+      {progress?.total ? <progress aria-label={progress.label} value={progress.completed} max={progress.total}/> : <progress aria-label={progress?.label ?? '同期中'}/>}
+      {progress && progress.completed > 0 ? <small>{progress.total ? `${progress.completed.toLocaleString('ja-JP')} / ${progress.total.toLocaleString('ja-JP')} 件` : `${progress.completed.toLocaleString('ja-JP')} 件完了`}</small> : null}
+    </div> : null}
+    {!diagnosticsOnly && attempt?.notice ? <p className="sync-status-reason">{attempt.notice}</p> : null}
     {!diagnosticsOnly && presentation.action ? <p>変更は端末に保持しています。</p> : null}
     {!diagnosticsOnly && presentation.action === 'retry' && attempt?.lastFailure ? <p role="alert">{safeSyncFailureMessage(attempt.lastFailure.message)}</p> : null}
     {!diagnosticsOnly && attempt?.phase === 'queued' && attempt.retryAt && attempt.retryAt > Date.now() ? <p>{new Date(attempt.retryAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}に再試行します。</p> : null}

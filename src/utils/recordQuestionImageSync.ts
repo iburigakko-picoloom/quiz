@@ -5,6 +5,8 @@ import { remoteQuestionImageDescriptor, storedQuestionImage, verifyQuestionImage
 import { validQuestionImageDescriptor, type QuestionImageDescriptor, type StoredQuestionImage } from './questionImageRecords';
 import type { RemoteRecordChange } from './recordSyncPull';
 import { recordSyncMetric } from './syncMetrics';
+import type { SyncProgress } from './syncAttemptStatus';
+function reportProgress(report:((value:SyncProgress)=>void)|undefined,label:string,completed:number,total:number|null){try{report?.({label,completed,total});}catch{/* Informational only. */}}
 
 export const PULL_IMAGE_STORE = 'appPullMedia';
 function done(tx: IDBTransaction): Promise<void> { return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error ?? new Error('画像の同期状態を保存できませんでした。')); }); }
@@ -17,8 +19,9 @@ export function parseQuestionImageDescriptor(raw: string | null): QuestionImageD
 }
 
 /** Upload body before allowing metadata into a frozen RPC batch. */
-export async function prepareQuestionImageOutbox(db: IDBDatabase, transport: QuestionImageTransport, assertCurrent: () => Promise<void>, limit = 20): Promise<{ prepared: number; more: boolean }> {
+export async function prepareQuestionImageOutbox(db: IDBDatabase, transport: QuestionImageTransport, assertCurrent: () => Promise<void>, limit = 20,progress?:(value:SyncProgress)=>void): Promise<{ prepared: number; more: boolean }> {
   let prepared = 0;
+  reportProgress(progress,'画像を送信中',0,null);
   for (; prepared < limit; prepared++) {
     const read = db.transaction(['appOutbox', 'appRecordMeta'], 'readonly');
     const complete = done(read);
@@ -47,22 +50,24 @@ export async function prepareQuestionImageOutbox(db: IDBDatabase, transport: Que
     if (!await transport.exists(remote)) { await transport.upload(remote, body.blob); recordSyncMetric('questionImageUpload', 0, body.blob.size); }
     await assertCurrent();
     await commitPreparedRecordMedia(db, sourceOp, JSON.stringify(remote));
+    reportProgress(progress,'画像を送信中',prepared+1,null);
   }
   return { prepared, more: true };
 }
 
 /** Stage verified Blobs durably. A network or quota failure cannot move the Pull cursor. */
-export async function prepareStagedQuestionImages(db: IDBDatabase, transport: QuestionImageTransport, assertCurrent: () => Promise<void>): Promise<void> {
+export async function prepareStagedQuestionImages(db: IDBDatabase, transport: QuestionImageTransport, assertCurrent: () => Promise<void>,progress?:(value:SyncProgress)=>void): Promise<void> {
   const read = db.transaction('appPullStage', 'readonly'); const complete = done(read);
   const incoming = read.objectStore('appPullStage').getAll();
   await complete;
-  for (const row of incoming.result as RemoteRecordChange[]) {
-    if (row.collection !== 'questionImages' || row.raw === null) continue;
+  const rows=(incoming.result as RemoteRecordChange[]).filter(row=>row.collection==='questionImages'&&row.raw!==null);
+  let count=0;reportProgress(progress,'画像を確認・受信中',0,rows.length);
+  for (const row of rows) {
     const descriptor = parseQuestionImageDescriptor(row.raw);
     if (descriptor.id !== row.id || !descriptor.path || descriptor.path !== remoteQuestionImageDescriptor(descriptor, transport.userId).path) throw new Error('画像の差分参照が不正です。');
     const cacheTx = db.transaction(PULL_IMAGE_STORE, 'readonly'); const cacheDone = done(cacheTx);
     const cached = await request<{ key: string; revision: number; descriptor: QuestionImageDescriptor; image: StoredQuestionImage } | undefined>(cacheTx.objectStore(PULL_IMAGE_STORE).get(row.key)); await cacheDone;
-    if (cached?.revision === row.revision && JSON.stringify(cached.descriptor) === JSON.stringify(descriptor) && await verifyQuestionImageBlob(cached.image.blob, descriptor)) continue;
+    if (cached?.revision === row.revision && JSON.stringify(cached.descriptor) === JSON.stringify(descriptor) && await verifyQuestionImageBlob(cached.image.blob, descriptor)){reportProgress(progress,'画像を確認・受信中',++count,rows.length);continue;}
     const localTx = db.transaction('questionImageBlobs', 'readonly'); const localDone = done(localTx);
     const existing = await request<StoredQuestionImage | undefined>(localTx.objectStore('questionImageBlobs').get(row.id)); await localDone;
     const reused = Boolean(existing && await verifyQuestionImageBlob(existing.blob, descriptor));
@@ -73,5 +78,6 @@ export async function prepareStagedQuestionImages(db: IDBDatabase, transport: Qu
     const tx = db.transaction(PULL_IMAGE_STORE, 'readwrite'); const saved = done(tx);
     tx.objectStore(PULL_IMAGE_STORE).put({ key: appRecordKey('questionImages', row.id), revision: row.revision, descriptor, image: storedQuestionImage(descriptor, blob) }, row.key);
     await saved;
+    reportProgress(progress,'画像を確認・受信中',++count,rows.length);
   }
 }

@@ -6,7 +6,7 @@ import { withCoordinatedDataRead } from '../utils/dataCoordination';
 import { requestSyncRetry } from '../utils/syncRequest';
 import { readSyncDevice } from '../utils/syncDevice';
 import { readSyncAttemptStatus, SYNC_ATTEMPT_EVENT, type SyncAttemptStatus } from '../utils/syncAttemptStatus';
-import { safeSyncFailureMessage } from '../utils/syncFailureDiagnostic';
+import { syncStatusReason } from '../utils/syncStatusReason';
 import { SyncDataChoice } from './SyncDataChoice';
 
 const contents = (value: WholeSummary) => `問題集 ${value.sets.toLocaleString('ja-JP')}冊・回答 ${value.answers.toLocaleString('ja-JP')}回・画像 ${value.images.toLocaleString('ja-JP')}件・PDF ${value.pdfs.toLocaleString('ja-JP')}件`;
@@ -50,14 +50,14 @@ export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onBusyCha
       const config=getRemoteSyncConfig();if(!config)throw new Error();
       const db=await openAppDb();
       if(new URL(config.url).origin!==conflict.connection.project||conflict.connection.userId!==accountId||conflict.connection.syncId!==syncId)throw new Error();
-      await withCoordinatedDataRead(['app','notes'],()=>chooseWholeConflict(db,conflict.connection,conflict,selection),{requireCrossContext:true});
+      await withCoordinatedDataRead(['app','notes'],()=>chooseWholeConflict(db,conflict.connection,conflict,selection,{preferSelected:true}),{requireCrossContext:true});
       onOpenChange(false);requestSyncRetry(syncId);
     }catch{setError('確認中にデータが変わったか、選択を保存できませんでした。両方を保持しています。最新の内容を選び直してください。');}
     finally{setBusy(false);onBusyChange?.(false);}
   };
   if(!conflict)return error?<p role="alert">{error}</p>:null;
   const failure=attempt?.lastFailure&&(attempt.phase==='failed'||attempt.phase==='paused'&&attempt.pauseReason===attempt.lastFailure.code)?attempt.lastFailure:null;
-  const failureMessage=error|| (failure ? safeSyncFailureMessage(failure.message) : '');
+  const failureMessage=error|| (failure ? syncStatusReason(attempt,0,'','') : '');
   const remoteDevice=readSyncDevice(conflict.device),localDevice=readSyncDevice(conflict.localDevice);
   return <section className="sync-section whole-conflict" aria-labelledby="whole-conflict-title">
     <h2 id="whole-conflict-title">どちらで同期しますか？</h2>
@@ -72,7 +72,7 @@ export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onBusyCha
         <SyncDataChoice name="whole-sync-source" value="remote" title="クラウド" timestamp={savedTime(conflict.savedAt)} questionCount={conflict.remote.questions} note={`${remoteDevice.name}・${contents(conflict.remote)}`} checked={selection==='remote'} onChange={()=>setSelection('remote')}/>
       </fieldset>
       <button type="button" className="sync-button sync-button--primary sync-selection-submit" disabled={busy||!selection} onClick={()=>void choose()}>{busy?'選択を保存中…':'このデータで同期'}</button>
-      <p className="sync-selection-note">選ばなかったデータは自動でバックアップに保存します</p>
+      <p className="sync-selection-note">選んだ側を優先して同期します。もう一方は原本として自動保存します。</p>
       {failureMessage?<p role="alert">{failureMessage}</p>:null}
       <button type="button" className="sync-button" disabled={busy} onClick={()=>onOpenChange(false)}>今は同期しない</button>
     </>}

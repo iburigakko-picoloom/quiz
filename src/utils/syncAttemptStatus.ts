@@ -4,10 +4,11 @@ import { SyncInterruptedError } from './syncInterruption';
 
 export const SYNC_ATTEMPT_EVENT = 'quiz-make-sync-attempt';
 export type SyncFailure = { code: string; step: string; at: string; message: string };
+export type SyncProgress = { label: string; completed: number; total: number | null };
 export const isBlockedSyncFailure = (code: string) => ['local_persistence_failed', 'invalid_response', 'invalid_request',
   'invalid', 'operation_reused', 'quota', 'payload_too_large', 'unavailable', 'permission_denied', 'media_unsupported', 'legacy_snapshot'].includes(code);
 export type SyncAttemptStatus = { phase: 'queued' | 'running' | 'paused' | 'failed' | 'done'; retryAt: number | null;
-  pauseReason: string; step: string; lastFailure: SyncFailure | null };
+  pauseReason: string; step: string; lastFailure: SyncFailure | null; progress?: SyncProgress; notice?: string };
 type Entry = { connection: RecordSyncConnection; queue: AutoSyncQueueState; remoteChecking: boolean; result: SyncAttemptStatus };
 let entry: Entry | null = null;
 const same = (a: RecordSyncConnection, b: RecordSyncConnection) => a.project === b.project && a.userId === b.userId && a.syncId === b.syncId;
@@ -25,7 +26,13 @@ export function readSyncAttemptStatus(connection: RecordSyncConnection): SyncAtt
 }
 export function publishSyncQueue(connection: RecordSyncConnection, queue: AutoSyncQueueState) { const current = owned(connection); current.queue = { ...queue }; changed(); }
 export function publishSyncAttempt(connection: RecordSyncConnection, update: Partial<SyncAttemptStatus>) {
-  const current = owned(connection); current.result = { ...current.result, ...update }; changed();
+  const current = owned(connection);
+  if (update.step && update.step !== current.result.step || update.phase === 'running' && update.step === 'prepare') delete current.result.progress;
+  current.result = { ...current.result, ...update }; changed();
+}
+export function publishSyncProgress(connection: RecordSyncConnection, progress: SyncProgress) {
+  if (!Number.isSafeInteger(progress.completed) || progress.completed < 0 || progress.total !== null && (!Number.isSafeInteger(progress.total) || progress.total < 0 || progress.completed > progress.total)) return;
+  publishSyncAttempt(connection, {progress});
 }
 export function publishRemoteCheck(connection: RecordSyncConnection, running: boolean) { owned(connection).remoteChecking = running; changed(); }
 

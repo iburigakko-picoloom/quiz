@@ -83,6 +83,7 @@ import { createSampleAppData } from './utils/sampleData';
 import { beginRecordApply, setActiveProtectedWorkReason, type ProtectedWorkReason } from './utils/protectedWork';
 import { validateHydratedSyncPayload } from './utils/syncService';
 import { exportFileBackup, validateFileBackup, restoreFileBackup, type FileBackup } from './utils/backupPayload';
+import { SYNC_ORIGINALS_FORMAT } from './utils/syncOriginalBackup';
 import { SyncProtocolError } from './utils/syncInterruption';
 import {
   initializeCloudNativeAuth,
@@ -1364,6 +1365,7 @@ export default function App() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as unknown;
+      if(parsed&&typeof parsed==='object'&&'format' in parsed&&parsed.format===SYNC_ORIGINALS_FORMAT)return 'これは欠けた参照を含む救出原本です。通常のバックアップとして上書き復元できません。バックアップの詳細から書き出して修復に使用できます。';
       if(parsed && typeof parsed==='object' && 'backupManifest' in parsed){
         const checked=await validateFileBackup(parsed);
         if(!checked.ok)return checked.error;

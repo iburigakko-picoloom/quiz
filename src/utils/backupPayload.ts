@@ -19,6 +19,9 @@ import { prepareWholeRecovery } from './wholeRecovery';
 import { NOTES_EVENT } from './weaknessNotes';
 import { PLAN_EVENT } from './studyPlanStorage';
 import { readUserEditGeneration } from './userEditGeneration';
+import { getSavedBackup } from './backupRepository';
+import { validateSyncOriginalsFile } from './syncOriginalBackup';
+import { sameRecordSyncConnection, type RecordSyncConnection } from './recordSyncOutbox';
 
 export type FileBackup = SyncPayload & {
   backupManifest: { schema:1; completeness:'complete'|'partial'; issues:string[]; questionCount:number; noteCount:number; imageCount:number; contentDigest:string };
@@ -116,10 +119,11 @@ export function restoreFileBackup(payload:FileBackup):Promise<SyncResult<number>
 }
 /** The existing sync UI owns the origin lock and protected-work guard. This
  * route replaces the chosen whole snapshot without creating ordinary history. */
-export function applyWholeSyncFile(payload:FileBackup,expectedGeneration:number,finalize:(tx:IDBTransaction)=>void,archiveConflict=false):Promise<SyncResult<number>&{committed?:boolean}>{
-  return replaceCompleteFile(payload,{expectedGeneration,finalize,archiveConflict});
+export type PreservedSyncOriginals={backupId:string;raw:string;commitId:string;connection:RecordSyncConnection};
+export function applyWholeSyncFile(payload:FileBackup,expectedGeneration:number,finalize:(tx:IDBTransaction)=>void,archiveConflict=false,preservedOriginals?:PreservedSyncOriginals):Promise<SyncResult<number>&{committed?:boolean}>{
+  return replaceCompleteFile(payload,{expectedGeneration,finalize,archiveConflict,preservedOriginals});
 }
-async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:number;finalize:(tx:IDBTransaction)=>void;archiveConflict:boolean}):Promise<SyncResult<number>&{committed?:boolean}>{
+async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:number;finalize:(tx:IDBTransaction)=>void;archiveConflict:boolean;preservedOriginals?:PreservedSyncOriginals}):Promise<SyncResult<number>&{committed?:boolean}>{
   const checked=await validateFileBackup(payload);if(!checked.ok)return checked;
   if(payload.backupManifest.completeness!=='complete')return {ok:false,code:'invalid',error:'このファイルは部分的な救出コピーです。欠落一覧を確認し、完全コピーとして上書き復元しないでください。'};
   if(!sync){const ready=await waitForLocalPersistence();if(!ready.ok)return ready;}
@@ -132,6 +136,16 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     // under the already-held lock avoids a nested export lock.
     const previous=await loadAppDataAsync({coordinationLockHeld:true});
     const snapshot=await readAppRecordSnapshot(db);if(!snapshot)throw new Error('現在の保存状態を確認できません。');
+    const proof=sync?.preservedOriginals;
+    if(proof){
+      const stored=await getSavedBackup(proof.backupId),file=JSON.parse(proof.raw);
+      const bindingTx=db.transaction('appRecordMeta'),binding=bindingTx.objectStore('appRecordMeta').get('recordSyncConnection');
+      await new Promise<void>((r,j)=>{bindingTx.oncomplete=()=>r();bindingTx.onabort=()=>j(bindingTx.error);});
+      if(snapshot.state.commitId!==proof.commitId||stored?.raw!==proof.raw||!binding.result||!sameRecordSyncConnection(binding.result,proof.connection))throw new Error('退避済み原本と現在の端末データが一致しません。再試行してください。');
+      if(stored.format==='originals'){
+        if(!await validateSyncOriginalsFile(file)||file.side!=='local'||file.localCommitId!==proof.commitId||!sameRecordSyncConnection(file.connection,proof.connection))throw new Error('端末の救出原本を確認できません。');
+      }else{const verified=await validateFileBackup(file);if(!verified.ok||verified.value.payload.backupManifest.completeness!=='complete')throw new Error('退避済みバックアップを確認できません。');}
+    }
     const target=JSON.parse(checked.value.payload.localStorage['quiz-make-app-data-v1']) as AppData;
     const notes=checked.value.payload.indexedDbNotes??{},settings=Object.fromEntries(Object.entries(checked.value.payload.localStorage).filter(([key])=>key!=='quiz-make-app-data-v1'&&!key.startsWith('quizMake:notes:')&&!key.startsWith('quizMake:image:')));
     const existingSettings=new Set<string>(),existingImageKeys=new Set<string>(),existingNoteKeys=new Set<string>();for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith('quizMake:image:'))existingImageKeys.add(key);if(key?.startsWith('quizMake:notes:'))existingNoteKeys.add(key);if(key&&isQuizMakeStorageKey(key)&&key!=='quiz-make-app-data-v1'&&!key.startsWith('quizMake:notes:')&&!key.startsWith('quizMake:image:')&&!isChunkInternal('localStorage',key))existingSettings.add(key);}
@@ -139,14 +153,14 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     const allSettings=new Set([...existingSettings,...Object.keys(settings)]),learning=new Map(await Promise.all([...allSettings].filter(isLearningStorageKey).map(async key=>[key,{...await prepareLearningValue(key,settings[key]??null),...(previousLearning.get(key)?.nativeCleanup?{nativeCleanup:previousLearning.get(key)!.nativeCleanup}:{})}] as const)));
     const read=db.transaction(['categoryNotes','questionImageBlobs']),oldNoteKeys=read.objectStore('categoryNotes').getAllKeys(),oldImages=read.objectStore('questionImageBlobs').getAll();await new Promise<void>((r,j)=>{read.oncomplete=()=>r();read.onabort=()=>j(read.error);});
     const storedNoteKeys=oldNoteKeys.result.map(String);
-    const previousNotes=await exportCategoryNotesRaw({coordinationLockHeld:true});
-    if(getNoteBackupIssues(previousNotes).length)throw new Error('現在のノートを完全に退避できないため、復元を中止しました。');
-    const previousOwners=imageOwners(previous),previousImages=oldImages.result as StoredQuestionImage[];
-    for(const [id,owner] of previousOwners){const image=previousImages.find(image=>image.id===id&&image.questionId===owner),raw=snapshot.records.get(appRecordKey('questionImages',id))?.raw;if(!image||!raw||!await verifyQuestionImageBlob(image.blob,JSON.parse(raw)))throw new Error('現在の画像を完全に退避できないため、復元を中止しました。');}
+    const previousNotes=proof?{}:await exportCategoryNotesRaw({coordinationLockHeld:true});
+    if(!proof&&getNoteBackupIssues(previousNotes).length)throw new Error('現在のノートを完全に退避できないため、復元を中止しました。');
+    const previousOwners=proof?new Map<string,string>():imageOwners(previous),previousImages=oldImages.result as StoredQuestionImage[];
+    if(!proof)for(const [id,owner] of previousOwners){const image=previousImages.find(image=>image.id===id&&image.questionId===owner),raw=snapshot.records.get(appRecordKey('questionImages',id))?.raw;if(!image||!raw||!await verifyQuestionImageBlob(image.blob,JSON.parse(raw)))throw new Error('現在の画像を完全に退避できないため、復元を中止しました。');}
     const previousSettings=Object.fromEntries([...existingSettings].map(key=>[key,localStorage.getItem(key)!]));
-    if(materialIssues({version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes},previous).length)throw new Error('現在のPDF・参照資料を完全に退避できないため、復元を中止しました。');
+    if(!proof&&materialIssues({version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes},previous).length)throw new Error('現在のPDF・参照資料を完全に退避できないため、復元を中止しました。');
     let queueArchive:(tx:IDBTransaction)=>void=()=>{};
-    if(!sync||sync.archiveConflict){
+    if(!proof&&(!sync||sync.archiveConflict)){
       const archivePayload:SyncPayload={version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes};
       const archive=await createCompleteFileBackup(archivePayload,previousImages.filter(image=>previousOwners.has(image.id)));
       queueArchive=await prepareWholeRecovery(db,archive,sync?'conflict':'before-restore',new Blob([JSON.stringify(payload)]).size);

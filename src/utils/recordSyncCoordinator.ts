@@ -27,6 +27,8 @@ import { WHOLE_SYNC_ROLLOUT_ENABLED } from './wholeSyncRollout';
 import { runWholeRecordSync } from './wholeSyncEngine';
 import { buildWholeIncomingFile } from './wholeSyncIncoming';
 import { getSyncDevice } from './syncDevice';
+import { publishSyncProgress, publishSyncAttempt, type SyncProgress } from './syncAttemptStatus';
+import { archiveSyncOriginals } from './syncOriginalBackup';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -87,14 +89,20 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   const imageTransport = createQuestionImageTransport(config, initialAccess);
   const materialTransport = createMaterialTransport(config,initialAccess);
   if(WHOLE_SYNC_ROLLOUT_ENABLED){
+    const progress=(value:SyncProgress)=>{try{publishSyncProgress(connection,value);}catch{/* Informational only. */}};
     const result=await runWholeRecordSync(db,connection,rpc,{assertCurrent,apply,step,
       device:getSyncDevice(),
-      prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent),
+      progress,
+      notice:notice=>publishSyncAttempt(connection,{notice}),
+      archiveOriginals:(side,rows)=>archiveSyncOriginals(db,connection,side,rows,imageTransport,materialTransport,assertCurrent,progress),
+      prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent,progress),
       incoming:rows=>buildWholeIncomingFile(db,rows,materialTransport,assertCurrent),
       prepareOutgoing:async()=>{
         await assertCurrent();
+        step('materials');progress({label:'資料を送信中',completed:0,total:null});
         const media=await prepareRecordMaterialOutbox(db,materialTransport,assertCurrent);
-        const images=await prepareQuestionImageOutbox(db,imageTransport,assertCurrent);
+        step('images');
+        const images=await prepareQuestionImageOutbox(db,imageTransport,assertCurrent,20,progress);
         if(media.more||images.more)return {more:true};
         await prepareRecordChunks(db,connection);await assertCurrent();
       },

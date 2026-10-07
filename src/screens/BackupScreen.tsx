@@ -11,6 +11,7 @@ import { exportFileBackup, validateFileBackup } from '../utils/backupPayload';
 import { deleteWholeRecovery } from '../utils/wholeRecovery';
 import { BACKUP_HISTORY_LIMIT, listBackupHistory, readBackupHistoryFile, type BackupHistoryRow } from '../utils/backupHistory';
 import './BackupScreen.css';
+import { SYNC_ORIGINALS_FORMAT, validateSyncOriginalsFile } from '../utils/syncOriginalBackup';
 
 const formatDate = (value: string) => new Date(value).toLocaleString('ja-JP', { month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' });
 function BackupIcon({kind}:{kind:'file'|'folder'|'database'}) {
@@ -65,11 +66,11 @@ export function BackupScreen({ onBack, onRestore, onOpenSyncRecovery, onExitGuar
       <p className="backup-list-caption">直近{BACKUP_HISTORY_LIMIT}件</p>
       {loading ? <p role="status">読み込み中…</p> : !items.length&&!error ? <p>バックアップはありません</p> : null}
       <div className="backup-history" aria-label="保存済みのバックアップ">
-        {items.map(item=><button type="button" className="backup-history-row" key={item.id} disabled={busy||recoveryBusy||loading} onClick={()=>void run(async()=>{const raw=await readBackupHistoryFile(item.id);if(!raw)throw new Error('バックアップが見つかりません。');const issue=await onRestore(new File([raw],`quiz-make-backup-${item.createdAt.replace(/[:.]/g,'-')}.json`,{type:'application/json'}),item.createdAt);if(issue)throw new Error(issue);})}><time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time><small>{item.kind==='manual'?'手動':'自動'}</small><ChevronRightIcon size={20}/></button>)}
+        {items.map(item=><button type="button" className="backup-history-row" key={item.id} disabled={busy||recoveryBusy||loading} onClick={()=>void run(async()=>{const raw=await readBackupHistoryFile(item.id);if(!raw)throw new Error('バックアップが見つかりません。');const issue=await onRestore(new File([raw],`quiz-make-backup-${item.createdAt.replace(/[:.]/g,'-')}.json`,{type:'application/json'}),item.createdAt);if(issue)throw new Error(issue);})}><time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time><small>{'format' in item&&item.format==='originals'?'救出原本':item.kind==='manual'?'手動':'自動'}</small><ChevronRightIcon size={20}/></button>)}
       </div>
       <details className="backup-details" open={detailsOpen} onToggle={event=>setDetailsOpen(event.currentTarget.open)}><summary>詳細・旧データの復旧</summary>
         {detailsOpen ? <>
-          {items.map(item=><div className="backup-management-row" key={item.id}><span>{formatDate(item.createdAt)}</span><button type="button" disabled={busy||recoveryBusy} onClick={()=>void run(async()=>{const raw=await readBackupHistoryFile(item.id);if(!raw)throw new Error('バックアップが見つかりません。');const value=JSON.parse(raw);const checked=value?.backupManifest ? await validateFileBackup(value) : validateSyncPayload(value);if(!checked.ok)throw new Error('バックアップを検証できません。');await saveJsonBackup(`quiz-make-backup-${item.createdAt.replace(/[:.]/g,'-')}.json`,raw);})}>書き出し</button><button type="button" disabled={busy||recoveryBusy} onClick={()=>setDeleting(item)}>削除</button></div>)}
+          {items.map(item=><div className="backup-management-row" key={item.id}><span>{formatDate(item.createdAt)}</span><button type="button" disabled={busy||recoveryBusy} onClick={()=>void run(async()=>{const raw=await readBackupHistoryFile(item.id);if(!raw)throw new Error('バックアップが見つかりません。');const value=JSON.parse(raw);const checked=value?.format===SYNC_ORIGINALS_FORMAT ? {ok:await validateSyncOriginalsFile(value)} : value?.backupManifest ? await validateFileBackup(value) : validateSyncPayload(value);if(!checked.ok)throw new Error('バックアップを検証できません。');await saveJsonBackup(`quiz-make-backup-${item.createdAt.replace(/[:.]/g,'-')}.json`,raw);})}>書き出し</button><button type="button" disabled={busy||recoveryBusy} onClick={()=>setDeleting(item)}>削除</button></div>)}
           <RecordConflictRecovery onCreated={refresh} onBusyChange={setRecoveryBusy}/>
           {onOpenSyncRecovery ? <button type="button" disabled={busy||recoveryBusy} onClick={onOpenSyncRecovery}>同期の復旧を開く</button> : null}
         </> : null}

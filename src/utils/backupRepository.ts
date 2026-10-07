@@ -1,10 +1,11 @@
 import { accountLocalStorage as localStorage, accountDatabaseName, getAccountStorageSession } from './accountStorage';
 import type { SyncPayload } from './syncService';
 
-export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; legacyOriginalRaw?: string; }
+export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; legacyOriginalRaw?: string; format?: 'originals'; }
 export type SavedBackupSummary = Omit<SavedBackup, 'raw' | 'byteSize' | 'legacyOriginalRaw'> & { byteSize: number };
 export function summarizeSavedBackup(record: SavedBackup): SavedBackupSummary {
   return { id: record.id, createdAt: record.createdAt, kind: record.kind,
+    ...(record.format ? {format:record.format} : {}),
     byteSize: typeof record.byteSize === 'number' && Number.isFinite(record.byteSize) && record.byteSize >= 0 ? record.byteSize : new Blob([record.raw]).size };
 }
 const DB = 'quiz-make-backups';
@@ -80,6 +81,19 @@ export async function saveBackupPayload(payload: SyncPayload, kind: SavedBackup[
       await pruneBackupHistoryAfterSave(record.id, record.raw, current);
     } catch { return {...record,cleanupWarning:'新しいバックアップは保存しましたが、古い分の整理を完了できませんでした。残ったコピーは保持しています。'}; }
   }
+  return record;
+}
+/** Rescue originals may contain broken graph references. They are stored as
+ * originals, never relabelled as a complete directly restorable backup. */
+export async function saveBackupOriginals(raw: string): Promise<SavedBackup> {
+  const owner=getAccountStorageSession(),native=globalThis.localStorage;
+  const current=()=>{if(owner!==getAccountStorageSession()||native!==globalThis.localStorage)throw new Error('原本のアカウントが変わりました。');owner?.assertCurrent();};
+  current();
+  const record:SavedBackup={id:`backup-${crypto.randomUUID()}`,createdAt:new Date().toISOString(),kind:'before-sync',format:'originals',raw,byteSize:new Blob([raw]).size};
+  if(typeof indexedDB==='undefined')localStorage.setItem(PREFIX+record.id,JSON.stringify(record));
+  else await operation('readwrite',store=>store.add(record));
+  current();const saved=await getSavedBackup(record.id);current();
+  if(saved?.raw!==raw)throw new Error('救出原本の読み戻しを確認できません。');
   return record;
 }
 export async function getSavedBackup(id: string): Promise<SavedBackup | undefined> {

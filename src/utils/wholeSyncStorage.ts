@@ -9,7 +9,7 @@ import { isChunkInternal } from './recordChunkFormat';
 export const WHOLE_EVENT='quiz-make-whole-sync-changed';
 export interface WholeIncoming {version:1;connection:RecordSyncConnection;revision:number;afterKey:string;complete:boolean}
 export interface WholeSummary {sets:number;questions:number;answers:number;plans:number;images:number;pdfs:number}
-export interface WholeConflict {version:1;connection:RecordSyncConnection;revision:number;generation:number;localDigest:string;remoteDigest:string;device:string|null;savedAt:string|null;localSavedAt?:string;localDevice?:string;local:WholeSummary;remote:WholeSummary;choice?:'local'|'remote'}
+export interface WholeConflict {version:1;connection:RecordSyncConnection;revision:number;generation:number;localDigest:string;remoteDigest:string;device:string|null;savedAt:string|null;localSavedAt?:string;localDevice?:string;local:WholeSummary;remote:WholeSummary;choice?:'local'|'remote';preferSelected?:true}
 export interface WholeFrozen {version:1;connection:RecordSyncConnection;id:string;expectedRevision:number;generation:number;digest:string;wireDigest:string;parts:Array<{id:string;raw:string}>;records:number;device:string;replace:boolean;outbox:Array<{key:string;operationId:string}>;nextPart?:number}
 type WholeProgress=Pick<WholeFrozen,'version'|'connection'|'id'|'wireDigest'>&{nextPart:number};
 const progressOf=(value:WholeFrozen,nextPart=value.nextPart??0):WholeProgress=>({version:1,connection:value.connection,id:value.id,wireDigest:value.wireDigest,nextPart});
@@ -20,7 +20,7 @@ export async function readWholeMeta<T>(db:IDBDatabase,key:'wholeBaseline'|'whole
   const value=key==='wholeFrozen'&&request.result?withProgress(request.result,progress?.result):request.result;
   if(value && (value.version!==1||!value.connection||!sameRecordSyncConnection(value.connection,connection)))throw new SyncProtocolError('connection_changed','全体同期の保存先が変わりました。原本を保持しています。');
   if(value&&key==='wholeIncoming'&&(!safe(value.revision)||typeof value.afterKey!=='string'||value.afterKey.length>2048||typeof value.complete!=='boolean'))throw new SyncProtocolError('invalid_response','全体受信の途中状態を確認できません。');
-  if(value&&key==='wholeConflict'&&(!safe(value.revision)||!safe(value.generation)||!/^[a-f0-9]{64}$/.test(value.localDigest)||!/^[a-f0-9]{64}$/.test(value.remoteDigest)||value.choice!==undefined&&!['local','remote'].includes(value.choice)))throw new SyncProtocolError('invalid_response','全体の選択を確認できません。');
+  if(value&&key==='wholeConflict'&&(!safe(value.revision)||!safe(value.generation)||!/^[a-f0-9]{64}$/.test(value.localDigest)||!/^[a-f0-9]{64}$/.test(value.remoteDigest)||value.choice!==undefined&&!['local','remote'].includes(value.choice)||value.preferSelected!==undefined&&value.preferSelected!==true))throw new SyncProtocolError('invalid_response','全体の選択を確認できません。');
   if(value&&key==='wholeFrozen')validateWholeFrozen(value);
   return value;
 }
@@ -90,11 +90,11 @@ export async function putWholeMeta(db:IDBDatabase,key:'wholeConflict'|'wholeFroz
   if(key==='wholeFrozen'){meta.put({...value,nextPart:undefined},key);meta.put(progressOf(value as WholeFrozen),'wholeFrozenProgress')}else meta.put(value,key);
   await completion;window.dispatchEvent(new Event(WHOLE_EVENT));
 }
-export async function chooseWholeConflict(db:IDBDatabase,connection:RecordSyncConnection,shown:WholeConflict,choice:'local'|'remote'):Promise<void>{
+export async function chooseWholeConflict(db:IDBDatabase,connection:RecordSyncConnection,shown:WholeConflict,choice:'local'|'remote',options?:{preferSelected:boolean}):Promise<void>{
   const tx=db.transaction('appRecordMeta','readwrite'),completion=done(tx),current=tx.objectStore('appRecordMeta').get('wholeConflict'),generation=tx.objectStore('appRecordMeta').get('userEditGenerationV1');
   generation.onsuccess=()=>{try{
     if((generation.result??0)!==shown.generation||JSON.stringify(current.result)!==JSON.stringify(shown)||!sameRecordSyncConnection(shown.connection,connection))throw new Error();
-    tx.objectStore('appRecordMeta').put({...shown,choice},'wholeConflict');
+    tx.objectStore('appRecordMeta').put({...shown,choice,...(options?.preferSelected?{preferSelected:true}:{})},'wholeConflict');
   }catch{tx.abort()}};
   await completion;window.dispatchEvent(new Event(WHOLE_EVENT));
 }

@@ -6,11 +6,12 @@ import { hydrateChunkChanges } from './recordChunks';
 import { readUserEditGeneration } from './userEditGeneration';
 import { withCoordinatedDataRead } from './dataCoordination';
 import { SyncProtocolError, SyncInterruptedError } from './syncInterruption';
-import { saveBackupPayload, getSavedBackup } from './backupRepository';
+import { saveBackupPayload, getSavedBackup, type SavedBackup } from './backupRepository';
 import { decideWholeSync } from './wholeSyncDecision';
 import { computeWholeRecordDigest, wholeHash } from './wholeSyncDigest';
 import { acknowledgeIdenticalWhole, acknowledgeWholeUpload, advanceWholePart, freezeWholeUpload, putWholeMeta, queueWholeReplacement, readWholeBaseline, readWholeMeta, readWholeRows, readVerifiedWholeAncestorCursor, releaseWholeUpload, stageWholePage, summarizeWholeRows, validateWholeFrozen, type WholeConflict, type WholeFrozen, type WholeIncoming } from './wholeSyncStorage';
-import { applyWholeSyncFile, exportFileBackup, type FileBackup } from './backupPayload';
+import { applyWholeSyncFile, exportFileBackup, validateFileBackup, type FileBackup, type PreservedSyncOriginals } from './backupPayload';
+import type { SyncProgress } from './syncAttemptStatus';
 import { prepareWholeRecovery } from './wholeRecovery';
 import { materialFileEntry } from './materialModel';
 import { parseQuestionImageDescriptor } from './recordQuestionImageSync';
@@ -19,7 +20,13 @@ import { chunkIds, isChunkInternal, parseChunkManifest, RECORD_CHUNK_GUARD_ID } 
 
 type Reply={code:string;[key:string]:unknown};
 export type WholeTransport=RecordSyncTransport&{whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<Reply>};
-type WholeGuards=Omit<RecordSyncGuards,'prepareOutgoing'>&{prepareOutgoing():Promise<void|{more:boolean}>;incoming(rows:RemoteRecordChange[]):Promise<FileBackup>;device:string};
+type WholeGuards=Omit<RecordSyncGuards,'prepareOutgoing'>&{prepareOutgoing():Promise<void|{more:boolean}>;incoming(rows:RemoteRecordChange[]):Promise<FileBackup>;device:string;progress?:(value:SyncProgress)=>void;notice?:(message:string)=>void;archiveOriginals?:(side:'local'|'remote',rows:RemoteRecordChange[])=>Promise<SavedBackup>};
+function progress(guards:Pick<WholeGuards,'progress'>,label:string,completed=0,total:number|null=null){try{guards.progress?.({label,completed,total});}catch{/* Informational only. */}}
+function mayRescue(error:unknown):boolean{
+  if(error instanceof SyncInterruptedError)return false;
+  const code=error&&typeof error==='object'&&'code' in error?String(error.code):'';
+  return !['authentication_required','permission_denied','connection_changed','mode_changed','quota','operation_reused','unavailable'].includes(code);
+}
 const integer=(value:unknown):value is number=>Number.isSafeInteger(value)&&(value as number)>=0;
 function head(value:Reply){
   if(value.code!=='ok'||!integer(value.revision)||typeof value.enabled!=='boolean'||!(value.device===null||typeof value.device==='string')||!(value.savedAt===null||typeof value.savedAt==='string'&&Number.isFinite(Date.parse(value.savedAt))))throw new SyncProtocolError(value.code,'全体同期の保存状態を確認できません。');
@@ -45,12 +52,13 @@ async function pack(rows:Array<ReturnType<typeof wire>>):Promise<{parts:WholeFro
   return {parts,wireDigest:await wholeHash(hashes)};
 }
 /** Resolve exact persisted requests before considering a different whole state. */
-export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,guards:Pick<WholeGuards,'assertCurrent'|'step'>,original:WholeFrozen,maxParts=20):Promise<'committed'|'rejected'|'more'>{
+export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,guards:Pick<WholeGuards,'assertCurrent'|'step'|'progress'>,original:WholeFrozen,maxParts=20):Promise<'committed'|'rejected'|'more'>{
   validateWholeFrozen(original);
   let frozen=original,hashes='',count=0,keys=new Set<string>();
-  for(const part of frozen.parts){hashes+=await wholeHash(part.raw);const rows=JSON.parse(part.raw) as Array<ReturnType<typeof wire>>;if(!Array.isArray(rows)||rows.length>500)throw new SyncProtocolError('invalid_response','保存済み送信原本を検証できません。');
+  progress(guards,'送信内容を検証中',0,frozen.parts.length);
+  for(const [index,part] of frozen.parts.entries()){hashes+=await wholeHash(part.raw);const rows=JSON.parse(part.raw) as Array<ReturnType<typeof wire>>;if(!Array.isArray(rows)||rows.length>500)throw new SyncProtocolError('invalid_response','保存済み送信原本を検証できません。');
     if(rows.length)validateRecordPullPage({code:'ok',cursor:1,head:1,hasMore:false,batches:[{revision:1,changes:rows.map(row=>({...row,revision:1}))}]},0);
-    for(const row of rows){if(keys.has(row.key)||frozen.replace&&row.raw===null)throw new SyncProtocolError('invalid_response','保存済み送信原本が重複しています。');keys.add(row.key);count++}}
+    for(const row of rows){if(keys.has(row.key)||frozen.replace&&row.raw===null)throw new SyncProtocolError('invalid_response','保存済み送信原本が重複しています。');keys.add(row.key);count++}progress(guards,'送信内容を検証中',index+1,frozen.parts.length)}
   if(await wholeHash(hashes)!==frozen.wireDigest||count!==frozen.records)throw new SyncProtocolError('invalid_response','保存済み送信原本のハッシュが一致しません。');
   const reject=async():Promise<'committed'|'rejected'>=>{
     await guards.assertCurrent();const result=await transport.whole('abort',{p_operation_id:frozen.id});
@@ -59,6 +67,7 @@ export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,gu
     await releaseWholeUpload(db,frozen);return 'rejected';
   };
   await guards.assertCurrent();guards.step?.('push');
+  progress(guards,'データを送信中',frozen.nextPart??0,frozen.parts.length);
   const begin=await transport.whole('begin',{p_operation_id:frozen.id,p_expected_revision:frozen.expectedRevision,p_parts:frozen.parts.length,p_records:frozen.records,p_digest:frozen.wireDigest,p_device:frozen.device,p_replace:frozen.replace});
   if(begin.code==='conflict'||begin.code==='expired')return reject();requireOk(begin);
   if(begin.state==='committed'){if(!integer(begin.revision))throw new SyncProtocolError('invalid_response','全体保存の版を確認できません。');await acknowledgeWholeUpload(db,frozen,begin.revision);return 'committed'}
@@ -67,8 +76,10 @@ export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,gu
   for(let i=frozen.nextPart??0;i<stop;i++){
     await guards.assertCurrent();const part=frozen.parts[i],value=await transport.whole('part',{p_commit_id:frozen.id,p_operation_id:part.id,p_number:i,p_raw:part.raw});
     if(value.code==='conflict'||value.code==='expired')return reject();requireOk(value);await guards.assertCurrent();frozen=await advanceWholePart(db,frozen,i+1);
+    progress(guards,'データを送信中',i+1,frozen.parts.length);
   }
   if(stop<frozen.parts.length)return 'more';
+  progress(guards,'クラウドの保存完了を確認中');
   await guards.assertCurrent();const finish=await transport.whole('finish',{p_operation_id:frozen.id});
   if(finish.code==='conflict'||finish.code==='expired')return reject();requireOk(finish);
   if(!integer(finish.revision))throw new SyncProtocolError('invalid_response','全体保存の版を確認できません。');
@@ -93,26 +104,32 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   }
   const frozen=await readWholeMeta<WholeFrozen>(db,'wholeFrozen',connection);
   if(frozen){const sent=await sendFrozenWhole(db,transport,guards,frozen);return result('more',sent==='committed'?frozen.records:0)}
-  // Read and ask first. Switching the server mode must wait for complete,
-  // durable copies of both sides, so an invalid legacy graph stays untouched.
-  const prepared=await guards.prepareOutgoing();if(prepared?.more)return result('more');await guards.assertCurrent();
+  const prior=await readWholeMeta<WholeConflict>(db,'wholeConflict',connection);
+  const priority=prior?.preferSelected?prior.choice:undefined;
+  let preparationError:unknown;
+  // Read-only comparison can still offer the healthy cloud if local media is
+  // broken. A chosen local upload must finish its preparation before freezing.
+  if(priority!=='remote')try{const prepared=await guards.prepareOutgoing();if(prepared?.more)return result('more');}
+  catch(error){if(!guards.archiveOriginals||!mayRescue(error))throw error;preparationError=error;}
+  await guards.assertCurrent();
   const source=await withCoordinatedDataRead(['app','notes'],async()=>{
     const snapshot=await readAppRecordSnapshot(db);if(!snapshot)throw new Error('端末の保存データがありません。');
     return {snapshot,generation:await readUserEditGeneration(db),outbox:await readAppOutbox(db)};
   },{requireCrossContext:true});
   const baseline=await readWholeBaseline(db,connection);
-  if(remote.enabled&&baseline?.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&!source.outbox.length)return result('done');
+  if(!priority&&!preparationError&&remote.enabled&&baseline?.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&!source.outbox.length)return result('done');
   const localRows=[...source.snapshot.records.values()].filter(row=>row.raw!==null).map(row=>({...row,revision:row.serverRevision}));
   const localDigest=await computeWholeRecordDigest(localRows);
   let decision:'same'|'upload'|'download'|'conflict',incoming:RemoteRecordChange[]|undefined,remoteDigest=baseline?.digest??'',downloaded=0;
-  if(remote.enabled&&baseline?.serverRevision===remote.revision&&(localDigest===baseline.digest||source.generation!==baseline.userGeneration)){
+  if(!priority&&remote.enabled&&baseline?.serverRevision===remote.revision&&(localDigest===baseline.digest||source.generation!==baseline.userGeneration)){
     decision=decideWholeSync({baseline,serverRevision:remote.revision,userGeneration:source.generation,localDigest,remoteDigest});
   }else{
     let stage=await readWholeMeta<WholeIncoming>(db,'wholeIncoming',connection);
     if(stage?.revision!==remote.revision)stage=undefined;
     for(let i=0;!stage?.complete&&i<maxPages;i++){
-      await guards.assertCurrent();guards.step?.('pull');const page=await transport.whole('read',{p_expected_revision:remote.revision,p_after_key:stage?.afterKey??'',p_limit:200});
+      await guards.assertCurrent();guards.step?.('pull');progress(guards,'クラウドのデータを読み込み中',downloaded);const page=await transport.whole('read',{p_expected_revision:remote.revision,p_after_key:stage?.afterKey??'',p_limit:200});
       if(page.code==='conflict')return result('more');stage=await stageWholePage(db,connection,remote.revision,stage?.afterKey??'',page);downloaded+=Array.isArray(page.rows)?page.rows.length:0;
+      progress(guards,'クラウドのデータを読み込み中',downloaded);
     }
     if(!stage?.complete)return result('more',0,downloaded);
     incoming=await hydrateChunkChanges(db,await readWholeRows(db,connection,remote.revision),connection,true);
@@ -125,14 +142,18 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   const replaceEqualWire=decision==='same'&&maintenance&&baseline?.serverRevision!==remote.revision;
   if(decision==='same'&&maintenance)decision='upload';
   let selected:'local'|'remote'|undefined;
+  if(priority)decision='conflict';
   if(decision==='conflict'){
     const shown:WholeConflict={version:1,connection,revision:remote.revision,generation:source.generation,localDigest,remoteDigest,device:remote.device,savedAt:remote.savedAt,localSavedAt:source.snapshot.state.savedAt,localDevice:guards.device,local:summarizeWholeRows(localRows),remote:summarizeWholeRows(incoming??[])};
-    const prior=await readWholeMeta<WholeConflict>(db,'wholeConflict',connection);
-    if(prior&&JSON.stringify({...prior,choice:undefined})===JSON.stringify(shown))selected=prior.choice;
+    if(priority){selected=priority;await putWholeMeta(db,'wholeConflict',{...shown,choice:priority,preferSelected:true});}
+    else if(prior&&JSON.stringify({...prior,choice:undefined,preferSelected:undefined})===JSON.stringify(shown))selected=prior.choice;
     else await putWholeMeta(db,'wholeConflict',shown);
     if(!selected)return {status:'conflict',conflicts:[],uploaded:0,downloaded};
   }
+  if(preparationError&&selected!=='remote')throw preparationError;
+  const preferSelected=Boolean(selected&&priority&&guards.archiveOriginals);
   let verifiedCloud:FileBackup|undefined,verifiedLocal:FileBackup|undefined;
+  let preservedOriginals:PreservedSyncOriginals|undefined;
   const incomingFile=async():Promise<FileBackup>=>{
     if(!incoming)throw new SyncProtocolError('invalid_response','クラウドの受信原本がありません。データは保持しています。');
     try { await guards.prepareMedia?.();await guards.assertCurrent();return await guards.incoming(incoming); }
@@ -141,24 +162,57 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
       throw new SyncProtocolError('invalid_response','クラウドの画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));
     }
   };
+  const assertSource=()=>withCoordinatedDataRead(['app','notes'],async()=>{
+    const current=await readAppRecordSnapshot(db);
+    if(current?.state.commitId!==source.snapshot.state.commitId||await readUserEditGeneration(db)!==source.generation)throw new SyncProtocolError('local_changed','自動バックアップ中にこの端末の内容が変わりました。最新の内容で再試行します。');
+  },{requireCrossContext:true});
+  if(preferSelected){
+    guards.step?.('backup');progress(guards,'同期前のバックアップを保存中',0,2);
+    // The selected snapshot must be complete. Only the unselected side may be
+    // preserved as raw rescue originals, without inventing missing attachments.
+    if(selected==='remote')verifiedCloud=await incomingFile();
+    else {try{verifiedLocal=await exportFileBackup();}catch(error){if(!mayRescue(error))throw error;throw new SyncProtocolError('invalid_response','この端末の画像・教材を完全に退避できません。別の側を選び直してください。');}}
+    const selectedFile=selected==='remote'?verifiedCloud!:verifiedLocal!;
+    const validation=await validateFileBackup(selectedFile);
+    if(!validation.ok||selectedFile.backupManifest.completeness!=='complete')throw new SyncProtocolError('invalid_response',selected==='remote'?'クラウドの参照関係を確認できません。端末と受信原本を保持しています。':'この端末の画像・教材を完全に退避できません。別の側を選び直してください。');
+    await guards.assertCurrent();
+    let otherCopy:SavedBackup;
+    try{
+      const otherFile=selected==='remote'?await exportFileBackup():await incomingFile();
+      const otherValidation=await validateFileBackup(otherFile);if(!otherValidation.ok||otherFile.backupManifest.completeness!=='complete')throw new Error('もう一方の完全コピーを作成できません。');
+      if(selected==='remote')verifiedLocal=otherFile;else verifiedCloud=otherFile;
+      otherCopy=await saveBackupPayload(otherFile,'before-sync');
+    }catch(error){
+      if(!mayRescue(error))throw error;
+      await guards.assertCurrent();otherCopy=await guards.archiveOriginals!(selected==='remote'?'local':'remote',selected==='remote'?localRows:incoming!);
+      try{guards.notice?.('選ばなかった側には欠けた参照や読み込めない資料があります。読み出せる原本を自動保存し、選んだ側で同期を進めます。救出原本はバックアップの詳細から書き出せます。');}catch{/* Informational only. */}
+    }
+    await guards.assertCurrent();progress(guards,'同期前のバックアップを保存中',1,2);
+    const selectedCopy=await saveBackupPayload(selectedFile,'before-sync');await guards.assertCurrent();
+    const otherRead=await getSavedBackup(otherCopy.id),selectedRead=await getSavedBackup(selectedCopy.id);
+    await guards.assertCurrent();
+    if(otherRead?.raw!==otherCopy.raw||selectedRead?.raw!==selectedCopy.raw)throw new SyncProtocolError('local_persistence_failed','同期前の原本バックアップを保存できませんでした。');
+    await assertSource();progress(guards,'同期前のバックアップを保存中',2,2);
+    if(selected==='remote')preservedOriginals={backupId:otherCopy.id,raw:otherCopy.raw,commitId:source.snapshot.state.commitId,connection};
+  }
   if(!remote.enabled){
     guards.step?.('backup');
-    verifiedCloud=await incomingFile();
-    await guards.assertCurrent();
-    try { verifiedLocal=await exportFileBackup(); }
-    catch(error){throw new SyncProtocolError('local_persistence_failed','この端末の画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));}
-    await guards.assertCurrent();
-    try {
-      const localCopy=await saveBackupPayload(verifiedLocal,'before-sync');await guards.assertCurrent();
-      const cloudCopy=await saveBackupPayload(verifiedCloud,'before-sync');await guards.assertCurrent();
-      const localRead=await getSavedBackup(localCopy.id);await guards.assertCurrent();
-      const cloudRead=await getSavedBackup(cloudCopy.id);await guards.assertCurrent();
-      if(localRead?.raw!==localCopy.raw||cloudRead?.raw!==cloudCopy.raw)throw new Error('自動バックアップの読み戻しが一致しません。');
-    }catch(error){if(error instanceof SyncInterruptedError)throw error;throw new SyncProtocolError('local_persistence_failed','同期前の自動バックアップを保存できませんでした。同期先と両方の原本を保持しています。');}
-    await withCoordinatedDataRead(['app','notes'],async()=>{
-      const current=await readAppRecordSnapshot(db);
-      if(current?.state.commitId!==source.snapshot.state.commitId || await readUserEditGeneration(db)!==source.generation)throw new SyncProtocolError('local_changed','自動バックアップ中にこの端末の内容が変わりました。最新の内容を選び直してください。');
-    },{requireCrossContext:true});
+    if(!preferSelected){
+      progress(guards,'同期前のバックアップを保存中',0,2);
+      verifiedCloud=await incomingFile();
+      await guards.assertCurrent();
+      try { verifiedLocal=await exportFileBackup(); }
+      catch(error){throw new SyncProtocolError('local_persistence_failed','この端末の画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));}
+      await guards.assertCurrent();
+      try {
+        const localCopy=await saveBackupPayload(verifiedLocal,'before-sync');await guards.assertCurrent();progress(guards,'同期前のバックアップを保存中',1,2);
+        const cloudCopy=await saveBackupPayload(verifiedCloud,'before-sync');await guards.assertCurrent();
+        const localRead=await getSavedBackup(localCopy.id);await guards.assertCurrent();
+        const cloudRead=await getSavedBackup(cloudCopy.id);await guards.assertCurrent();
+        if(localRead?.raw!==localCopy.raw||cloudRead?.raw!==cloudCopy.raw)throw new Error('自動バックアップの読み戻しが一致しません。');
+      }catch(error){if(error instanceof SyncInterruptedError)throw error;throw new SyncProtocolError('local_persistence_failed','同期前の自動バックアップを保存できませんでした。同期先と両方の原本を保持しています。');}
+      await assertSource();progress(guards,'同期前のバックアップを保存中',2,2);
+    }
     await guards.assertCurrent();
     const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision)return result('more');
     const opened=await transport.whole('open',{p_expected_revision:remote.revision});if(opened.code==='conflict')return result('more');requireOk(opened);
@@ -174,18 +228,23 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     // The existing apply guard deliberately blocks network work while its own
     // commit overlay is active. Recheck the immutable head before entering it;
     // preserve this revision as the ancestor if another device then advances it.
-    const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision)throw new SyncProtocolError('remote_changed','選択後にクラウドが変わりました。両方を保持して再確認します。');
+    const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision){if(preferSelected)return result('more');throw new SyncProtocolError('remote_changed','選択後にクラウドが変わりました。両方を保持して再確認します。');}
+    progress(guards,'選んだデータを端末に反映中');
     const applied=await guards.apply(async options=>{
       if(options?.preserveLiveData)return {applied:false as const,deferred:true as const,commitId:source.snapshot.state.commitId,pushBlocked:true};
-      const committed=await applyWholeSyncFile(file,source.generation,tx=>queueWholeReplacement(tx,incoming!,{version:1,connection,serverRevision:remote.revision,userGeneration:source.generation,digest:remoteDigest}),decision==='conflict');
-      if(!committed.ok){if(committed.committed)throw new Error(committed.error);throw new SyncProtocolError('local_persistence_failed',committed.error)}
+      const committed=await applyWholeSyncFile(file,source.generation,tx=>queueWholeReplacement(tx,incoming!,{version:1,connection,serverRevision:remote.revision,userGeneration:source.generation,digest:remoteDigest}),decision==='conflict',preservedOriginals);
+      if(!committed.ok){
+        if(committed.committed)throw new Error(committed.error);
+        if(preferSelected&&(committed.error.includes('端末の内容が変更')||committed.error.includes('現在の端末データが一致しません')))throw new SyncProtocolError('local_changed','同期中に端末の内容が変わりました。選んだ側で再試行します。');
+        throw new SyncProtocolError('local_persistence_failed',committed.error);
+      }
       const snapshot=await readAppRecordSnapshot(db);if(!snapshot)throw new Error('全体保存後の確認に失敗しました。');
       return {applied:true as const,data:JSON.parse(file.localStorage['quiz-make-app-data-v1']),cursor:remote.revision,changed:Math.max(1,incoming!.length),commitId:snapshot.state.commitId};
     });
     return result(applied?.applied?'done':'deferred',0,downloaded);
   }
   let archive:((tx:IDBTransaction)=>void)|undefined;
-  if(selected==='local'){
+  if(selected==='local'&&!preferSelected){
     if(!incoming)throw new SyncProtocolError('invalid_response','保管するクラウド原本がありません。');
     guards.step?.('backup');const cloud=verifiedCloud??await incomingFile(),local=verifiedLocal??await exportFileBackup();await guards.assertCurrent();
     archive=await prepareWholeRecovery(db,cloud,'conflict',new Blob([JSON.stringify(local)]).size);
