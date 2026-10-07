@@ -45,6 +45,8 @@ import { materialFileEntry, materialMetadataOnly } from './materialModel';
 import { createMaterialTransport, hasMaterialFiles, hasRemoteMaterialFiles, hydrateMaterialDownload, prepareMaterialUpload } from './materialCloud';
 import { NOTES_KEY, REQUEST_KEY, WEAKNESS_STORAGE_KEYS, NOTES_EVENT, parseNotes, parseExplanationRequests } from './weaknessNotes';
 import { recordSyncMetric } from './syncMetrics';
+import { createQuestionImageTransport } from './questionImageCloud';
+import { exportSnapshotQuestionImages, hasSnapshotQuestionImages, hydrateSnapshotQuestionImages, isSnapshotImageKey, prepareSnapshotQuestionImageUpload, replaceSnapshotQuestionImages, snapshotImageMetadataOnly, validateSnapshotQuestionImages, verifySnapshotQuestionImages } from './snapshotQuestionImages';
 export type SyncPayload = {
   version: 1;
   updatedAt: string;
@@ -513,12 +515,12 @@ export function exportQuizMakeData(
       ]);
       localStorageData[APP_DATA_STORAGE_KEY] = appDataRaw;
 
-      const payload: SyncPayload = {
+      const payload: SyncPayload = await exportSnapshotQuestionImages({
         version: 1,
         updatedAt,
         localStorage: localStorageData,
         indexedDbNotes,
-      };
+      });
       const result = associateLocalDataRevision(
         associateDataEpochSnapshot(payload, ['app', 'notes']),
         beforeSnapshot.value,
@@ -598,21 +600,24 @@ async function importQuizMakeDataUnlocked(
   let previousNotes: Record<string, string>;
   let previousLocalStorage: Record<string, string>;
   let previousIntegrity: DataIntegritySnapshot;
+  let previousImagePayload: SyncPayload;
   try {
+    await verifySnapshotQuestionImages(validation.value);
     [previousAppDataRaw, previousNotes] = await Promise.all([
       exportAppDataRaw({ coordinationLockHeld: true, mode: 'recovery' }),
       exportCategoryNotesRaw({ coordinationLockHeld: true, mode: 'recovery' }),
     ]);
     previousIntegrity = captureDataIntegritySnapshot();
     previousLocalStorage = collectCurrentQuizMakeLocalStorage();
-    const previousPayload: SyncPayload = {version:1, updatedAt:'', localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes};
+    const previousPayload = await exportSnapshotQuestionImages({version:1, updatedAt:new Date().toISOString(), localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes});
+    previousImagePayload = previousPayload;
     if ((expectedLocalDigest && await computePayloadDigest(previousPayload) !== expectedLocalDigest) || (canApply && !canApply())) {
       return { ok: false, code: 'local_changed', error: '端末の変更または作業開始を検出したため、自動取り込みを見送りました。' };
     }
-    if (expectedLocalHash && computePayloadHash({version:1, updatedAt:'', localStorage:{...previousLocalStorage,[APP_DATA_STORAGE_KEY]:previousAppDataRaw}, indexedDbNotes:previousNotes}) !== expectedLocalHash) {
+    if (expectedLocalHash && computePayloadHash(previousPayload) !== expectedLocalHash) {
       return { ok: false, code: 'local_changed', error: '確認中に端末データが更新されました。内容を確認し直してください。' };
     }
-    await saveBackupPayload({ version: 1, updatedAt: new Date().toISOString(), localStorage: { ...previousLocalStorage, [APP_DATA_STORAGE_KEY]: previousAppDataRaw }, indexedDbNotes: previousNotes }, expectedSyncId ? 'before-sync' : 'before-import');
+    await saveBackupPayload(previousPayload, expectedSyncId ? 'before-sync' : 'before-import');
     if (canApply && !canApply()) return { ok: false, code: 'local_changed', error: '作業が始まったため、自動取り込みを見送りました。' };
     localStorage.setItem(DATA_IMPORT_IN_PROGRESS_KEY, JSON.stringify({ version: 1, startedAt: new Date().toISOString() }));
   } catch (error) {
@@ -629,7 +634,7 @@ async function importQuizMakeDataUnlocked(
     const noteEntries: Record<string, string> = { ...(validation.value.indexedDbNotes ?? {}) };
     const nextLocalStorage: Record<string, string> = {};
     Object.entries(validation.value.localStorage).forEach(([key, value]) => {
-      if (key === APP_DATA_STORAGE_KEY) return;
+      if (key === APP_DATA_STORAGE_KEY || isSnapshotImageKey(key)) return;
       if (isCategoryNoteKey(key)) {
         noteEntries[key] = value;
         return;
@@ -656,6 +661,10 @@ async function importQuizMakeDataUnlocked(
       onlyChanged: true,
     });
     assertExpectedSyncConnection(expectedSyncId);
+    if (hasSnapshotQuestionImages(validation.value) || hasSnapshotQuestionImages(previousImagePayload)) {
+      await replaceSnapshotQuestionImages(validation.value);
+      assertExpectedSyncConnection(expectedSyncId);
+    }
     replaceQuizMakeLocalStorage(nextLocalStorage);
     assertExpectedSyncConnection(expectedSyncId);
 
@@ -666,7 +675,7 @@ async function importQuizMakeDataUnlocked(
       // Commit the common ancestor before releasing the operation/write lock.
       // A queued upload must never use the pre-import ancestor.
       const importedPayload: SyncPayload = { version: 1, updatedAt: authoritativeUpdatedAt,
-        localStorage: { ...nextLocalStorage, [APP_DATA_STORAGE_KEY]: appDataRaw }, indexedDbNotes: noteEntries };
+        localStorage: { ...nextLocalStorage, ...Object.fromEntries(Object.entries(validation.value.localStorage).filter(([key]) => isSnapshotImageKey(key))), [APP_DATA_STORAGE_KEY]: appDataRaw }, indexedDbNotes: noteEntries };
       if (!setLastSyncStateForConnection(expectedSyncId, {
         lastSyncAt: authoritativeUpdatedAt, lastRemoteUpdatedAt: authoritativeUpdatedAt,
         lastUploadHash: computePayloadHash(importedPayload), lastSyncDigest: await computePayloadDigest(importedPayload),
@@ -694,6 +703,7 @@ async function importQuizMakeDataUnlocked(
       previousLocalStorage,
       previousIntegrity,
       true,
+      hasSnapshotQuestionImages(validation.value) || hasSnapshotQuestionImages(previousImagePayload) ? previousImagePayload : undefined,
     );
     if (expectedSyncId && isCurrentSyncConnection(expectedSyncId)) {
       setLastSyncStateForConnection(expectedSyncId, { ...previousSyncState, lastSyncDigest: previousSyncState.lastSyncDigest });
@@ -767,6 +777,11 @@ export async function uploadSyncData(
         const access = await syncAccessTokenProvider();
         if (!access.ok) return { ok: false, error: access.message };
         wirePayload = await prepareMaterialUpload(wirePayload, createMaterialTransport(config, access));
+      }
+      if (hasSnapshotQuestionImages(wirePayload)) {
+        const access = await syncAccessTokenProvider();
+        if (!access.ok) return { ok: false, error: access.message };
+        wirePayload = await prepareSnapshotQuestionImageUpload(wirePayload, createQuestionImageTransport(config, access));
       }
       const wireValidation = validateSyncPayload(wirePayload, { wire: true });
       if (!wireValidation.ok) return wireValidation;
@@ -931,6 +946,13 @@ export async function downloadSyncData(syncId: string, options: { materialFiles?
       if (!access.ok) return { ok: false, error: access.message };
       const localPayload = options.localPayload ?? await exportQuizMakeData().catch(() => undefined);
       record.value.payload = await hydrateMaterialDownload(record.value.payload, createMaterialTransport(config, access), localPayload);
+    }
+    if (options.materialFiles !== 'references' && hasSnapshotQuestionImages(record.value.payload)) {
+      const access = await syncAccessTokenProvider();
+      if (!access.ok) return { ok: false, error: access.message };
+      record.value.payload = await hydrateSnapshotQuestionImages(record.value.payload, createQuestionImageTransport(config, access));
+    }
+    if (options.materialFiles !== 'references') {
       const hydrated = validateSyncPayload(record.value.payload);
       if (!hydrated.ok) return hydrated;
     }
@@ -1093,6 +1115,7 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
 }
 
 function canonicalPayloadText(payload: SyncPayload): string {
+  payload = snapshotImageMetadataOnly(payload, true);
   const stableEntries = (entries: Record<string, string>) => sortRecord(Object.fromEntries(Object.entries(entries).map(([key, raw]) => {
     const file = materialFileEntry(key, raw);
     return [key, file ? JSON.stringify(Object.fromEntries(Object.entries(file).sort(([a], [b]) => a.localeCompare(b)))) : raw];
@@ -1182,7 +1205,9 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
   if (!isRecord(value)) return { ok: false, error: '同期データの形式が正しくありません。' };
   const canSeparatePdfs = !options.wire && isStringRecord(value.localStorage)
     && (value.indexedDbNotes === undefined || isStringRecord(value.indexedDbNotes));
-  const byteSize = measureJsonBytes(canSeparatePdfs ? materialMetadataOnly(value as SyncPayload) : value);
+  let byteSize: number | null;
+  try { byteSize = measureJsonBytes(canSeparatePdfs ? snapshotImageMetadataOnly(materialMetadataOnly(value as SyncPayload)) : value); }
+  catch { return { ok: false, code: 'invalid', error: '問題画像の保存情報が不正です。現在のデータは変更していません。' }; }
   if (byteSize === null) return { ok: false, code: 'invalid', error: '同期データをJSONとして読み込めません。' };
   if (byteSize > MAX_SYNC_PAYLOAD_BYTES) {
     return {
@@ -1245,6 +1270,8 @@ export function validateSyncPayload(value: unknown, options: { wire?: boolean } 
   } catch {
     return { ok: false, error: '同期データの問題データJSONを読み込めません。既存データは変更していません。' };
   }
+  try { validateSnapshotQuestionImages(value as SyncPayload, Boolean(options.wire)); }
+  catch (error) { return { ok: false, code: 'invalid', error: error instanceof Error ? error.message : '問題画像を検証できません。' }; }
 
   return {
     ok: true,
@@ -1896,7 +1923,7 @@ function collectCurrentQuizMakeLocalStorage(): Record<string, string> {
   try {
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
-      if (!key || !isQuizMakeStorageKey(key) || key === APP_DATA_STORAGE_KEY || isCategoryNoteKey(key)) continue;
+      if (!key || !isQuizMakeStorageKey(key) || key === APP_DATA_STORAGE_KEY || isCategoryNoteKey(key) || isSnapshotImageKey(key)) continue;
       const value = localStorage.getItem(key);
       if (value !== null) result[key] = value;
     }
@@ -1911,6 +1938,7 @@ async function restoreImportedData(
   localStorageSnapshot: Record<string, string>,
   integritySnapshot: DataIntegritySnapshot,
   coordinationLockHeld = false,
+  imagePayload?: SyncPayload,
 ): Promise<SyncResult<true>> {
   const failures: string[] = [];
   try {
@@ -1922,6 +1950,10 @@ async function restoreImportedData(
     await replaceCategoryNotesRaw(notes, { coordinationLockHeld });
   } catch {
     failures.push('ノート');
+  }
+  if (imagePayload) {
+    try { await replaceSnapshotQuestionImages(imagePayload); }
+    catch { failures.push('問題画像'); }
   }
   try {
     replaceQuizMakeLocalStorage(localStorageSnapshot);

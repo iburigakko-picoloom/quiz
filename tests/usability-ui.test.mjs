@@ -9,7 +9,7 @@ test('manual sync preserves backups and checks the remote revision before replac
   const comparisonSource = readSource('../src/components/SyncComparison.tsx');
   assert.match(syncSource, /<SyncComparison/);
   assert.match(comparisonSource, /saveBackupPayload\(local,'before-sync'\)/);
-  assert.match(comparisonSource, /saveBackupPayload\(remote.value.payload,'before-sync'\)/);
+  assert.match(comparisonSource, /saveBackupPayload\(remote.value.payload,'before-sync', 'クラウド'\)/);
   assert.match(comparisonSource, /remote.value\?\.updatedAt !== pending.remote\?\.updatedAt/);
   assert.match(syncSource, /setStoredSyncId\(''\)/);
   assert.match(syncSource, /getPendingLegacySyncUpgrade\(\)/);
@@ -23,7 +23,7 @@ test('sync id edits stay as a draft until the user explicitly connects', () => {
   assert.doesNotMatch(draftHandler[1], /setStoredSyncId/);
   assert.match(syncSource, /const applyConnectedSyncId[\s\S]*?setStoredSyncId\(normalizedNextId\)/);
   assert.match(syncSource, /if \(!autoEnabled && \(!configured \|\| !syncIdConnected\)\)/);
-  assert.match(syncSource, /disabled=\{!autoEnabled && \(!configured \|\| !authenticated \|\| !syncIdConnected\)\}/);
+  assert.match(syncSource, /disabled=\{!autoEnabled && \(!configured \|\| !authenticated \|\| !syncIdConnected \|\| wholeSyncMigrationNeeded\)\}/);
   assert.match(syncSource, /sendMagicLink\(normalizedEmail, \{ name: 'sync' \}\)/);
 });
 

@@ -20,10 +20,8 @@ import { CLOUD_UPDATE_EVENT, isCloudUpdateDismissed } from '../utils/cloudUpdate
 import { createAutoSyncScheduler, isAutoUploadBlocked, type AutoSyncOutcome } from '../utils/autoSyncScheduler';
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { onCloudAuthStateChange } from '../utils/cloudService';
-import { runAppRecordSync } from '../utils/recordSyncCoordinator';
-import { RecordSyncRpcError } from '../utils/recordSyncNetwork';
 import type { RecordSyncGuards } from '../utils/recordSyncEngine';
-import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
+import { needsWholeSyncMigration } from '../utils/wholeSyncMigration';
 
 const AUTO_SYNC_INTERVAL_MS = 60000;
 const REMOTE_CHECK_COOLDOWN_MS = 5000;
@@ -51,37 +49,20 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     cleanupLegacySyncBackups();
     let disposed = false;
     let lastConflictKey = '';
-    let v2Unavailable = false;
-
-    const tryRecordSync = async (syncId: string): Promise<AutoSyncOutcome | null> => {
-      const state = getLastSyncState();
-      if (!isRecordSyncOptedIn(syncId) || v2Unavailable || !state.lastSyncAt || !state.lastSyncDigest) return null;
-      try {
-        const result = await runAppRecordSync(syncId, operation => importHandlersRef.current.onRecordApply(operation));
-        if (result.status === 'more') return 'changed';
-        if (result.status === 'deferred') return 'paused';
-        if (result.status === 'conflict') {
-          setLastSyncState({ status: 'クラウドと端末の編集が競合しています', error: '両方の内容を保存しています。同期画面で確認してください。' });
-          window.dispatchEvent(new CustomEvent(CLOUD_UPDATE_EVENT, { detail: { syncId, updatedAt: getLastSyncState().lastRemoteUpdatedAt } }));
-          return 'paused';
-        }
-        setLastSyncState({ status: '同期済み', error: '' });
-        return 'done';
-      } catch (error) {
-        if (error instanceof RecordSyncRpcError && ['unavailable', 'media_unsupported', 'legacy_snapshot'].includes(error.code)) {
-          v2Unavailable = true;
-          setRecordSyncOptIn(syncId, false);
-          return null;
-        }
-        if (disposed || getAutoSyncSettings().syncId !== syncId) return 'paused';
-        setLastSyncState({ status: '端末のデータを保持して再試行します', error: error instanceof Error ? error.message : '差分同期に失敗しました。' });
-        return error instanceof RecordSyncRpcError && error.code === 'rate_limited' ? 'rate_limited' : 'retry';
+    const pauseForMigration = (syncId: string) => {
+      setLastSyncState({ status: '旧同期データの移行待ち', error: '同期画面で画像を含むバックアップを保存して移行してください。' });
+      const updatedAt = getLastSyncState().lastRemoteUpdatedAt || getLastSyncState().lastSyncAt;
+      const key = `${syncId}:migration`;
+      if (updatedAt && promptedRemoteUpdatedAtRef.current !== key) {
+        promptedRemoteUpdatedAtRef.current = key;
+        window.dispatchEvent(new CustomEvent(CLOUD_UPDATE_EVENT, { detail: { syncId, updatedAt } }));
       }
     };
 
     const uploadIfChanged = async (): Promise<AutoSyncOutcome> => {
       const settings = getAutoSyncSettings();
       if (disposed || !settings.enabled || !settings.syncId || !settings.configured) return 'paused';
+      if (needsWholeSyncMigration(settings.syncId)) { pauseForMigration(settings.syncId); return 'paused'; }
       if (navigator.onLine === false) {
         setLastSyncState({ status: '端末に保存済み・接続後に自動保存します', error: '' });
         return 'paused';
@@ -95,8 +76,6 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       uploadRunningRef.current = true;
       let shouldCheckRemoteAfterUpload = false;
       try {
-        const recordResult = await tryRecordSync(settings.syncId);
-        if (recordResult) return recordResult;
         if (await isLocalSyncUnchanged(getLastSyncState().lastSyncDigest)) {
           setLastSyncState({ status: '自動同期: 待機中', error: '' });
           return 'done';
@@ -174,6 +153,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     const checkRemote = async (force = false) => {
       const settings = getAutoSyncSettings();
       if (disposed || navigator.onLine === false || !settings.syncId || !settings.configured) return;
+      if (needsWholeSyncMigration(settings.syncId)) { pauseForMigration(settings.syncId); return; }
       if (remoteCheckRunningRef.current || uploadRunningRef.current) return;
 
       const now = Date.now();
@@ -201,10 +181,6 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         const lastState = getLastSyncState();
         setLastSyncState({ lastRemoteUpdatedAt: meta.value.updatedAt });
         const remoteHasChanged = meta.value.updatedAt !== lastState.lastSyncAt;
-        if (isRecordSyncOptedIn(settings.syncId) && !v2Unavailable && lastState.lastSyncAt && lastState.lastSyncDigest && remoteHasChanged) {
-          uploadQueue.request(true);
-          return;
-        }
         const canReconcile = () => !disposed && getAutoSyncSettings().enabled
           && getAutoSyncSettings().syncId === settings.syncId
           && document.visibilityState === 'visible' && protectedWorkReasonRef.current === null

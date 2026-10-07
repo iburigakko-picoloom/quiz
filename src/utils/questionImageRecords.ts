@@ -3,6 +3,7 @@ import { saveAppRecords } from './appRecordStorage';
 import { queueAuxiliaryRecordWrite } from './auxiliaryRecordStorage';
 import { MAX_LOCAL_QUESTION_IMAGE_BYTES } from './imageLimits';
 import type { AppData } from '../types';
+import { advanceLocalDataRevision } from './localDataRevision';
 
 export const IMAGE_BLOB_STORE='questionImageBlobs';
 export const IMAGE_SYNC_STORES=[IMAGE_BLOB_STORE,'appRecordMeta','appRecords','appRecordBackups','appOutbox'];
@@ -82,6 +83,7 @@ export async function saveQuestionImage(image:StoredQuestionImage):Promise<void>
   tx.objectStore(IMAGE_BLOB_STORE).put(image,image.id);
   queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor));
   await completed;
+  advanceLocalDataRevision();
 }
 export async function readQuestionImages(questionId:string,imageIds:readonly string[]):Promise<StoredQuestionImage[]>{
   if(!imageIds.length)return [];
@@ -92,11 +94,13 @@ export async function readQuestionImages(questionId:string,imageIds:readonly str
 }
 export async function removeQuestionImages(predicate:(image:StoredQuestionImage)=>boolean):Promise<void>{
   const db=await openQuestionImageRecordDb();const tx=db.transaction(IMAGE_SYNC_STORES,'readwrite');const completed=done(tx);
+  let changed=false;
   const cursor=tx.objectStore(IMAGE_BLOB_STORE).openCursor();
   cursor.onsuccess=()=>{const current=cursor.result;if(!current)return;
     const image=current.value as StoredQuestionImage;
-    if(predicate(image)){current.delete();queueAuxiliaryRecordWrite(tx,'questionImages',image.id,null);}
+    if(predicate(image)){changed=true;current.delete();queueAuxiliaryRecordWrite(tx,'questionImages',image.id,null);}
     current.continue();
   };
   await completed;
+  if(changed)advanceLocalDataRevision();
 }

@@ -56,6 +56,7 @@ const notes = await import('../src/utils/noteStorage.ts');
 const syncState = await import('../src/utils/syncState.ts');
 const coordination = await import('../src/utils/dataCoordination.ts');
 const backups = await import('../src/utils/backupRepository.ts');
+const syncPresentation = await import('../src/utils/syncPresentation.ts');
 
 test('backup listing contains only summaries; legacy and current backups remain restorable', async () => {
   delete globalThis.indexedDB;
@@ -107,6 +108,39 @@ test('IndexedDB backup listing reads one record at a time and closes its read-on
     assert.deepEqual(summaries.map(row => row.id), ['2','1','0']);
     assert.ok(summaries.every(row => !('raw' in row) && row.byteSize === 1000));
   } finally { if (previous === undefined) delete globalThis.indexedDB; else globalThis.indexedDB = previous; }
+});
+
+test('backup choices distinguish local and cloud snapshots without exposing their bodies', async () => {
+  delete globalThis.indexedDB;
+  localStorage.clear();
+  const payload = { version: 1, updatedAt: '2026-10-07T01:35:00.000Z', localStorage: {
+    [storage.APP_DATA_STORAGE_KEY]: JSON.stringify({ questions: [{ id: 'one' }, { id: 'two' }] }),
+  }, indexedDbNotes: {} };
+  const local = await backups.saveBackupPayload(payload, 'before-sync', 'このスマホ');
+  const cloud = await backups.saveBackupPayload(payload, 'before-sync', 'クラウド');
+  const legacy = { id: 'legacy-choice', createdAt: '2020-01-01', kind: 'before-import', raw: JSON.stringify(payload) };
+  localStorage.setItem('quizMake:sync:saved-backup:legacy-choice', JSON.stringify(legacy));
+  const summaries = await backups.listSavedBackups();
+  assert.equal(summaries.find(row => row.id === local.id).sourceLabel, 'このスマホ');
+  assert.equal(summaries.find(row => row.id === cloud.id).sourceLabel, 'クラウド');
+  assert.ok(summaries.every(row => row.questionCount === 2 && !('raw' in row)));
+  assert.equal(summaries.find(row => row.id === legacy.id).sourceLabel, undefined, 'older snapshots must not be assigned a fabricated device');
+  assert.equal(localStorage.getItem('quizMake:sync:saved-backup:legacy-choice'), JSON.stringify(legacy));
+  assert.deepEqual(JSON.parse((await backups.getSavedBackup(cloud.id)).raw), payload);
+  assert.equal(backups.summarizeSavedBackup({ ...legacy, raw: 'unreadable' }).questionCount, undefined);
+});
+
+test('local sync cards use the saved data timestamp and leave missing dates unknown', () => {
+  localStorage.clear();
+  assert.equal(syncPresentation.getSyncLocalSavedAt(), '');
+  localStorage.setItem(storage.APP_DATA_EXPECTED_KEY, '2026-10-07T01:35:00.000Z');
+  assert.equal(syncPresentation.getSyncLocalSavedAt(), '2026-10-07T01:35:00.000Z');
+  localStorage.setItem(storage.APP_DATA_EXPECTED_KEY, 'invalid');
+  localStorage.setItem(storage.APP_DATA_FALLBACK_META_KEY, '2026-10-07T01:30:00.000Z');
+  assert.equal(syncPresentation.getSyncLocalSavedAt(), '2026-10-07T01:30:00.000Z');
+  localStorage.removeItem(storage.APP_DATA_FALLBACK_META_KEY);
+  assert.equal(syncPresentation.getSyncLocalSavedAt(), '');
+  assert.equal(syncPresentation.formatSyncTime('invalid'), '日時不明');
 });
 
 function resetStorage() {

@@ -1441,9 +1441,20 @@ export default function App() {
   if (storageLoadError) {
     if (storageRecoverySyncOpen) {
       return (
-        <Suspense fallback={<div className="quiz-app-loading">同期設定を読み込み中...</div>}>
-          <SyncScreen onBack={() => setStorageRecoverySyncOpen(false)} />
-        </Suspense>
+        <>
+          <Suspense fallback={<div className="quiz-app-loading">同期設定を読み込み中...</div>}>
+            <SyncScreen onBack={() => setStorageRecoverySyncOpen(false)} onRestoreBackup={handleImportBackup} />
+          </Suspense>
+          <ConfirmDialog
+            open={pendingBackupImport !== null}
+            title="バックアップを読み込みますか？"
+            message={pendingBackupImport ? `${getBackupImportMessage(pendingBackupImport)}${backupImportError ? `\n\n${backupImportError}` : ''}` : ''}
+            confirmLabel={backupImportBusy ? '読み込み中…' : 'バックアップして読み込む'}
+            busy={backupImportBusy}
+            onCancel={cancelImportBackup}
+            onConfirm={() => void confirmImportBackup()}
+          />
+        </>
       );
     }
     return (
@@ -1749,7 +1760,7 @@ export default function App() {
       />
     );
   } else if (screen.name === 'sync') {
-    content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} onImported={refreshImportedData} />;
+    content = <SyncScreen onBack={() => goBackTo({ name: 'settings' })} onImported={refreshImportedData} onRestoreBackup={handleImportBackup} />;
   } else if (screen.name === 'privacy') {
     content = <PrivacyScreen onBack={() => goBackTo({ name: 'settings' })} />;
   } else if (screen.name === 'studyRecord') {

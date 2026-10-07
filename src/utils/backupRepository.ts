@@ -1,9 +1,21 @@
 import type { SyncPayload } from './syncService';
+import { APP_DATA_STORAGE_KEY } from '../storage';
+import { getSyncDeviceName } from './syncPresentation';
+import { verifySnapshotQuestionImages } from './snapshotQuestionImages';
 
-export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; }
+export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; sourceLabel?: string; questionCount?: number; }
 export type SavedBackupSummary = Omit<SavedBackup, 'raw' | 'byteSize'> & { byteSize: number };
 export function summarizeSavedBackup(record: SavedBackup): SavedBackupSummary {
+  let questionCount = record.questionCount;
+  if (typeof questionCount !== 'number' || !Number.isSafeInteger(questionCount) || questionCount < 0) {
+    try {
+      const payload = JSON.parse(record.raw) as SyncPayload;
+      const appData = JSON.parse(payload.localStorage[APP_DATA_STORAGE_KEY]);
+      questionCount = Array.isArray(appData.questions) ? appData.questions.length : undefined;
+    } catch { questionCount = undefined; }
+  }
   return { id: record.id, createdAt: record.createdAt, kind: record.kind,
+    sourceLabel: typeof record.sourceLabel === 'string' ? record.sourceLabel : undefined, questionCount,
     byteSize: typeof record.byteSize === 'number' && Number.isFinite(record.byteSize) && record.byteSize >= 0 ? record.byteSize : new Blob([record.raw]).size };
 }
 const DB = 'quiz-make-backups';
@@ -27,8 +39,10 @@ async function operation<T>(mode: IDBTransactionMode, execute: (store: IDBObject
     transaction.onerror = transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('バックアップを保存できませんでした。')); };
   });
 }
-export async function saveBackupPayload(payload: SyncPayload, kind: SavedBackup['kind']): Promise<SavedBackup> {
-  const record: SavedBackup = { id: `backup-${crypto.randomUUID()}`, createdAt: new Date().toISOString(), kind, raw: JSON.stringify(payload) };
+export async function saveBackupPayload(payload: SyncPayload, kind: SavedBackup['kind'], sourceLabel = getSyncDeviceName()): Promise<SavedBackup> {
+  if (payload.localStorage[APP_DATA_STORAGE_KEY]) await verifySnapshotQuestionImages(payload);
+  const record: SavedBackup = { id: `backup-${crypto.randomUUID()}`, createdAt: new Date().toISOString(), kind, raw: JSON.stringify(payload), sourceLabel };
+  record.questionCount = summarizeSavedBackup(record).questionCount;
   record.byteSize = new Blob([record.raw]).size;
   if (typeof indexedDB === 'undefined') localStorage.setItem(PREFIX + record.id, JSON.stringify(record));
   else await operation('readwrite', (store) => store.add(record));

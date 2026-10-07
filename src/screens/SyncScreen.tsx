@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { SyncComparison } from '../components/SyncComparison';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { SyncComparison, type SyncViewState } from '../components/SyncComparison';
+import { SyncBackupPanel } from '../components/SyncBackupPanel';
 import { saveBackupPayload } from '../utils/backupRepository';
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { ChevronDownIcon, CopyIcon, DownloadIcon, SyncIcon, UploadIcon } from '../components/UiIcons';
+import { ChevronDownIcon, ChevronRightIcon, CopyIcon, DownloadIcon, SyncIcon } from '../components/UiIcons';
 import {
   clearSyncLocalBackups,
   computePayloadHash,
@@ -46,22 +47,32 @@ import { isStrongSyncId } from '../utils/syncState';
 import { saveJsonBackup, writeClipboardText } from '../utils/nativePlatform';
 import { getCloudSession, onCloudAuthStateChange, sendMagicLink } from '../utils/cloudService';
 import { LineLoginButton } from '../components/LineLoginButton';
-import { RecordConflictPanel } from '../components/RecordConflictPanel';
-import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
+import { migrateToWholeSync, needsWholeSyncMigration } from '../utils/wholeSyncMigration';
+import { formatSyncTime, getSyncDeviceName } from '../utils/syncPresentation';
 import './SyncScreen.css';
 
 interface SyncScreenProps {
   onBack: () => void;
   onImported?: () => Promise<void>;
+  onRestoreBackup?: (file: File) => Promise<string | null>;
 }
 
-export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
+type SyncPage = 'overview' | 'details' | 'backups' | 'info';
+const pageTitles: Record<SyncPage, string> = { overview: '同期', details: '詳細設定', backups: 'バックアップ・復旧', info: '同期情報' };
+
+export function SyncScreen({ onBack, onImported, onRestoreBackup }: SyncScreenProps) {
+  const [page, setPage] = useState<SyncPage>('overview');
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [comparisonState, setComparisonState] = useState<SyncViewState | null>(null);
+  const bodyRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const previousPage = useRef(page);
   const configured = useMemo(() => isSyncConfigured(), []);
   const environmentStatus = useMemo(() => getSyncEnvironmentStatus(), []);
   const [syncId, setSyncId] = useState(() => getStoredSyncId());
   const [activeSyncId, setActiveSyncId] = useState(() => getStoredSyncId().trim());
   const [autoEnabled, setAutoEnabledState] = useState(() => getAutoSyncSettings().enabled);
-  const [recordSyncOptedIn, setRecordSyncOptedInState] = useState(() => isRecordSyncOptedIn(getStoredSyncId().trim()));
+  const [wholeSyncMigrationNeeded, setWholeSyncMigrationNeeded] = useState(() => needsWholeSyncMigration(getStoredSyncId().trim()));
   const [lastState, setLastState] = useState<LastSyncState>(() => getLastSyncState());
   const [busy, setBusy] = useState(false);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
@@ -104,8 +115,22 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   const hasLegacyConnection = Boolean(activeSyncId) && !hasStrongConnection;
   const pairingCodeValid = isValidPairingCode(pairingCodeInput);
   const authenticated = cloudAccount !== null;
-  const canRun = configured && authenticated && syncIdConnected && !busy;
-  const autoCanRun = autoEnabled && configured && authenticated && syncIdConnected;
+  const canRun = configured && authenticated && syncIdConnected && !busy && !wholeSyncMigrationNeeded;
+  const autoCanRun = autoEnabled && configured && authenticated && syncIdConnected && !wholeSyncMigrationNeeded;
+
+  useEffect(() => { setComparisonState(null); }, [activeSyncId, authenticated, syncIdConnected]);
+
+  useEffect(() => {
+    if (previousPage.current === page) return;
+    previousPage.current = page;
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+    titleRef.current?.focus();
+  }, [page]);
+
+  const handleBack = () => {
+    if (page === 'overview') onBack();
+    else setPage(page === 'details' ? 'overview' : 'details');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -138,7 +163,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
     const refreshSyncState = () => {
       setLastState(getLastSyncState());
       setAutoEnabledState(getAutoSyncSettings().enabled);
-      setRecordSyncOptedInState(isRecordSyncOptedIn(getStoredSyncId().trim()));
+      setWholeSyncMigrationNeeded(needsWholeSyncMigration(getStoredSyncId().trim()));
     };
     const refreshExternalSyncState = (event: StorageEvent) => {
       if (event.storageArea && event.storageArea !== localStorage) return;
@@ -466,6 +491,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
     setMessage('旧同期IDを安全な接続へ移行しています...');
     setError('');
     try {
+      await saveBackupPayload(await exportQuizMakeRecoveryData(), 'before-sync');
       const result = await upgradeLegacySyncId(activeSyncId, expectedUpdatedAt);
       if (!result.ok) {
         setMessage('');
@@ -510,6 +536,9 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
       if (!autoDisableResult.ok) {
         setError(`旧IDの移行は完了しましたが、自動同期設定を端末へ保存できませんでした: ${autoDisableResult.error}`);
       }
+    } catch (caughtError) {
+      setMessage('');
+      setError(caughtError instanceof Error ? caughtError.message : '旧データをバックアップできないため、移行を中止しました。');
     } finally {
       setBusy(false);
     }
@@ -518,6 +547,11 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   const handleToggleAutoSync = () => {
     setMessage('');
     setError('');
+
+    if (!autoEnabled && wholeSyncMigrationNeeded) {
+      setError('先に旧同期データのバックアップと移行を完了してください。');
+      return;
+    }
 
     if (!autoEnabled && (!configured || !syncIdConnected)) {
       setError('自動同期をONにする前に、同期IDを入力して「このIDに接続」を押してください。');
@@ -535,35 +569,22 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
     setMessage(result.value ? '自動同期をONにしました。' : '自動同期をOFFにしました。');
   };
 
-  const handleToggleRecordSync = async () => {
+  const handleMigrateWholeSync = async () => {
     setMessage('');
     setError('');
-    if (recordSyncOptedIn) {
-      const result = setRecordSyncOptIn(activeSyncId, false);
-      if (!result.ok) { setError(result.error); return; }
-      setRecordSyncOptedInState(false);
-      setMessage('高速同期をOFFにしました。従来の同期へ戻ります。');
-      return;
-    }
-    if (!autoCanRun || busy) {
-      setError('高速同期を始めるには、ログインと同期接続を確認し、自動同期をONにしてください。');
-      return;
-    }
+    if (!wholeSyncMigrationNeeded || !cloudAccount || busy) return;
     setBusy(true);
+    setMessage('端末とクラウドのバックアップ・画像を確認しています…');
     try {
-      const payload = await exportQuizMakeRecoveryData();
-      await saveJsonBackup(`quiz-make-backup-${formatBackupFileDate(new Date())}.json`, JSON.stringify(payload, null, 2));
-      const current = getAutoSyncSettings();
-      const session = await getCloudSession();
-      if (!current.enabled || current.syncId.trim() !== activeSyncId || session?.user.id !== cloudAccount?.id) {
-        throw new Error('バックアップ作成中に同期接続が変わりました。');
-      }
-      const result = setRecordSyncOptIn(activeSyncId, true);
-      if (!result.ok) throw new Error(result.error);
-      setRecordSyncOptedInState(true);
-      setMessage('JSONバックアップを作成し、この端末で高速同期をONにしました。');
+      await migrateToWholeSync(activeSyncId, cloudAccount.id);
+      setWholeSyncMigrationNeeded(false);
+      setAutoEnabledState(false);
+      setLastState(getLastSyncState());
+      setPage('overview');
+      setMessage('画像を含む復旧用バックアップを保存しました。使うデータを全体から選んで同期してください。自動同期は確認後にONにできます。');
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : '高速同期をONにできませんでした。');
+      setMessage('');
+      setError(caughtError instanceof Error ? caughtError.message : '旧同期データを移行できませんでした。');
     } finally {
       setBusy(false);
     }
@@ -804,7 +825,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
         throw new Error('確認中に内容が更新されました。同期状態を確認し直してください。');
       }
       await saveBackupPayload(latestLocal, 'before-sync');
-      await saveBackupPayload(latestRemote.value.payload, 'before-sync');
+      await saveBackupPayload(latestRemote.value.payload, 'before-sync', 'クラウド');
       await uploadAndVerify(
         target.syncId,
         target.payload,
@@ -989,24 +1010,24 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
   return (
     <div className="sync-screen sync-screen--simple">
       <header className="sync-screen__header">
-        <BackButton onClick={onBack} label="戻る" className="sync-screen__back" disabled={busy || diagnosticBusy} />
+        <BackButton onClick={handleBack} label={page === 'overview' ? '戻る' : page === 'details' ? '同期に戻る' : '詳細設定に戻る'} className="sync-screen__back" disabled={busy || diagnosticBusy || backupBusy} />
         <div className="sync-screen__header-text">
-          <h1>同期</h1>
+          <h1 ref={titleRef} tabIndex={-1}>{pageTitles[page]}</h1>
         </div>
       </header>
 
-      <main className={`sync-screen__body${hasStrongConnection && syncIdConnected ? '' : ' sync-screen__body--single'}`}>
-        {!configured ? (
+      <main ref={bodyRef} className={`sync-screen__body sync-screen__body--${page}`}>
+        {page === 'overview' && !configured ? (
           <div className="sync-alert sync-alert--warning">
-            現在、クラウド同期は利用できません。端末のデータはそのまま使えます。下の「詳細・復旧」からバックアップを保存できます。
+            現在、クラウド同期は利用できません。端末のデータはそのまま使えます。「詳細設定」の「バックアップ・復旧」からバックアップを保存できます。
           </div>
         ) : null}
 
-        {configured && !authReady ? (
+        {page === 'overview' && configured && !authReady ? (
           <div className="sync-alert sync-alert--message" role="status">ログイン状態を確認しています…</div>
         ) : null}
 
-        {configured && authReady && !authenticated ? (
+        {page === 'overview' && configured && authReady && !authenticated ? (
           <section className="sync-auth-gate" aria-labelledby="sync-auth-title">
             <div>
               <h2 id="sync-auth-title">同期にはログインが必要です</h2>
@@ -1031,25 +1052,48 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
           </section>
         ) : null}
 
-        {configured && authenticated ? (
-          <div className="sync-account-line" role="status">
-            <span>ログイン中</span>
-            <strong>{cloudAccount.label}</strong>
-          </div>
-        ) : null}
+        {(page === 'overview' && comparisonState !== 'conflict') || page === 'details' ? <div className="sync-account-line">
+          <span className="sync-account-avatar" aria-hidden="true"><svg viewBox="0 0 40 40" fill="currentColor"><circle cx="20" cy="13" r="6" /><path d="M8 33v-3a12 9 0 0 1 24 0v3Z" /></svg></span>
+          <div><strong>アカウント</strong><span>{cloudAccount?.label || (authReady ? 'ログインしていません' : '確認中…')}</span></div>
+        </div> : null}
 
         {message ? <div className="sync-alert sync-alert--message" role="status" aria-live="polite">{message}</div> : null}
         {error ? <div className="sync-alert sync-alert--error" role="alert">{error}</div> : null}
 
-        {configured && authenticated && hasStrongConnection && syncIdConnected ? (
-          <section className="sync-card sync-card--transfer">
-            <RecordConflictPanel syncId={normalizedSyncId} accountId={cloudAccount.id} onImported={onImported} />
-            <SyncComparison syncId={normalizedSyncId} disabled={!canRun} onUpload={handleUpload} onDownload={handleDownload} />
+        {wholeSyncMigrationNeeded && (page === 'overview' || page === 'info') ? <section className="sync-legacy">
+          <h2>旧同期データの移行</h2>
+          <p>画像を含む端末とクラウドのバックアップを保存・確認してから、全体を選ぶ同期へ移行します。</p>
+          <button type="button" className="sync-button sync-button--primary" disabled={busy || !configured || !authenticated} onClick={() => void handleMigrateWholeSync()}>{busy ? 'バックアップを確認中…' : 'バックアップして移行する'}</button>
+        </section> : null}
 
+        {page === 'overview' && configured && authenticated && hasStrongConnection && syncIdConnected && !wholeSyncMigrationNeeded ? (
+          <section className="sync-card sync-card--transfer">
+            <SyncComparison syncId={normalizedSyncId} disabled={!canRun} autoEnabled={autoEnabled} onStateChange={setComparisonState} onUpload={handleUpload} onDownload={handleDownload} />
+
+          </section>
+        ) : null}
+
+        {page === 'overview' && comparisonState !== 'conflict' ? <div className="sync-settings-list">
+          <div className="sync-settings-row"><strong>最終同期</strong><span>{formatSyncTime(lastState.lastSyncAt)}</span></div>
+          <button type="button" className="sync-settings-row" onClick={() => setPage('details')} disabled={busy || diagnosticBusy}><strong>詳細設定</strong><ChevronRightIcon size={21} /></button>
+        </div> : null}
+
+        {page === 'details' ? <>
+          <div className="sync-settings-list">
+            <div className="sync-settings-row"><strong>端末名</strong><span>{getSyncDeviceName()}</span></div>
+            <div className="sync-settings-row"><strong>最終同期</strong><span>{formatSyncTime(lastState.lastSyncAt)}</span></div>
+          </div>
+          <div className="sync-settings-list sync-settings-list--navigation">
+            <button type="button" className="sync-settings-row" onClick={() => setPage('backups')} disabled={busy}><strong>バックアップ・復旧</strong><ChevronRightIcon size={21} /></button>
+            <button type="button" className="sync-settings-row" onClick={() => setPage('info')} disabled={busy}><strong>同期情報</strong><ChevronRightIcon size={21} /></button>
+          </div>
+
+          <section className="sync-preferences" aria-label="同期の設定">
             <div className="sync-auto-row">
               <div>
                 <strong>自動同期</strong>
                 <small>端末の変更を保存し、ホームでクラウドの更新を取り込みます。両方に変更があるときだけ確認します。</small>
+                {wholeSyncMigrationNeeded ? <small>同期画面で旧データを移行するまで、自動同期は停止しています。</small> : null}
                 {autoEnabled && !autoCanRun ? <small>接続設定を確認してください</small> : null}
               </div>
               <button
@@ -1059,38 +1103,18 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
                 role="switch"
                 aria-label="自動同期"
                 aria-checked={autoEnabled}
-                disabled={!autoEnabled && (!configured || !authenticated || !syncIdConnected)}
+                disabled={!autoEnabled && (!configured || !authenticated || !syncIdConnected || wholeSyncMigrationNeeded)}
               >
                 {autoEnabled ? 'ON' : 'OFF'}
               </button>
             </div>
 
-            <div className="sync-auto-row">
-              <div>
-                <strong>高速同期（試験運用）</strong>
-                <small>変更した問題・回答だけを送受信します。ONにする前に、この端末のJSONバックアップを保存します。</small>
-                {!autoEnabled ? <small>自動同期をONにすると選べます。</small> : null}
-              </div>
-              <button
-                type="button"
-                className={`sync-toggle__button${recordSyncOptedIn ? ' sync-toggle__button--active' : ''}`}
-                onClick={() => void handleToggleRecordSync()}
-                role="switch"
-                aria-label="高速同期"
-                aria-checked={recordSyncOptedIn}
-                disabled={!recordSyncOptedIn && (busy || !autoCanRun)}
-              >
-                {recordSyncOptedIn ? 'ON' : 'OFF'}
-              </button>
-            </div>
-
-            <div className="sync-last-state" aria-label="現在の同期状態">
-              <span>最終同期 {formatDateTime(lastState.lastSyncAt) || '未実行'}</span>
-            </div>
           </section>
-        ) : null}
+        </> : null}
 
-        {configured && authenticated ? <details className="sync-advanced sync-connections" open={hasStrongConnection ? undefined : true}>
+        {page === 'backups' ? <SyncBackupPanel onRestore={onRestoreBackup} onBusyChange={setBackupBusy} /> : null}
+
+        {configured && authenticated && (page === 'details' || (page === 'overview' && (!hasStrongConnection || !syncIdConnected))) ? <details className="sync-advanced sync-connections" open={hasStrongConnection ? undefined : true}>
           <summary><strong>{hasStrongConnection ? 'ほかの端末とつなぐ' : '同期を始める'}</strong><ChevronDownIcon size={20} /></summary>
           <div className="sync-advanced__body">
           {hasLegacyConnection ? (
@@ -1161,34 +1185,29 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
           </div>
         </details> : null}
 
-        <details className="sync-advanced">
-          <summary>
-            <span>
-              <strong>詳細・復旧</strong>
-            </span>
-            <ChevronDownIcon size={20} />
-          </summary>
-
+        {page === 'info' ? <section className="sync-information">
           <div className="sync-advanced__body">
-            <section className="sync-advanced__section">
-              <h2>復旧用の同期ID</h2>
-              <p>通常は8文字コードを使います。コードを発行できない場合にだけ、このIDを保管・入力してください。</p>
+            {hasLegacyConnection || getPendingLegacySyncUpgrade() || getPendingLegacySyncCompletion() ? <section className="sync-advanced__section">
+              <h2>旧データ移行用の同期ID</h2>
+              <p>旧データの移行・接続の再開に必要な場合だけ使います。</p>
               <input
                 className="sync-input sync-input--recovery"
                 value={syncId}
+                readOnly={hasLegacyConnection}
                 onChange={(event) => updateSyncIdDraft(event.target.value)}
                 aria-label="復旧用の同期ID"
                 disabled={busy}
                 autoComplete="off"
                 spellCheck={false}
               />
-              {normalizedSyncId && !syncIdValid ? (
+              {!hasLegacyConnection && normalizedSyncId && !syncIdValid ? (
                 <p className="sync-card__error-text" role="alert">36文字の安全な同期IDではありません。</p>
               ) : null}
               {syncIdValid && !syncIdConnected ? (
                 <p className="sync-card__compact-note">入力内容はまだ保存されていません。</p>
               ) : null}
               <div className="sync-actions">
+                {hasLegacyConnection ? <button type="button" className="sync-button sync-button--primary" onClick={() => void handleUpgradeLegacySyncId()} disabled={busy || !configured || !authenticated}>旧IDを安全に移行</button> : <>
                 <button type="button" className="sync-button sync-button--primary" onClick={handleConnectSyncId} disabled={busy || !authenticated || !syncIdValid || syncIdConnected}>
                   {syncIdConnected ? '接続済み' : 'このIDへ接続'}
                 </button>
@@ -1199,8 +1218,9 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
                 <button type="button" className="sync-button sync-button--secondary" onClick={handleGenerate} disabled={busy}>
                   新しい接続を作る
                 </button>
+                </>}
               </div>
-            </section>
+            </section> : null}
 
             <section className="sync-advanced__section">
               <h2>端末内バックアップ</h2>
@@ -1285,7 +1305,7 @@ export function SyncScreen({ onBack, onImported }: SyncScreenProps) {
               </button>
             </section>
           </div>
-        </details>
+        </section> : null}
       </main>
 
       <ConfirmDialog
