@@ -5,7 +5,8 @@ import type { RecordSyncGuards, RecordSyncOutcome, RecordSyncTransport } from '.
 import { hydrateChunkChanges } from './recordChunks';
 import { readUserEditGeneration } from './userEditGeneration';
 import { withCoordinatedDataRead } from './dataCoordination';
-import { SyncProtocolError } from './syncInterruption';
+import { SyncProtocolError, SyncInterruptedError } from './syncInterruption';
+import { saveBackupPayload, getSavedBackup } from './backupRepository';
 import { decideWholeSync } from './wholeSyncDecision';
 import { computeWholeRecordDigest, wholeHash } from './wholeSyncDigest';
 import { acknowledgeIdenticalWhole, acknowledgeWholeUpload, advanceWholePart, freezeWholeUpload, putWholeMeta, queueWholeReplacement, readWholeBaseline, readWholeMeta, readWholeRows, readVerifiedWholeAncestorCursor, releaseWholeUpload, stageWholePage, summarizeWholeRows, validateWholeFrozen, type WholeConflict, type WholeFrozen, type WholeIncoming } from './wholeSyncStorage';
@@ -92,19 +93,19 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   }
   const frozen=await readWholeMeta<WholeFrozen>(db,'wholeFrozen',connection);
   if(frozen){const sent=await sendFrozenWhole(db,transport,guards,frozen);return result('more',sent==='committed'?frozen.records:0)}
-  // Open only this selected owned stream. Rollout is gated by the coordinator.
-  if(!remote.enabled){const opened=await transport.whole('open',{p_expected_revision:remote.revision});if(opened.code==='conflict')return result('more');requireOk(opened);remote=head(await transport.whole('status'))}
+  // Read and ask first. Switching the server mode must wait for complete,
+  // durable copies of both sides, so an invalid legacy graph stays untouched.
   const prepared=await guards.prepareOutgoing();if(prepared?.more)return result('more');await guards.assertCurrent();
   const source=await withCoordinatedDataRead(['app','notes'],async()=>{
     const snapshot=await readAppRecordSnapshot(db);if(!snapshot)throw new Error('端末の保存データがありません。');
     return {snapshot,generation:await readUserEditGeneration(db),outbox:await readAppOutbox(db)};
   },{requireCrossContext:true});
   const baseline=await readWholeBaseline(db,connection);
-  if(baseline?.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&!source.outbox.length)return result('done');
+  if(remote.enabled&&baseline?.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&!source.outbox.length)return result('done');
   const localRows=[...source.snapshot.records.values()].filter(row=>row.raw!==null).map(row=>({...row,revision:row.serverRevision}));
   const localDigest=await computeWholeRecordDigest(localRows);
   let decision:'same'|'upload'|'download'|'conflict',incoming:RemoteRecordChange[]|undefined,remoteDigest=baseline?.digest??'',downloaded=0;
-  if(baseline?.serverRevision===remote.revision&&(localDigest===baseline.digest||source.generation!==baseline.userGeneration)){
+  if(remote.enabled&&baseline?.serverRevision===remote.revision&&(localDigest===baseline.digest||source.generation!==baseline.userGeneration)){
     decision=decideWholeSync({baseline,serverRevision:remote.revision,userGeneration:source.generation,localDigest,remoteDigest});
   }else{
     let stage=await readWholeMeta<WholeIncoming>(db,'wholeIncoming',connection);
@@ -123,10 +124,6 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   const maintenance=source.outbox.some(row=>isChunkInternal(row.collection,row.id));
   const replaceEqualWire=decision==='same'&&maintenance&&baseline?.serverRevision!==remote.revision;
   if(decision==='same'&&maintenance)decision='upload';
-  if(decision==='same'){
-    const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision)return result('more');
-    await acknowledgeIdenticalWhole(db,{version:1,connection,serverRevision:remote.revision,userGeneration:source.generation,digest:localDigest});return result('done',0,downloaded);
-  }
   let selected:'local'|'remote'|undefined;
   if(decision==='conflict'){
     const shown:WholeConflict={version:1,connection,revision:remote.revision,generation:source.generation,localDigest,remoteDigest,device:remote.device,savedAt:remote.savedAt,localSavedAt:source.snapshot.state.savedAt,localDevice:guards.device,local:summarizeWholeRows(localRows),remote:summarizeWholeRows(incoming??[])};
@@ -135,9 +132,45 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     else await putWholeMeta(db,'wholeConflict',shown);
     if(!selected)return {status:'conflict',conflicts:[],uploaded:0,downloaded};
   }
+  let verifiedCloud:FileBackup|undefined,verifiedLocal:FileBackup|undefined;
+  const incomingFile=async():Promise<FileBackup>=>{
+    if(!incoming)throw new SyncProtocolError('invalid_response','クラウドの受信原本がありません。データは保持しています。');
+    try { await guards.prepareMedia?.();await guards.assertCurrent();return await guards.incoming(incoming); }
+    catch(error){
+      if(error instanceof SyncInterruptedError || error && typeof error==='object' && 'code' in error)throw error;
+      throw new SyncProtocolError('invalid_response','クラウドの画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));
+    }
+  };
+  if(!remote.enabled){
+    guards.step?.('backup');
+    verifiedCloud=await incomingFile();
+    await guards.assertCurrent();
+    try { verifiedLocal=await exportFileBackup(); }
+    catch(error){throw new SyncProtocolError('local_persistence_failed','この端末の画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));}
+    await guards.assertCurrent();
+    try {
+      const localCopy=await saveBackupPayload(verifiedLocal,'before-sync');await guards.assertCurrent();
+      const cloudCopy=await saveBackupPayload(verifiedCloud,'before-sync');await guards.assertCurrent();
+      const localRead=await getSavedBackup(localCopy.id);await guards.assertCurrent();
+      const cloudRead=await getSavedBackup(cloudCopy.id);await guards.assertCurrent();
+      if(localRead?.raw!==localCopy.raw||cloudRead?.raw!==cloudCopy.raw)throw new Error('自動バックアップの読み戻しが一致しません。');
+    }catch(error){if(error instanceof SyncInterruptedError)throw error;throw new SyncProtocolError('local_persistence_failed','同期前の自動バックアップを保存できませんでした。同期先と両方の原本を保持しています。');}
+    await withCoordinatedDataRead(['app','notes'],async()=>{
+      const current=await readAppRecordSnapshot(db);
+      if(current?.state.commitId!==source.snapshot.state.commitId || await readUserEditGeneration(db)!==source.generation)throw new SyncProtocolError('local_changed','自動バックアップ中にこの端末の内容が変わりました。最新の内容を選び直してください。');
+    },{requireCrossContext:true});
+    await guards.assertCurrent();
+    const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision)return result('more');
+    const opened=await transport.whole('open',{p_expected_revision:remote.revision});if(opened.code==='conflict')return result('more');requireOk(opened);
+    remote=head(await transport.whole('status'));if(remote.revision!==latest.revision)return result('more');
+  }
+  if(decision==='same'){
+    const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision)return result('more');
+    await acknowledgeIdenticalWhole(db,{version:1,connection,serverRevision:remote.revision,userGeneration:source.generation,digest:localDigest});return result('done',0,downloaded);
+  }
   if(decision==='download'||selected==='remote'){
     if(!incoming)throw new SyncProtocolError('invalid_response','全体の受信原本がありません。');
-    await guards.prepareMedia?.();const file=await guards.incoming(incoming);await guards.assertCurrent();
+    const file=verifiedCloud??await incomingFile();await guards.assertCurrent();
     // The existing apply guard deliberately blocks network work while its own
     // commit overlay is active. Recheck the immutable head before entering it;
     // preserve this revision as the ancestor if another device then advances it.
@@ -154,7 +187,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   let archive:((tx:IDBTransaction)=>void)|undefined;
   if(selected==='local'){
     if(!incoming)throw new SyncProtocolError('invalid_response','保管するクラウド原本がありません。');
-    await guards.prepareMedia?.();const cloud=await guards.incoming(incoming),local=await exportFileBackup();
+    guards.step?.('backup');const cloud=verifiedCloud??await incomingFile(),local=verifiedLocal??await exportFileBackup();await guards.assertCurrent();
     archive=await prepareWholeRecovery(db,cloud,'conflict',new Blob([JSON.stringify(local)]).size);
   }
   const replace=decision==='conflict'||replaceEqualWire||!baseline||!source.outbox.length;
