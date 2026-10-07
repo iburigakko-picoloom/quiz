@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getCloudAccessToken } from '../../src/utils/cloudService.ts';
 import { AccountStorageSession, accountGenerationKey, accountNamespace, activateAccountStorage } from '../../src/utils/accountStorage.ts';
 import { saveAppDataAsync, loadAppDataAsync, openAppDb } from '../../src/storage.ts';
+import { normalizeAppData } from '../../src/utils/appDataValidation.ts';
 import { createRecordSyncRpc } from '../../src/utils/recordSyncNetwork.ts';
 import { runWholeRecordSync } from '../../src/utils/wholeSyncEngine.ts';
 import { prepareRecordChunks } from '../../src/utils/recordChunks.ts';
@@ -18,7 +19,9 @@ import { createMaterialTransport } from '../../src/utils/materialCloud.ts';
 
 const config={url:import.meta.env.VITE_SUPABASE_URL,anonKey:import.meta.env.VITE_SUPABASE_ANON_KEY};
 const params=new URLSearchParams(location.search), stamp='2026-10-07T00:00:00Z';
-const seed={version:1,folders:[{id:'qa-folder',name:'Common',createdAt:stamp,updatedAt:stamp}],problemSets:[{id:'qa-set',folderId:'qa-folder',title:'Synthetic sync validation',source:'Synthetic',visibility:'private',createdAt:stamp,updatedAt:stamp}],questions:[],progress:[],answerLogs:[]};
+const normalizedSeed=normalizeAppData({version:1,folders:[{id:'qa-folder',name:'Common',createdAt:stamp,updatedAt:stamp}],problemSets:[{id:'qa-set',folderId:'qa-folder',title:'Synthetic sync validation',source:'Synthetic',visibility:'private',createdAt:stamp,updatedAt:stamp}],questions:[],progress:[],answerLogs:[]});
+if(!normalizedSeed.ok)throw new Error('試験初期状態が不正です');
+const seed=normalizedSeed.data;
 const check=(condition,message)=>{if(!condition)throw new Error(message)};
 const access=async()=>{const result=await getCloudAccessToken();check(result.ok,'既存アカウントへのログインを確認できません');return result};
 const randomHex=()=>Array.from(crypto.getRandomValues(new Uint8Array(15)),b=>b.toString(16).padStart(2,'0')).join('');
