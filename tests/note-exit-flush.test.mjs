@@ -48,9 +48,9 @@ test('page swipes require horizontal intent and never turn on cancellation', () 
   assert.equal(noteSwipeDirection(-120, 10, true), 0);
 });
 
-test('a new horizontal gesture turns pages through 120 percent; larger zoom retains pan mode', () => {
-  for (const scale of [1,1.02,1.15,1.2,1.2000000000000002]) assert.equal(canTurnNotePage(scale),true);
-  for (const scale of [1.21,1.5,2.5,NaN,Infinity]) assert.equal(canTurnNotePage(scale),false);
+test('a new horizontal gesture turns pages through 150 percent; larger zoom retains pan mode', () => {
+  for (const scale of [1,1.02,1.2,1.4,1.5,1.5000000000000002]) assert.equal(canTurnNotePage(scale),true);
+  for (const scale of [1.51,1.75,2.5,NaN,Infinity]) assert.equal(canTurnNotePage(scale),false);
 });
 
 test('photo pages remain valid existing material files and retain each photo aspect ratio', async () => {
