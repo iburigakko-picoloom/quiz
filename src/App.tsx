@@ -339,18 +339,6 @@ export default function App() {
         return;
       }
 
-      if (current.name === 'noteDetail' && noteExitGuardRef.current) {
-        if (noteHistoryPendingRef.current) {
-          window.history.pushState({ quizMake: true }, '');
-          return;
-        }
-        noteHistoryPendingRef.current = true;
-        void noteExitGuardRef.current(() => applyBackNavigation(target, historySteps)).then((completed) => {
-          if (!completed) window.history.pushState({ quizMake: true }, '');
-        }).finally(() => { noteHistoryPendingRef.current = false; });
-        return;
-      }
-
       const exitReason = getProtectedExitReason(current, createDraftDirtyRef.current);
       if (exitReason && !confirmedProtectedExitRef.current) {
         window.history.pushState({ quizMake: true }, '');
@@ -363,6 +351,17 @@ export default function App() {
 
       if (confirmedProtectedExitRef.current) {
         confirmedProtectedExitRef.current = false;
+      }
+      if (['noteDetail', 'noteList', 'detailedAnswer'].includes(current.name) && noteExitGuardRef.current) {
+        if (noteHistoryPendingRef.current) {
+          window.history.pushState({ quizMake: true }, '');
+          return;
+        }
+        noteHistoryPendingRef.current = true;
+        void noteExitGuardRef.current(() => applyBackNavigation(target, historySteps)).then((completed) => {
+          if (!completed) window.history.pushState({ quizMake: true }, '');
+        }).finally(() => { noteHistoryPendingRef.current = false; });
+        return;
       }
       applyBackNavigation(target, historySteps);
     };
@@ -556,7 +555,8 @@ export default function App() {
     confirmedProtectedExitRef.current = true;
     if (navigationMode === 'replace') {
       confirmedProtectedExitRef.current = false;
-      replaceScreen(target);
+      if (['noteDetail', 'noteList', 'detailedAnswer'].includes(screenRef.current.name) && noteExitGuardRef.current) void noteExitGuardRef.current(() => replaceScreen(target));
+      else replaceScreen(target);
       return;
     }
     pendingBackTargetRef.current = target;
@@ -598,7 +598,8 @@ export default function App() {
             : { name: 'settings' };
     if (getScreenKey(screenRef.current) === getScreenKey(next)) return;
     if (item === 'home') {
-      goHome();
+      if (['noteDetail', 'noteList', 'detailedAnswer'].includes(screenRef.current.name) && noteExitGuardRef.current) void noteExitGuardRef.current(goHome);
+      else goHome();
       return;
     }
     const exitReason = getProtectedExitReason(screenRef.current, createDraftDirtyRef.current);
@@ -609,7 +610,8 @@ export default function App() {
       setPendingExitTarget(next);
       return;
     }
-    replaceScreen(next);
+    if (['noteDetail', 'noteList', 'detailedAnswer'].includes(screenRef.current.name) && noteExitGuardRef.current) void noteExitGuardRef.current(() => replaceScreen(next));
+    else replaceScreen(next);
   };
 
   const handleCreateFolder = (name: string) => {
@@ -1627,7 +1629,7 @@ export default function App() {
         const saved = await persistThenCommitData({ ...current, questions: current.questions.map((item) => item.id === next.id ? next : item), progress: reset ? current.progress.filter((item) => item.questionId !== next.id) : current.progress, answerLogs: current.answerLogs.map(log => !log.questionRevision && log.questionId === latest.id ? { ...log, questionRevision: questionRevision(latest) } : log) });
         if (!saved) return '保存できませんでした。入力内容を残しています。';
         finishEdit(); return null;
-      }} /> : <DetailedAnswerScreen question={question} editing={Boolean(screen.editing)} onBack={() => goBackTo(screen.backScreen)} onEdit={() => replaceScreen({ ...screen, editing: true })} onDirtyChange={setCreateDraftDirty} onAddImage={handleAddDetailedImage} onRemoveImage={handleRemoveDetailedImage} onSave={async (body, original) => {
+      }} /> : <DetailedAnswerScreen data={data} question={question} editing={Boolean(screen.editing)} onBack={() => goBackTo(screen.backScreen)} onEdit={() => replaceScreen({ ...screen, editing: true })} registerExitGuard={(guard) => { noteExitGuardRef.current = guard; }} onLinkPage={(reference, linked) => handleLinkMaterialPage(question.id, reference, linked)} onLinkBatch={links => handleLinkMaterialBatch(question.setId, links)} onDirtyChange={setCreateDraftDirty} onAddImage={handleAddDetailedImage} onRemoveImage={handleRemoveDetailedImage} onSave={async (body, original) => {
         const latest = dataRef.current.questions.find((item) => item.id === original.id);
         if (!latest || JSON.stringify(latest) !== JSON.stringify(original)) return '問題が別の操作で更新されました。入力内容を控えて開き直してください。';
         await handleSaveDetailedExplanation(original.id, body);
@@ -1740,10 +1742,11 @@ export default function App() {
     );
   } else if (screen.name === 'noteList') {
     content = <NoteOverviewScreen data={data} setId={screen.setId}
+      registerExitGuard={(guard) => { noteExitGuardRef.current = guard; }}
+      onLinkPage={handleLinkMaterialPage} onLinkBatch={links => handleLinkMaterialBatch(screen.setId, links)}
       onImport={() => navigate({ name: 'createProblemSet', importExplanations: true, backScreen: screen })}
       onOpenDetail={(questionId) => navigate({ name: 'detailedAnswer', questionId, backScreen: screen })}
-      onBack={() => goBackTo({ name: 'problemSetDetail', setId: screen.setId })}
-      onOpen={(category) => navigate({ name: 'noteDetail', setId: screen.setId, category, backScreen: screen })} />;
+      onBack={() => goBackTo({ name: 'problemSetDetail', setId: screen.setId })} />;
   } else if (screen.name === 'noteDetail') {
     const problemSet = data.problemSets.find((set) => set.id === screen.setId);
     content = (

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { boundedNoteScale, noteSwipeDirection } from '../src/components/noteGestures.ts';
+import { boundedNoteScale, canTurnNotePage, noteSwipeDirection } from '../src/components/noteGestures.ts';
 import {
   getNoteSaveErrorMessage,
   NoteLoadError,
@@ -48,10 +48,30 @@ test('page swipes require horizontal intent and never turn on cancellation', () 
   assert.equal(noteSwipeDirection(-120, 10, true), 0);
 });
 
+test('a new horizontal gesture turns pages through 120 percent; larger zoom retains pan mode', () => {
+  for (const scale of [1,1.02,1.15,1.2,1.2000000000000002]) assert.equal(canTurnNotePage(scale),true);
+  for (const scale of [1.21,1.5,2.5,NaN,Infinity]) assert.equal(canTurnNotePage(scale),false);
+});
+
+test('photo pages remain valid existing material files and retain each photo aspect ratio', async () => {
+  const {createPhotoPdf,photosToMaterialFile}=await import('../src/utils/photoMaterial.ts');
+  const {PDFDocument}=await import('pdf-lib');
+  const {largePngDataUrl}=await import('./helpers/large-note-fixture.mjs');
+  const {isMaterialFile}=await import('../src/utils/materialModel.ts');
+  const image=Buffer.from(largePngDataUrl().split(',')[1],'base64');
+  const bytes=await createPhotoPdf([{bytes:image,type:'image/png'},{bytes:image,type:'image/png'}]);
+  const loaded=await PDFDocument.load(bytes);
+  assert.equal(loaded.getPageCount(),2);
+  for(const page of loaded.getPages())assert.deepEqual(page.getSize(),{width:768,height:192});
+  assert.equal(isMaterialFile({kind:'quiz-material-file',version:1,materialId:'photo-material',updatedAt:'2026-10-07T00:00:00Z',dataUrl:'data:application/pdf;base64,'+Buffer.from(bytes).toString('base64')}),true);
+  await assert.rejects(createPhotoPdf([]),/写真/);
+  await assert.rejects(photosToMaterialFile([new File(['<svg/>'],'drawing.svg',{type:'image/svg+xml'})]),/PNG/);
+});
+
 test('note list opens materials without the retired notebook entry and browser back waits for its flush', () => {
-  assert.match(noteOverviewSource, /onClick=\{\(\) => onOpen\('__materials'\)\}/);
+  assert.match(noteOverviewSource, /<MaterialsDrawer ref=\{materials.drawer\}/);
   assert.doesNotMatch(noteOverviewSource, /CategoryNotePanel/);
-  assert.match(appSource, /name: 'noteDetail', setId: screen.setId, category/);
+  assert.match(appSource, /name: 'noteDetail', setId, category/);
   assert.match(noteListSource, /<MaterialsPanel ref=\{panel\} setId=\{setId\}/);
   assert.doesNotMatch(noteListSource, /initialLegacy=/);
   assert.doesNotMatch(readSource('../src/components/MaterialsPanel.tsx'), /以前の手書きノート|__legacy/);

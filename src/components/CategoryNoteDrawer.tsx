@@ -24,7 +24,7 @@ import {
   type ByteBudgetHistory,
 } from './noteMemory';
 import './CategoryNoteDrawer.css';
-import { boundedNoteScale, noteSwipeDirection } from './noteGestures';
+import { boundedNoteScale, canTurnNotePage, noteSwipeDirection } from './noteGestures';
 import type { MaterialPagePreview } from '../utils/materialPreview';
 
 const UNCATEGORIZED = '\u672a\u5206\u985e';
@@ -90,6 +90,8 @@ type CategoryNote = {
 };
 
 interface CategoryNoteProps {
+  initialScale?: number;
+  onScaleChange?: (scale: number) => void;
   initialTools?: NoteToolSettings;
   onToolsChange?: (settings: NoteToolSettings) => void;
   backgroundUrl?: string;
@@ -256,7 +258,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange },
+  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -269,11 +271,11 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const pendingResizeRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const historyRef = useRef<ByteBudgetHistory<string>>(createByteBudgetHistory());
-  const pageSwipeRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+  const pageSwipeRef = useRef<{ x: number; y: number; pointerId: number; startPan: { x: number; y: number }; horizontal?: boolean } | null>(null);
   const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ startDistance: number; startScale: number } | null>(null);
   const pagePanGestureRef = useRef<{ x: number; y: number; pointerId: number; startPan: { x: number; y: number } } | null>(null);
-  const pageScaleRef = useRef(1);
+  const pageScaleRef = useRef(boundedNoteScale(initialScale));
   const pagePanRef = useRef({ x: 0, y: 0 });
   const pagePinchingRef = useRef(false);
   const pageElementRef = useRef<HTMLDivElement | null>(null);
@@ -330,7 +332,8 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   }, [toolOptions]);
   const [canUndo, setCanUndo] = useState(false);
   const [pageSwiping, setPageSwiping] = useState(false);
-  const [pageScale, setPageScaleState] = useState(1);
+  const [pageScale, setPageScaleState] = useState(pageScaleRef.current);
+  useEffect(() => { onScaleChange?.(pageScale); }, [pageScale, onScaleChange]);
   const [pagePan, setPagePanState] = useState({ x: 0, y: 0 });
   const [pagePinching, setPagePinchingState] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -391,14 +394,14 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     });
   };
 
-  const resetPageView = () => {
+  const resetPageView = (scale = 1) => {
     if (pagePanFrameRef.current !== null) {
       cancelAnimationFrame(pagePanFrameRef.current);
       pagePanFrameRef.current = null;
     }
-    pageScaleRef.current = 1;
+    pageScaleRef.current = boundedNoteScale(scale);
     pagePanRef.current = { x: 0, y: 0 };
-    setPageScaleState(1);
+    setPageScaleState(pageScaleRef.current);
     setPagePanState({ x: 0, y: 0 });
     setPagePinchingValue(false);
   };
@@ -827,7 +830,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       return;
     }
 
-    if (pageScaleRef.current > 1.02) {
+    if (!canTurnNotePage(pageScaleRef.current)) {
       pageSwipeRef.current = null;
       pagePanGestureRef.current = {
         x: event.clientX,
@@ -840,7 +843,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       return;
     }
 
-    pageSwipeRef.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+    pageSwipeRef.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, startPan: { ...pagePanRef.current } };
     setPageSwiping(true);
     setPageTransform(0);
   };
@@ -882,6 +885,18 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     const deltaX = event.clientX - swipe.x;
     const deltaY = event.clientY - swipe.y;
     if (Math.abs(deltaX) < 8 && Math.abs(deltaY) < 8) return;
+    if (swipe.horizontal === undefined) {
+      swipe.horizontal = Math.abs(deltaX) > Math.abs(deltaY);
+      if (!swipe.horizontal && pageScaleRef.current > 1.02) {
+        pageSwipeRef.current = null;
+        pagePanGestureRef.current = { ...swipe, startPan: swipe.startPan };
+        setPageSwiping(false);
+        resetPageRail(false);
+        setPagePinchingValue(true);
+        setPagePanInteractive({ x: swipe.startPan.x + deltaX, y: swipe.startPan.y + deltaY });
+        return;
+      }
+    }
     if (Math.abs(deltaX) > Math.abs(deltaY)) {
       event.preventDefault();
       const limit = canvasRef.current?.clientWidth ?? 240;
@@ -1012,7 +1027,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       rail.removeEventListener('transitionend', finishCommit);
       pageDataUrlRef.current = nextPages[targetIndex]?.dataUrl ?? '';
       resetTouchGesture();
-      resetPageView();
+      resetPageView(canTurnNotePage(pageScaleRef.current) ? pageScaleRef.current : 1);
       rail.style.transition = 'none';
       rail.style.transform = 'translate3d(-33.333333%, 0, 0)';
       markCanvasPaintPending();
@@ -1285,7 +1300,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       </div>
 
       <div ref={toolbarRef} className="category-note-toolbar category-note-toolbar--compact" aria-label="note tools">
-        <button type="button" className="note-zoom-label" aria-label="倍率をリセット" title="タップで100%に戻す" onClick={resetPageView}>{Math.round(pageScale * 100)}%</button>
+        <button type="button" className="note-zoom-label" aria-label="倍率をリセット" title="タップで100%に戻す" onClick={() => resetPageView()}>{Math.round(pageScale * 100)}%</button>
         <div className="note-tool-switch" role="group" aria-label="筆記用具">
           <button type="button" disabled={noteInteractionDisabled} aria-pressed={tool === 'pen'} onClick={() => { setTool('pen'); setToolOptions(null); }}>ペン</button>
           <button type="button" disabled={noteInteractionDisabled} aria-pressed={tool === 'marker'} onClick={() => { setTool('marker'); setToolOptions(null); }}>マーカー</button>

@@ -8,8 +8,7 @@ import { FullText } from '../components/FullText';
 import remarkGfm from 'remark-gfm';
 import type { AppData, Question, QuizResult, MaterialReference } from '../types';
 import { BackButton } from '../components/BackButton';
-import { type CategoryNoteDrawerHandle } from '../components/CategoryNoteDrawer';
-import { MaterialsDrawer } from '../components/MaterialsDrawer';
+import { MaterialsDrawer, type MaterialsDrawerHandle } from '../components/MaterialsDrawer';
 import type { ReferenceLink } from '../utils/referenceLinking';
 import { runAfterSuccessfulNoteFlush } from '../components/noteExitGuard';
 import { Layout } from '../components/Layout';
@@ -84,7 +83,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
   const [isTabletLandscape, setIsTabletLandscape] = useState(false);
   const [noteDrawerMounted, setNoteDrawerMounted] = useState(false);
   const [noteTransitionError, setNoteTransitionError] = useState('');
-  const noteDrawerRef = useRef<CategoryNoteDrawerHandle>(null);
+  const noteDrawerRef = useRef<MaterialsDrawerHandle>(null);
   const noteTransitionRef = useRef(false);
   const detailBlockedRef = useRef(false);
   const onDetailDirtyChange = useCallback((dirty: boolean) => { detailBlockedRef.current = dirty; }, []);

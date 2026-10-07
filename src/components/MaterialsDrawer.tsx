@@ -6,7 +6,11 @@ import { ReferenceLinkDialog } from './ReferenceLinkDialog';
 import { MaterialsPanel } from './MaterialsPanel';
 import type { CategoryNoteDrawerHandle, CategoryNotePanelHandle } from './CategoryNoteDrawer';
 
-export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
+export interface MaterialsDrawerHandle extends CategoryNoteDrawerHandle {
+  openReference: (target?: MaterialReference) => Promise<void>;
+}
+
+export const MaterialsDrawer = forwardRef<MaterialsDrawerHandle, {
   problemSetId: string; setIds: string[]; questionId: string; references?: MaterialReference[]; open: boolean; onOpenChange: (open: boolean) => void; launcherTarget?: HTMLElement | null;
   onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void>;
   questions?: Question[]; onLinkBatch?: (links: ReferenceLink[]) => Promise<void>;
@@ -56,8 +60,8 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
     setDragging(false);
   };
   const close = async () => { try { await panel.current?.flush(); onOpenChange(false); setError(''); return true; } catch { setError('保存できません。資料を閉じずに再度お試しください。'); return false; } };
-  useImperativeHandle(ref, () => ({ close, flush: async () => { await panel.current?.flush(); } }));
   const openAt = async (target?: MaterialReference) => { try { await panel.current?.flush(); const next = target ?? firstReference; if (next) { setReference(next); setReferenceRequest(value => value + 1); } followedQuestion.current = `${questionId}/${firstReference?.materialId ?? ''}/${firstReference?.pageId ?? ''}`; setError(''); onOpenChange(true); } catch { setError('書き込みを保存できません。'); } };
+  useImperativeHandle(ref, () => ({ close, openReference: openAt, flush: async () => { await panel.current?.flush(); } }));
   const beginDrag = (event: PointerEvent<HTMLButtonElement>) => {
     if (!event.isPrimary || event.button !== 0 || !drawer.current) return;
     const bounds = drawer.current.getBoundingClientRect();
@@ -99,6 +103,7 @@ export const MaterialsDrawer = forwardRef<CategoryNoteDrawerHandle, {
     finishDrag();
   };
   return <>
+    {error && !open ? <p className="materials-error" role="alert">{error}</p> : null}
     {linkDialog && onLinkBatch ? <ReferenceLinkDialog setIds={setIds} questions={questions} initialMaterialId={linkDialog.materialId} onSave={onLinkBatch} onClose={() => setLinkDialog(null)} /> : null}
     {launcherTarget && !open ? createPortal(<button className="materials-mobile-launcher" type="button" aria-label="資料を開く" aria-expanded={open} onClick={() => void openAt()}><span aria-hidden="true">▤</span> 資料</button>, launcherTarget) : null}
     {createPortal(<><button type="button" className={`materials-edge-tab${open ? ' is-open' : ''}`} aria-label={open ? '資料を閉じる' : '資料を開く'} aria-expanded={open}

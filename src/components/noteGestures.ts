@@ -1,5 +1,10 @@
 export const NOTE_MIN_SCALE = 1;
 export const NOTE_MAX_SCALE = 2.5;
+export const NOTE_PAGE_SWIPE_MAX_SCALE = 1.2;
+
+export function canTurnNotePage(scale: number): boolean {
+  return Number.isFinite(scale) && scale <= NOTE_PAGE_SWIPE_MAX_SCALE + 0.000001;
+}
 
 /** Use the raw gesture distance, never feed the resisted value back into itself. */
 export function boundedNoteScale(value: number, elastic = false): number {

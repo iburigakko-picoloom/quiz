@@ -5,6 +5,7 @@ import { CategoryNotePanel, type CategoryNotePanelHandle, type NoteToolSettings 
 import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf } from '../utils/materialStorage';
 import { MaterialPreviewCache, type MaterialPagePreview } from '../utils/materialPreview';
 import { createId } from '../utils/id';
+import { canTurnNotePage } from './noteGestures';
 import { insertMaterialPage, moveMaterialPage, MAX_MATERIAL_PDF_BYTES, type MaterialIndex, type MaterialPage, type StudyMaterial } from '../utils/materialModel';
 import './MaterialsPanel.css';
 
@@ -31,9 +32,12 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const panel = useRef<CategoryNotePanelHandle>(null);
   const tools = useRef<NoteToolSettings | undefined>(undefined);
   const rememberTools = useCallback((settings: NoteToolSettings) => { tools.current = settings; }, []);
+  const viewScale = useRef(1);
+  const rememberScale = useCallback((scale: number) => { viewScale.current = scale; }, []);
   const operation = useRef<Promise<void>>(Promise.resolve());
   const lock = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   useEffect(() => () => { previews.current.clear(); stopAnimation.current?.(); }, []);
   const material = index?.materials.find(item => item.id === materialId);
@@ -220,6 +224,16 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       captureTransition(); setIndex(next); setMaterialId(added.id); setPageId(added.pages[0].id);
     } finally { await task.destroy(); }
   });
+  const addPhotos = (files: File[]) => run(async () => {
+    if (!index) throw new Error('資料一覧を読み込んでから追加してください。');
+    const { photosToMaterialFile } = await import('../utils/photoMaterial');
+    const file = await photosToMaterialFile(files);
+    const stored = await storeMaterialPdf(ownerId, file, files.length);
+    const added = { ...stored, title: files.length === 1 ? files[0].name || '写真' : `写真 ${files.length}枚` };
+    const next = { ...index, materials: [...index.materials, added] };
+    await saveMaterials(next);
+    captureTransition(); setIndex(next); setMaterialId(added.id); setPageId(added.pages[0].id);
+  });
   return <section className="materials-panel" aria-label="資料" aria-busy={busy}>
     <div className="materials-controls">
       {index && index.materials.length > 0 && (index.materials.length > 1 || !material) ? <select className="materials-picker" aria-label="資料を切り替え" disabled={busy || pagePending || transitioning} value={materialId} onChange={event => { const value = event.target.value; run(async () => { captureTransition(); setMaterialId(value); setPageId(index.materials.find(item => item.id === value)?.pages[0]?.id ?? ''); }); }}>
@@ -231,15 +245,17 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
         {onOpenReference && (questionReferences?.length ?? 0) > 1 ? <>{questionReferences?.map((item, i) => <button key={`${item.materialId}/${item.pageId}`} disabled={busy} onClick={() => { if (menu.current) menu.current.open = false; onOpenReference(item); }}>参照資料 {i + 1}へ移動</button>)}<hr/></> : null}
         {onLinkPage && material && page ? <><button disabled={busy || pagePending} onClick={() => run(async () => onLinkPage({ materialId, pageId }, !linked))}>{linked ? 'このページの紐付けを解除' : 'このページを問題に紐付け'}</button><hr/></> : null}
         <button type="button" disabled={!index || busy} onClick={() => { if (menu.current) menu.current.open = false; fileInput.current?.click(); }}>PDFを追加</button>
+        <button type="button" disabled={!index || busy} onClick={() => { if (menu.current) menu.current.open = false; photoInput.current?.click(); }}>写真を追加</button>
         <button type="button" disabled={!index || busy} onClick={() => run(async () => { if (!index) return; const added: StudyMaterial = { id: createId('material'), title: `白紙の資料 ${index.materials.length + 1}`, pages: [{ id: createId('page'), kind: 'blank' }] }; const next = { ...index, materials: [...index.materials, added] }; await saveMaterials(next); setIndex(next); setMaterialId(added.id); setPageId(added.pages[0].id); })}>白紙の資料を追加</button>
         {material ? <><hr/><button disabled={busy} onClick={() => addBlank(false)}>前に白紙ページ</button><button disabled={busy} onClick={() => addBlank(true)}>後ろに白紙ページ</button><hr/><button disabled={busy || pageIndex <= 0} onClick={() => move(-1)}>このページを前へ移動</button><button disabled={busy || pageIndex >= material.pages.length - 1} onClick={() => move(1)}>このページを後ろへ移動</button></> : null}
       </div></ActionMenu>
-      {onClose ? <button className="materials-close" type="button" aria-label="資料を閉じて問題に戻る" title="問題に戻る" disabled={busy} onClick={() => run(async () => onClose())}>×</button> : null}
+      {onClose ? <button className="materials-close" type="button" aria-label="資料を閉じる" title="資料を閉じる" disabled={busy} onClick={() => run(async () => onClose())}>×</button> : null}
       <input ref={fileInput} hidden type="file" accept="application/pdf,.pdf" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) addPdf(file); }} />
+      <input ref={photoInput} hidden type="file" accept="image/*" multiple onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; if (files.length) void addPhotos(files); }} />
     </div>
     {error ? <p className="materials-error" role="alert">{error}</p> : null}
     <div ref={contentRef} className={`materials-content${pagePending || (transitioning && !transitionReady) ? ' is-page-loading' : ''}`} aria-busy={pagePending || (transitioning && !transitionReady)} onPointerDownCapture={() => { if (transitionReadyRef.current) clearTransition(); }}>
-      {displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? 'PDFを読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <button disabled={!index || busy} onClick={() => fileInput.current?.click()}>PDFを追加</button> : null}<small>1ファイル50MB・500ページまで。PDFは専用の非公開ストレージに同期します。</small></div>}
+      {displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} initialScale={canTurnNotePage(viewScale.current) ? viewScale.current : 1} onScaleChange={rememberScale} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? '資料を読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <div className="materials-empty__actions"><button disabled={!index || busy} onClick={() => fileInput.current?.click()}>PDFを追加</button><button disabled={!index || busy} onClick={() => photoInput.current?.click()}>写真を追加</button></div> : null}<small>合計50MB・500ページまで。</small></div>}
       <div ref={transitionLayer} className="materials-transition-cover" aria-hidden="true" inert />
     </div>
   </section>;

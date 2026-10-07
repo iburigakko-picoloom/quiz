@@ -18,6 +18,11 @@
 .materials-menu > div button { border:0; text-align:left; padding:10px 12px; }
 .materials-menu hr { border:0; border-top:1px solid #edf0f2; width:100%; margin:4px 0; }
 .materials-empty { padding:32px 20px; text-align:center; }
+.materials-empty__actions { display:flex; justify-content:center; flex-wrap:wrap; gap:10px; }
+.material-question-heading,.note-explanation-item__question { display:flex; align-items:center; gap:10px; }
+.material-question-heading { margin-bottom:16px; color:#305da3; font-size:14px; font-weight:600; }
+.library-page button.material-reference-jump { min-height:36px; padding:5px 12px; border:1px solid #b8c6d8; border-radius:8px; background:white; color:#305da3; font-size:13px; }
+.library-page button.material-reference-jump:focus-visible { outline:2px solid #305da3; outline-offset:2px; }
 .materials-content { flex:1; min-height:0; overflow:hidden; position:relative; }
 .materials-content.is-page-loading > .category-note-panel { pointer-events:none; }
 .materials-transition-cover { position:absolute; inset:0; z-index:2; pointer-events:none; }
@@ -90,6 +95,8 @@
   .materials-edge-tab > span:not(.materials-edge-tab__label) { font-size:20px; line-height:1; }
   .materials-edge-tab__label { writing-mode:vertical-rl; letter-spacing:.12em; }
   body.quiz-material-enabled .quiz-runner { width:calc(100% - var(--materials-reveal,0px)); overflow:hidden !important; transition:width var(--motion-panel) var(--motion-ease); }
+  body.quiz-material-enabled .materials-study-page { width:min(760px,calc(100% - var(--materials-reveal,0px))); margin-left:0; margin-right:auto; transition:width var(--motion-panel) var(--motion-ease); }
+  body.quiz-material-dragging .materials-study-page { transition:none; }
   body.quiz-material-enabled .quiz-runner main { width:100%; max-width:none; margin:0; }
   body.quiz-material-enabled .quiz-runner .quiz-runner__answer-action-grid { position:relative; left:auto; bottom:auto; width:100%; max-width:none; transform:none; transition:none; }
   body.quiz-material-enabled .quiz-runner .quiz-runner__answer-actions > p { position:static; width:auto; max-width:none; transform:none; }
