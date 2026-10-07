@@ -73,7 +73,7 @@ export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onBusyCha
         <SyncDataChoice name="whole-sync-source" value="remote" title="クラウド" timestamp={savedTime(conflict.savedAt)} questionCount={conflict.remote.questions} note={`${remoteDevice.name}・${contents(conflict.remote)}`} checked={selection==='remote'} onChange={()=>setSelection('remote')}/>
       </fieldset>
       <button type="button" className="sync-button sync-button--primary sync-selection-submit" disabled={busy||!selection} onClick={()=>void choose()}>{busy?'選択を保存中…':'このデータで同期'}</button>
-      <p className="sync-selection-note">{failureMessage.includes('クラウドの画像')?'画像が残っている端末で「この端末」を選んでください。':'選ばなかった原本は自動で退避します。'}</p>
+      <p className="sync-selection-note">{failureMessage.includes('画像')?'画像情報が不足していても、原本を退避して同期します。':'選ばなかった原本は自動で退避します。'}</p>
       <button type="button" className="sync-button" disabled={busy} onClick={()=>onOpenChange(false)}>今は同期しない</button>
     </>}
   </section>;

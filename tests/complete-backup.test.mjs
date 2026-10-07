@@ -103,3 +103,36 @@ test('available capacity and incomplete images stop replacement; partial rescue 
   for(const row of await listWholeRecovery())await deleteWholeRecovery(row.id);
   assert.deepEqual(await listWholeRecovery(),[]);
 });
+
+test('explicit legacy-image sync preserves IDs and existing blobs; later consent cannot cover different missing images',async()=>{
+  const {createImageOptionalSyncFile,applyWholeSyncFile,missingSyncImages}=await import('../src/utils/backupPayload.ts');
+  const {saveBackupPayload,saveBackupOriginals}=await import('../src/utils/backupRepository.ts');
+  const {readAppRecordSnapshot}=await import('../src/utils/appRecordStorage.ts');
+  const {readUserEditGeneration}=await import('../src/utils/userEditGeneration.ts');
+  const {wholeHash}=await import('../src/utils/wholeSyncDigest.ts');
+  const {queueWholeReplacement}=await import('../src/utils/wholeSyncStorage.ts');
+  const {queueLegacyImageSync,readLegacyImageSync}=await import('../src/utils/legacyImageSync.ts');
+  const {withCoordinatedDataMutation}=await import('../src/utils/dataCoordination.ts');
+  const connection={project:'https://legacy.invalid',userId:'11111111-1111-4111-8111-111111111111',syncId:'c'.repeat(36)};
+  const before=await exportFileBackup(),snapshot=await readAppRecordSnapshot(db),generation=await readUserEditGeneration(db);
+  const chosenData=JSON.parse(before.localStorage['quiz-make-app-data-v1']);chosenData.questions[0].question='cloud without image metadata';
+  const chosen=await createImageOptionalSyncFile({...before,localStorage:{...before.localStorage,'quiz-make-app-data-v1':JSON.stringify(chosenData)}},[]);
+  assert.equal(chosen.backupManifest.completeness,'partial');
+  assert.equal((await applyWholeSyncFile(chosen,generation,()=>{})).ok,false,'ordinary partial imports stay blocked');
+  const rows=[...snapshot.records.values()].filter(row=>row.raw!==null&&row.collection!=='questionImages').map(row=>({key:row.key,collection:row.collection,id:row.id,position:row.position,revision:0,raw:row.collection==='questions'?JSON.stringify(chosenData.questions.find(question=>question.id===row.id)):row.raw}));
+  const body={format:'quiz-make-sync-originals-v1',schema:1,connection,side:'remote',revision:0,createdAt:stamp,records:rows,notes:[],nativeValues:{},images:[],pdfFiles:{},issues:[]};
+  const local=await saveBackupPayload(before,'before-sync'),saved=await saveBackupPayload(chosen,'before-sync'),original=await saveBackupOriginals(JSON.stringify({...body,originalsDigest:await wholeHash(JSON.stringify(body))}));
+  const tx=db.transaction('appRecordMeta','readwrite');tx.objectStore('appRecordMeta').put(connection,'recordSyncConnection');tx.objectStore('appRecordMeta').put({connection,choice:'remote',preferSelected:true},'wholeConflict');await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=j;});
+  const proof={backupId:local.id,raw:local.raw,commitId:snapshot.state.commitId,connection,selectedImages:{backupId:saved.id,raw:saved.raw,originalId:original.id,originalRaw:original.raw}};
+  const finalize=target=>{queueWholeReplacement(target,rows,{version:1,connection,serverRevision:0,userGeneration:generation,digest:'0'.repeat(64)});queueLegacyImageSync(target,connection,missingSyncImages(chosen));};
+  const apply=(file,previous,legacy)=>withCoordinatedDataMutation(['app','notes'],()=>applyWholeSyncFile(file,generation,finalize,false,previous,legacy),{requireCrossContext:true});
+  const result=await apply(chosen,proof);assert.equal(result.ok,true,result.error);
+  assert.equal((await storage.loadAppDataAsync()).questions[0].question,'cloud without image metadata');
+  assert.deepEqual((await storage.loadAppDataAsync()).questions[0].questionImageIds,['i']);
+  const retained=(await imageStorage.readQuestionImages('q',['i']))[0];assert.deepEqual(new Uint8Array(await retained.blob.arrayBuffer()),new Uint8Array(await image.blob.arrayBuffer()));
+  const consent=await readLegacyImageSync(db,connection);assert.deepEqual(consent.images,[{id:'i',questionId:'q'}]);
+  const again=await apply(chosen,undefined,consent);assert.equal(again.ok,true,again.error);
+  const different=await createImageOptionalSyncFile({...chosen,localStorage:{...chosen.localStorage,'quiz-make-app-data-v1':JSON.stringify({...chosenData,questions:[{...chosenData.questions[0],questionImageIds:['new-missing-image']}]})}},[]);
+  assert.equal((await apply(different,undefined,consent)).ok,false,'newly missing IDs require a fresh explicit choice');
+  assert.deepEqual((await storage.loadAppDataAsync()).questions[0].questionImageIds,['i']);
+});

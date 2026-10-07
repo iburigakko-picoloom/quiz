@@ -31,6 +31,7 @@ import { publishSyncProgress, publishSyncAttempt, type SyncProgress } from './sy
 import { archiveSyncOriginals } from './syncOriginalBackup';
 import { readAppOutbox } from './appRecordStorage';
 import { materialFileEntry } from './materialModel';
+import { recoverLegacyImageMetadata } from './legacyImageRecovery';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -98,9 +99,10 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
       notice:notice=>publishSyncAttempt(connection,{notice}),
       archiveOriginals:(side,rows)=>archiveSyncOriginals(db,connection,side,rows,imageTransport,materialTransport,assertCurrent,progress),
       prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent,progress),
-      incoming:rows=>buildWholeIncomingFile(db,rows,materialTransport,assertCurrent,progress),
+      incoming:(rows,options)=>buildWholeIncomingFile(db,rows,materialTransport,assertCurrent,progress,options?.allowMissingImages),
       prepareOutgoing:async()=>{
         await assertCurrent();
+        await recoverLegacyImageMetadata(db,assertCurrent);
         let total:number|null=null;
         try{
           const pending=await readAppOutbox(db);

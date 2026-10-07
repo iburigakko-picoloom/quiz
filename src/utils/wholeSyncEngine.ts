@@ -10,7 +10,8 @@ import { saveBackupPayload, getSavedBackup, type SavedBackup } from './backupRep
 import { decideWholeSync } from './wholeSyncDecision';
 import { computeWholeRecordDigest, wholeHash } from './wholeSyncDigest';
 import { acknowledgeIdenticalWhole, acknowledgeWholeUpload, advanceWholePart, freezeWholeUpload, putWholeMeta, queueWholeReplacement, readWholeBaseline, readWholeMeta, readWholeRows, readVerifiedWholeAncestorCursor, releaseWholeUpload, stageWholePage, summarizeWholeRows, validateWholeFrozen, type WholeConflict, type WholeFrozen, type WholeIncoming } from './wholeSyncStorage';
-import { applyWholeSyncFile, exportFileBackup, validateFileBackup, type FileBackup, type PreservedSyncOriginals } from './backupPayload';
+import { applyWholeSyncFile, exportFileBackup, validateFileBackup, isImageOptionalSyncFile, missingSyncImages, type FileBackup, type PreservedSyncOriginals } from './backupPayload';
+import { readLegacyImageSync, acceptsLegacyImages, queueLegacyImageSync } from './legacyImageSync';
 import type { SyncProgress, SyncProgressStage } from './syncAttemptStatus';
 import { prepareWholeRecovery } from './wholeRecovery';
 import { materialFileEntry } from './materialModel';
@@ -20,7 +21,7 @@ import { chunkIds, isChunkInternal, parseChunkManifest, RECORD_CHUNK_GUARD_ID } 
 
 type Reply={code:string;[key:string]:unknown};
 export type WholeTransport=RecordSyncTransport&{whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<Reply>};
-type WholeGuards=Omit<RecordSyncGuards,'prepareOutgoing'>&{prepareOutgoing():Promise<void|{more:boolean}>;incoming(rows:RemoteRecordChange[]):Promise<FileBackup>;device:string;progress?:(value:SyncProgress)=>void;notice?:(message:string)=>void;archiveOriginals?:(side:'local'|'remote',rows:RemoteRecordChange[])=>Promise<SavedBackup>};
+type WholeGuards=Omit<RecordSyncGuards,'prepareOutgoing'>&{prepareOutgoing():Promise<void|{more:boolean}>;incoming(rows:RemoteRecordChange[],options?:{allowMissingImages:boolean}):Promise<FileBackup>;device:string;progress?:(value:SyncProgress)=>void;notice?:(message:string)=>void;archiveOriginals?:(side:'local'|'remote',rows:RemoteRecordChange[])=>Promise<SavedBackup>};
 function progress(guards:Pick<WholeGuards,'progress'>,stage:SyncProgressStage,label:string,completed=0,total:number|null=null){try{guards.progress?.({label,completed,total,stage});}catch{/* Informational only. */}}
 function mayRescue(error:unknown):boolean{
   if(error instanceof SyncInterruptedError)return false;
@@ -91,6 +92,7 @@ export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,gu
 export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncConnection,transport:WholeTransport,guards:WholeGuards,maxPages=20):Promise<RecordSyncOutcome>{
   const result=(status:'done'|'more'|'deferred',uploaded=0,downloaded=0):RecordSyncOutcome=>({status,uploaded,downloaded});
   await guards.assertCurrent();await bindRecordSyncConnection(db,connection);
+  const legacyImages=await readLegacyImageSync(db,connection);
   let remote=head(await transport.whole('status'));
   const old=await getPendingRecordPushBatch(db,connection);
   if(old){
@@ -140,6 +142,8 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   // Logical equality deliberately ignores wire chunks. Their guard/garbage
   // still needs an acknowledged transfer, without creating a user edit.
   const maintenance=source.outbox.some(row=>isChunkInternal(row.collection,row.id));
+  const mediaRepair=Boolean(baseline&&baseline.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&remoteDigest===baseline.digest&&source.outbox.length&&source.outbox.every(row=>row.collection==='questionImages'&&row.raw!==null));
+  if(mediaRepair)decision='upload';
   const replaceEqualWire=decision==='same'&&maintenance&&baseline?.serverRevision!==remote.revision;
   if(decision==='same'&&maintenance)decision='upload';
   let selected:'local'|'remote'|undefined;
@@ -164,7 +168,12 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   };
   const incomingFile=async():Promise<FileBackup>=>{
     if(!incoming)throw new SyncProtocolError('invalid_response','クラウドの受信原本がありません。データは保持しています。');
-    try { await guards.prepareMedia?.();await guards.assertCurrent();return await guards.incoming(incoming); }
+    try {
+      await guards.prepareMedia?.();await guards.assertCurrent();
+      const file=await guards.incoming(incoming,{allowMissingImages:preferSelected&&selected==='remote'||Boolean(legacyImages?.images.length)});
+      if(file.backupManifest.completeness==='partial'&&!(preferSelected&&selected==='remote')&&!acceptsLegacyImages(missingSyncImages(file),legacyImages))throw new SyncProtocolError('invalid_response','クラウドに未確認の画像参照があります。使うデータを選んでください。');
+      return file;
+    }
     catch(error){
       if(error instanceof SyncInterruptedError)throw error;
       const failure=error&&typeof error==='object'&&'code' in error?error:new SyncProtocolError('invalid_response','クラウドの画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));
@@ -177,13 +186,14 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   },{requireCrossContext:true});
   if(preferSelected){
     guards.step?.('backup');
-    // The selected snapshot must be complete. Only the unselected side may be
-    // preserved as raw rescue originals, without inventing missing attachments.
+    // Explicit selection also accepts legacy local-only image references.
+    // Keep every ID and archive the exact selected records before proceeding.
     if(selected==='remote')verifiedCloud=await incomingFile();
-    else {try{verifiedLocal=await exportFileBackup();}catch(error){if(!mayRescue(error))throw error;throw new SyncProtocolError('invalid_response','この端末の画像・教材を完全に退避できません。別の側を選び直してください。');}}
+    else {try{verifiedLocal=await exportFileBackup({recovery:true});}catch(error){if(!mayRescue(error))throw error;throw new SyncProtocolError('invalid_response','この端末の画像・教材を完全に退避できません。別の側を選び直してください。');}}
     const selectedFile=selected==='remote'?verifiedCloud!:verifiedLocal!;
     const validation=await validateFileBackup(selectedFile);
-    if(!validation.ok||selectedFile.backupManifest.completeness!=='complete')throw new SyncProtocolError('invalid_response',selected==='remote'?'クラウドの参照関係を確認できません。端末と受信原本を保持しています。':'この端末の画像・教材を完全に退避できません。別の側を選び直してください。');
+    const imageOnly=isImageOptionalSyncFile(selectedFile);
+    if(!validation.ok||selectedFile.backupManifest.completeness!=='complete'&&!imageOnly)throw new SyncProtocolError('invalid_response',selected==='remote'?'クラウドの参照関係を確認できません。端末と受信原本を保持しています。':'この端末の画像・教材を完全に退避できません。別の側を選び直してください。');
     await guards.assertCurrent();
     let otherCopy:SavedBackup;
     try{
@@ -198,12 +208,16 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
       try{guards.notice?.('読み出せる原本を自動で退避しました。');}catch{/* Informational only. */}
     }
     await guards.assertCurrent();progress(guards,'backup','同期前のバックアップを保存中',1,2);
+    const selectedOriginal=imageOnly?await guards.archiveOriginals!(selected!,selected==='remote'?incoming!:localRows):undefined;
+    await guards.assertCurrent();
     const selectedCopy=await saveBackupPayload(selectedFile,'before-sync');await guards.assertCurrent();
     const otherRead=await getSavedBackup(otherCopy.id),selectedRead=await getSavedBackup(selectedCopy.id);
     await guards.assertCurrent();
     if(otherRead?.raw!==otherCopy.raw||selectedRead?.raw!==selectedCopy.raw)throw new SyncProtocolError('local_persistence_failed','同期前の原本バックアップを保存できませんでした。');
+    if(selectedOriginal&&(await getSavedBackup(selectedOriginal.id))?.raw!==selectedOriginal.raw)throw new SyncProtocolError('local_persistence_failed','選択した原本を保存できませんでした。');
     await assertSource();progress(guards,'backup','同期前のバックアップを保存中',2,2);
-    if(selected==='remote')preservedOriginals={backupId:otherCopy.id,raw:otherCopy.raw,commitId:source.snapshot.state.commitId,connection};
+    if(selected==='remote')preservedOriginals={backupId:otherCopy.id,raw:otherCopy.raw,commitId:source.snapshot.state.commitId,connection,...(selectedOriginal?{selectedImages:{backupId:selectedCopy.id,raw:selectedCopy.raw,originalId:selectedOriginal.id,originalRaw:selectedOriginal.raw}}:{})};
+    if(imageOnly)try{guards.notice?.(`画像${missingSyncImages(selectedFile).length}件は未取得ですが、教材・履歴は同期しました。`);}catch{/* Informational only. */}
   }
   if(!remote.enabled){
     guards.step?.('backup');
@@ -242,7 +256,10 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     progress(guards,'applying','選んだデータを端末に反映中');
     const applied=await guards.apply(async options=>{
       if(options?.preserveLiveData)return {applied:false as const,deferred:true as const,commitId:source.snapshot.state.commitId,pushBlocked:true};
-      const committed=await applyWholeSyncFile(file,source.generation,tx=>queueWholeReplacement(tx,incoming!,{version:1,connection,serverRevision:remote.revision,userGeneration:source.generation,digest:remoteDigest}),decision==='conflict',preservedOriginals);
+      const committed=await applyWholeSyncFile(file,source.generation,tx=>{
+        queueWholeReplacement(tx,incoming!,{version:1,connection,serverRevision:remote.revision,userGeneration:source.generation,digest:remoteDigest});
+        if(preferSelected||legacyImages)queueLegacyImageSync(tx,connection,missingSyncImages(file));
+      },decision==='conflict',preservedOriginals,!preferSelected?legacyImages:undefined);
       if(!committed.ok){
         if(committed.committed)throw new Error(committed.error);
         if(preferSelected&&(committed.error.includes('端末の内容が変更')||committed.error.includes('現在の端末データが一致しません')))throw new SyncProtocolError('local_changed','同期中に端末の内容が変わりました。選んだ側で再試行します。');
@@ -273,6 +290,9 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   outgoing.forEach(row=>mediaReady(row as AppRecord,connection));
   const packed=await pack(outgoing.map(wire));
   const next:WholeFrozen={version:1,connection,id:crypto.randomUUID(),expectedRevision:remote.revision,generation:source.generation,digest:localDigest,wireDigest:packed.wireDigest,parts:packed.parts,records:outgoing.length,device:guards.device,replace,outbox:source.outbox.map(row=>({key:row.key,operationId:row.operationId}))};
+  const legacyArchive=archive;
+  if(preferSelected&&verifiedLocal)archive=tx=>{legacyArchive?.(tx);queueLegacyImageSync(tx,connection,missingSyncImages(verifiedLocal!));};
+  else if(mediaRepair&&legacyImages)archive=tx=>{legacyArchive?.(tx);queueLegacyImageSync(tx,connection,legacyImages.images.filter(image=>!source.snapshot.records.get(appRecordKey('questionImages',image.id))?.raw));};
   await guards.assertCurrent();await freezeWholeUpload(db,next,source.snapshot.state.commitId,archive);
   const sent=await sendFrozenWhole(db,transport,guards,next);return result('more',sent==='committed'?next.records:0,downloaded);
 }

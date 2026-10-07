@@ -1,7 +1,7 @@
 import { APP_COLLECTIONS, materializeAppRecords, type AppRecord } from './appRecordStorage';
 import { isChunkInternal } from './recordChunkFormat';
 import type { RemoteRecordChange } from './recordSyncPull';
-import { createCompleteFileBackup, type FileBackup } from './backupPayload';
+import { createCompleteFileBackup, createImageOptionalSyncFile, type FileBackup } from './backupPayload';
 import { hydrateMaterialDownload, type MaterialTransport } from './materialCloud';
 import type { StoredQuestionImage } from './questionImageRecords';
 import { isQuizMakeStorageKey, type SyncPayload } from './syncService';
@@ -25,15 +25,15 @@ export function wholeRowsPayload(rows:RemoteRecordChange[]):SyncPayload{
   return {version:1,updatedAt:new Date().toISOString(),localStorage:settings,indexedDbNotes:notes};
 }
 /** Staged attachments are private to this receive; live notes/images stay intact. */
-export async function buildWholeIncomingFile(db:IDBDatabase,rows:RemoteRecordChange[],transport:MaterialTransport,assertCurrent:()=>Promise<void>,progress?:(value:SyncProgress)=>void):Promise<FileBackup>{
+export async function buildWholeIncomingFile(db:IDBDatabase,rows:RemoteRecordChange[],transport:MaterialTransport,assertCurrent:()=>Promise<void>,progress?:(value:SyncProgress)=>void,allowMissingImages=false):Promise<FileBackup>{
   const source=wholeRowsPayload(rows),data=JSON.parse(source.localStorage['quiz-make-app-data-v1']) as AppData;
   const metadata=new Set(rows.filter(row=>row.collection==='questionImages'&&row.raw!==null).map(row=>row.id));
   const missing=new Set(data.questions.flatMap(question=>[...(question.questionImageIds??[]),...(question.detailedAnswer?.imageIds??[])]).filter(id=>!metadata.has(id)));
-  if(missing.size)throw new SyncProtocolError('invalid_response',`クラウドの画像${missing.size}件の紐づけ情報がありません。`);
+  if(missing.size&&!allowMissingImages)throw new SyncProtocolError('invalid_response',`クラウドの画像${missing.size}件の紐づけ情報がありません。`);
   const tx=db.transaction('appPullMedia'),completed=new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error)}),request=tx.objectStore('appPullMedia').getAll();await completed;
   const staged=request.result as Array<{image?:StoredQuestionImage}>;
   const images=staged.filter((row):row is {image:StoredQuestionImage}=>Boolean(row.image)).map(row=>row.image);
   await assertCurrent();
   const payload=await hydrateMaterialDownload(source,transport,undefined,(completed,total)=>{try{progress?.({label:'資料を確認・受信中',completed,total,stage:'receiving_materials'});}catch{/* Informational only. */}});
-  await assertCurrent();return createCompleteFileBackup(payload,images);
+  await assertCurrent();return allowMissingImages?createImageOptionalSyncFile(payload,images):createCompleteFileBackup(payload,images);
 }

@@ -1,7 +1,7 @@
 import { accountLocalStorage as localStorage, accountDatabaseName, getAccountStorageSession } from './accountStorage';
 import type { SyncPayload } from './syncService';
 
-export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; legacyOriginalRaw?: string; format?: 'originals'; }
+export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; legacyOriginalRaw?: string; format?: 'originals'|'partial'; }
 export type SavedBackupSummary = Omit<SavedBackup, 'raw' | 'byteSize' | 'legacyOriginalRaw'> & { byteSize: number };
 export function summarizeSavedBackup(record: SavedBackup): SavedBackupSummary {
   return { id: record.id, createdAt: record.createdAt, kind: record.kind,
@@ -69,6 +69,7 @@ export async function saveBackupPayload(payload: SyncPayload, kind: SavedBackup[
   const current = () => { if(owner !== getAccountStorageSession() || native !== globalThis.localStorage) throw new Error('バックアップの保存先が変わりました。原本は保持しています。'); owner?.assertCurrent(); };
   current();
   const record: SavedBackup = { id: `backup-${crypto.randomUUID()}`, createdAt: new Date().toISOString(), kind, raw: JSON.stringify(payload) };
+  if('backupManifest' in payload&&(payload.backupManifest as {completeness?:string})?.completeness==='partial')record.format='partial';
   record.byteSize = new Blob([record.raw]).size;
   if (typeof indexedDB === 'undefined') localStorage.setItem(PREFIX + record.id, JSON.stringify(record));
   else await operation('readwrite', (store) => store.add(record));
