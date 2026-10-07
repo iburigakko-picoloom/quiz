@@ -331,6 +331,8 @@ svg.quiz-ui-icon[data-library-artwork] { transform: scale(1.16); transform-origi
 .answer-sheet .answer-sheet__page-navigation button:active { background: #f4f6f9; transform: scale(.98); }
 .answer-sheet .answer-sheet__page-navigation button:focus-visible { outline: 2px solid #305da3; outline-offset: 2px; }
 .answer-sheet .answer-sheet__page-navigation button:disabled { opacity: .5; }
+/* Draft autosave briefly disables return on every keystroke; keep its appearance steady. */
+.answer-sheet .answer-sheet__page-navigation .answer-sheet__detail-back:disabled { opacity: 1; }
 .answer-sheet .answer-sheet__page-navigation .answer-sheet__detail-open--unsaved { border-color: #e6b27c; color: #914b1e; }
 @media (prefers-reduced-motion: reduce) { .answer-sheet .answer-sheet__page-navigation button { transition: none; } }
 .answer-sheet .answer-sheet__detail-input { min-height: 36dvh; border-radius: 6px; background: white; font-size: 16px; touch-action: pan-y pinch-zoom; }
