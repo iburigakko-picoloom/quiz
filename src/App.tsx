@@ -105,7 +105,7 @@ type PendingBackupImport = (
   | { kind: 'legacy'; data: AppData }) & { sourceCreatedAt?: string };
 export default function App() {
   const recovered = useRestoredAccountWork<{ screen: AppScreen; pendingBackupImport: PendingBackupImport | null; createDraftDirty: boolean }>('app');
-  const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : localStorage.getItem('quizMake:sync:unionLegacyPending') === 'true' ? { name: 'sync' } : { name: 'home' }));
+  const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' }));
   const [data, setData] = useState<AppData>(() => createEmptyAppData());
   const [storageReady, setStorageReady] = useState(false);
   const [receivingSharedImage,setReceivingSharedImage] = useState(()=>new URL(location.href).searchParams.has('sharedImage')||new URL(location.href).searchParams.has('sharedImageError'));

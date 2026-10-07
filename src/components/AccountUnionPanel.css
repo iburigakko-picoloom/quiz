@@ -1,6 +1,0 @@
-.account-union__body { display: grid; gap: 16px; padding-top: 16px; }
-.account-union__body p { margin: 0; line-height: 1.7; }
-.account-union__conflict { display: grid; gap: 14px; min-width: 0; padding: 14px; border: 1px solid #dce5ee; border-radius: 12px; }
-.account-union__conflict label { display: block; padding: 8px 0; }
-.account-union__conflict pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; font: inherit; line-height: 1.5; padding: 10px; background: #f5f8fb; border-radius: 8px; }
-.account-union input[type='radio'], .account-union input[type='checkbox'] { width: 22px; height: 22px; margin: 0 10px 0 0; vertical-align: middle; }

@@ -65,10 +65,9 @@ interface SyncScreenProps {
   onImported?: () => Promise<void>;
   onProtectionChange?: (value: boolean) => void;
   onOpenBackups?: () => void;
-  onOpenLegacyMigration?: () => void;
 }
 
-export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBackups, onOpenLegacyMigration, page, onNavigatePage, onExitGuardChange }: SyncScreenProps) {
+export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBackups, page, onNavigatePage, onExitGuardChange }: SyncScreenProps) {
   const configured = useMemo(() => isSyncConfigured(), []);
   const environmentStatus = useMemo(() => getSyncEnvironmentStatus(), []);
   const [syncId, setSyncId] = useState(() => getStoredSyncId());
@@ -1083,7 +1082,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
 
           <div className="sync-detail-row"><strong>端末名</strong><span>{readSyncDevice(globalThis.localStorage.getItem(SYNC_DEVICE_KEY)).name}</span></div>
           <div className="sync-detail-row"><strong>最終同期</strong><span>{lastState.lastSyncAt ? formatDateTime(lastState.lastSyncAt) : '未実行'}</span></div>
-          <nav className="sync-page-links" aria-label="詳細設定の操作">{onOpenBackups ? <button type="button" className="sync-page-link" disabled={interactionProtected} onClick={onOpenBackups}><span>バックアップ・復旧</span><ChevronRightIcon size={20} /></button> : link('recovery', 'バックアップ・復旧')}{link('diagnostics', '同期情報')}{onOpenLegacyMigration ? <button type="button" className="sync-page-link" disabled={interactionProtected} onClick={onOpenLegacyMigration}><span>旧データの移行</span><ChevronRightIcon size={20}/></button> : null}</nav>
+          <nav className="sync-page-links" aria-label="詳細設定の操作">{onOpenBackups ? <button type="button" className="sync-page-link" disabled={interactionProtected} onClick={onOpenBackups}><span>バックアップ・復旧</span><ChevronRightIcon size={20} /></button> : link('recovery', 'バックアップ・復旧')}{link('diagnostics', '同期情報')}</nav>
           <section className="sync-advanced__section" aria-label="自動同期の設定">
             <div className="sync-auto-row">
               <div>
