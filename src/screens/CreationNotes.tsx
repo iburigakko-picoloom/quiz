@@ -6,6 +6,7 @@ import { changeWeaknessNotes, detailBody, explanationPrompt, finishExplanationBa
 import { ExplanationReader, WeaknessDetail } from '../components/WeaknessDetail';
 import { ChevronRightIcon, ProblemSetIcon } from '../components/UiIcons';
 import { hasAnsweredMemo } from '../utils/weaknessNotes';
+import { MemoComposer } from '../components/MemoComposer';
 
 
 export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDirtyChange, onBackRef, onCreateQuestions, importOnly = false }: {
@@ -77,7 +78,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
       {!inSet.length?<p>メモはありません</p>:null}
       <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={!selected.length||busy||failed} onClick={()=>purpose==='questions'?createQuestions():go('prompt')}>{purpose==='questions'?'選んだ回答から問題を作る':`${selected.length}件をAIに解答してもらう`}</button></div>
     </>:null}
-    {view==='question'&&question?<><WeaknessDetail key={question.id} questionId={question.id} text={detailBody(question)} onSave={body=>onSaveDetail(question.id,body)} onDirtyChange={setFailed} onMemoDeleted={id=>{setSelected(ids=>ids.filter(value=>value!==id));go('set');}}/>{note?<details><summary>選んだ疑問を編集</summary><textarea aria-label="保存した疑問" value={note.body} onChange={e=>update({...note,body:e.target.value})}/></details>:null}</>:null}
+    {view==='question'&&question?<><WeaknessDetail key={question.id} questionId={question.id} text={detailBody(question)} onSave={body=>onSaveDetail(question.id,body)} onDirtyChange={setFailed} onMemoDeleted={id=>{setSelected(ids=>ids.filter(value=>value!==id));go('set');}}/>{note?<details><summary>選んだ疑問を編集</summary><MemoComposer id={`saved-memo-${note.id}`} label="保存した疑問" value={note.body} disabled={busy} onChange={body=>update({...note,body})}/></details>:null}</>:null}
     {view==='prompt'?<>
       <h3>解説に含めるもの</h3>
       {([['比較表',tables,setTables],['図・画像の依頼',images,setImages],['具体例',examples,setExamples]] as const).map(([label,value,set])=><label className="weakness-row" key={label}><span>{label}</span><input type="checkbox" checked={value} onChange={e=>set(e.target.checked)}/></label>)}

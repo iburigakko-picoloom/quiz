@@ -1,0 +1,12 @@
+html.memo-keyboard-fixed,
+.memo-keyboard-fixed body,
+.memo-keyboard-fixed #root,
+.memo-keyboard-fixed .app-layout { height:var(--memo-layout-height); }
+.memo-keyboard-fixed .answer-sheet[data-memo-keyboard-anchor] { top:var(--memo-sheet-top); bottom:auto; height:var(--memo-sheet-height); min-height:0; max-height:none; transition:none; }
+.memo-keyboard-fixed .primary-bottom-nav { top:calc(var(--memo-layout-height) - var(--primary-nav-height) - var(--safe-bottom)); bottom:auto; }
+.memo-keyboard-fixed .materials-drawer { bottom:auto; height:calc(var(--memo-layout-height) - var(--safe-top)); }
+.memo-keyboard-dock { position:fixed; z-index:100010; display:flex; flex-direction:column; gap:6px; padding:8px; border:1px solid #c9d2de; border-radius:12px; background:#fff; box-shadow:0 3px 18px #17203325; box-sizing:border-box; overflow:hidden; }
+.memo-keyboard-dock__header { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-shrink:0; font-size:13px; }
+.memo-keyboard-dock__header button { min-height:32px; padding:4px 10px; border:0; border-radius:7px; background:#eef4ff; color:#305da3; font:inherit; }
+.memo-keyboard-dock .weakness-compose-row { flex:1; min-height:0; }
+.memo-keyboard-dock.weakness-detail .weakness-compose-row textarea { min-height:40px; height:100px; max-height:100%; resize:none; font-size:16px; }

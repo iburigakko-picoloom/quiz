@@ -101,6 +101,8 @@ export function HomeScreen({
         {!folders.length && query ? <p className="quiz-home__no-results">該当するフォルダがありません</p> : null}
         </section>
 
+        </div>
+
         <section className="quiz-home__today" aria-label="今日のがんばり">
           <h2 className="sr-only">今日のがんばり</h2>
           <StudyCompanion scene="home">
@@ -110,8 +112,6 @@ export function HomeScreen({
             </button>
           </StudyCompanion>
         </section>
-
-        </div>
 
         {createOpen ? (
           <CreateFolderDialog

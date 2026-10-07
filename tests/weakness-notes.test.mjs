@@ -14,6 +14,40 @@ const q={id:'q1',setId:'s1',question:'Choose',choices:['A','B','C','D'],answerIn
 const data={version:1,folders:[],problemSets:[{id:'s1',title:'問題セット'}],questions:[q],progress:[{questionId:'q1',correctCount:5}],answerLogs:[{id:'log'}]};
 const memo={id:'m1',title:'疑問',body:'なぜA？',questionId:'q1'};
 
+test('memo keyboard holds the reading frame, allows deliberate scrolling and restores the session on exit',async()=>{
+  const {lockMemoKeyboard,memoDockTop}=await vite.ssrLoadModule('/src/utils/memoKeyboard.ts');
+  const keys=['window','document','navigator','requestAnimationFrame','cancelAnimationFrame'];
+  const originals=keys.map(key=>Object.getOwnPropertyDescriptor(globalThis,key));
+  const style=()=>{const values=new Map();return{getPropertyValue:key=>values.get(key)??'',setProperty:(key,value)=>values.set(key,value),removeProperty:key=>values.delete(key)}};
+  const classes=new Set(),root={style:style(),classList:{contains:key=>classes.has(key),add:key=>classes.add(key),remove:key=>classes.delete(key)}};
+  const keyboard=Object.assign(new EventTarget(),{overlaysContent:false,boundingRect:{height:0,top:800}});
+  const viewport=Object.assign(new EventTarget(),{height:800,offsetTop:0,scale:1});
+  const win=Object.assign(new EventTarget(),{innerHeight:800,visualViewport:viewport,scrollX:0,scrollY:0,scrollTo(x,y){this.scrollX=x;this.scrollY=y}});
+  const doc=Object.assign(new EventTarget(),{documentElement:root});
+  const frames=new Map();let next=0;
+  const sheet={style:style(),dataset:{},getBoundingClientRect:()=>({top:140,height:600})};
+  const parent={scrollHeight:1000,clientHeight:500,scrollWidth:300,clientWidth:300,scrollTop:12,scrollLeft:0,parentElement:null};
+  const anchor={parentElement:parent,closest:()=>sheet};
+  const values=[win,doc,{virtualKeyboard:keyboard},run=>{frames.set(++next,run);return next},id=>frames.delete(id)];
+  keys.forEach((key,i)=>Object.defineProperty(globalThis,key,{configurable:true,value:values[i]}));
+  const drain=()=>{for(const [id,run] of [...frames]){frames.delete(id);run()}};
+  let release;
+  try{
+    root.style.setProperty('--memo-layout-height','previous-height');
+    const visible=[];release=lockMemoKeyboard(anchor,value=>visible.push(value));drain();
+    assert.equal(keyboard.overlaysContent,true);assert.equal(root.style.getPropertyValue('--memo-layout-height'),'800px');
+    assert.equal(sheet.style.getPropertyValue('--memo-sheet-top'),'140px');assert.equal(sheet.style.getPropertyValue('--memo-sheet-height'),'600px');
+    keyboard.boundingRect={height:300,top:500};viewport.height=500;win.innerHeight=500;parent.scrollTop=140;
+    keyboard.dispatchEvent(new Event('geometrychange'));drain();
+    assert.equal(visible.at(-1),500);assert.equal(parent.scrollTop,12);assert.equal(root.style.getPropertyValue('--memo-layout-height'),'800px');
+    assert.equal(memoDockTop(670,164,visible.at(-1)),328);
+    doc.dispatchEvent(new Event('touchmove'));parent.scrollTop=90;viewport.dispatchEvent(new Event('scroll'));drain();assert.equal(parent.scrollTop,90);
+    release();release();assert.equal(keyboard.overlaysContent,false);assert.equal(root.style.getPropertyValue('--memo-layout-height'),'previous-height');assert.equal(classes.size,0);
+    assert.equal(sheet.style.getPropertyValue('--memo-sheet-top'),'');assert.equal('memoKeyboardAnchor' in sheet.dataset,false);
+    const count=visible.length;keyboard.dispatchEvent(new Event('geometrychange'));drain();assert.equal(visible.length,count);
+  }finally{release?.();keys.forEach((key,i)=>{if(originals[i])Object.defineProperty(globalThis,key,originals[i]);else delete globalThis[key]});}
+});
+
 test('question creation uses only answered memos with a remaining explanation', async()=>{
   const { hasAnsweredMemo } = await vite.ssrLoadModule('/src/utils/weaknessNotes.ts');
   const answered={...memo,resolvedBody:memo.body};

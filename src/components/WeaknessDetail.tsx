@@ -7,6 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { changeWeaknessNotes, readWeaknessNotes, NOTES_EVENT, type WeaknessNote } from '../utils/weaknessNotes';
 import { WeaknessMemoList } from './WeaknessMemoList';
+import { MemoComposer } from './MemoComposer';
 import './WeaknessNotes.css';
 import { activateImageTarget, rememberImageTarget } from '../utils/sharedImage';
 import { extractExplanationMedia, normalizeExplanationMarkdown } from '../utils/explanationMarkdown';
@@ -171,10 +172,7 @@ export function WeaknessDetail({ questionId, text, imageIds, onSave, onAddImage,
     <ExplanationReader questionId={questionId} text={text} imageIds={imageIds} onSave={onSave} onAddImage={onAddImage ? addImage : undefined} onRemoveImage={onRemoveImage ? removeImage : undefined} disabled={disabled || guideExample !== undefined}/>
     {!disabled && guideExample === undefined && <WeaknessMemoList notes={savedNotes} disabled={savingMemo} onDeleted={onMemoDeleted}/>}
     {disabled ? (!text.trim()?<p className="weakness-muted">自分の問題にコピーすると疑問を保存できます。</p>:null) : <>
-      {!adding&&text.trim()?<button type="button" className="weakness-button" onClick={()=>setAdding(true)}>＋ 追加で質問・メモ</button>:<div className="weakness-composer">
-        <label htmlFor={`memo-${questionId}`}>詳しく知りたいこと</label>
-        <div className="weakness-compose-row"><textarea id={`memo-${questionId}`} className="answer-sheet__detail-input" value={body} disabled={savingMemo} maxLength={4000} onChange={e=>{setBody(e.target.value);setMessage('');if(memoId)void persist(e.target.value,true);}}/><button type="button" className="weakness-primary" onClick={save} disabled={savingMemo||!body.trim()||!memoId} aria-label="苦手メモに保存">↑</button></div>
-      </div>}
+      {!adding&&text.trim()?<button type="button" className="weakness-button" onClick={()=>setAdding(true)}>＋ 追加で質問・メモ</button>:<MemoComposer id={`memo-${questionId}`} value={body} disabled={savingMemo} canSave={Boolean(body.trim() && memoId)} onChange={value=>{setBody(value);setMessage('');if(memoId)void persist(value,true);}} onSave={() => void save()} />}
     </>}
     {message?<p role="status" className="weakness-muted">{message}</p>:null}
     {error?<div role="alert" className="weakness-error">{error}<button type="button" onClick={()=>persist(body,true)}>再保存</button></div>:null}
