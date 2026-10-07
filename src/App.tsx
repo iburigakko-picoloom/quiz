@@ -21,7 +21,8 @@ import { PlanEditorScreen } from './screens/PlanEditorScreen';
 import { questionRevision } from './utils/studyPlans';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
 import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
-import { deleteLocalQuestionImage, deleteLocalQuestionImages, MAX_QUESTION_DETAIL_IMAGES, pruneLocalQuestionImages, saveLocalQuestionImage } from './utils/localQuestionImages';
+import { deleteLocalQuestionImage, deleteLocalQuestionImages, MAX_QUESTION_DETAIL_IMAGES, pruneLocalQuestionImages, saveLocalQuestionImage, shouldPruneQuestionImages } from './utils/localQuestionImages';
+import type { AnswerSaveChange } from './utils/answerRecordStorage';
 import { prepareCopiedQuestionImages, type PreparedQuestionImageCopy } from './utils/questionImageRecords';
 import { FolderScreen } from './screens/FolderScreen';
 import { QuestionDetailScreen } from './screens/QuestionDetailScreen';
@@ -382,6 +383,7 @@ export default function App() {
       setStorageError('削除処理が完了するまでお待ちください。');
       return false;
     }
+    const previous = dataRef.current;
     const revision = dataRevisionRef.current + 1;
     dataRevisionRef.current = revision;
     dataRef.current = nextData;
@@ -390,7 +392,7 @@ export default function App() {
     const saved = saveResult.ok;
     if (saved) {
       durableDataRef.current = nextData;
-      void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
+      if (shouldPruneQuestionImages(previous.questions, nextData.questions)) void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
       if (dataRevisionRef.current === revision) setStorageError('');
       return true;
     }
@@ -402,17 +404,18 @@ export default function App() {
     return saved;
   };
 
-  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = []): Promise<boolean> => {
+  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange): Promise<boolean> => {
     if (libraryMutationBusyRef.current) {
       setStorageError('削除処理が完了するまでお待ちください。');
       return false;
     }
+    const previous = dataRef.current;
     const revision = dataRevisionRef.current + 1;
     dataRevisionRef.current = revision;
     // Reserve the next snapshot immediately. Any action taken while this durable
     // save is pending will now build on top of it instead of an older snapshot.
     dataRef.current = nextData;
-    const saveResult = await saveAppDataResult(nextData, { questionImages });
+    const saveResult = await saveAppDataResult(nextData, { questionImages, answerChange });
     const saved = saveResult.ok;
     if (!saved) {
       if (dataRevisionRef.current === revision) {
@@ -423,7 +426,7 @@ export default function App() {
       return false;
     }
     durableDataRef.current = nextData;
-    void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
+    if (shouldPruneQuestionImages(previous.questions, nextData.questions)) void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
     // A newer mutation may already contain this snapshot plus further changes.
     // Do not roll the UI back to this older snapshot when that happens.
     if (dataRevisionRef.current === revision) {
@@ -771,15 +774,20 @@ export default function App() {
 
   const handleAnswer = (question: Question, selectedIndexes: number[], isReviewMode: boolean, sourceQuestion: Question) => {
     const answerLogId = createId('log');
-    const answerResult = recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId, sourceQuestion);
-    const savePromise = persistThenCommitData(answerResult.data);
+    const previous = dataRef.current;
+    const answerResult = recordAnswer(previous, question, selectedIndexes, isReviewMode, answerLogId, sourceQuestion);
+    const savePromise = persistThenCommitData(answerResult.data, [], { previous, questionId: question.id, answerLogId });
     const levelLabel = answerResult.progress.isGraduated ? '卒業' : `Level ${answerResult.progress.reviewLevel ?? 1}`;
     return {
       isCorrect: answerResult.isCorrect,
       addedToReview: answerResult.addedToReview,
       levelLabel,
       savePromise,
-      retrySave: () => persistThenCommitData(recordAnswer(dataRef.current, question, selectedIndexes, isReviewMode, answerLogId, sourceQuestion).data),
+      retrySave: () => {
+        const previous = dataRef.current;
+        return persistThenCommitData(recordAnswer(previous, question, selectedIndexes, isReviewMode, answerLogId, sourceQuestion).data,
+          [], { previous, questionId: question.id, answerLogId });
+      },
     };
   };
 

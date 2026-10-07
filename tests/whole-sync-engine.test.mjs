@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test,{after} from 'node:test';
 import {readFile} from 'node:fs/promises';
-import {IDBFactory,IDBKeyRange} from 'fake-indexeddb';
+import {IDBFactory,IDBKeyRange,IDBObjectStore} from 'fake-indexeddb';
 import {createRecordProtocolDatabase} from './helpers/record-protocol-db.mjs';
 globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
 const values=new Map();globalThis.localStorage={get length(){return values.size},key:i=>[...values.keys()][i]??null,getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k)};
@@ -23,6 +23,8 @@ const {readUserEditGeneration}=await import('../src/utils/userEditGeneration.ts'
 const {freezeRecordPushBatch,getPendingRecordPushBatch}=await import('../src/utils/recordSyncOutbox.ts');
 const pg=await createRecordProtocolDatabase();await pg.exec('create role service_role');await pg.exec(await readFile(new URL('../supabase/migrations/20261005154212_quiz_whole_commit.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261007105000_quiz_whole_finish_typed_rows.sql',import.meta.url),'utf8'));
+await pg.exec("create schema auth; create function auth.uid() returns uuid language sql as $$select case when coalesce(current_setting('test.actor',true),'')='' then null else md5(current_setting('test.actor'))::uuid end$$; grant usage on schema auth to authenticated;");
+await pg.exec(await readFile(new URL('../supabase/migrations/20261007165623_quiz_answer_sync_optimization.sql',import.meta.url),'utf8'));
 globalThis.window={dispatchEvent(){}};
 const stamp='2026-10-05T00:00:00Z',connection={project:'https://whole.invalid',userId:'11111111-1111-4111-8111-111111111111',syncId:'9'.repeat(36)};
 const folder=(id,name)=>({id,name,createdAt:stamp,updatedAt:stamp}),data=(name)=>({version:1,folders:[folder('f',name)],problemSets:[],questions:[],progress:[],answerLogs:[]});
@@ -112,4 +114,34 @@ test('obsolete wire chunks are deleted by an acknowledged maintenance commit des
   assert.equal((await run()).status,'done');const cloud=await readCloudRows();assert.ok(oldChunkIds.every(id=>!cloud.some(row=>row.id===id)));
   assert.equal((await hydrateChunkChanges(db,cloud,connection,true)).find(row=>row.id===largeKey).logicalRaw,'Y'.repeat(1200000));
   assert.equal(await readUserEditGeneration(db),generation);assert.equal((await listWholeRecovery()).length,copies);
+});
+
+const atomicTransport={...transport,async commitSmallWhole(body){
+  calls.push({name:'commit',body:structuredClone(body)});
+  const fields=[['p_operation_id','uuid'],['p_expected_revision','bigint'],['p_records','integer'],['p_digest','text'],['p_device','text'],['p_part_id','uuid'],['p_raw','text']];
+  return (await pg.query(`select public.quiz_whole_commit($1::text${fields.map(([,type],i)=>`,$${i+2}::${type}`).join('')}) result`,[connection.syncId,...fields.map(([key])=>body[key])])).rows[0].result;
+}};
+const runAtomic=()=>runWholeRecordSync(db,connection,atomicTransport,guards);
+test('one small edit finishes in three RPCs without rereading all records or scheduling another confirmation cycle',async()=>{
+  await edit('Small atomic edit');const start=calls.length;
+  const originalGetAll=IDBObjectStore.prototype.getAll;let fullReads=0;
+  IDBObjectStore.prototype.getAll=function(...args){if(this.name==='appRecords')fullReads++;return originalGetAll.apply(this,args)};
+  let result;try{result=await runAtomic()}finally{IDBObjectStore.prototype.getAll=originalGetAll}
+  assert.equal(result.status,'done');assert.equal(result.uploaded,1);assert.equal(fullReads,0);
+  assert.deepEqual(calls.slice(start).map(row=>row.name),['status','commit','status']);
+  assert.equal((await records.readAppOutbox(db)).length,0);
+  console.log('synthetic-small-sync '+JSON.stringify({rpcCalls:3,fullRecordReads:fullReads,finished:true}));
+});
+test('a lost small commit response replays the exact frozen bytes and preserves an edit made before retry',async()=>{
+  await edit('Atomic response lost');const start=calls.length;
+  let lost=true;
+  const losing={...atomicTransport,async commitSmallWhole(body){const reply=await atomicTransport.commitSmallWhole(body);if(lost){lost=false;throw Error('lost small committed response')}return reply}};
+  await assert.rejects(runWholeRecordSync(db,connection,losing,guards),/lost small committed response/);
+  const frozen=await readWholeMeta(db,'wholeFrozen',connection);assert.ok(frozen);assert.equal(frozen.replace,false);
+  const revision=(await transport.whole('status')).revision;
+  await edit('Later answer remains');assert.equal((await runAtomic()).status,'more');
+  assert.equal((await transport.whole('status')).revision,revision);assert.ok((await records.readAppOutbox(db)).length);
+  const sent=calls.slice(start).filter(row=>row.name==='commit');assert.equal(sent.length,2);assert.deepEqual(sent[0].body,sent[1].body);
+  assert.equal((await runAtomic()).status,'done');assert.deepEqual(await names(),['Later answer remains']);
+  assert.equal((await transport.whole('status')).revision,revision+1);
 });

@@ -1,4 +1,4 @@
-import { APP_COLLECTIONS, type AppRecordState } from './appRecordStorage';
+import { APP_COLLECTIONS, rememberAppRecordChanges, type AppRecord, type AppRecordState } from './appRecordStorage';
 import { sameRecordSyncConnection, type RecordSyncConnection } from './recordSyncOutbox';
 import { validateRecordPullPage, type RemoteRecordChange } from './recordSyncPull';
 import type { WholeSyncBaseline } from './wholeSyncDecision';
@@ -150,19 +150,23 @@ export function queueWholeReplacement(tx:IDBTransaction,rows:RemoteRecordChange[
 export async function acknowledgeWholeUpload(db:IDBDatabase,frozen:WholeFrozen,revision:number):Promise<void>{
   if(!safe(revision)||revision!==frozen.expectedRevision+1)throw new SyncProtocolError('invalid_response','全体保存の確認結果が不正です。');
   const sent=frozen.parts.flatMap(part=>JSON.parse(part.raw) as RemoteRecordChange[]);
+  const acknowledged:AppRecord[]=[];
+  let previousCommitId:string|undefined,nextState:AppRecordState|undefined;
   const tx=db.transaction(['appRecordMeta','appOutbox','appRecords','appPullStage','appPullMedia'],'readwrite'),completion=done(tx),current=tx.objectStore('appRecordMeta').get('wholeFrozen'),progress=tx.objectStore('appRecordMeta').get('wholeFrozenProgress'),incoming=tx.objectStore('appRecordMeta').get('wholeIncoming'),state=tx.objectStore('appRecordMeta').get('state');
   state.onsuccess=()=>{try{
     if(!matchesFrozen(current.result,frozen,progress.result))throw new Error();
     for(const row of frozen.outbox){const existing=tx.objectStore('appOutbox').get(row.key);existing.onsuccess=()=>{if(existing.result?.operationId===row.operationId)tx.objectStore('appOutbox').delete(row.key)}};
     queueWholeBaseline(tx,{version:1,connection:frozen.connection,serverRevision:revision,userGeneration:frozen.generation,digest:frozen.digest});
-    for(const row of sent){const existing=tx.objectStore('appRecords').get(row.key);existing.onsuccess=()=>{try{if(existing.result?.raw===row.raw&&existing.result.position===row.position)tx.objectStore('appRecords').put({...existing.result,serverRevision:revision},row.key)}catch{tx.abort()}}}
-    if(state.result)tx.objectStore('appRecordMeta').put({...state.result,commitId:crypto.randomUUID()},'state');
+    for(const row of sent){const existing=tx.objectStore('appRecords').get(row.key);existing.onsuccess=()=>{try{if(existing.result?.raw===row.raw&&existing.result.position===row.position){const acknowledgedRow={...existing.result,serverRevision:revision};tx.objectStore('appRecords').put(acknowledgedRow,row.key);acknowledged.push(acknowledgedRow)}}catch{tx.abort()}}}
+    if(state.result){previousCommitId=state.result.commitId;nextState={...state.result,commitId:crypto.randomUUID()};tx.objectStore('appRecordMeta').put(nextState,'state');}
     if(!incoming.result||sameRecordSyncConnection(incoming.result.connection,frozen.connection)&&incoming.result.revision<=frozen.expectedRevision){
       for(const key of ['wholeIncoming','pullStage'])tx.objectStore('appRecordMeta').delete(key);
       tx.objectStore('appPullStage').clear();tx.objectStore('appPullMedia').clear();
     }
     tx.objectStore('appRecordMeta').delete('wholeFrozen');tx.objectStore('appRecordMeta').delete('wholeFrozenProgress');
-  }catch{tx.abort()}};await completion;window.dispatchEvent(new Event(WHOLE_EVENT));
+  }catch{tx.abort()}};await completion;
+  if(previousCommitId&&nextState)rememberAppRecordChanges(db,previousCommitId,nextState,acknowledged,false);
+  window.dispatchEvent(new Event(WHOLE_EVENT));
 }
 export async function acknowledgeIdenticalWhole(db:IDBDatabase,baseline:WholeSyncBaseline):Promise<void>{
   if(await readUserEditGeneration(db)!==baseline.userGeneration)throw new SyncProtocolError('local_changed','確認中に端末の内容が変わりました。');

@@ -33,3 +33,10 @@ function validateImageFile(file: Blob) {
   if (!/^image\/(png|jpeg|webp|heic|heif)$/.test(file.type)) throw new Error('PNG・JPEG・WebP・HEIC・HEIF画像を選んでください。');
   if (!file.size || file.size > MAX_LOCAL_QUESTION_IMAGE_BYTES) throw new Error('画像は1枚50MB以下にしてください。');
 }
+
+/** Only removing a question can orphan an image owned by question ID. */
+export function shouldPruneQuestionImages(before: readonly { id: string }[], after: readonly { id: string }[]): boolean {
+  if (before === after || !before.length) return false;
+  const retained = new Set(after.map(row => row.id));
+  return before.some(row => !retained.has(row.id));
+}

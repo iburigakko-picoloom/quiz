@@ -20,12 +20,12 @@ export class RecordSyncRpcError extends Error {
 /** Every request revalidates the authenticated account; a timeout never implies
  * that a push failed to commit. Its caller retains the frozen Operation IDs.
  */
-export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransport & { open(expectedUpdatedAt: string): Promise<number>; whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}> } {
+export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransport & { open(expectedUpdatedAt: string): Promise<number>; whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}>; commitSmallWhole(body:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}> } {
   const origin = new URL(options.url).origin;
   if (origin !== options.connection.project) throw new Error('差分同期のプロジェクトが一致しません。');
   const request = async (name: string, body: Record<string, unknown>) => {
     options.assertCurrent();
-    try { options.onRequest?.(/_(push|begin|part|finish)$/.test(name) ? 'push' : /_(pull|read)$/.test(name) ? 'pull' : 'open'); } catch { /* Informational only. */ }
+    try { options.onRequest?.(/_(push|begin|part|finish|commit)$/.test(name) ? 'push' : /_(pull|read)$/.test(name) ? 'pull' : 'open'); } catch { /* Informational only. */ }
     const access = await options.access();
     options.assertCurrent();
     if (access.userId !== options.connection.userId || !access.accessToken) throw new Error('差分同期中にアカウントが変わりました。');
@@ -69,6 +69,7 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
       return result as { code: string; [key: string]: unknown };
     } finally { clearTimeout(timer); }
   };
+  let smallCommitAvailable = true;
   return {
     async open(expectedUpdatedAt) {
       if (!Number.isFinite(Date.parse(expectedUpdatedAt))) throw new Error('初回同期のSnapshotを確認できませんでした。');
@@ -80,5 +81,15 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
     pull: cursor => request('quiz_sync_v2_pull', { p_cursor: cursor, p_limit: 20 }),
     push: operations => request('quiz_sync_v2_push', { p_operations: operations }),
     whole:(name,body={})=>request('quiz_whole_'+name,body),
+    async commitSmallWhole(body) {
+      if (!smallCommitAvailable) return { code: 'unsupported' };
+      try { return await request('quiz_whole_commit', body); }
+      catch (error) {
+        // An older server definitively rejected this endpoint. The exact frozen
+        // bytes and IDs can safely use the original multipart RPCs instead.
+        if (error instanceof RecordSyncRpcError && error.code === 'unavailable') { smallCommitAvailable = false; return { code: 'unsupported' }; }
+        throw error;
+      }
+    },
   };
 }

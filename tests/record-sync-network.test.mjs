@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRecordSyncRpc } from '../src/utils/recordSyncNetwork.ts';
 const connection={project:'https://example.supabase.co',userId:'owner',syncId:'1'.repeat(36)};
+test('small commits verify the exact account for one authenticated request; only missing endpoints use multipart fallback',async()=>{
+  let auth=0;const sends=[];
+  const rpc=createRecordSyncRpc(options({access:async()=>{auth++;return{userId:'owner',accessToken:'verified'}},fetch:async(url,init)=>{sends.push({url,body:init.body});return Response.json({code:'ok',state:'committed',revision:2})}}));
+  const body={p_operation_id:'stable',p_part_id:'part-stable',p_raw:'[]'};
+  assert.equal((await rpc.commitSmallWhole(body)).state,'committed');assert.equal(auth,1);assert.equal(sends.length,1);assert.ok(sends[0].url.endsWith('/quiz_whole_commit'));assert.equal(JSON.parse(sends[0].body).p_operation_id,'stable');
+  let calls=0;const old=createRecordSyncRpc(options({fetch:async()=>{calls++;return new Response('',{status:404})}}));
+  assert.equal((await old.commitSmallWhole(body)).code,'unsupported');assert.equal((await old.commitSmallWhole(body)).code,'unsupported');assert.equal(calls,1);
+  for(const status of [401,403,500])await assert.rejects(createRecordSyncRpc(options({fetch:async()=>new Response('',{status})})).commitSmallWhole(body));
+});
 function options(overrides={}) { return {url:connection.project,anonKey:'public-key',connection,access:async()=>({userId:'owner',accessToken:'test-token'}),assertCurrent(){},...overrides}; }
 test('record network adapter revalidates account, uses RPC auth, and preserves exact operation IDs',async()=>{
   const seen=[]; let accessCalls=0;

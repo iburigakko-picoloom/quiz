@@ -1,5 +1,5 @@
 import { getAccountStorageSession, ACCOUNT_VAULT_MANIFEST_KEY, sameLocalAccount, validateLocalAccountIdentity } from './accountStorage';
-import { readAppRecordSnapshot, materializeAppRecords, appRecordKey } from './appRecordStorage';
+import { readCurrentAppRecordSnapshot, readCachedAppRecordData, rememberAppRecordData, materializeAppRecords, appRecordKey } from './appRecordStorage';
 import { describeQuestionImage, validQuestionImageDescriptor, questionImageMetadataKey, IMAGE_SYNC_STORES, type StoredQuestionImage, type QuestionImageDescriptor } from './questionImageRecords';
 import { queueAuxiliaryRecordWrite } from './auxiliaryRecordStorage';
 import { withCoordinatedDataRead } from './dataCoordination';
@@ -9,6 +9,7 @@ import { isAutoUploadBlocked } from './autoSyncScheduler';
 import { getActiveProtectedWorkReason } from './protectedWork';
 
 const done=(tx:IDBTransaction)=>new Promise<void>((r,j)=>{tx.oncomplete=()=>r();tx.onabort=()=>j(tx.error??new Error('旧画像の移行を保存できません。'));});
+const checkedReferences = new WeakMap<IDBDatabase, Map<string, string | null>>();
 async function openExisting(name:string):Promise<IDBDatabase|null>{
   return new Promise((r,j)=>{
     const request=indexedDB.open(name);let absent=false,blocked=false;
@@ -26,13 +27,17 @@ export async function recoverLegacyImageMetadata(db:IDBDatabase,assertCurrent:()
   const current=async()=>{if(owner!==getAccountStorageSession())throw new Error('画像のアカウントが変わりました。');owner.assertCurrent();if(isSyncInteractionProtected()||isAutoUploadBlocked(getActiveProtectedWorkReason()))throw new SyncInterruptedError('protected_work','操作が終わると同期を再開します。');};
   await assertCurrent();
   await withCoordinatedDataRead(['app','notes'],async()=>{
-    await current();const snapshot=await readAppRecordSnapshot(db);if(!snapshot)return;
-    const data=materializeAppRecords(snapshot),refs=new Map<string,string>(),ambiguous=new Set<string>();
+    await current();const snapshot=await readCurrentAppRecordSnapshot(db);if(!snapshot)return;
+    const references=new Map([...snapshot.records.values()].filter(row=>row.collection==='questions'||row.collection==='questionImages').map(row=>[row.key,row.raw]));
+    const checked=checkedReferences.get(db);
+    if(checked&&checked.size===references.size&&[...references].every(([key,raw])=>checked.has(key)&&checked.get(key)===raw))return;
+    const data=readCachedAppRecordData(db,snapshot.state.commitId)??materializeAppRecords(snapshot),refs=new Map<string,string>(),ambiguous=new Set<string>();
+    rememberAppRecordData(db,snapshot.state.commitId,data);
     for(const question of data.questions)for(const id of [...(question.questionImageIds??[]),...(question.detailedAnswer?.imageIds??[])]){
       if(refs.has(id)&&refs.get(id)!==question.id)ambiguous.add(id);else refs.set(id,question.id);
     }
     const needed=new Map([...refs].filter(([id])=>!ambiguous.has(id)&&!snapshot.records.has(appRecordKey('questionImages',id))));
-    if(!needed.size)return;
+    if(!needed.size){checkedReferences.set(db,references);return;}
     const read=db.transaction('questionImageBlobs'),readDone=done(read),live=read.objectStore('questionImageBlobs').getAll();await readDone;
     const candidates=new Map<string,{image:StoredQuestionImage;descriptor:QuestionImageDescriptor}>();
     const collect=async(images:StoredQuestionImage[])=>{

@@ -1,4 +1,4 @@
-import { appRecordKey, readAppRecordSnapshot, readAppOutbox, type AppRecord } from './appRecordStorage';
+import { appRecordKey, readCurrentAppRecordSnapshot as readAppRecordSnapshot, readAppOutbox, type AppRecord } from './appRecordStorage';
 import { acknowledgeRecordPushBatch, bindRecordSyncConnection, getPendingRecordPushBatch, releaseRejectedRecordPushBatch, type RecordPushAcknowledgement, type RecordSyncConnection } from './recordSyncOutbox';
 import { validateRecordPullPage, type RemoteRecordChange } from './recordSyncPull';
 import type { RecordSyncGuards, RecordSyncOutcome, RecordSyncTransport } from './recordSyncEngine';
@@ -20,7 +20,7 @@ import { remoteQuestionImageDescriptor } from './questionImageCloud';
 import { chunkIds, isChunkInternal, parseChunkManifest, RECORD_CHUNK_GUARD_ID } from './recordChunkFormat';
 
 type Reply={code:string;[key:string]:unknown};
-export type WholeTransport=RecordSyncTransport&{whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<Reply>};
+export type WholeTransport=RecordSyncTransport&{whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<Reply>;commitSmallWhole?(body:Record<string,unknown>):Promise<Reply>};
 type WholeGuards=Omit<RecordSyncGuards,'prepareOutgoing'>&{prepareOutgoing():Promise<void|{more:boolean}>;incoming(rows:RemoteRecordChange[],options?:{allowMissingImages:boolean}):Promise<FileBackup>;device:string;progress?:(value:SyncProgress)=>void;notice?:(message:string)=>void;archiveOriginals?:(side:'local'|'remote',rows:RemoteRecordChange[])=>Promise<SavedBackup>};
 function progress(guards:Pick<WholeGuards,'progress'>,stage:SyncProgressStage,label:string,completed=0,total:number|null=null){try{guards.progress?.({label,completed,total,stage});}catch{/* Informational only. */}}
 function mayRescue(error:unknown):boolean{
@@ -69,6 +69,18 @@ export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,gu
   };
   await guards.assertCurrent();guards.step?.('push');
   progress(guards,'sending','データを送信中',frozen.nextPart??0,frozen.parts.length);
+  if(transport.commitSmallWhole&&!frozen.replace&&frozen.parts.length===1&&new TextEncoder().encode(frozen.parts[0].raw).byteLength<=131072){
+    const part=frozen.parts[0];
+    const reply=await transport.commitSmallWhole({p_operation_id:frozen.id,p_expected_revision:frozen.expectedRevision,p_records:frozen.records,p_digest:frozen.wireDigest,p_device:frozen.device,p_part_id:part.id,p_raw:part.raw});
+    if(reply.code==='conflict'||reply.code==='expired')return reject();
+    if(reply.code!=='unsupported'){
+      requireOk(reply);
+      if(reply.state!=='committed'||!integer(reply.revision))throw new SyncProtocolError('invalid_response','全体保存の結果を確認できません。送信原本を保持しています。');
+      await guards.assertCurrent();await acknowledgeWholeUpload(db,frozen,reply.revision);
+      progress(guards,'finalizing','クラウドへ保存しました',1,1);
+      return 'committed';
+    }
+  }
   const begin=await transport.whole('begin',{p_operation_id:frozen.id,p_expected_revision:frozen.expectedRevision,p_parts:frozen.parts.length,p_records:frozen.records,p_digest:frozen.wireDigest,p_device:frozen.device,p_replace:frozen.replace});
   if(begin.code==='conflict'||begin.code==='expired')return reject();requireOk(begin);
   if(begin.state==='committed'){if(!integer(begin.revision))throw new SyncProtocolError('invalid_response','全体保存の版を確認できません。');await acknowledgeWholeUpload(db,frozen,begin.revision);return 'committed'}
@@ -91,6 +103,16 @@ export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,gu
  * boundary for the entire dataset. No row-level resolution or history union. */
 export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncConnection,transport:WholeTransport,guards:WholeGuards,maxPages=20):Promise<RecordSyncOutcome>{
   const result=(status:'done'|'more'|'deferred',uploaded=0,downloaded=0):RecordSyncOutcome=>({status,uploaded,downloaded});
+  const finishUpload=async(frozen:WholeFrozen,sent:'committed'|'rejected'|'more',downloaded=0)=>{
+    if(sent==='committed'&&transport.commitSmallWhole){
+      await guards.assertCurrent();
+      const latest=head(await transport.whole('status'));
+      const settled=await withCoordinatedDataRead(['app','notes'],async()=>latest.enabled&&latest.revision===frozen.expectedRevision+1
+        &&await readUserEditGeneration(db)===frozen.generation&&!(await readAppOutbox(db)).length,{requireCrossContext:true});
+      if(settled)return result('done',frozen.records,downloaded);
+    }
+    return result('more',sent==='committed'?frozen.records:0,downloaded);
+  };
   await guards.assertCurrent();await bindRecordSyncConnection(db,connection);
   const legacyImages=await readLegacyImageSync(db,connection);
   let remote=head(await transport.whole('status'));
@@ -105,7 +127,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     remote=head(await transport.whole('status'));
   }
   const frozen=await readWholeMeta<WholeFrozen>(db,'wholeFrozen',connection);
-  if(frozen){const sent=await sendFrozenWhole(db,transport,guards,frozen);return result('more',sent==='committed'?frozen.records:0)}
+  if(frozen){const sent=await sendFrozenWhole(db,transport,guards,frozen);return finishUpload(frozen,sent)}
   const prior=await readWholeMeta<WholeConflict>(db,'wholeConflict',connection);
   const priority=prior?.preferSelected?prior.choice:undefined;
   let preparationError:unknown;
@@ -294,5 +316,5 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   if(preferSelected&&verifiedLocal)archive=tx=>{legacyArchive?.(tx);queueLegacyImageSync(tx,connection,missingSyncImages(verifiedLocal!));};
   else if(mediaRepair&&legacyImages)archive=tx=>{legacyArchive?.(tx);queueLegacyImageSync(tx,connection,legacyImages.images.filter(image=>!source.snapshot.records.get(appRecordKey('questionImages',image.id))?.raw));};
   await guards.assertCurrent();await freezeWholeUpload(db,next,source.snapshot.state.commitId,archive);
-  const sent=await sendFrozenWhole(db,transport,guards,next);return result('more',sent==='committed'?next.records:0,downloaded);
+  const sent=await sendFrozenWhole(db,transport,guards,next);return finishUpload(next,sent,downloaded);
 }

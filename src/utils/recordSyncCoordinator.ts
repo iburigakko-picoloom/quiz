@@ -32,6 +32,7 @@ import { archiveSyncOriginals } from './syncOriginalBackup';
 import { readAppOutbox } from './appRecordStorage';
 import { materialFileEntry } from './materialModel';
 import { recoverLegacyImageMetadata } from './legacyImageRecovery';
+import { readWholeBaseline } from './wholeSyncStorage';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -63,11 +64,6 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
     if (!saved.ok) { step('local_persistence'); throw new SyncLocalPersistenceError(saved.error); }
   };
   await assertCurrent();
-  step('remote_metadata');
-  const remote = await getRemoteSyncMeta(syncId);
-  if (!remote.ok) throw new RecordSyncRpcError(remote.code ?? 'network', remote.error);
-  if (!remote.value) throw new Error('同期先のSnapshotが見つかりません。');
-  const expected = remote.value.updatedAt;
   const rpc = createRecordSyncRpc({ url: config.url, anonKey: config.anonKey, connection, onRequest: step,
     async access() {
       const current = await getCloudAccessToken();
@@ -82,13 +78,21 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
       if ((!current.enabled && !manual) || current.syncId !== syncId) throw new SyncInterruptedError('connection_changed', '同期先が変わりました。');
     },
   });
-  step('open'); await rpc.open(expected);
   const db = await withCoordinatedDataRead(['app','notes'],async()=>{
     await openCoLocatedNoteDb();
     await replayLocalStorageProjections();
     await captureSyncedLocalStorage(isQuizMakeStorageKey);
     return openQuestionImageRecordDb();
   },{requireCrossContext:true});
+  // A durable whole baseline proves initialization for this exact connection.
+  // Its authenticated status RPC still verifies ownership and the current head.
+  if(!WHOLE_SYNC_ROLLOUT_ENABLED||!await readWholeBaseline(db,connection)){
+    step('remote_metadata');
+    const remote=await getRemoteSyncMeta(syncId);
+    if(!remote.ok)throw new RecordSyncRpcError(remote.code??'network',remote.error);
+    if(!remote.value)throw new Error('同期先のSnapshotが見つかりません。');
+    step('open');await rpc.open(remote.value.updatedAt);
+  }
   const imageTransport = createQuestionImageTransport(config, initialAccess);
   const materialTransport = createMaterialTransport(config,initialAccess);
   if(WHOLE_SYNC_ROLLOUT_ENABLED){

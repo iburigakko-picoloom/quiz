@@ -7,6 +7,8 @@ const pg=await createRecordProtocolDatabase();after(()=>pg.close());
 await pg.exec('create role service_role');
 await pg.exec(await readFile(new URL('../supabase/migrations/20261005154212_quiz_whole_commit.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261007105000_quiz_whole_finish_typed_rows.sql',import.meta.url),'utf8'));
+await pg.exec("create schema auth; create function auth.uid() returns uuid language sql as $$select case when coalesce(current_setting('test.actor',true),'')='' then null else md5(current_setting('test.actor'))::uuid end$$; grant usage on schema auth to authenticated;");
+await pg.exec(await readFile(new URL('../supabase/migrations/20261007165623_quiz_answer_sync_optimization.sql',import.meta.url),'utf8'));
 const stamp='2026-10-05T00:00:00Z',id='1'.repeat(36),oldId='2'.repeat(36);
 const app={version:1,folders:[],problemSets:[],questions:[],progress:[],answerLogs:[]};
 const payload={version:1,updatedAt:stamp,localStorage:{'quiz-make-app-data-v1':JSON.stringify(app)},indexedDbNotes:{}};
@@ -17,7 +19,51 @@ const status=(sync=id)=>call('quiz_whole_status',[sync],['text']);
 const open=(rev,sync=id)=>call('quiz_whole_open',[sync,rev],['text','bigint']);
 const record=(key,name)=>({key:JSON.stringify(['folders',key]),collection:'folders',id:key,raw:JSON.stringify({id:key,name}),position:0});
 const sha=text=>createHash('sha256').update(text).digest('hex');
+const smallTypes=['text','uuid','bigint','integer','text','text','uuid','text'];
+function smallDelta(sync,revision,rows){const raw=JSON.stringify(rows);return [sync,randomUUID(),revision,rows.length,sha(sha(raw)),'Atomic QA device',randomUUID(),raw]}
+const commitSmall=args=>call('quiz_whole_commit',args,smallTypes);
 async function prepare(rows,revision,sync=id,replace=true){const raw=JSON.stringify(rows),commit=randomUUID(),part=randomUUID();const beginArgs=[sync,commit,revision,1,rows.length,sha(sha(raw)),'QA device',replace];return {commit,part,raw,beginArgs,begin:()=>call('quiz_whole_begin',beginArgs,['text','uuid','bigint','integer','integer','text','text','boolean']),upload:()=>call('quiz_whole_part',[sync,commit,part,0,raw],['text','uuid','uuid','integer','text']),finish:()=>call('quiz_whole_finish',[sync,commit],['text','uuid'])}}
+
+test('small deltas commit once under the same CAS, byte digest and immutable receipt',async()=>{
+  const sync=sha(randomUUID()).slice(0,36);
+  await pg.query('insert into public.quiz_sync_data(sync_id,updated_at,creator_hash,data) values($1,$2,private.quiz_sync_actor_hash(),$3)',[sync,stamp,JSON.stringify(payload)]);
+  assert.equal((await call('quiz_sync_v2_open',[sync,stamp],['text','timestamptz'])).code,'ok');
+  assert.equal((await open(0,sync)).code,'ok');
+  const args=smallDelta(sync,0,[record('small','Original')]);
+  await pg.exec('set role authenticated');
+  const committed=await commitSmall(args);assert.deepEqual(committed,{code:'ok',state:'committed',revision:1});
+  assert.deepEqual(await commitSmall(args),committed);
+  await pg.exec('reset role');
+  assert.equal((await status(sync)).revision,1);
+  const altered=[...args];altered[7]=JSON.stringify([record('small','Changed')]);altered[4]=sha(sha(altered[7]));
+  assert.equal((await commitSmall(altered)).code,'operation_reused');
+  const stale=smallDelta(sync,0,[record('stale','Must not write')]);assert.equal((await commitSmall(stale)).code,'conflict');
+  assert.equal((await pg.query('select count(*)::integer count from private.quiz_sync_operations where sync_id=$1 and operation_id=$2',[sync,stale[1]])).rows[0].count,0);
+  assert.equal((await status(sync)).revision,1);
+  await pg.exec("select set_config('test.actor','other-owner',false)");
+  await assert.rejects(commitSmall(smallDelta(sync,1,[record('other','Must not write')])));
+  await pg.exec("select set_config('test.actor','owner',false)");
+  assert.equal((await status(sync)).revision,1);
+});
+
+test('a rejected small part rolls back its entire staging transaction and validates limits before writing',async()=>{
+  const sync=sha(randomUUID()).slice(0,36);await pg.query('insert into public.quiz_sync_data(sync_id,updated_at,creator_hash,data) values($1,$2,private.quiz_sync_actor_hash(),$3)',[sync,stamp,JSON.stringify(payload)]);
+  await call('quiz_sync_v2_open',[sync,stamp],['text','timestamptz']);await open(0,sync);
+  const duplicate=smallDelta(sync,0,[record('dup','A'),record('dup','B')]);
+  assert.equal((await commitSmall(duplicate)).code,'invalid');
+  assert.equal((await pg.query('select count(*)::integer count from private.quiz_sync_operations where sync_id=$1',[sync])).rows[0].count,0);
+  assert.equal((await status(sync)).revision,0);
+  const valid=smallDelta(sync,0,[record('valid','Good')]),wrongHash=[...valid];wrongHash[4]='0'.repeat(64);
+  assert.equal((await commitSmall(wrongHash)).code,'invalid');
+  const oversized=smallDelta(sync,0,[record('large','X'.repeat(131072))]);assert.equal((await commitSmall(oversized)).code,'invalid');
+  assert.equal((await commitSmall(valid)).revision,1);
+  const index=(await pg.query("select indexdef from pg_indexes where indexname='quiz_sync_records_live_key_c_idx'")).rows[0].indexdef;
+  assert.match(index,/record_key COLLATE "C"/);assert.match(index,/WHERE \(raw IS NOT NULL\)/);
+  await pg.exec('set enable_seqscan=off');
+  const plan=(await pg.query('explain (format json) select * from private.quiz_sync_records where sync_id=$1 and raw is not null and record_key collate "C">$2 collate "C" order by record_key collate "C" limit 200',[sync,''])).rows[0]['QUERY PLAN'];
+  assert.match(JSON.stringify(plan),/quiz_sync_records_live_key_c_idx/);assert.doesNotMatch(JSON.stringify(plan),/"Node Type":"Sort"/);
+  await pg.exec('reset enable_seqscan');
+});
 
 test('whole mode fences old record and Snapshot writers only for its enabled dataset',async()=>{
   assert.equal((await status()).enabled,false);assert.equal((await open(99)).code,'conflict');assert.equal((await open(0)).code,'ok');

@@ -68,7 +68,7 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
-function validateState(value: AppRecordState): void {
+export function validateState(value: AppRecordState): void {
   if (value.schema !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 1
     || typeof value.commitId !== 'string' || !value.commitId
     || !Number.isFinite(Date.parse(value.savedAt))
@@ -143,7 +143,33 @@ export async function readAppRecordSnapshotForCommit(db: IDBDatabase, commitId: 
     recordSyncMetric('recordSnapshotReused');
     return cached;
   }
-  return readAppRecordSnapshot(db);
+  const snapshot = await readAppRecordSnapshot(db);
+  if (snapshot) snapshots.set(db, snapshot);
+  return snapshot;
+}
+
+/** Probe the durable commit before reusing any in-memory records. */
+export async function readCurrentAppRecordSnapshot(db: IDBDatabase): Promise<Snapshot | null> {
+  const tx = db.transaction('appRecordMeta', 'readonly'), done = transactionDone(tx);
+  const request = tx.objectStore('appRecordMeta').get('state');
+  await done;
+  return request.result ? readAppRecordSnapshotForCommit(db, request.result.commitId) : readAppRecordSnapshot(db);
+}
+
+export function rememberAppRecordChanges(db: IDBDatabase, previousCommitId: string, state: AppRecordState, changes: readonly AppRecord[], studyChanges = true): void {
+  const prior = snapshots.get(db), cached = materialized.get(db);
+  if (prior?.state.commitId === previousCommitId) {
+    const records = new Map(prior.records);
+    changes.forEach(row => records.set(row.key, row));
+    snapshots.set(db, { state, records });
+  } else snapshots.delete(db);
+  if (cached?.commitId === previousCommitId && !studyChanges) rememberAppRecordData(db, state.commitId, cached.data);
+  else if (cached?.commitId === previousCommitId && changes.every(row => row.raw && (row.collection === 'progress' || row.collection === 'answerLogs'))) {
+    const progress = new Map(changes.filter(row => row.collection === 'progress').map(row => [row.id, JSON.parse(row.raw!)]));
+    const logs = changes.filter(row => row.collection === 'answerLogs').map(row => JSON.parse(row.raw!));
+    rememberAppRecordData(db, state.commitId, { ...cached.data,
+      progress: cached.data.progress.map(row => progress.get(row.questionId) ?? row), answerLogs: [...cached.data.answerLogs, ...logs] });
+  } else materialized.delete(db);
 }
 
 /** Called only after a Pull transaction has committed its state and rows. */

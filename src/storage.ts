@@ -2,7 +2,8 @@ import { accountLocalStorage as localStorage, accountDatabaseName, assertAccount
 import type { AppData } from './types';
 import type { PreparedQuestionImageCopy } from './utils/questionImageRecords';
 import { normalizeAppData } from './utils/appDataValidation';
-import { loadLatestCoordinatedData, withCoordinatedDataMutation } from './utils/dataCoordination';
+import { ExternalDataChangeError, loadLatestCoordinatedData, withCoordinatedDataMutation } from './utils/dataCoordination';
+import { saveAnswerRecordChanges, type AnswerSaveChange } from './utils/answerRecordStorage';
 import { advanceLocalDataRevision } from './utils/localDataRevision';
 import { hasPersistedSyncHistory } from './utils/syncState';
 import { readAppRecords, readPreviousAppRecords, saveAppRecords, upgradeAppRecordStores } from './utils/appRecordStorage';
@@ -117,7 +118,7 @@ export function saveAppData(data: AppData): Promise<boolean> {
 }
 
 /** A per-call result keeps concurrent saves' failure reasons separate. */
-export async function saveAppDataResult(data: AppData, options: { questionImages?: readonly PreparedQuestionImageCopy[] } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
+export async function saveAppDataResult(data: AppData, options: { questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
   let failure: AppSaveFailure | undefined;
   const saved = await saveAppDataAsync(data, { ...options, onFailure: value => { failure = value; } });
   return saved ? { ok: true } : { ok: false, failure: failure ?? appSaveFailure([{ stage: 'indexeddb', error: new Error() }]) };
@@ -136,14 +137,14 @@ export function establishCurrentAppDataAuthority(): boolean {
 
 export async function saveAppDataAsync(
   data: AppData,
-  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[] } = {},
+  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange } = {},
 ): Promise<boolean> {
-  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure, options.questionImages);
+  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange);
   const queuedSave = appSaveQueue
     .catch(() => true)
     .then(async () => {
       try {
-        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data, options.onFailure, options.questionImages));
+        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange));
       } catch (error) {
         console.error('Refused to overwrite app data changed in another tab.', error);
         try { options.onFailure?.(appSaveFailure([{ stage: 'coordination', error }])); } catch { /* Informational only. */ }
@@ -162,17 +163,32 @@ export async function waitForPendingAppDataSaves(): Promise<boolean> {
   }
 }
 
-async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailure) => void, imageCopies: readonly PreparedQuestionImageCopy[] = []): Promise<boolean> {
+async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailure) => void, imageCopies: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange): Promise<boolean> {
+  const savedAt = new Date().toISOString();
+  const attempts: Array<{ stage: 'indexeddb' | 'fallback'; error: unknown }> = [];
+  if (answerChange && !imageCopies.length && isIndexedDbAvailable() && !getLocalFallbackRecord().raw) {
+    try {
+      if (await saveAnswerRecordChanges(await openAppDb(), data, savedAt, answerChange)) {
+        markAppDataExpectedBestEffort(savedAt);
+        await cleanupLegacyAppData();
+        advanceLocalDataRevision();
+        return true;
+      }
+    } catch (error) {
+      if (error instanceof ExternalDataChangeError) {
+        try { onFailure?.(appSaveFailure([{ stage: 'coordination', error }])); } catch { /* Informational only. */ }
+        return false;
+      }
+      attempts.push({ stage: 'indexeddb', error });
+    }
+  }
   const normalized = normalizeAppData(data);
   if (!normalized.ok) {
     console.error('Refused to save invalid Quiz make data.');
     try { onFailure?.(appSaveFailure([{ stage: 'validation', error: new Error() }], normalized.error)); } catch { /* Informational only. */ }
     return false;
   }
-  const savedAt = new Date().toISOString();
-  const attempts: Array<{ stage: 'indexeddb' | 'fallback'; error: unknown }> = [];
-
-  if (isIndexedDbAvailable()) {
+  if (isIndexedDbAvailable() && !attempts.length) {
     try {
       await saveAppRecords(await openAppDb(), normalized.data, savedAt, getLocalFallbackRecord, imageCopies);
       markAppDataExpectedBestEffort(savedAt);
