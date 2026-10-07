@@ -799,7 +799,7 @@ test('invalid remote dependencies stop inspection without changing local data, o
     const stage = await stored(b, 'appRecordMeta', 'pullStage');
     const transport = { pull: async () => ({ code: 'ok', cursor: stage.cursor, head: stage.head, hasMore: false, batches: [] }),
       push: async () => assert.fail('invalid graph must never authorize a new batch') };
-    await assert.rejects(runRecordSync(b, f.connection, transport, editingGuards), /参照|存在|失われ/);
+    await assert.rejects(runRecordSync(b, f.connection, transport, editingGuards), error=>error.code==='invalid_response'&&/参照/.test(error.message));
     assert.deepEqual(await read(b), local); assert.deepEqual(await records.readAppOutbox(b), pending);
     assert.deepEqual(await stored(b, 'appRecordMeta', 'pullCursor'), cursor);
     assert.ok(await stored(b, 'appRecordMeta', 'pullStage')); assert.equal(await getPendingRecordPushBatch(b, f.connection), null);

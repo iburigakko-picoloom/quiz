@@ -59,6 +59,9 @@ const precacheManifestPlugin: Plugin = {
 
 export default defineConfig(({ mode }) => ({
   base: mode === "native" ? "./" : "/quiz/",
+  build: process.env.QUIZMAKE_SYNC_VALIDATION === 'true' ? {
+    rollupOptions: { input: { main: resolve('index.html'), validation: resolve('tests/browser/whole-sync.html') } },
+  } : undefined,
   plugins: [react(), buildVersionPlugin, pdfAssetsPlugin, precacheManifestPlugin],
   define: {
     __QUIZ_BUILD_ID__: JSON.stringify(buildId),

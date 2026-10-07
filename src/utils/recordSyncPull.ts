@@ -341,8 +341,15 @@ export async function applyStagedRecordPull(
   });
   const nextState = { ...before.state, revision, commitId: crypto.randomUUID(), savedAt: new Date().toISOString(), counts };
   // Validate all references before writing. An incomplete dependency change remains staged.
-  const data = conflicts.length ? undefined :
-    (materializeAnswerChanges(db, before.state.commitId, writes, next) ?? materializeAppRecords({ state: nextState, records: next }));
+  let data: AppData | undefined;
+  try {
+    data = conflicts.length ? undefined :
+      (materializeAnswerChanges(db, before.state.commitId, writes, next) ?? materializeAppRecords({ state: nextState, records: next }));
+  } catch {
+    // A broken remote graph stays staged. It must not be reported as a broken
+    // local database by the app's apply guard, which has not written anything.
+    throw new SyncProtocolError('invalid_response','クラウドの参照関係を確認できません。端末と受信原本を保持しています。');
+  }
   if (data) {
     const changedQuestions = new Set(writes.filter(row => row.collection === 'questions').map(row => row.id));
     const changedImages = new Set(writes.filter(row => row.collection === 'questionImages').map(row => row.id));

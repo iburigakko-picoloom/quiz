@@ -298,7 +298,7 @@ test('Pull rejects cursor gaps, mismatched IDs and orphaned imports without chan
   await assert.rejects(syncPull.stageRecordPullPage(db,connection,1,page(3,[change('folders','f',initial.folders[0],3)])),/連続/);
   await assert.rejects(syncPull.stageRecordPullPage(db,connection,1,page(2,[change('folders','other',initial.folders[0],2)])),/一致/);
   await syncPull.stageRecordPullPage(db,connection,1,page(2,[change('problemSets','s',null,2)]));
-  await assert.rejects(syncPull.applyStagedRecordPull(db,connection),/存在しない/);
+  await assert.rejects(syncPull.applyStagedRecordPull(db,connection),error=>error.code==='invalid_response'&&/参照/.test(error.message));
   assert.deepEqual((await records.readAppRecords(db)).data,initial);
   assert.equal((await get(db,'appRecordMeta','pullCursor')).cursor,1);
   db.close();
@@ -416,7 +416,7 @@ test('answer-only Pull validates changed rows and preserves the accepted cursor 
     const invalid = { id: 'bad-log', questionId: 'q0', setId: 's', folderId: 'f',
       selectedIndex: 9, selectedIndexes: [9], isCorrect: false, answeredAt: timestamp };
     await syncPull.stageRecordPullPage(db, connection, 1, page(2, [change('answerLogs', 'bad-log', invalid, 2)]));
-    await assert.rejects(syncPull.applyStagedRecordPull(db, connection), /回答履歴の参照/);
+    await assert.rejects(syncPull.applyStagedRecordPull(db, connection), error => error.code === 'invalid_response' && /参照/.test(error.message));
     assert.equal((await get(db, 'appRecordMeta', 'pullCursor')).cursor, 1);
     assert.deepEqual((await records.readAppRecords(db)).data, initial);
   } finally { db.close(); }
