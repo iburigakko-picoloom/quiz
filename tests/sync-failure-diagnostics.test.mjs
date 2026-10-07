@@ -9,6 +9,8 @@ const hooks = registerHooks({resolve(specifier, context, next) {
 after(() => hooks.deregister());
 const {safeSyncFailureMessage} = await import('../src/utils/syncFailureDiagnostic.ts');
 test('retained pull failure explains a known cause after the older status error was cleared',()=>{
+  const retainedCloudGraph='クラウドの参照関係を確認できません。端末と受信原本を保持しています。';
+  assert.equal(safeSyncFailureMessage(retainedCloudGraph),retainedCloudGraph);
   for(const message of ['差分読込のCursorが不正です。','差分読込の変更履歴が連続していません。','保存レコードの一部が失われています。','questions[23] が存在しない問題セットを参照しています。','questions[1].choices は4個または5個の文字列である必要があります。'])assert.equal(safeSyncFailureMessage(message),message);
   const status=readFileSync(new URL('../src/components/SyncStatus.tsx',import.meta.url),'utf8');assert.match(status,/safeSyncFailureMessage\(attempt.lastFailure.message\)/);
 });
