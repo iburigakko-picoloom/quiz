@@ -6,7 +6,9 @@ import { StudyIcon } from '../components/UiIcons';
 import { getQuestionsBySet } from '../utils/quiz';
 import { usePhoneLayout } from '../utils/usePhoneLayout';
 import { detailBody, NOTES_EVENT, readWeaknessNotes, unexplainedNotes, makeExplanationRequest, rememberExplanationRequest, explanationPrompt, type WeaknessNote } from '../utils/weaknessNotes';
-import { writeClipboardText } from '../utils/nativePlatform';
+import { writePreparedClipboardText } from '../utils/nativePlatform';
+import { ClipboardCopyError } from '../utils/clipboardCopy';
+import { ClipboardCopyFallback } from '../components/ClipboardCopyFallback';
 import { normalizeExplanationMarkdown } from '../utils/explanationMarkdown';
 import { ExplanationReader } from '../components/WeaknessDetail';
 import { WeaknessMemoList } from '../components/WeaknessMemoList';
@@ -31,6 +33,8 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpenDetail, onImport
   const [copying, setCopying] = useState(false);
   const [copyMessage, setCopyMessage] = useState('');
   const [copyError, setCopyError] = useState('');
+  const [copyText, setCopyText] = useState('');
+  const [copyFallback, setCopyFallback] = useState(false);
   const copyLock = useRef(false);
   useEffect(() => {
     const load = () => { try { setNotes(readWeaknessNotes()); setNotesError(false); } catch { setNotesError(true); } };
@@ -48,13 +52,14 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpenDetail, onImport
   const pending = unexplainedNotes(data, notes, setId);
   const copyPending = async () => {
     if (copyLock.current) return;
-    copyLock.current = true; setCopying(true); setCopyMessage(''); setCopyError('');
+    copyLock.current = true; setCopying(true); setCopyMessage(''); setCopyError(''); setCopyText(''); setCopyFallback(false);
     try {
       const request = makeExplanationRequest(unexplainedNotes(data, readWeaknessNotes(), setId), data);
-      await rememberExplanationRequest(request);
-      await writeClipboardText(explanationPrompt(request, { tables: true, images: false, examples: false }));
+      const text = explanationPrompt(request, { tables: true, images: false, examples: false });
+      const ready = rememberExplanationRequest(request).then(() => { setCopyText(text); return text; });
+      await writePreparedClipboardText(ready);
       setCopyMessage(`${request.targets.length}問分をコピーしました`);
-    } catch (error) { setCopyError(error instanceof Error ? error.message : 'コピーできませんでした。'); }
+    } catch (error) { if (error instanceof ClipboardCopyError) setCopyFallback(true); else setCopyError(error instanceof Error ? error.message : 'コピーできませんでした。'); }
     finally { copyLock.current = false; setCopying(false); }
   };
   return <Layout><main className="library-page note-overview materials-study-page">
@@ -70,6 +75,7 @@ export function NoteOverviewScreen({ data, setId, onBack, onOpenDetail, onImport
         </div>
         {copyMessage ? <p role="status">{copyMessage}</p> : null}
         {copyError ? <p role="alert">{copyError}</p> : null}
+        {copyFallback && copyText ? <ClipboardCopyFallback text={copyText} onCopied={() => { setCopyFallback(false); setCopyMessage('依頼文をコピーしました'); }} /> : null}
       </div>
       <>
         {notesError ? <p role="alert">メモを読み込めませんでした。解説は下に表示しています。</p> : null}

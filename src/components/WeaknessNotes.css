@@ -63,5 +63,6 @@
 .weakness-saved-memo header{display:flex;align-items:center;gap:10px;min-height:40px}
 .weakness-saved-memo header strong{font-size:13px}
 .weakness-saved-memo header span{font-size:12px;color:#6b7785}
-.weakness-saved-memo header button{margin-left:auto;min-height:44px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#d72d40;font:inherit;font-size:13px}
+.weakness-saved-memo header button{margin-left:0;min-height:44px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#d72d40;font:inherit;font-size:13px}
+.weakness-saved-memo header button.weakness-saved-memo__copy{margin-left:auto;color:#305da3}
 .weakness-saved-memo p{margin:6px 0;font-size:15px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}

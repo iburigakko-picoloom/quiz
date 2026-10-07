@@ -2,6 +2,7 @@ import { Clipboard } from '@capacitor/clipboard';
 import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { ClipboardCopyError, copyBrowserText } from './clipboardCopy';
 
 export async function writeClipboardText(value: string): Promise<void> {
   if (Capacitor.isNativePlatform()) {
@@ -9,35 +10,16 @@ export async function writeClipboardText(value: string): Promise<void> {
     return;
   }
 
-  let clipboardError: unknown;
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-      return;
-    }
-  } catch (error) {
-    clipboardError = error;
-  }
+  await copyBrowserText(value);
+}
 
-  const textarea = document.createElement('textarea');
-  textarea.value = value;
-  textarea.readOnly = true;
-  textarea.setAttribute('aria-hidden', 'true');
-  textarea.style.position = 'fixed';
-  textarea.style.top = '-9999px';
-  textarea.style.opacity = '0';
-  document.body.appendChild(textarea);
-  textarea.focus();
-  textarea.select();
-  textarea.setSelectionRange(0, textarea.value.length);
-  try {
-    if (!document.execCommand('copy')) {
-      if (clipboardError instanceof Error) throw clipboardError;
-      throw new Error('Clipboard copy is unavailable.');
-    }
-  } finally {
-    textarea.remove();
+export async function writePreparedClipboardText(ready: Promise<string>): Promise<void> {
+  if (Capacitor.isNativePlatform()) {
+    const value = await ready;
+    try { await Clipboard.write({ string: value }); } catch { throw new ClipboardCopyError(); }
+    return;
   }
+  await copyBrowserText(ready);
 }
 
 export async function readClipboardText(): Promise<string> {

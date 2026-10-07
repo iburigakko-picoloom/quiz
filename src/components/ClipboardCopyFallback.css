@@ -1,0 +1,5 @@
+.clipboard-copy-fallback { margin:12px 0 20px; padding:12px; border:1px solid #c9d2de; border-radius:10px; background:#f8faff; color:#202d3b; min-width:0; }
+.clipboard-copy-fallback > p { margin:0 0 10px; font-size:13px; line-height:1.6; }
+.clipboard-copy-fallback > div { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.clipboard-copy-fallback button { min-height:44px; padding:8px 12px; border:1px solid #b8c6d8; border-radius:8px; background:#fff; color:#305da3; font:inherit; }
+.clipboard-copy-fallback textarea { display:block; width:100%; min-height:140px; padding:10px; border:1px solid #c9d2de; border-radius:8px; background:#fff; color:#202d3b; font:inherit; font-size:16px; line-height:1.5; resize:vertical; -webkit-user-select:text; user-select:text; -webkit-touch-callout:default; }

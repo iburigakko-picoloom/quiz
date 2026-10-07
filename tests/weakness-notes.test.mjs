@@ -14,6 +14,30 @@ const q={id:'q1',setId:'s1',question:'Choose',choices:['A','B','C','D'],answerIn
 const data={version:1,folders:[],problemSets:[{id:'s1',title:'問題セット'}],questions:[q],progress:[{questionId:'q1',correctCount:5}],answerLogs:[{id:'log'}]};
 const memo={id:'m1',title:'疑問',body:'なぜA？',questionId:'q1'};
 
+test('tablet copy starts in the tap, waits for durable preparation and retains exact request text for permission retry',async()=>{
+  const {copyBrowserText,ClipboardCopyError}=await vite.ssrLoadModule('/src/utils/clipboardCopy.ts');
+  const keys=['navigator','document','HTMLElement','ClipboardItem'],originals=keys.map(key=>Object.getOwnPropertyDescriptor(globalThis,key));
+  let copyAllowed=false,legacyCalls=0,modernCalls=0,written='',focusedRestored=0,removed=0;
+  class Element{focus(options){assert.equal(options.preventScroll,true);focusedRestored++}}
+  class Item{constructor(data){this.data=data}}
+  const focused=new Element();
+  const doc={activeElement:focused,getSelection:()=>null,body:{appendChild(){}},createElement:()=>({style:{},value:'',setAttribute(){},focus(options){assert.equal(options.preventScroll,true)},select(){},setSelectionRange(){},remove(){removed++}}),execCommand:()=>{legacyCalls++;return copyAllowed}};
+  const nav={clipboard:{async write(items){modernCalls++;const blob=await items[0].data['text/plain'];written=await blob.text()},async writeText(){assert.fail('prepared copy must not wait before using the tap')}}};
+  [nav,doc,Element,Item].forEach((value,index)=>Object.defineProperty(globalThis,keys[index],{configurable:true,value}));
+  try{
+    let saved;const ready=new Promise(resolve=>{saved=resolve});
+    const pending=copyBrowserText(ready);
+    assert.equal(modernCalls,1,'clipboard request starts synchronously in the click');assert.equal(written,'');
+    const text='requestId: same-request\n疑問「なぜ？」\n**重要語**';saved(text);await pending;assert.equal(written,text);assert.equal(legacyCalls,0);
+    nav.clipboard.write=async()=>{throw new DOMException('private browser permission detail','NotAllowedError')};
+    await assert.rejects(copyBrowserText(Promise.resolve(text)),error=>error instanceof ClipboardCopyError&&!error.message.includes('private'));
+    const before=legacyCalls;copyAllowed=true;const retry=copyBrowserText(text);assert.equal(legacyCalls,before+1,'retry uses the fresh tap synchronously');await retry;
+    assert.equal(focusedRestored,removed,'temporary selection is removed and focus restored');
+    nav.clipboard.write=async items=>{await items[0].data['text/plain']};
+    let rejectSave;const failed=new Promise((_,reject)=>{rejectSave=reject});const copying=copyBrowserText(failed);const rejected=assert.rejects(copying,/cannot save request/);rejectSave(new Error('cannot save request'));await rejected;
+  }finally{keys.forEach((key,i)=>{if(originals[i])Object.defineProperty(globalThis,key,originals[i]);else delete globalThis[key]});}
+});
+
 test('memo keyboard holds the reading frame, allows deliberate scrolling and restores the session on exit',async()=>{
   const {lockMemoKeyboard,memoDockTop}=await vite.ssrLoadModule('/src/utils/memoKeyboard.ts');
   const keys=['window','document','navigator','requestAnimationFrame','cancelAnimationFrame'];

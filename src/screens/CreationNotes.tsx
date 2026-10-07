@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
 import type { AppData } from '../types';
-import { readClipboardText, writeClipboardText } from '../utils/nativePlatform';
+import { readClipboardText, writePreparedClipboardText } from '../utils/nativePlatform';
+import { ClipboardCopyError } from '../utils/clipboardCopy';
+import { ClipboardCopyFallback } from '../components/ClipboardCopyFallback';
 import { changeWeaknessNotes, detailBody, explanationPrompt, finishExplanationBatch, makeExplanationRequest, NOTES_EVENT, readExplanationBatch, readWeaknessNotes, rememberExplanationRequest, type ExplanationBatch, type WeaknessNote } from '../utils/weaknessNotes';
 import { ExplanationReader, WeaknessDetail } from '../components/WeaknessDetail';
 import { ChevronRightIcon, ProblemSetIcon } from '../components/UiIcons';
@@ -18,9 +20,11 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   onBackRef: { current: (()=>boolean) | null };
 }) {
   const pendingEdits = useRef(0);
+  const copyLock = useRef(false);
   const workKey=`creation-notes:${purpose}:${importOnly}`;
   const recovered=useRestoredAccountWork<{view:'list'|'set'|'question'|'prompt'|'import';history:('list'|'set'|'question'|'prompt'|'import')[];setId:string;selectedId:string;selected:string[];showAll:boolean;tables:boolean;images:boolean;examples:boolean;paste:string;batch:ExplanationBatch|null;stage:'paste'|'review'}>(workKey);
   const [notes,setNotes]=useState<WeaknessNote[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+  const [copyText,setCopyText]=useState(''),[copyFallback,setCopyFallback]=useState(false);
   const [view,setView]=useState<'list'|'set'|'question'|'prompt'|'import'>(recovered?.view??(importOnly ? 'import' : 'list'));
   const [history,setHistory]=useState<(typeof view)[]>(recovered?.history??[]);
   const [direction,setDirection]=useState<'forward'|'back'>('forward');
@@ -34,7 +38,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
   useEffect(()=>{onDirtyChange(failed||busy||Boolean(paste));return()=>onDirtyChange(false);},[failed,busy,paste,onDirtyChange]);
   const change=async(fn:(items:WeaknessNote[])=>WeaknessNote[])=>{try{const saved=await changeWeaknessNotes(fn);if(pendingEdits.current<=1)setNotes(saved);setFailed(false);setError('');return true;}catch{setFailed(true);setError('保存できません。入力内容を控えて再保存してください。');return false;}};
   const update=async(next:WeaknessNote)=>{pendingEdits.current+=1;onDirtyChange(true);setNotes(items=>items.map(n=>n.id===next.id?next:n));try{const ok=await change(items=>items.map(n=>n.id===next.id?{...n,body:next.body}:n));if(!ok)setNotes(items=>items.map(n=>n.id===next.id?next:n));if(pendingEdits.current===1)onDirtyChange(!ok);}finally{pendingEdits.current-=1;}};
-  const go=(next:typeof view)=>{if(busy||failed||pendingEdits.current)return;if(paste&&next!=='import'&&!window.confirm('取り込み前の回答を閉じますか？'))return;if(next!=='import'){setPaste('');setBatch(null);}setDirection(next==='list'||history.includes(next)?'back':'forward');setMessage('');setError('');setHistory(items=>next==='list'?[]:items.includes(next)?items.slice(0,items.lastIndexOf(next)):[...items,view]);setView(next);};
+  const go=(next:typeof view)=>{if(busy||failed||pendingEdits.current)return;if(paste&&next!=='import'&&!window.confirm('取り込み前の回答を閉じますか？'))return;if(next!=='import'){setPaste('');setBatch(null);}setCopyFallback(false);setCopyText('');setDirection(next==='list'||history.includes(next)?'back':'forward');setMessage('');setError('');setHistory(items=>next==='list'?[]:items.includes(next)?items.slice(0,items.lastIndexOf(next)):[...items,view]);setView(next);};
   useEffect(()=>{onBackRef.current=()=>{
     if(busy||failed||pendingEdits.current)return true;
     if(importOnly&&view==='import'&&stage==='paste')return false;
@@ -42,10 +46,10 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
     setDirection('back');
     if(view==='import'&&stage==='review'){setStage('paste');return true;}
     if(paste&&!window.confirm('取り込み前の回答を閉じますか？'))return true;
-    setPaste('');setBatch(null);setMessage('');setError('');
+    setPaste('');setBatch(null);setMessage('');setError('');setCopyFallback(false);setCopyText('');
     setView(history[history.length-1]??'list');setHistory(items=>items.slice(0,-1));return true;
   };return()=>{onBackRef.current=null;};});
-  const copy=async()=>{if(busy)return;setBusy(true);try{const fresh=readWeaknessNotes();const picked=selected.map(id=>{const n=fresh.find(n=>n.id===id);if(!n)throw new Error('選択したメモが削除されました。選び直してください。');return n;});const request=makeExplanationRequest(picked,data);await rememberExplanationRequest(request);await writeClipboardText(explanationPrompt(request,{tables,images,examples}));setMessage('依頼文をコピーしました');}catch(e){setError(e instanceof Error?e.message:'コピーできませんでした。');}finally{setBusy(false);}};
+  const copy=async()=>{if(busy||copyLock.current)return;copyLock.current=true;setBusy(true);setError('');setMessage('');setCopyText('');setCopyFallback(false);try{const fresh=readWeaknessNotes();const picked=selected.map(id=>{const n=fresh.find(n=>n.id===id);if(!n)throw new Error('選択したメモが削除されました。選び直してください。');return n;});const request=makeExplanationRequest(picked,data);const text=explanationPrompt(request,{tables,images,examples});const ready=rememberExplanationRequest(request).then(()=>{setCopyText(text);return text;});await writePreparedClipboardText(ready);setMessage('依頼文をコピーしました');}catch(e){if(e instanceof ClipboardCopyError)setCopyFallback(true);else setError(e instanceof Error?e.message:'コピーできませんでした。');}finally{copyLock.current=false;setBusy(false);}};
   const parse=()=>{try{setBatch(readExplanationBatch(paste));setStage('review');setError('');}catch(e){setError(e instanceof Error?e.message:'読み取れませんでした。');setBatch(null);}};
   const createQuestions=()=>{
     if(busy||failed)return;
@@ -66,6 +70,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
     {title&&!importOnly?<div className="weakness-toolbar"><h2>{title}</h2></div>:null}
     {error?<div role="alert" className="weakness-error">{error}{failed&&note?<button type="button" onClick={()=>update(note)}>再保存</button>:null}</div>:null}
     {message?<p className="weakness-status" role="status">{message}</p>:null}
+    {copyFallback && copyText ? <ClipboardCopyFallback text={copyText} onCopied={()=>{setCopyFallback(false);setMessage('依頼文をコピーしました');}} /> : null}
     {view==='list'?<>
         {data.problemSets.filter(s=>visibleNotes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===s.id))).map(s=>{const ns=visibleNotes.filter(n=>data.questions.some(q=>q.id===n.questionId&&q.setId===s.id));return <button type="button" key={s.id} className="weakness-row" onClick={()=>chooseAll(s.id)}><ProblemSetIcon size={32}/><span><strong>{s.title}</strong><small>{purpose==='questions'?`回答済み ${ns.length}件`:`未解説 ${ns.filter(n=>n.body.trim()&&n.resolvedBody!==n.body).length} · 解説あり ${ns.filter(n=>n.resolvedBody===n.body&&n.body.trim()).length}`}</small></span><ChevronRightIcon/></button>;})}
         {!visibleNotes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-muted">{purpose==='questions'?'回答済みのメモはありません。先にAIの回答を取り込んでください。':'学習中に残した疑問がここにまとまります。'}</p>:null}
