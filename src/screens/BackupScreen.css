@@ -5,3 +5,8 @@
 .backup-page button { min-height: 44px; line-height: 1.6; white-space: normal; }
 .backup-page > section > button { margin: 8px 8px 0 0; padding-block: 10px; }
 .backup-page > section > h2 { margin-bottom: 8px; }
+.backup-choice-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.backup-choice-row > .sync-data-choice { flex: 1; min-width: 0; }
+.backup-choice-row .library-actions { flex: 0 0 32px; }
+.backup-page .backup-restore-button { width: 100%; min-height: 52px; margin-top: 20px; background: #347feb; }
+.backup-page .backup-restore-button:disabled { background: #dce0e5; color: #8a919b; }

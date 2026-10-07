@@ -52,6 +52,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const presentation = syncStatusPresentation({ online, loginRequired, error: failed, readError: Boolean(readError), attempt, autoEnabled, recordEnabled, record, pending, success: success ?? '' });
   const summary = presentation.text === '変更の確認があります' && record?.conflicts ? `変更の確認が${record.conflicts}件あります` : presentation.text;
   return <section className="sync-status-card" aria-live="polite">
+    {!diagnosticsOnly && presentation.text === '同期済み' ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
     {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : summary}</h2> : null}
     {!diagnosticsOnly && presentation.action ? <p>変更は端末に保持しています。</p> : null}
     {!diagnosticsOnly && presentation.action === 'retry' && attempt?.lastFailure ? <p role="alert">{safeSyncFailureMessage(attempt.lastFailure.message)}</p> : null}

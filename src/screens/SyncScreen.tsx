@@ -50,7 +50,10 @@ import { isStrongSyncId } from '../utils/syncState';
 import { saveJsonBackup, writeClipboardText } from '../utils/nativePlatform';
 import { getCloudSession, onCloudSessionSnapshot, sendMagicLink } from '../utils/cloudService';
 import { LineLoginButton } from '../components/LineLoginButton';
-import { RecordConflictPanel } from '../components/RecordConflictPanel';
+import { LegacyWholeSyncNotice } from '../components/LegacyWholeSyncNotice';
+import { WholeConflictPanel } from '../components/WholeConflictPanel';
+import { WHOLE_SYNC_ROLLOUT_ENABLED } from '../utils/wholeSyncRollout';
+import { readSyncDevice, SYNC_DEVICE_KEY } from '../utils/syncDevice';
 import { isRecordSyncOptedIn, setRecordSyncOptIn } from '../utils/recordSyncOptIn';
 import './SyncScreen.css';
 
@@ -1000,12 +1003,13 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
     if (!onNavigatePage && currentPage) { setLocalPage(undefined); setSyncId(activeSyncId); setPairingCodeInput(''); setIssuedPairingCode(null); setReplacementOpen(false); }
     else onBack();
   };
-  const pageTitle = currentPage === 'settings' ? '同期設定' : currentPage === 'recovery' ? '同期の復旧'
+  const pageTitle = currentPage === 'settings' ? '詳細設定' : currentPage === 'recovery' ? '同期の復旧'
     : currentPage === 'connect' ? 'ほかの端末とつなぐ' : currentPage === 'diagnostics' ? '接続診断'
       : currentPage === 'danger' ? '接続とクラウドの管理' : '同期';
   const link = (target: SyncScreenPage, label: string) => <button type="button" className="sync-page-link"
     disabled={busy || childBusy || diagnosticBusy || loginBusy || reviewOpen} onClick={() => goToPage(target)}><span>{label}</span><ChevronRightIcon size={20} /></button>;
   const initialSyncRequired = hasStrongConnection && !recordSyncOptedIn && !lastState.lastSyncAt && !lastState.lastUploadHash;
+  const legacyMigrationRequired = hasLegacyConnection || Boolean(getPendingLegacySyncUpgrade()) || Boolean(getPendingLegacySyncCompletion());
   return (
     <div className="sync-screen sync-screen--simple" data-sync-page={currentPage ?? 'main'}>
       <header className="sync-screen__header">
@@ -1056,13 +1060,14 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
             <SyncStatus onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id}
               recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={interactionProtected}
               onInitialSync={initialSyncRequired ? () => goToPage('recovery') : undefined} />
-            {recordSyncOptedIn ? <RecordConflictPanel syncId={activeSyncId} accountId={cloudAccount.id} onImported={onImported}
-              open={reviewOpen} onOpenChange={setReviewOpen} onOpenBackups={onOpenBackups} onBusyChange={setChildBusy} /> : null}
+            {recordSyncOptedIn ? WHOLE_SYNC_ROLLOUT_ENABLED ? <WholeConflictPanel syncId={activeSyncId} accountId={cloudAccount.id}
+              open={reviewOpen} onOpenChange={setReviewOpen} onOpenBackups={onOpenBackups} onBusyChange={setChildBusy} />
+              : <LegacyWholeSyncNotice syncId={activeSyncId} accountId={cloudAccount.id} onOpenBackups={onOpenBackups} /> : null}
           </section> : null}
           {hasLegacyConnection ? <div className="sync-alert sync-alert--warning">旧形式の接続があります。復旧画面で移行を確認できます。</div> : null}
           <nav className="sync-page-links" aria-label="同期の操作">
             {link(hasLegacyConnection ? 'recovery' : 'connect', hasLegacyConnection ? '旧形式の接続を確認' : hasStrongConnection ? 'ほかの端末とつなぐ' : '同期を始める')}
-            {link('settings', '同期設定')}
+            {link('settings', '詳細設定')}
             {onOpenBackups ? <button type="button" className="sync-page-link" disabled={interactionProtected} onClick={onOpenBackups}><span>バックアップと復旧</span><ChevronRightIcon size={20} /></button> : link('recovery', 'バックアップと復旧')}
           </nav>
         </> : null}
@@ -1075,6 +1080,9 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
           ) : null}
 
 
+          <div className="sync-detail-row"><strong>端末名</strong><span>{readSyncDevice(globalThis.localStorage.getItem(SYNC_DEVICE_KEY)).name}</span></div>
+          <div className="sync-detail-row"><strong>最終同期</strong><span>{lastState.lastSyncAt ? formatDateTime(lastState.lastSyncAt) : '未実行'}</span></div>
+          <nav className="sync-page-links" aria-label="詳細設定の操作">{onOpenBackups ? <button type="button" className="sync-page-link" disabled={interactionProtected} onClick={onOpenBackups}><span>バックアップ・復旧</span><ChevronRightIcon size={20} /></button> : link('recovery', 'バックアップ・復旧')}{link('diagnostics', '同期情報')}</nav>
           <section className="sync-advanced__section" aria-label="自動同期の設定">
             <div className="sync-auto-row">
               <div>
@@ -1177,7 +1185,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
               {replacementOpen ? <div className="sync-advanced__body"><SyncComparison syncId={normalizedSyncId} disabled={!canRun} onUpload={handleUpload} onDownload={handleDownload} onBusyChange={setChildBusy}
                 onRetry={() => { setReplacementOpen(false); window.setTimeout(() => requestSyncRetry(activeSyncId), 0); }} /></div> : null}
             </details> : null}
-          <details className="sync-advanced" onToggle={event => { if (!event.currentTarget.open) setSyncId(activeSyncId); }}>
+          {legacyMigrationRequired ? <details className="sync-advanced" onToggle={event => { if (!event.currentTarget.open) setSyncId(activeSyncId); }}>
             <summary><strong>復旧用の同期ID</strong><ChevronDownIcon size={20} /></summary><div className="sync-advanced__body">
               <p>通常は8文字コードを使います。コードを発行できない場合にだけ、このIDを保管・入力してください。</p>
               <input
@@ -1189,7 +1197,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
                 autoComplete="off"
                 spellCheck={false}
               />
-              {normalizedSyncId && !syncIdValid ? (
+              {normalizedSyncId && !syncIdValid && !hasLegacyConnection ? (
                 <p className="sync-card__error-text" role="alert">36文字の安全な同期IDではありません。</p>
               ) : null}
               {syncIdValid && !syncIdConnected ? (
@@ -1204,10 +1212,10 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
                   IDをコピー
                 </button>
               </div>
-            </div></details>
+            </div></details> : null}
 
 
-          <details className="sync-advanced"><summary><strong>同期方式の移行・復旧</strong><ChevronDownIcon size={20} /></summary><div className="sync-advanced__body">
+          {legacyMigrationRequired ? <details className="sync-advanced"><summary><strong>同期方式の移行・復旧</strong><ChevronDownIcon size={20} /></summary><div className="sync-advanced__body">
             <p className="sync-help">使用中の方式：{recordSyncOptedIn ? '変更ごとの同期' : '全体コピー同期'}。変更前のバックアップと接続設定を確認します。</p>
             <div className="sync-auto-row">
               <div>
@@ -1230,7 +1238,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
 
 
 
-          </div></details>
+          </div></details> : null}
           <nav className="sync-page-links" aria-label="復旧の操作">{link('diagnostics', '接続診断')}</nav>
         </> : null}
         {currentPage === 'diagnostics' ? <>
