@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import { getCloudAccessToken } from '../../src/utils/cloudService.ts';
+import { cloudClient, getCloudAccessToken } from '../../src/utils/cloudService.ts';
 import { AccountStorageSession, accountGenerationKey, accountNamespace, activateAccountStorage } from '../../src/utils/accountStorage.ts';
 import { saveAppDataAsync, loadAppDataAsync, openAppDb } from '../../src/storage.ts';
 import { normalizeAppData } from '../../src/utils/appDataValidation.ts';
@@ -19,6 +18,7 @@ import { createMaterialTransport } from '../../src/utils/materialCloud.ts';
 
 const config={url:import.meta.env.VITE_SUPABASE_URL,anonKey:import.meta.env.VITE_SUPABASE_ANON_KEY};
 const params=new URLSearchParams(location.search), stamp='2026-10-07T00:00:00Z';
+const sourceRevision=document.querySelector('meta[name="quiz-source-revision"]')?.content??'local';
 const normalizedSeed=normalizeAppData({version:1,folders:[{id:'qa-folder',name:'Common',createdAt:stamp,updatedAt:stamp}],problemSets:[{id:'qa-set',folderId:'qa-folder',title:'Synthetic sync validation',source:'Synthetic',visibility:'private',createdAt:stamp,updatedAt:stamp}],questions:[],progress:[],answerLogs:[]});
 if(!normalizedSeed.ok)throw new Error('試験初期状態が不正です');
 const seed=normalizedSeed.data;
@@ -68,14 +68,14 @@ if(isDevice){
     fence:async()=>{const before=await snapshot(),requests=rpcCalls;session.fenceNetwork();let denied=false;try{await real.whole('status')}catch{denied=true}session.resumeNetwork(identity);check(denied&&rpcCalls===requests,'アカウント切替ガードの外へ送信しました');check(JSON.stringify(await snapshot())===JSON.stringify(before),'切替ガードでデータが変わりました');return {blockedBeforeFetch:true}},
   };
   window.addEventListener('message',async event=>{if(event.origin!==location.origin||event.source!==parent||event.data?.nonce!==nonce||!Object.hasOwn(operations,event.data?.action))return;const {id,action,args}=event.data;try{const result=await operations[action](args??{});parent.postMessage({nonce,id,ok:true,result},location.origin)}catch(error){parent.postMessage({nonce,id,ok:false,error:error instanceof Error?error.message:'試験失敗'},location.origin)}});
-  output.textContent='独立したIndexedDBを使用しています';parent.postMessage({nonce,ready:true,device:params.get('device')},location.origin);
+  output.textContent='独立したIndexedDBを使用しています';parent.postMessage({nonce,ready:true,device:params.get('device'),sourceRevision},location.origin);
 }else{
-  const output=document.querySelector('#result'),button=document.querySelector('#start'),client=createClient(config.url,config.anonKey,{auth:{autoRefreshToken:false}}),frames={},pending=new Map(),results=[],resume=params.get('resume')==='cas';let counter=0,trial=null;
+  const output=document.querySelector('#result'),button=document.querySelector('#start'),client=cloudClient,frames={},pending=new Map(),results=[],resume=params.get('resume')==='cas';let counter=0,trial=null;
   if(resume){button.textContent='中断した試験の続き';output.textContent='既存の合成データと検証用保存領域で、同時接続以降の試験を再開します';}
   const report=(name,detail={})=>{results.push({name,passed:true,...detail});output.textContent=JSON.stringify({status:'実行中',results},null,2)};
-  window.addEventListener('message',event=>{if(!trial||event.origin!==location.origin||event.data?.nonce!==trial.nonce||!Object.values(frames).some(f=>f.contentWindow===event.source))return;if(event.data.ready){frames[event.data.device].ready?.();return}const waiting=pending.get(event.data.id);if(waiting){pending.delete(event.data.id);clearTimeout(waiting.timer);event.data.ok?waiting.resolve(event.data.result):waiting.reject(new Error(event.data.error))}});
-  const command=(device,action,args={})=>new Promise((resolve,reject)=>{const id=++counter,timer=setTimeout(()=>{pending.delete(id);reject(new Error('検証端末の応答待ち: '+action))},180000);pending.set(id,{resolve,reject,timer});frames[device].contentWindow.postMessage({id,nonce:trial.nonce,action,args},location.origin)});
-  const mount=async(device,reload=false)=>{if(frames[device])frames[device].remove();const f=document.createElement('iframe');f.title='検証端末 '+device;frames[device]=f;const ready=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('検証端末の初期化待ち')),60000);f.ready=()=>{clearTimeout(timer);resolve()}});f.src=location.pathname+'?'+new URLSearchParams({device,generation:trial[device],syncId:trial.syncId,nonce:trial.nonce,reload:String(reload)});document.querySelector('#devices').append(f);await ready};
+  window.addEventListener('message',event=>{if(!trial||event.origin!==location.origin||event.data?.nonce!==trial.nonce||!Object.values(frames).some(f=>f.contentWindow===event.source))return;if(event.data.ready){frames[event.data.device].ready?.(event.data.sourceRevision);return}const waiting=pending.get(event.data.id);if(waiting){pending.delete(event.data.id);clearTimeout(waiting.timer);event.data.ok?waiting.resolve(event.data.result):waiting.reject(new Error(event.data.error))}});
+  const command=(device,action,args={})=>new Promise((resolve,reject)=>{output.textContent=JSON.stringify({status:'実行中',awaiting:device+'.'+action,results},null,2);const id=++counter,timer=setTimeout(()=>{pending.delete(id);reject(new Error('検証端末の応答待ち: '+action))},180000);pending.set(id,{resolve,reject,timer});frames[device].contentWindow.postMessage({id,nonce:trial.nonce,action,args},location.origin)});
+  const mount=async(device,reload=false)=>{if(frames[device])frames[device].remove();const f=document.createElement('iframe');f.title='検証端末 '+device;frames[device]=f;const ready=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('検証端末の初期化待ち')),60000);f.ready=revision=>{clearTimeout(timer);revision===sourceRevision?resolve():reject(new Error('検証端末の配信版が一致しません'))}});f.src=location.pathname+'?'+new URLSearchParams({device,generation:trial[device],syncId:trial.syncId,nonce:trial.nonce,reload:String(reload),build:sourceRevision});document.querySelector('#devices').append(f);await ready};
   const status=()=>command('A','snapshot');
   button.addEventListener('click',async()=>{button.disabled=true;try{
     const owner=await access();if(!resume){trial={syncId:'cafe00'+randomHex(),A:'union-'+crypto.randomUUID(),B:'union-'+crypto.randomUUID(),nonce:crypto.randomUUID()};
