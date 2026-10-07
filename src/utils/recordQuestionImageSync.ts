@@ -5,8 +5,8 @@ import { remoteQuestionImageDescriptor, storedQuestionImage, verifyQuestionImage
 import { validQuestionImageDescriptor, type QuestionImageDescriptor, type StoredQuestionImage } from './questionImageRecords';
 import type { RemoteRecordChange } from './recordSyncPull';
 import { recordSyncMetric } from './syncMetrics';
-import type { SyncProgress } from './syncAttemptStatus';
-function reportProgress(report:((value:SyncProgress)=>void)|undefined,label:string,completed:number,total:number|null){try{report?.({label,completed,total});}catch{/* Informational only. */}}
+import type { SyncProgress, SyncProgressStage } from './syncAttemptStatus';
+function reportProgress(report:((value:SyncProgress)=>void)|undefined,label:string,completed:number,total:number|null,stage:SyncProgressStage='preparing'){try{report?.({label,completed,total,stage});}catch{/* Informational only. */}}
 
 export const PULL_IMAGE_STORE = 'appPullMedia';
 function done(tx: IDBTransaction): Promise<void> { return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error ?? new Error('画像の同期状態を保存できませんでした。')); }); }
@@ -61,13 +61,13 @@ export async function prepareStagedQuestionImages(db: IDBDatabase, transport: Qu
   const incoming = read.objectStore('appPullStage').getAll();
   await complete;
   const rows=(incoming.result as RemoteRecordChange[]).filter(row=>row.collection==='questionImages'&&row.raw!==null);
-  let count=0;reportProgress(progress,'画像を確認・受信中',0,rows.length);
+  let count=0;reportProgress(progress,'画像を確認・受信中',0,rows.length,'receiving_images');
   for (const row of rows) {
     const descriptor = parseQuestionImageDescriptor(row.raw);
     if (descriptor.id !== row.id || !descriptor.path || descriptor.path !== remoteQuestionImageDescriptor(descriptor, transport.userId).path) throw new Error('画像の差分参照が不正です。');
     const cacheTx = db.transaction(PULL_IMAGE_STORE, 'readonly'); const cacheDone = done(cacheTx);
     const cached = await request<{ key: string; revision: number; descriptor: QuestionImageDescriptor; image: StoredQuestionImage } | undefined>(cacheTx.objectStore(PULL_IMAGE_STORE).get(row.key)); await cacheDone;
-    if (cached?.revision === row.revision && JSON.stringify(cached.descriptor) === JSON.stringify(descriptor) && await verifyQuestionImageBlob(cached.image.blob, descriptor)){reportProgress(progress,'画像を確認・受信中',++count,rows.length);continue;}
+    if (cached?.revision === row.revision && JSON.stringify(cached.descriptor) === JSON.stringify(descriptor) && await verifyQuestionImageBlob(cached.image.blob, descriptor)){reportProgress(progress,'画像を確認・受信中',++count,rows.length,'receiving_images');continue;}
     const localTx = db.transaction('questionImageBlobs', 'readonly'); const localDone = done(localTx);
     const existing = await request<StoredQuestionImage | undefined>(localTx.objectStore('questionImageBlobs').get(row.id)); await localDone;
     const reused = Boolean(existing && await verifyQuestionImageBlob(existing.blob, descriptor));
@@ -78,6 +78,6 @@ export async function prepareStagedQuestionImages(db: IDBDatabase, transport: Qu
     const tx = db.transaction(PULL_IMAGE_STORE, 'readwrite'); const saved = done(tx);
     tx.objectStore(PULL_IMAGE_STORE).put({ key: appRecordKey('questionImages', row.id), revision: row.revision, descriptor, image: storedQuestionImage(descriptor, blob) }, row.key);
     await saved;
-    reportProgress(progress,'画像を確認・受信中',++count,rows.length);
+    reportProgress(progress,'画像を確認・受信中',++count,rows.length,'receiving_images');
   }
 }

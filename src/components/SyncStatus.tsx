@@ -53,17 +53,18 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const presentation = syncStatusPresentation({ online, loginRequired, error: failed, readError: Boolean(readError), attempt, autoEnabled, recordEnabled, record, pending, success: success ?? '' });
   const summary = presentation.text === '変更の確認があります' && record?.conflicts ? `変更の確認が${record.conflicts}件あります` : presentation.text;
   const reason = syncStatusReason(attempt, record?.conflicts ?? 0, readError, lastState.error ?? '');
-  const showProgress = attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt;
+  const complete = presentation.text === '同期済み' && attempt?.phase === 'done';
+  const showProgress = attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt || attempt?.overallPercent !== undefined;
   const progress = attempt?.progress;
-  const percentage = progress?.total ? Math.floor(progress.completed / progress.total * 100) : undefined;
+  const percentage = complete ? 100 : Math.min(99,Math.max(0,attempt?.overallPercent??0));
   return <section className="sync-status-card" aria-live="polite">
     {!diagnosticsOnly && presentation.text === '同期済み' ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
     {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : summary}</h2> : null}
     {!diagnosticsOnly && reason ? <p className="sync-status-reason">{reason}</p> : null}
     {!diagnosticsOnly && showProgress ? <div className="sync-progress" aria-live="polite">
-      <div className="sync-progress__label"><span>{progress?.label ?? syncStageLabel(attempt?.step ?? '')}</span>{percentage !== undefined ? <strong>{percentage}%</strong> : null}</div>
-      {progress?.total ? <progress aria-label={progress.label} value={progress.completed} max={progress.total}/> : <progress aria-label={progress?.label ?? '同期中'}/>}
-      {progress && progress.completed > 0 ? <small>{progress.total ? `${progress.completed.toLocaleString('ja-JP')} / ${progress.total.toLocaleString('ja-JP')} 件` : `${progress.completed.toLocaleString('ja-JP')} 件完了`}</small> : null}
+      <div className="sync-progress__label"><span>{complete?'同期完了':'全体の進捗（目安）'}</span><strong>{percentage}%</strong></div>
+      <div className="sync-progress__track" role="progressbar" aria-label="同期全体の進捗（目安）" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${percentage}%${complete?' 同期完了':''}`}><span className="sync-progress__fill" style={{width:`${percentage}%`}}/></div>
+      {!complete ? <small>{progress?.label ?? syncStageLabel(attempt?.step ?? '')}{progress && progress.completed > 0 ? ` · ${progress.total ? `${progress.completed.toLocaleString('ja-JP')} / ${progress.total.toLocaleString('ja-JP')} 件` : `${progress.completed.toLocaleString('ja-JP')} 件完了`}` : ''}</small> : null}
     </div> : null}
     {!diagnosticsOnly && attempt?.notice ? <p className="sync-status-reason">{attempt.notice}</p> : null}
     {!diagnosticsOnly && presentation.action ? <p>変更は端末に保持しています。</p> : null}

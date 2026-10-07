@@ -50,7 +50,7 @@ export async function archiveSyncOriginals(db:IDBDatabase,connection:RecordSyncC
       body.notes=keys.result.map((key,index)=>({key:String(key),raw:notes.result[index]}));
       for(let i=0;i<accountLocalStorage.length;i++){const key=accountLocalStorage.key(i);if(key&&isQuizMakeStorageKey(key)){const raw=accountLocalStorage.getItem(key);if(raw!==null)body.nativeValues[key]=raw;}}
       const originals=images.result as StoredQuestionImage[];
-      for(let i=0;i<originals.length;i++){await current();body.images.push(await imageOriginal(originals[i]));try{progress?.({label:'端末の原本を退避中',completed:i+1,total:originals.length});}catch{/* Informational only. */}}
+      for(let i=0;i<originals.length;i++){await current();body.images.push(await imageOriginal(originals[i]));try{progress?.({label:'端末の原本を退避中',completed:i+1,total:originals.length,stage:'archiving'});}catch{/* Informational only. */}}
     },{requireCrossContext:true});
   }else{
     const images=rows.filter(row=>row.collection==='questionImages'&&row.raw!==null),pdfs=rows.filter(row=>row.collection==='indexedDbNotes'&&row.raw!==null&&materialFileEntry(row.id,row.logicalRaw??row.raw!)?.kind==='quiz-material-remote-file');
@@ -65,12 +65,12 @@ export async function archiveSyncOriginals(db:IDBDatabase,connection:RecordSyncC
         await current();if(!await verifyQuestionImageBlob(blob,descriptor))throw new Error('画像の内容が一致しません。');body.images.push(await imageOriginal(storedQuestionImage(descriptor,blob)));
       }
       catch(error){await current();if(error instanceof SyncInterruptedError||error&&typeof error==='object'&&'code' in error&&['authentication_required','permission_denied','connection_changed'].includes(String(error.code)))throw error;body.issues.push(`画像本体未収録: ${row.id}`);}
-      completed++;try{progress?.({label:'クラウドの原本を退避中',completed,total});}catch{/* Informational only. */}
+      completed++;try{progress?.({label:'クラウドの原本を退避中',completed,total,stage:'archiving'});}catch{/* Informational only. */}
     }
     for(const row of pdfs){
       await current();try{const hydrated=await hydrateMaterialDownload({version:1,updatedAt:body.createdAt,localStorage:{},indexedDbNotes:{[row.id]:row.logicalRaw??row.raw!}},materialTransport);await current();body.pdfFiles[row.id]=hydrated.indexedDbNotes![row.id];}
       catch(error){await current();if(error instanceof SyncInterruptedError||error&&typeof error==='object'&&'code' in error&&['authentication_required','permission_denied','connection_changed'].includes(String(error.code)))throw error;body.issues.push(`PDF本体未収録: ${row.id}`);}
-      completed++;try{progress?.({label:'クラウドの原本を退避中',completed,total});}catch{/* Informational only. */}
+      completed++;try{progress?.({label:'クラウドの原本を退避中',completed,total,stage:'archiving'});}catch{/* Informational only. */}
     }
     body.issues.push('教材の参照関係を含む受信原本です。通常の一括復元には修復が必要な場合があります。');
   }

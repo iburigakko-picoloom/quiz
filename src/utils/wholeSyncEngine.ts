@@ -11,7 +11,7 @@ import { decideWholeSync } from './wholeSyncDecision';
 import { computeWholeRecordDigest, wholeHash } from './wholeSyncDigest';
 import { acknowledgeIdenticalWhole, acknowledgeWholeUpload, advanceWholePart, freezeWholeUpload, putWholeMeta, queueWholeReplacement, readWholeBaseline, readWholeMeta, readWholeRows, readVerifiedWholeAncestorCursor, releaseWholeUpload, stageWholePage, summarizeWholeRows, validateWholeFrozen, type WholeConflict, type WholeFrozen, type WholeIncoming } from './wholeSyncStorage';
 import { applyWholeSyncFile, exportFileBackup, validateFileBackup, type FileBackup, type PreservedSyncOriginals } from './backupPayload';
-import type { SyncProgress } from './syncAttemptStatus';
+import type { SyncProgress, SyncProgressStage } from './syncAttemptStatus';
 import { prepareWholeRecovery } from './wholeRecovery';
 import { materialFileEntry } from './materialModel';
 import { parseQuestionImageDescriptor } from './recordQuestionImageSync';
@@ -21,7 +21,7 @@ import { chunkIds, isChunkInternal, parseChunkManifest, RECORD_CHUNK_GUARD_ID } 
 type Reply={code:string;[key:string]:unknown};
 export type WholeTransport=RecordSyncTransport&{whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<Reply>};
 type WholeGuards=Omit<RecordSyncGuards,'prepareOutgoing'>&{prepareOutgoing():Promise<void|{more:boolean}>;incoming(rows:RemoteRecordChange[]):Promise<FileBackup>;device:string;progress?:(value:SyncProgress)=>void;notice?:(message:string)=>void;archiveOriginals?:(side:'local'|'remote',rows:RemoteRecordChange[])=>Promise<SavedBackup>};
-function progress(guards:Pick<WholeGuards,'progress'>,label:string,completed=0,total:number|null=null){try{guards.progress?.({label,completed,total});}catch{/* Informational only. */}}
+function progress(guards:Pick<WholeGuards,'progress'>,stage:SyncProgressStage,label:string,completed=0,total:number|null=null){try{guards.progress?.({label,completed,total,stage});}catch{/* Informational only. */}}
 function mayRescue(error:unknown):boolean{
   if(error instanceof SyncInterruptedError)return false;
   const code=error&&typeof error==='object'&&'code' in error?String(error.code):'';
@@ -55,10 +55,10 @@ async function pack(rows:Array<ReturnType<typeof wire>>):Promise<{parts:WholeFro
 export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,guards:Pick<WholeGuards,'assertCurrent'|'step'|'progress'>,original:WholeFrozen,maxParts=20):Promise<'committed'|'rejected'|'more'>{
   validateWholeFrozen(original);
   let frozen=original,hashes='',count=0,keys=new Set<string>();
-  progress(guards,'送信内容を検証中',0,frozen.parts.length);
+  progress(guards,'validating','送信内容を検証中',0,frozen.parts.length);
   for(const [index,part] of frozen.parts.entries()){hashes+=await wholeHash(part.raw);const rows=JSON.parse(part.raw) as Array<ReturnType<typeof wire>>;if(!Array.isArray(rows)||rows.length>500)throw new SyncProtocolError('invalid_response','保存済み送信原本を検証できません。');
     if(rows.length)validateRecordPullPage({code:'ok',cursor:1,head:1,hasMore:false,batches:[{revision:1,changes:rows.map(row=>({...row,revision:1}))}]},0);
-    for(const row of rows){if(keys.has(row.key)||frozen.replace&&row.raw===null)throw new SyncProtocolError('invalid_response','保存済み送信原本が重複しています。');keys.add(row.key);count++}progress(guards,'送信内容を検証中',index+1,frozen.parts.length)}
+    for(const row of rows){if(keys.has(row.key)||frozen.replace&&row.raw===null)throw new SyncProtocolError('invalid_response','保存済み送信原本が重複しています。');keys.add(row.key);count++}progress(guards,'validating','送信内容を検証中',index+1,frozen.parts.length)}
   if(await wholeHash(hashes)!==frozen.wireDigest||count!==frozen.records)throw new SyncProtocolError('invalid_response','保存済み送信原本のハッシュが一致しません。');
   const reject=async():Promise<'committed'|'rejected'>=>{
     await guards.assertCurrent();const result=await transport.whole('abort',{p_operation_id:frozen.id});
@@ -67,7 +67,7 @@ export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,gu
     await releaseWholeUpload(db,frozen);return 'rejected';
   };
   await guards.assertCurrent();guards.step?.('push');
-  progress(guards,'データを送信中',frozen.nextPart??0,frozen.parts.length);
+  progress(guards,'sending','データを送信中',frozen.nextPart??0,frozen.parts.length);
   const begin=await transport.whole('begin',{p_operation_id:frozen.id,p_expected_revision:frozen.expectedRevision,p_parts:frozen.parts.length,p_records:frozen.records,p_digest:frozen.wireDigest,p_device:frozen.device,p_replace:frozen.replace});
   if(begin.code==='conflict'||begin.code==='expired')return reject();requireOk(begin);
   if(begin.state==='committed'){if(!integer(begin.revision))throw new SyncProtocolError('invalid_response','全体保存の版を確認できません。');await acknowledgeWholeUpload(db,frozen,begin.revision);return 'committed'}
@@ -76,10 +76,10 @@ export async function sendFrozenWhole(db:IDBDatabase,transport:WholeTransport,gu
   for(let i=frozen.nextPart??0;i<stop;i++){
     await guards.assertCurrent();const part=frozen.parts[i],value=await transport.whole('part',{p_commit_id:frozen.id,p_operation_id:part.id,p_number:i,p_raw:part.raw});
     if(value.code==='conflict'||value.code==='expired')return reject();requireOk(value);await guards.assertCurrent();frozen=await advanceWholePart(db,frozen,i+1);
-    progress(guards,'データを送信中',i+1,frozen.parts.length);
+    progress(guards,'sending','データを送信中',i+1,frozen.parts.length);
   }
   if(stop<frozen.parts.length)return 'more';
-  progress(guards,'クラウドの保存完了を確認中');
+  progress(guards,'finalizing','クラウドの保存完了を確認中');
   await guards.assertCurrent();const finish=await transport.whole('finish',{p_operation_id:frozen.id});
   if(finish.code==='conflict'||finish.code==='expired')return reject();requireOk(finish);
   if(!integer(finish.revision))throw new SyncProtocolError('invalid_response','全体保存の版を確認できません。');
@@ -127,13 +127,14 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     let stage=await readWholeMeta<WholeIncoming>(db,'wholeIncoming',connection);
     if(stage?.revision!==remote.revision)stage=undefined;
     for(let i=0;!stage?.complete&&i<maxPages;i++){
-      await guards.assertCurrent();guards.step?.('pull');progress(guards,'クラウドのデータを読み込み中',downloaded);const page=await transport.whole('read',{p_expected_revision:remote.revision,p_after_key:stage?.afterKey??'',p_limit:200});
+      await guards.assertCurrent();guards.step?.('pull');progress(guards,'comparing','クラウドのデータを読み込み中',downloaded);const page=await transport.whole('read',{p_expected_revision:remote.revision,p_after_key:stage?.afterKey??'',p_limit:200});
       if(page.code==='conflict')return result('more');stage=await stageWholePage(db,connection,remote.revision,stage?.afterKey??'',page);downloaded+=Array.isArray(page.rows)?page.rows.length:0;
-      progress(guards,'クラウドのデータを読み込み中',downloaded);
+      progress(guards,'comparing','クラウドのデータを読み込み中',downloaded);
     }
     if(!stage?.complete)return result('more',0,downloaded);
     incoming=await hydrateChunkChanges(db,await readWholeRows(db,connection,remote.revision),connection,true);
     remoteDigest=await computeWholeRecordDigest(incoming);
+    progress(guards,'comparing','クラウドの読み込み完了',incoming.length,incoming.length);
     decision=decideWholeSync({baseline,serverRevision:remote.revision,userGeneration:source.generation,localDigest,remoteDigest,verifiedRecordCursor:await readVerifiedWholeAncestorCursor(db,connection)});
   }
   // Logical equality deliberately ignores wire chunks. Their guard/garbage
@@ -167,7 +168,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     if(current?.state.commitId!==source.snapshot.state.commitId||await readUserEditGeneration(db)!==source.generation)throw new SyncProtocolError('local_changed','自動バックアップ中にこの端末の内容が変わりました。最新の内容で再試行します。');
   },{requireCrossContext:true});
   if(preferSelected){
-    guards.step?.('backup');progress(guards,'同期前のバックアップを保存中',0,2);
+    guards.step?.('backup');
     // The selected snapshot must be complete. Only the unselected side may be
     // preserved as raw rescue originals, without inventing missing attachments.
     if(selected==='remote')verifiedCloud=await incomingFile();
@@ -181,37 +182,38 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
       const otherFile=selected==='remote'?await exportFileBackup():await incomingFile();
       const otherValidation=await validateFileBackup(otherFile);if(!otherValidation.ok||otherFile.backupManifest.completeness!=='complete')throw new Error('もう一方の完全コピーを作成できません。');
       if(selected==='remote')verifiedLocal=otherFile;else verifiedCloud=otherFile;
+      progress(guards,'backup','同期前のバックアップを保存中',0,2);
       otherCopy=await saveBackupPayload(otherFile,'before-sync');
     }catch(error){
       if(!mayRescue(error))throw error;
       await guards.assertCurrent();otherCopy=await guards.archiveOriginals!(selected==='remote'?'local':'remote',selected==='remote'?localRows:incoming!);
       try{guards.notice?.('選ばなかった側には欠けた参照や読み込めない資料があります。読み出せる原本を自動保存し、選んだ側で同期を進めます。救出原本はバックアップの詳細から書き出せます。');}catch{/* Informational only. */}
     }
-    await guards.assertCurrent();progress(guards,'同期前のバックアップを保存中',1,2);
+    await guards.assertCurrent();progress(guards,'backup','同期前のバックアップを保存中',1,2);
     const selectedCopy=await saveBackupPayload(selectedFile,'before-sync');await guards.assertCurrent();
     const otherRead=await getSavedBackup(otherCopy.id),selectedRead=await getSavedBackup(selectedCopy.id);
     await guards.assertCurrent();
     if(otherRead?.raw!==otherCopy.raw||selectedRead?.raw!==selectedCopy.raw)throw new SyncProtocolError('local_persistence_failed','同期前の原本バックアップを保存できませんでした。');
-    await assertSource();progress(guards,'同期前のバックアップを保存中',2,2);
+    await assertSource();progress(guards,'backup','同期前のバックアップを保存中',2,2);
     if(selected==='remote')preservedOriginals={backupId:otherCopy.id,raw:otherCopy.raw,commitId:source.snapshot.state.commitId,connection};
   }
   if(!remote.enabled){
     guards.step?.('backup');
     if(!preferSelected){
-      progress(guards,'同期前のバックアップを保存中',0,2);
       verifiedCloud=await incomingFile();
       await guards.assertCurrent();
       try { verifiedLocal=await exportFileBackup(); }
       catch(error){throw new SyncProtocolError('local_persistence_failed','この端末の画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));}
       await guards.assertCurrent();
       try {
-        const localCopy=await saveBackupPayload(verifiedLocal,'before-sync');await guards.assertCurrent();progress(guards,'同期前のバックアップを保存中',1,2);
+        progress(guards,'backup','同期前のバックアップを保存中',0,2);
+        const localCopy=await saveBackupPayload(verifiedLocal,'before-sync');await guards.assertCurrent();progress(guards,'backup','同期前のバックアップを保存中',1,2);
         const cloudCopy=await saveBackupPayload(verifiedCloud,'before-sync');await guards.assertCurrent();
         const localRead=await getSavedBackup(localCopy.id);await guards.assertCurrent();
         const cloudRead=await getSavedBackup(cloudCopy.id);await guards.assertCurrent();
         if(localRead?.raw!==localCopy.raw||cloudRead?.raw!==cloudCopy.raw)throw new Error('自動バックアップの読み戻しが一致しません。');
       }catch(error){if(error instanceof SyncInterruptedError)throw error;throw new SyncProtocolError('local_persistence_failed','同期前の自動バックアップを保存できませんでした。同期先と両方の原本を保持しています。');}
-      await assertSource();progress(guards,'同期前のバックアップを保存中',2,2);
+      await assertSource();progress(guards,'backup','同期前のバックアップを保存中',2,2);
     }
     await guards.assertCurrent();
     const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision)return result('more');
@@ -229,7 +231,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     // commit overlay is active. Recheck the immutable head before entering it;
     // preserve this revision as the ancestor if another device then advances it.
     const latest=head(await transport.whole('status'));if(latest.revision!==remote.revision){if(preferSelected)return result('more');throw new SyncProtocolError('remote_changed','選択後にクラウドが変わりました。両方を保持して再確認します。');}
-    progress(guards,'選んだデータを端末に反映中');
+    progress(guards,'applying','選んだデータを端末に反映中');
     const applied=await guards.apply(async options=>{
       if(options?.preserveLiveData)return {applied:false as const,deferred:true as const,commitId:source.snapshot.state.commitId,pushBlocked:true};
       const committed=await applyWholeSyncFile(file,source.generation,tx=>queueWholeReplacement(tx,incoming!,{version:1,connection,serverRevision:remote.revision,userGeneration:source.generation,digest:remoteDigest}),decision==='conflict',preservedOriginals);

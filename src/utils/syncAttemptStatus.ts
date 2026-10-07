@@ -4,11 +4,18 @@ import { SyncInterruptedError } from './syncInterruption';
 
 export const SYNC_ATTEMPT_EVENT = 'quiz-make-sync-attempt';
 export type SyncFailure = { code: string; step: string; at: string; message: string };
-export type SyncProgress = { label: string; completed: number; total: number | null };
+export type SyncProgressStage = 'preparing' | 'comparing' | 'receiving_images' | 'receiving_materials' | 'archiving' | 'backup' | 'validating' | 'sending' | 'applying' | 'finalizing';
+export type SyncProgress = { label: string; completed: number; total: number | null; stage?: SyncProgressStage };
+// Stages have different costs, so this is a work-completion estimate, not an
+// elapsed-time forecast. Unknown totals hold at the stage's starting point.
+const progressRanges: Record<SyncProgressStage, readonly [number,number]> = {
+  preparing:[0,15], comparing:[15,30], receiving_images:[30,50], receiving_materials:[50,65],
+  archiving:[65,72], backup:[72,80], validating:[80,85], sending:[85,95], applying:[85,97], finalizing:[97,99],
+};
 export const isBlockedSyncFailure = (code: string) => ['local_persistence_failed', 'invalid_response', 'invalid_request',
   'invalid', 'operation_reused', 'quota', 'payload_too_large', 'unavailable', 'permission_denied', 'media_unsupported', 'legacy_snapshot'].includes(code);
 export type SyncAttemptStatus = { phase: 'queued' | 'running' | 'paused' | 'failed' | 'done'; retryAt: number | null;
-  pauseReason: string; step: string; lastFailure: SyncFailure | null; progress?: SyncProgress; notice?: string };
+  pauseReason: string; step: string; lastFailure: SyncFailure | null; progress?: SyncProgress; overallPercent?: number; notice?: string };
 type Entry = { connection: RecordSyncConnection; queue: AutoSyncQueueState; remoteChecking: boolean; result: SyncAttemptStatus };
 let entry: Entry | null = null;
 const same = (a: RecordSyncConnection, b: RecordSyncConnection) => a.project === b.project && a.userId === b.userId && a.syncId === b.syncId;
@@ -24,17 +31,30 @@ export function readSyncAttemptStatus(connection: RecordSyncConnection): SyncAtt
   const phase = entry.remoteChecking || entry.queue.phase === 'running' ? 'running' : entry.queue.phase === 'queued' ? 'queued' : entry.result.phase;
   return { ...entry.result, phase, retryAt: entry.queue.retryAt };
 }
-export function publishSyncQueue(connection: RecordSyncConnection, queue: AutoSyncQueueState) { const current = owned(connection); current.queue = { ...queue }; changed(); }
+function resetProgress(current:Entry){delete current.result.progress;current.result.overallPercent=0;}
+export function publishSyncQueue(connection: RecordSyncConnection, queue: AutoSyncQueueState) {
+  const current = owned(connection);
+  if(current.result.phase==='done'&&current.queue.phase==='idle'&&(queue.phase==='queued'||queue.phase==='running'))resetProgress(current);
+  current.queue = { ...queue }; changed();
+}
 export function publishSyncAttempt(connection: RecordSyncConnection, update: Partial<SyncAttemptStatus>) {
   const current = owned(connection);
+  if(update.phase==='running'&&update.step==='prepare'&&(current.result.phase==='done'||current.result.overallPercent===undefined))resetProgress(current);
   if (update.step && update.step !== current.result.step || update.phase === 'running' && update.step === 'prepare') delete current.result.progress;
-  current.result = { ...current.result, ...update }; changed();
+  current.result = { ...current.result, ...update, ...(update.phase==='done'?{overallPercent:100}:{}) }; changed();
 }
 export function publishSyncProgress(connection: RecordSyncConnection, progress: SyncProgress) {
   if (!Number.isSafeInteger(progress.completed) || progress.completed < 0 || progress.total !== null && (!Number.isSafeInteger(progress.total) || progress.total < 0 || progress.completed > progress.total)) return;
-  publishSyncAttempt(connection, {progress});
+  const current=owned(connection),range=progress.stage?progressRanges[progress.stage]:undefined;
+  const fraction=progress.total===null?0:progress.total===0?1:progress.completed/progress.total;
+  const percent=range?Math.floor(range[0]+(range[1]-range[0])*fraction):current.result.overallPercent??0;
+  publishSyncAttempt(connection, {progress,overallPercent:Math.min(99,Math.max(current.result.overallPercent??0,percent))});
 }
-export function publishRemoteCheck(connection: RecordSyncConnection, running: boolean) { owned(connection).remoteChecking = running; changed(); }
+export function publishRemoteCheck(connection: RecordSyncConnection, running: boolean) {
+  const current=owned(connection);
+  if(running&&!current.remoteChecking&&current.result.phase==='done'&&current.queue.phase==='idle')resetProgress(current);
+  current.remoteChecking = running; changed();
+}
 
 /** Observes outcomes; it never mutates records, batches, receipts or operations. */
 export async function observeRecordSyncAttempt<T extends { status: 'done' | 'more' | 'deferred' | 'conflict' }>(

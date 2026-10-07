@@ -29,6 +29,8 @@ import { buildWholeIncomingFile } from './wholeSyncIncoming';
 import { getSyncDevice } from './syncDevice';
 import { publishSyncProgress, publishSyncAttempt, type SyncProgress } from './syncAttemptStatus';
 import { archiveSyncOriginals } from './syncOriginalBackup';
+import { readAppOutbox } from './appRecordStorage';
+import { materialFileEntry } from './materialModel';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -96,18 +98,25 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
       notice:notice=>publishSyncAttempt(connection,{notice}),
       archiveOriginals:(side,rows)=>archiveSyncOriginals(db,connection,side,rows,imageTransport,materialTransport,assertCurrent,progress),
       prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent,progress),
-      incoming:rows=>buildWholeIncomingFile(db,rows,materialTransport,assertCurrent),
+      incoming:rows=>buildWholeIncomingFile(db,rows,materialTransport,assertCurrent,progress),
       prepareOutgoing:async()=>{
         await assertCurrent();
-        step('materials');progress({label:'資料を送信中',completed:0,total:null});
-        const media=await prepareRecordMaterialOutbox(db,materialTransport,assertCurrent);
+        let total:number|null=null;
+        try{
+          const pending=await readAppOutbox(db);
+          total=pending.filter(row=>row.collection==='indexedDbNotes'&&row.raw!==null&&materialFileEntry(row.id,row.raw)?.kind==='quiz-material-file'||row.collection==='questionImages'&&row.raw!==null&&!JSON.parse(row.raw).path).length;
+        }catch{/* An informational count cannot stop synchronization. */}
+        const preparing=(value:SyncProgress,offset=0)=>progress({...value,stage:'preparing',completed:value.completed+offset,total:total===null?null:Math.max(total,value.completed+offset)});
+        step('materials');preparing({label:'資料を送信中',completed:0,total:null});
+        const media=await prepareRecordMaterialOutbox(db,materialTransport,assertCurrent,20,value=>preparing(value));
         step('images');
-        const images=await prepareQuestionImageOutbox(db,imageTransport,assertCurrent,20,progress);
+        const images=await prepareQuestionImageOutbox(db,imageTransport,assertCurrent,20,value=>preparing(value,media.prepared));
         if(media.more||images.more)return {more:true};
         await prepareRecordChunks(db,connection);await assertCurrent();
+        progress({label:'送信の準備完了',completed:1,total:1,stage:'preparing'});
       },
     });
-    await assertCurrent();step('receipt');await writeRecordSyncReceipt(db,connection,result);return result;
+    await assertCurrent();step('receipt');if(result.status==='done')progress({label:'同期結果を確認中',completed:0,total:1,stage:'finalizing'});await writeRecordSyncReceipt(db,connection,result);return result;
   }
   step('materials'); const media = await prepareRecordMaterialOutbox(db,createMaterialTransport(config,initialAccess),assertCurrent);
   if(media.more)return {status:'more',uploaded:0,downloaded:0};

@@ -101,13 +101,15 @@ function encodePdf(bytes: Uint8Array) {
   for (let i = 0; i < bytes.length; i += 0x8000) parts.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));
   return 'data:application/pdf;base64,' + btoa(parts.join(''));
 }
-async function mapFiles(payload: SyncPayload, transform: (file: MaterialFile | RemoteMaterialFile) => Promise<MaterialFile | RemoteMaterialFile>) {
+async function mapFiles(payload: SyncPayload, transform: (file: MaterialFile | RemoteMaterialFile) => Promise<MaterialFile | RemoteMaterialFile>,progress?:(completed:number,total:number)=>void) {
+  let completed=0;const total=progress?fileEntries(payload).length:0;
+  const report=()=>{try{progress?.(completed,total);}catch{/* Informational only. */}};report();
   const map = async (entries: Record<string, string>) => {
     const result = { ...entries };
     // Sequential processing bounds memory and avoids bursts of large uploads.
     for (const [key, raw] of Object.entries(entries)) {
       const file = materialFileEntry(key, raw);
-      if (file) result[key] = JSON.stringify(await transform(file));
+      if (file) { result[key] = JSON.stringify(await transform(file));completed++;report(); }
     }
     return result;
   };
@@ -134,7 +136,7 @@ export async function prepareMaterialUpload(payload: SyncPayload, transport: Mat
 }
 
 /** No local writes until every PDF has downloaded and passed its hash check. */
-export async function hydrateMaterialDownload(payload: SyncPayload, transport: MaterialTransport, localPayload?: SyncPayload): Promise<SyncPayload> {
+export async function hydrateMaterialDownload(payload: SyncPayload, transport: MaterialTransport, localPayload?: SyncPayload,progress?:(completed:number,total:number)=>void): Promise<SyncPayload> {
   selectCacheScope(transport.cacheScope);
   const localFiles = new Map(fileEntries(localPayload ?? { version: 1, updatedAt: '', localStorage: {} })
     .filter((file): file is MaterialFile => file.kind === 'quiz-material-file').map(file => [file.materialId, file]));
@@ -157,7 +159,7 @@ export async function hydrateMaterialDownload(payload: SyncPayload, transport: M
     }
     if (transport.cacheScope && cacheScope === transport.cacheScope) cachePdf(key, dataUrl);
     return { kind: 'quiz-material-file', version: 1, materialId: file.materialId, updatedAt: file.updatedAt, dataUrl };
-  });
+  },progress);
 }
 
 export function createMaterialTransport(config: { url: string; anonKey: string }, access: { userId: string; accessToken: string }): MaterialTransport {

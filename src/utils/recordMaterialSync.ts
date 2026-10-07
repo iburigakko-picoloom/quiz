@@ -2,6 +2,7 @@ import type { AppOutboxOperation } from './appRecordStorage';
 import { commitPreparedRecordMedia } from './recordSyncOutbox';
 import { materialFileEntry } from './materialModel';
 import { prepareMaterialUpload, type MaterialTransport } from './materialCloud';
+import type { SyncProgress } from './syncAttemptStatus';
 
 function done(tx: IDBTransaction): Promise<void> { return new Promise((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error??new Error('PDFの参照を保存できませんでした。'));}); }
 
@@ -9,7 +10,7 @@ function done(tx: IDBTransaction): Promise<void> { return new Promise((resolve,r
  * remain in categoryNotes as a durable local cache. A failed upload changes no
  * record or Outbox operation, and a retry reuses the content-addressed object.
  */
-export async function prepareRecordMaterialOutbox(db: IDBDatabase, transport: MaterialTransport, assertCurrent: ()=>Promise<void>, limit=20): Promise<{prepared:number;more:boolean}> {
+export async function prepareRecordMaterialOutbox(db: IDBDatabase, transport: MaterialTransport, assertCurrent: ()=>Promise<void>, limit=20,progress?:(value:SyncProgress)=>void): Promise<{prepared:number;more:boolean}> {
   let prepared=0;
   for(;prepared<limit;prepared++){
     const tx=db.transaction(['appOutbox','appRecordMeta'],'readonly');const completion=done(tx);
@@ -32,6 +33,7 @@ export async function prepareRecordMaterialOutbox(db: IDBDatabase, transport: Ma
     if(!remote||materialFileEntry(source.id,remote)?.kind!=='quiz-material-remote-file')throw new Error('PDFのクラウド参照を確認できませんでした。');
     await assertCurrent();
     await commitPreparedRecordMedia(db,source,remote);
+    try{progress?.({label:'資料を送信中',completed:prepared+1,total:null,stage:'preparing'});}catch{/* Informational only. */}
   }
   return {prepared,more:true};
 }
