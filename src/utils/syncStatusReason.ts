@@ -1,30 +1,38 @@
-import type { SyncAttemptStatus } from './syncAttemptStatus';
+import type { SyncAttemptStatus, SyncFailure } from './syncAttemptStatus';
 import { safeSyncFailureMessage } from './syncFailureDiagnostic';
 
-export function syncStatusReason(attempt: SyncAttemptStatus | null, conflicts: number, readError: string, lastError: string): string {
-  if (readError) return '端末の同期履歴を読み出せません。データを残したまま再試行してください。';
-  if (attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt) return '';
-  if (attempt?.phase === 'paused' && attempt.pauseReason === 'protected_work') return conflicts ? 'この端末とクラウドの両方に変更があります。下で同期に使う側を選ぶと再開します。' : '入力中・内容の選択中のため、書き換えを一時停止しています。画面の操作を終えると再開します。';
-  const failure = attempt?.lastFailure;
-  const activeFailure = failure && (attempt?.phase === 'failed' || attempt?.phase === 'paused' && attempt.pauseReason === failure.code || attempt?.phase === 'queued' && attempt.retryAt);
-  if (activeFailure) {
-    if (failure.message.includes('クラウドの画像・教材を完全') || failure.message.includes('クラウドの参照関係')) return '選んだクラウド側に、読み込めない教材や画像があります。「この端末」を優先して同期することもできます。';
-    if (failure.message.includes('完全な復元コピー') || failure.message.includes('この端末の画像・教材を完全')) return '選んだ端末側の画像・資料を読み出せません。もう一方のデータを選ぶか、原本の保存状態を確認してください。';
-    if (failure.code === 'local_persistence_failed' || failure.code === 'quota') return '端末への保存、または原本のバックアップに失敗しました。空き容量を確保して再試行してください。';
-    if (failure.code === 'authentication_required') return 'ログインの有効期限が切れています。同じアカウントでログインし直してください。';
-    if (failure.code === 'permission_denied') return 'ログイン中のアカウントに、この保存先へアクセスする権限がありません。';
-    if (failure.code === 'network' || failure.code === 'timeout') return '通信が途切れたか、サーバーの応答が遅れています。途中の送信内容を保持して再試行します。';
-    if (failure.code === 'rate_limited') return '短時間の通信回数が上限に達しました。少し待ってから自動で再試行します。';
-    if (failure.code === 'payload_too_large') return '送信するデータが1件または全体の容量上限を超えています。';
-    if (failure.code === 'media_pending' || failure.code === 'media_unsupported') return '画像またはPDFの本体を保存・確認できません。もう一方のデータを選ぶか、資料の保存状態を確認してください。';
-    if (failure.code === 'remote_changed' || failure.code === 'local_changed' || failure.code === 'conflict') return '同期中にデータが更新されました。選んだ側を優先して、最新の内容で再試行します。';
-    if (failure.code === 'invalid_response' || failure.code === 'invalid') return '選んだ側のデータに、欠けた参照や読めない内容があります。別の側を選び直せます。';
-    const safe=safeSyncFailureMessage(failure.message);
-    return safe==='詳細な理由を安全に表示できません。端末データは保持しています。' ? `「${syncStageLabel(failure.step)}」の処理を完了できませんでした。再試行しても続く場合は、詳細設定の同期情報を確認してください。` : safe;
+export function syncFailureReason(failure:SyncFailure):string {
+  const message=failure.message;
+  if(/^クラウドの画像[1-9][0-9]{0,5}件の紐づけ情報がありません。$/u.test(message))return message;
+  if(message.includes('クラウドの画像・教材を完全')||message.includes('クラウドの参照関係')){
+    const cause=message.includes('原本を保持しています。')?message.split('原本を保持しています。')[1]:message;
+    if(message.includes('クラウドの参照関係')||cause.includes('存在しない問題セット')||cause.includes('存在しないフォルダ')||cause.includes('参照が壊れ'))return 'クラウドの教材の紐づけ情報に不備があります。';
+    if(cause.includes('PDF'))return 'クラウドのPDFを読み込めません。';
+    if(cause.includes('画像'))return 'クラウドの画像を読み込めません。';
+    return 'クラウドの教材・画像を読み込めません。';
   }
-  if (conflicts || attempt?.pauseReason === 'conflict') return 'この端末とクラウドの両方に変更があります。下の選択肢で、同期に使う側を選んでください。';
-  if (attempt?.pauseReason === 'deferred') return 'ほかの画面で保存中のため、反映を待っています。保存が終わると再開します。';
-  return lastError ? safeSyncFailureMessage(lastError) : '';
+  if(message.includes('完全な復元コピー')||message.includes('この端末の画像・教材を完全'))return '端末の画像・資料を読み込めません。';
+  const reasons:Record<string,string>={
+    local_persistence_failed:'端末に保存できません。空き容量を確認してください。',quota:'端末の空き容量が不足しています。',
+    authentication_required:'ログインを確認できません。ログインし直してください。',permission_denied:'この保存先へのアクセス権限がありません。',
+    network:'通信に失敗しました。再試行してください。',timeout:'通信が時間切れになりました。再試行してください。',rate_limited:'通信回数の上限に達しました。少し待つと再開します。',
+    payload_too_large:'同期データが容量上限を超えています。',media_pending:'画像・PDFの保存が終わっていません。',media_unsupported:'画像・PDFの形式を確認できません。',
+    remote_changed:'クラウドが更新されました。再試行します。',local_changed:'端末が更新されました。再試行します。',conflict:'端末とクラウドの両方に変更があります。',
+    invalid_response:'同期データを読み込めません。',invalid:'同期データの形式に不備があります。',
+  };
+  if(reasons[failure.code])return reasons[failure.code];
+  const safe=safeSyncFailureMessage(message);
+  return safe==='詳細な理由を安全に表示できません。端末データは保持しています。'?`「${syncStageLabel(failure.step)}」で失敗しました。`:safe.split('。')[0]+'。';
+}
+export function syncStatusReason(attempt:SyncAttemptStatus|null,conflicts:number,readError:string,lastError:string):string {
+  if(readError)return '端末の同期履歴を読み出せません。';
+  if(attempt?.phase==='running'||attempt?.phase==='queued'&&!attempt.retryAt)return '';
+  if(attempt?.phase==='paused'&&attempt.pauseReason==='protected_work')return conflicts?'同期に使うデータを選んでください。':'操作が終わると同期を再開します。';
+  const failure=attempt?.lastFailure;
+  if(failure&&(attempt?.phase==='failed'||attempt?.phase==='paused'&&attempt.pauseReason===failure.code||attempt?.phase==='queued'&&attempt.retryAt))return syncFailureReason(failure);
+  if(conflicts||attempt?.pauseReason==='conflict')return '端末とクラウドの両方に変更があります。';
+  if(attempt?.pauseReason==='deferred')return '保存が終わると同期を再開します。';
+  return lastError?'同期に失敗しました。詳細設定で確認できます。':'';
 }
 
 export function syncStageLabel(step: string): string {

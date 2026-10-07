@@ -155,12 +155,20 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   const preferSelected=Boolean(selected&&priority&&guards.archiveOriginals);
   let verifiedCloud:FileBackup|undefined,verifiedLocal:FileBackup|undefined;
   let preservedOriginals:PreservedSyncOriginals|undefined;
+  const offerChoice=async(error:unknown)=>{
+    const code=error&&typeof error==='object'&&'code' in error?String(error.code):'';
+    if(!selected&&incoming&&guards.archiveOriginals&&code==='invalid_response'){
+      await guards.assertCurrent();
+      await putWholeMeta(db,'wholeConflict',{version:1,connection,revision:remote.revision,generation:source.generation,localDigest,remoteDigest,device:remote.device,savedAt:remote.savedAt,localSavedAt:source.snapshot.state.savedAt,localDevice:guards.device,local:summarizeWholeRows(localRows),remote:summarizeWholeRows(incoming)});
+    }
+  };
   const incomingFile=async():Promise<FileBackup>=>{
     if(!incoming)throw new SyncProtocolError('invalid_response','クラウドの受信原本がありません。データは保持しています。');
     try { await guards.prepareMedia?.();await guards.assertCurrent();return await guards.incoming(incoming); }
     catch(error){
-      if(error instanceof SyncInterruptedError || error && typeof error==='object' && 'code' in error)throw error;
-      throw new SyncProtocolError('invalid_response','クラウドの画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));
+      if(error instanceof SyncInterruptedError)throw error;
+      const failure=error&&typeof error==='object'&&'code' in error?error:new SyncProtocolError('invalid_response','クラウドの画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));
+      await offerChoice(failure);throw failure;
     }
   };
   const assertSource=()=>withCoordinatedDataRead(['app','notes'],async()=>{
@@ -187,7 +195,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     }catch(error){
       if(!mayRescue(error))throw error;
       await guards.assertCurrent();otherCopy=await guards.archiveOriginals!(selected==='remote'?'local':'remote',selected==='remote'?localRows:incoming!);
-      try{guards.notice?.('選ばなかった側には欠けた参照や読み込めない資料があります。読み出せる原本を自動保存し、選んだ側で同期を進めます。救出原本はバックアップの詳細から書き出せます。');}catch{/* Informational only. */}
+      try{guards.notice?.('読み出せる原本を自動で退避しました。');}catch{/* Informational only. */}
     }
     await guards.assertCurrent();progress(guards,'backup','同期前のバックアップを保存中',1,2);
     const selectedCopy=await saveBackupPayload(selectedFile,'before-sync');await guards.assertCurrent();

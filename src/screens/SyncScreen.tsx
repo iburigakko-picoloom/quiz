@@ -1057,7 +1057,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
         {error ? <div className="sync-alert sync-alert--error" role="alert">操作を完了できません。変更は端末に保持しています<details><summary>詳細</summary>{error}</details></div> : null}
         {!currentPage ? <>
           {configured && authenticated && hasStrongConnection ? <section className="sync-card sync-card--transfer">
-            <SyncStatus onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id}
+            <SyncStatus onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id} choiceOpen={reviewOpen} onChooseSource={()=>setReviewOpen(true)}
               recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={interactionProtected}
               onInitialSync={initialSyncRequired ? () => goToPage('recovery') : undefined} />
             {recordSyncOptedIn ? WHOLE_SYNC_ROLLOUT_ENABLED ? <WholeConflictPanel syncId={activeSyncId} accountId={cloudAccount.id}
