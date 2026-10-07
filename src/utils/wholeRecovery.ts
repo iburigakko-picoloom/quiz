@@ -1,6 +1,7 @@
 import { openAppDb } from '../storage';
 import { withCoordinatedDataMutation } from './dataCoordination';
 import type { FileBackup } from './backupPayload';
+import { getAccountStorageSession } from './accountStorage';
 
 const INDEX = 'wholeRecoveryIndexV1';
 const PREFIX = 'quizMake:wholeRecovery:';
@@ -34,8 +35,12 @@ export async function getWholeRecovery(id: string): Promise<string | undefined> 
 /** The first actual complete exchange determines this device's archive budget.
  * Four copies of the larger measured side, limited to half the free space,
  * leave room for live data and subsequent commits. The budget stays fixed until
- * the user explicitly deletes all copies; existing copies are never evicted. */
+ * the history becomes empty. Retention runs only after a new complete copy has
+ * committed and its exact contents have been reread; never to make a save fit. */
 export async function prepareWholeRecovery(db: IDBDatabase, payload: FileBackup, kind: WholeRecoverySummary['kind'], replacementBytes=0): Promise<(tx: IDBTransaction) => void> {
+  const owner = getAccountStorageSession(), native = globalThis.localStorage;
+  const currentOwner = () => { if(owner !== getAccountStorageSession() || native !== globalThis.localStorage) throw new Error('復旧コピーのアカウントが変わりました。'); owner?.assertCurrent(); };
+  currentOwner();
   const { validateFileBackup } = await import('./backupPayload');
   const checked = await validateFileBackup(payload);
   if (!checked.ok || payload.backupManifest.completeness !== 'complete') throw new Error('完全な復旧コピーを検証できないため、データの入れ替えを中止しました。');
@@ -59,6 +64,10 @@ export async function prepareWholeRecovery(db: IDBDatabase, payload: FileBackup,
   const summary: WholeRecoverySummary = { id: PREFIX + crypto.randomUUID(), createdAt: new Date().toISOString(), kind, byteSize, digest: payload.backupManifest.contentDigest };
   const next: RecoveryIndex = { version: 1, budgetBytes, items: [...previous?.items ?? [], summary] };
   return tx => {
+    currentOwner();
+    tx.addEventListener('complete', () => {
+      void import('./backupHistory').then(({pruneBackupHistoryAfterSave}) => pruneBackupHistoryAfterSave(summary.id, raw, currentOwner)).catch(() => { /* A failed cleanup retains the new copy and all remaining originals. */ });
+    }, {once:true});
     const current = tx.objectStore('appRecordMeta').get(INDEX);
     current.onsuccess = () => {
       try {
@@ -69,9 +78,13 @@ export async function prepareWholeRecovery(db: IDBDatabase, payload: FileBackup,
     };
   };
 }
-export async function deleteWholeRecovery(id: string): Promise<void> {
-  await withCoordinatedDataMutation(['app', 'notes'], async () => {
+export async function deleteWholeRecovery(id: string, options: {coordinationLockHeld?:boolean} = {}): Promise<void> {
+  const owner = getAccountStorageSession(), native = globalThis.localStorage;
+  const current = () => { if(owner !== getAccountStorageSession() || native !== globalThis.localStorage) throw new Error('復旧コピーのアカウントが変わりました。'); owner?.assertCurrent(); };
+  const remove = async () => {
+    current();
     const db = await openAppDb(), previous = await index(db);
+    current();
     if (!previous?.items.some(item => item.id === id)) throw new Error('復旧コピーが見つかりません。');
     const tx = db.transaction(['appDataBackups', 'appRecordMeta'], 'readwrite'), completed = done(tx);
     tx.objectStore('appDataBackups').delete(id);
@@ -79,5 +92,7 @@ export async function deleteWholeRecovery(id: string): Promise<void> {
     if (items.length) tx.objectStore('appRecordMeta').put({ ...previous, items }, INDEX);
     else tx.objectStore('appRecordMeta').delete(INDEX);
     await completed;
-  }, { requireCrossContext: true });
+  };
+  if(options.coordinationLockHeld) await remove();
+  else await withCoordinatedDataMutation(['app','notes'], remove, {requireCrossContext:true});
 }

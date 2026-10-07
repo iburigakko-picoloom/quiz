@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { BackButton } from './BackButton';
 import './ConfirmDialog.css';
 
 interface ConfirmDialogProps {
@@ -10,6 +11,8 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   busy?: boolean;
   fullPage?: boolean;
+  pageTitle?: string;
+  note?: string;
   onConfirm: () => void;
   onCancel: () => void;
   alternateLabel?: string;
@@ -24,6 +27,8 @@ export function ConfirmDialog({
   cancelLabel = '\u30ad\u30e3\u30f3\u30bb\u30eb',
   busy = false,
   fullPage = false,
+  pageTitle,
+  note,
   onConfirm,
   onCancel,
   alternateLabel,
@@ -87,7 +92,7 @@ export function ConfirmDialog({
 
   return createPortal(
     <div
-      className={`confirm-dialog${fullPage ? ' confirm-dialog--full-page' : ''}`}
+      className={`confirm-dialog${fullPage ? ' confirm-dialog--full-page' : ''}${pageTitle ? ' confirm-dialog--backup' : ''}`}
       role="presentation"
       onMouseDown={(event) => {
         if (!busy && event.target === event.currentTarget) onCancel();
@@ -103,8 +108,10 @@ export function ConfirmDialog({
         aria-busy={busy}
         tabIndex={-1}
       >
+        {pageTitle ? <header className="confirm-dialog__page-header"><BackButton onClick={onCancel} disabled={busy}/><h1>{pageTitle}</h1></header> : null}
         <h2 id={titleId} className="confirm-dialog__title">{title}</h2>
         <p id={messageId} className="confirm-dialog__message">{message}</p>
+        {note ? <p className="confirm-dialog__note">{note}</p> : null}
         <div className="confirm-dialog__actions">
           {alternateLabel && onAlternate ? <button type="button" className="confirm-dialog__button confirm-dialog__button--alternate" onClick={onAlternate} disabled={busy}>{alternateLabel}</button> : null}
           <button ref={cancelButtonRef} type="button" className="confirm-dialog__button confirm-dialog__button--cancel" onClick={onCancel} disabled={busy}>

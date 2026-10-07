@@ -63,13 +63,23 @@ async function operation<T>(mode: IDBTransactionMode, execute: (store: IDBObject
     transaction.onerror = transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('バックアップを保存できませんでした。')); };
   });
 }
-export async function saveBackupPayload(payload: SyncPayload, kind: SavedBackup['kind']): Promise<SavedBackup> {
+export async function saveBackupPayload(payload: SyncPayload, kind: SavedBackup['kind']): Promise<SavedBackup & {cleanupWarning?: string}> {
+  const owner = getAccountStorageSession(), native = globalThis.localStorage;
+  const current = () => { if(owner !== getAccountStorageSession() || native !== globalThis.localStorage) throw new Error('バックアップの保存先が変わりました。原本は保持しています。'); owner?.assertCurrent(); };
+  current();
   const record: SavedBackup = { id: `backup-${crypto.randomUUID()}`, createdAt: new Date().toISOString(), kind, raw: JSON.stringify(payload) };
   record.byteSize = new Blob([record.raw]).size;
   if (typeof indexedDB === 'undefined') localStorage.setItem(PREFIX + record.id, JSON.stringify(record));
   else await operation('readwrite', (store) => store.add(record));
   const checked = await getSavedBackup(record.id);
+  current();
   if (!checked || checked.raw !== record.raw) throw new Error('バックアップの読み戻しを確認できませんでした。');
+  if ('backupManifest' in payload && (payload.backupManifest as {completeness?:string})?.completeness === 'complete') {
+    try {
+      const {pruneBackupHistoryAfterSave} = await import('./backupHistory');
+      await pruneBackupHistoryAfterSave(record.id, record.raw, current);
+    } catch { return {...record,cleanupWarning:'新しいバックアップは保存しましたが、古い分の整理を完了できませんでした。残ったコピーは保持しています。'}; }
+  }
   return record;
 }
 export async function getSavedBackup(id: string): Promise<SavedBackup | undefined> {

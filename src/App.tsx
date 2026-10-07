@@ -100,9 +100,9 @@ const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then((modul
 const SyncScreen = lazy(() => import('./screens/AccountSyncScreen').then((module) => ({ default: module.AccountSyncScreen })));
 const PrivacyScreen = lazy(() => import('./screens/PrivacyScreen').then((module) => ({ default: module.PrivacyScreen })));
 const StudyRecordScreen = lazy(() => import('./screens/StudyRecordScreen').then((module) => ({ default: module.StudyRecordScreen })));
-type PendingBackupImport =
+type PendingBackupImport = (
   | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary; file?: FileBackup }
-  | { kind: 'legacy'; data: AppData };
+  | { kind: 'legacy'; data: AppData }) & { sourceCreatedAt?: string };
 export default function App() {
   const recovered = useRestoredAccountWork<{ screen: AppScreen; pendingBackupImport: PendingBackupImport | null; createDraftDirty: boolean }>('app');
   const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : localStorage.getItem('quizMake:sync:unionLegacyPending') === 'true' ? { name: 'sync' } : { name: 'home' }));
@@ -1360,7 +1360,7 @@ export default function App() {
     waitingWorker?.postMessage({ type: 'SKIP_WAITING' });
   };
 
-  const handleImportBackup = async (file: File): Promise<string | null> => {
+  const handleImportBackup = async (file: File, sourceCreatedAt?: string): Promise<string | null> => {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as unknown;
@@ -1368,19 +1368,19 @@ export default function App() {
         const checked=await validateFileBackup(parsed);
         if(!checked.ok)return checked.error;
         if(checked.value.payload.backupManifest.completeness!=='complete')return 'このファイルは部分的な救出コピーです。ファイル内の欠落一覧を確認してください。完全コピーとして上書き復元できません。';
-        setBackupImportError('');setPendingBackupImport({kind:'sync',payload:checked.value.payload,file:checked.value.payload,summary:summarizeSyncPayload(checked.value.payload)});return null;
+        setBackupImportError('');setPendingBackupImport({kind:'sync',payload:checked.value.payload,file:checked.value.payload,summary:summarizeSyncPayload(checked.value.payload),sourceCreatedAt});return null;
       }
       const syncValidation = await validateHydratedSyncPayload(parsed);
       if (syncValidation.ok) {
         setBackupImportError('');
-        setPendingBackupImport({ kind: 'sync', payload: syncValidation.value, summary: summarizeSyncPayload(syncValidation.value) });
+        setPendingBackupImport({ kind: 'sync', payload: syncValidation.value, summary: summarizeSyncPayload(syncValidation.value), sourceCreatedAt });
         return null;
       }
 
       const result = parseBackupJson(text);
       if (!result.ok) return result.error;
       setBackupImportError('');
-      setPendingBackupImport({ kind: 'legacy', data: result.data });
+      setPendingBackupImport({ kind: 'legacy', data: result.data, sourceCreatedAt });
       return null;
     } catch (error) {
       return error instanceof Error ? `読み込みに失敗しました: ${error.message}` : '読み込みに失敗しました。';
@@ -1912,9 +1912,11 @@ export default function App() {
       <ConfirmDialog
         open={pendingBackupImport !== null}
         fullPage
-        title={'バックアップを読み込みますか？'}
-        message={pendingBackupImport ? getBackupImportMessage(pendingBackupImport) : ''}
-        confirmLabel={backupImportBusy ? '読み込み中…' : 'バックアップして読み込む'}
+        pageTitle={pendingBackupImport?.sourceCreatedAt ? '復元の確認' : undefined}
+        title={pendingBackupImport?.sourceCreatedAt ? new Date(pendingBackupImport.sourceCreatedAt).toLocaleString('ja-JP', {month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'バックアップを読み込みますか？'}
+        message={pendingBackupImport?.sourceCreatedAt ? '現在のデータが、このバックアップに\n置き換わります' : pendingBackupImport ? getBackupImportMessage(pendingBackupImport) : ''}
+        note={pendingBackupImport?.sourceCreatedAt ? '復元前のデータも退避します' : undefined}
+        confirmLabel={backupImportBusy ? '復元中…' : pendingBackupImport?.sourceCreatedAt ? 'このバックアップから復元' : 'バックアップして読み込む'}
         busy={backupImportBusy}
         onCancel={cancelImportBackup}
         onConfirm={() => void confirmImportBackup()}

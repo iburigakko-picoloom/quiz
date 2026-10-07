@@ -137,3 +137,11 @@
   .confirm-dialog, .confirm-dialog__card { animation: none; }
   .confirm-dialog__button { transition: none; }
 }
+.confirm-dialog--backup .confirm-dialog__page-header { display: flex; align-items: center; gap: 12px; min-height: 62px; margin: -18px -16px 0; padding: 10px 16px; border-bottom: 1px solid var(--ui-border); }
+.confirm-dialog__page-header h1 { margin: 0; font-size: 17px; line-height: 1.5; font-weight: 700; }
+.confirm-dialog--backup .confirm-dialog__title { border: 0; padding: 0; margin-top: clamp(60px, 18dvh, 150px); text-align: center; font-size: 24px; }
+.confirm-dialog--backup .confirm-dialog__message { margin-top: 36px; text-align: center; color: var(--ui-text); font-size: 17px; font-weight: 500; }
+.confirm-dialog--backup .confirm-dialog__note { margin-top: 28px; text-align: center; color: var(--ui-text-muted); font-size: 14px; }
+.confirm-dialog--backup .confirm-dialog__actions { margin-top: clamp(40px, 16dvh, 130px); gap: 14px; }
+.confirm-dialog--backup .confirm-dialog__button--danger { min-height: 56px; background: #2d63ad; font-size: 17px; line-height: 1.5; }
+.confirm-dialog--backup .confirm-dialog__button--cancel { min-height: 48px; border: 0; background: transparent; color: #2d63ad; font-size: 16px; }
