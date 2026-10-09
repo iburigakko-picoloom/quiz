@@ -36,3 +36,9 @@
   .public-library-row__body > strong { font-size: 15px; }
   .public-screen .public-counts { gap: 4px 7px; }
 }
+
+.public-archive-row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0; }
+.public-archive-row > span { min-width:0; overflow-wrap:anywhere; }
+.public-archive-row button { flex-shrink:0; }
+.public-delete-option { display:flex !important; align-items:center; gap:10px; min-height:44px; }
+.public-delete-option input { width:20px !important; height:20px; }

@@ -9,6 +9,7 @@ export class PublicationError extends Error {
 }
 export function publicationFailure(code:string,message=''):PublicationError {
   const value=(code+' '+message).toLowerCase();
+  if(value.includes('public set deleted; restore'))return new PublicationError('削除済みの公開です。「自分の公開」の削除済み一覧から復元してから公開してください。','deleted',false,message);
   if(value.includes('57014')||value.includes('statement timeout'))return new PublicationError('公開処理に時間がかかりました。保存済みの位置から再試行できます。','timeout',true,message);
   if(value.includes('network')||value.includes('fetch')||value.includes('abort')||value.includes('timeout'))return new PublicationError('通信が途切れました。再試行すると続きから公開します。','network',true,message);
   if(value.includes('publication_busy'))return new PublicationError('同じセットを別の画面で公開中です。完了後に再試行してください。','busy',true,message);

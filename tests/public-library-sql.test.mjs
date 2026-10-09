@@ -8,6 +8,7 @@ await pg.exec(await readFile(new URL('../supabase/migrations/20261008151820_resu
 const publish=async(local,visibility='link',extra={})=>call(pg,'publish_problem_set_versioned',[JSON.stringify({...publicationMetadata(local),visibility,subject:'Medicine',audience:'CBT',...extra}),JSON.stringify(publicationQuestions(4))],['jsonb','jsonb']);
 const legacy=await publish('legacy','public',{folder_path:[{id:'legacy-folder',name:'Legacy'},{id:'child',name:'Child'}]}),hidden=await publish('hidden');
 await pg.exec(await readFile(new URL('../supabase/migrations/20261008172607_public_discovery.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261009110333_public_catalog_soft_delete.sql',import.meta.url),'utf8'));
 const search=(query='',kind='all',category='',min=0,max=null,sort='popular',offset=0)=>call(pg,'quiz_public_search',[query,kind,category,min,max,sort,offset,30],['text','text','text','integer','integer','text','integer','integer']);
 const manage=(action,id=null,meta={},set=null,path=[])=>call(pg,'quiz_public_folder_manage',[action,id,JSON.stringify(meta),set,JSON.stringify(path)],['text','uuid','jsonb','uuid','jsonb']);
 const folder=id=>call(pg,'quiz_public_folder',[id],['uuid']);
