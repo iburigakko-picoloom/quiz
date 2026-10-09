@@ -72,3 +72,11 @@ test('large originals retain a small publication pointer and derive exact immuta
   assert.deepEqual(importedLearning(next,candidate,'published','version1',new Date(time)).levels,[5000,0,0,0]);
   assert.equal(next.problemSets[0].publicationSource.manifest,undefined);
 });
+test('additive group acknowledgements keep one original, deduplicate known destinations and never overwrite its content or learning history on retries',()=>{
+  const {data,shared,result}=fixture();const first=applyPublishedSource(data,'original',result,publicationSourceFromSnapshot(shared,'owner','original',['group-a']),time);
+  const second=applyPublishedSource(first,'original',result,publicationSourceFromSnapshot(shared,'owner','original',['group-b','group-a']),'2026-10-10T00:00:00Z');
+  assert.deepEqual(second.problemSets[0].publicationSource.groupIds,['group-a','group-b']);assert.equal(second.problemSets.length,1);
+  assert.equal(second.questions,data.questions);assert.equal(second.progress,data.progress);assert.equal(second.answerLogs,data.answerLogs);assert.equal(second.folders,data.folders);
+  assert.equal(applyPublishedSource(second,'original',result,publicationSourceFromSnapshot(shared,'owner','original',['group-b']),time),second);
+  assert.equal(JSON.stringify(second.problemSets[0]).includes('enabled'),false);
+});

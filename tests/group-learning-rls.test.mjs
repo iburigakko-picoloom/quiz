@@ -113,3 +113,19 @@ test('an owner links and explicitly shares the original without recording an imp
   await actor(outsider);await assert.rejects(call('quiz_group_learning_update',args,types),/not authorized/);await actor(owner);
   await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[ownGroup,owner]);await assert.rejects(call('quiz_group_learning_update',args,types),/not authorized/);
 });
+test('sharing one original into two groups does not share progress; consent and unsharing remain isolated by the live group relation',async()=>{
+  const groups=['10000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000005'];await actor(owner);
+  for(const id of groups){await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[id,owner,'Multi-group source']);await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[id,owner,member]);}
+  const source=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'multi-group-original',group_ids:groups}),JSON.stringify(questions)],['jsonb','jsonb']);
+  assert.equal((await pg.query('select count(*)::int n from public.quiz_group_problem_sets where set_id=$1',[source.id])).rows[0].n,2);
+  for(const id of groups)assert.equal((await call('quiz_group_learning_set_read',[id,source.id],['uuid','uuid'])).own.enabled,false);
+  const copies=(await pg.query('select * from public.problem_set_copies')).rows;
+  const c=await call('quiz_group_progress_consent',[groups[0],source.id,true,'multi-group-original',source.version_id,null],['uuid','uuid','boolean','text','uuid','uuid']);
+  const args=[groups[0],source.id,c.generation,'multi-group-original',source.version_id,3,[1,1,1,1],2,5,period.day,period.week],types=['uuid','uuid','uuid','text','uuid','integer','integer[]','integer','integer','date','date'];
+  await call('quiz_group_learning_update',args,types);
+  const second=await call('quiz_group_learning_set_read',[groups[1],source.id],['uuid','uuid']);assert.equal(second.own.enabled,false);assert.equal(second.members.find(m=>m.user_id===owner).levels,null);
+  await pg.query('delete from public.quiz_group_problem_sets where group_id=$1 and set_id=$2',[groups[0],source.id]);
+  await assert.rejects(call('quiz_group_learning_update',args,types),/not authorized/);await assert.rejects(call('quiz_group_learning_set_read',[groups[0],source.id],['uuid','uuid']),/not authorized/);
+  assert.equal((await call('quiz_group_learning_set_read',[groups[1],source.id],['uuid','uuid'])).own.enabled,false);
+  assert.deepEqual((await pg.query('select * from public.problem_set_copies')).rows,copies);
+});
