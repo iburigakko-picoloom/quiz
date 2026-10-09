@@ -20,6 +20,13 @@
 .library-info > summary::before { content: '›'; font-size: 22px; transition: transform var(--motion-fast) ease; }
 .library-info[open] > summary::before { transform: rotate(90deg); }
 .library-info p { margin: 4px 0 10px; line-height: 1.7; overflow-wrap: anywhere; }
+.library-content-row { display: flex; align-items: center; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); margin-bottom: 8px; }
+.library-content-row__open { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 72px; padding: 10px 12px; border: 0; background: transparent; color: var(--ui-text); text-align: left; }
+.library-content-row__icon { flex: 0 0 36px; display: grid; place-items: center; color: var(--ui-accent-dark); }
+.library-content-row__body { flex: 1; min-width: 0; display: grid; gap: 5px; }
+.library-content-row__body strong { font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+.library-content-row__body > span { color: var(--ui-text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.library-content-row__open > svg { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) {
   .library-pane { animation: none; }
   .library-tappable, .library-tappable > svg:last-child, .library-info > summary::before { transition: none; }

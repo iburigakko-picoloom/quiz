@@ -34,12 +34,30 @@ const payload={local_set_id:'local',author_name:'Owner',title:'Cardiology',visib
 const questions=Array.from({length:4},(_,i)=>({position:i,logical_id:'original-'+i,question:'Q'+i,choices:['A','B','C','D'],answer_indexes:[0],answer_text:'A',category:'Medicine',difficulty:'basic'}));
 let published=await call('publish_problem_set_versioned',[JSON.stringify(payload),JSON.stringify(questions)],['jsonb','jsonb']);
 await pg.exec(await readFile(new URL('../supabase/migrations/20261008142626_group_learning_ui.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261009110331_group_library_counts.sql',import.meta.url),'utf8'));
 const period=(await pg.query(`select (now() at time zone 'Asia/Tokyo')::date::text as "day",date_trunc('week',now() at time zone 'Asia/Tokyo')::date::text as "week"`)).rows[0];
 const read=()=>call('quiz_group_learning_read',[group,period.day,period.week],['uuid','date','date']);
 const setRead=()=>call('quiz_group_learning_set_read',[group,published.id],['uuid','uuid']);
 const enable=(enabled,generation=null)=>call('quiz_group_progress_consent',[group,published.id,enabled,'copy',published.version_id,generation],['uuid','uuid','boolean','text','uuid','uuid']);
 const update=(generation,levels=[1,1,1,1],today=2,week=5)=>call('quiz_group_learning_update',[group,published.id,generation,'copy',published.version_id,3,levels,today,week,period.day,period.week],['uuid','uuid','uuid','text','uuid','integer','integer[]','integer','integer','date','date']);
 let consent,folder;
+
+test('group material count unions owned sources and copies once per set across devices, excluding other groups and removed references',async()=>{
+  const g='10000000-0000-4000-8000-000000000010',otherG='10000000-0000-4000-8000-000000000011';
+  await actor(owner);
+  await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$3,$4),($2,$3,$4)',[g,otherG,owner,'Counts']);
+  await pg.query('insert into public.quiz_group_members(group_id,user_id,role) values($1,$3,$5),($1,$4,$6),($2,$3,$5)',[g,otherG,owner,member,'owner','member']);
+  const publishLocal=async(local,groups,visibility='group')=>call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:local,folder_path:[],group_ids:groups,visibility}),JSON.stringify(questions)],['jsonb','jsonb']);
+  const a=await publishLocal('count-a',[g]),b=await publishLocal('count-b',[g]),outside=await publishLocal('count-outside',[otherG]),publicOnly=await publishLocal('count-public',[],'public');
+  for(const [set,who,device] of [[a.id,owner,'d1'],[a.id,owner,'d2'],[a.id,member,'d1'],[a.id,member,'d2'],[outside.id,owner,'d1'],[publicOnly.id,owner,'d1']])await pg.query('insert into public.problem_set_copies(set_id,actor_id,installation_id,local_set_id) values($1,$2,$3,$4)',[set,who,device==='d1'?'20000000-0000-4000-8000-000000000001':'20000000-0000-4000-8000-000000000002',device]);
+  const readCounts=()=>call('quiz_group_learning_read',[g,period.day,period.week],['uuid','date','date']);
+  let state=await readCounts();assert.equal(state.members.find(m=>m.user_id===owner).imported_set_count,2);assert.equal(state.members.find(m=>m.user_id===member).imported_set_count,1);assert.equal(state.members.find(m=>m.user_id===owner).levels,null);
+  // Adding another group destination does not inflate this group's count.
+  await publishLocal('count-a',[g,otherG]);state=await readCounts();assert.equal(state.members.find(m=>m.user_id===owner).imported_set_count,2);
+  await pg.query('delete from public.quiz_group_problem_sets where group_id=$1 and set_id=$2',[g,a.id]);state=await readCounts();assert.equal(state.members.find(m=>m.user_id===owner).imported_set_count,1);assert.equal(state.members.find(m=>m.user_id===member).imported_set_count,0);
+  await pg.query('delete from public.shared_problem_sets where id=$1',[b.id]);assert.equal((await readCounts()).members.find(m=>m.user_id===owner).imported_set_count,0);
+  await actor(outsider);await assert.rejects(readCounts(),/not authorized/);await actor(owner);
+});
 test('existing paths become group folders while source paths and question contents stay intact',async()=>{
   const state=await read();assert.equal(state.folders.length,2);const root=state.folders.find(row=>row.parent_folder_id===null),child=state.folders.find(row=>row.parent_folder_id!==null);assert.equal(child.parent_folder_id,root.id);assert.equal(state.placements[0].group_folder_id,child.id);
   const source=(await pg.query('select folder_path from public.shared_problem_sets where id=$1',[published.id])).rows[0];assert.deepEqual(source.folder_path,payload.folder_path);

@@ -519,7 +519,7 @@ export async function publicLibraryRpc(name:'quiz_public_search'|'quiz_public_fo
     if(controller.signal.aborted)throw new Error('公開ライブラリの通信が時間切れになりました。');
     const {data,error}=await client.rpc(name,params).abortSignal(controller.signal);
     if(expectedUserId&&(await getCloudSession())?.user.id!==expectedUserId)throw new Error('アカウントが変更されています。');
-    if(error)throw new Error(error.code==='PGRST202'||error.code==='42883'?'公開ライブラリのサーバー更新が必要です。':error.message==='not authorized'?'この公開内容を変更する権限がありません。':'公開ライブラリを処理できませんでした。もう一度お試しください。');return data;
+    if(error)throw new Error(error.code==='PGRST202'||error.code==='42883'?'公開ライブラリのサーバー更新が必要です。':error.message==='not authorized'?'この公開内容を変更する権限がありません。':error.message?.startsWith('publication changed')?'公開内容が変更されています。確認画面を閉じ、再読み込みしてから操作してください。':error.message?.includes('deleted; restore')?'削除済みの公開です。「自分の公開」の削除済み一覧から復元してください。':'公開ライブラリを処理できませんでした。もう一度お試しください。');return data;
   })(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('公開ライブラリの通信が時間切れになりました。再試行してください。'));},15000);})]);}finally{clearTimeout(timer);}
 }
 

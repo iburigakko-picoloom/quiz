@@ -7,9 +7,10 @@ import { importedLearning, levelPercentages, sortLearningMembers, sumLevels, typ
 import {groupStudyCandidates} from '../utils/groupStudySource';
 import { buildGroupLibrary, groupFolderSets, type GroupFolderCardData } from '../utils/groupLibrary';
 import type { GroupLearningSnapshot } from '../utils/groupLearningService';
-import { ChevronRightIcon, FolderOutlineIcon, PlusIcon, ProblemSetIcon, SettingsIcon } from './UiIcons';
+import { ChevronRightIcon, FolderOutlineIcon, PlusIcon, SettingsIcon } from './UiIcons';
 import { GroupAvatar, GroupEmpty, LevelProgress, MemberAvatar, SharedFolderCard, displayGroupDate } from './GroupLearningUi';
 import {LibraryPane} from './LibraryPane';
+import {LibraryContentRow} from './LibraryContentRow';
 
 export type GroupDetailTab = 'overview' | 'folders' | 'members';
 export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onSettings, onRefresh, onRemoveMember, busy }: {
@@ -82,6 +83,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
   const rankable = sortLearningMembers(learningMembers, 'today').filter(member => member.todayCount !== null);
   const renderFolder = (folder: GroupFolderCardData, parent = folderTrail) => {
     const contents = groupFolderSets(folder);
+    if(current) return <LibraryContentRow key={folder.key} title={folder.name} folder sets={contents.length} questions={contents.reduce((sum,set)=>sum+set.questionCount,0)} disabled={busy} onOpen={()=>onFolderTrail([...parent,folder.key])}/>;
     return <SharedFolderCard key={folder.key} name={folder.name} creatorName={folder.createdBy === userId ? 'あなたが作成' : folder.creatorName} creatorId={folder.createdBy ?? undefined} sets={contents} questionCount={contents.reduce((sum, set) => sum + set.questionCount, 0)} updatedAt={[folder.updatedAt, ...contents.map(set => set.updatedAt)].sort().slice(-1)[0]} importLabel={folder.importCount === null ? '取り込み人数 未集計' : `${folder.importCount}人が取り込み`} busy={busy} onOpen={() => { onTab('folders'); onFolderTrail([...parent, folder.key]); }} />;
   };
   return <section ref={workspaceRef} className="group-workspace" aria-label="グループ詳細">
@@ -122,7 +124,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
           {current ? <button type="button" className="group-primary" disabled={busy || !snapshot} onClick={() => onAddSet(current)}><PlusIcon size={18} />問題セットを追加</button> : canManage ? <button type="button" className="group-primary" disabled={busy || !snapshot} onClick={onAddFolder}><PlusIcon size={18} />フォルダを追加</button> : null}
         </div>
         <div className="group-folder-list">{(current ? current.children : folders).map(folder => renderFolder(folder))}</div>
-        {current ? <div className="group-set-list">{current.sets.map(set => <button type="button" className="group-set-row library-tappable" key={set.id} disabled={busy} onClick={() => onOpenSet(set, trail.map(folder => folder.name).join(' / '))}><span className="group-set-row__icon"><ProblemSetIcon size={33} /></span><span><strong>{set.title}</strong><small>{set.questionCount.toLocaleString('ja-JP')}問{set.importCount===undefined?'':` · ${set.importCount}人が取り込み`}</small></span><ChevronRightIcon size={20} /></button>)}{!current.sets.length && !current.children.length ? <GroupEmpty>問題セットはまだありません。</GroupEmpty> : null}</div> : !folders.length && !loading ? <GroupEmpty>フォルダはまだありません。</GroupEmpty> : null}
+        {current ? <div className="group-set-list">{current.sets.map(set => <LibraryContentRow key={set.id} title={set.title} questions={set.questionCount} subtitle={set.importCount===undefined?undefined:`${set.importCount}人が取り込み`} disabled={busy} onOpen={()=>onOpenSet(set,trail.map(folder=>folder.name).join(' / '))}/>)}{!current.sets.length && !current.children.length ? <GroupEmpty>問題セットはまだありません。</GroupEmpty> : null}</div> : !folders.length && !loading ? <GroupEmpty>フォルダはまだありません。</GroupEmpty> : null}
         {current?<details className="library-info"><summary>フォルダ情報</summary><p>作成者：{current.createdBy===userId?'あなた':current.creatorName}</p><p>更新：{displayGroupDate(current.updatedAt)}{current.importCount===null?'':` · ${current.importCount}人が取り込み`}</p></details>:null}
         </LibraryPane>
       </section>
@@ -130,8 +132,8 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         <div className="group-panel__heading group-list-heading"><h2>メンバー {members.length}</h2><div className="group-segment" aria-label="メンバーの並び順">{([['today', '今日'], ['week', '今週'], ['l3', 'L3']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>)}</div></div>
         <div className="group-member-list">{sorted.map((member, i) => <article className="group-member-card" key={member.userId}>
           <div className="group-member-card__identity"><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} /><span><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong>{member.role === 'owner' ? <small className="group-owner-badge">オーナー</small> : null}</span></div>
-          <dl className="group-member-card__stats"><div><dt>今日</dt><dd>{member.todayCount === null ? '—' : `${member.todayCount}問`}</dd></div><div><dt>今週</dt><dd>{member.weekCount === null ? '—' : `${member.weekCount}問`}</dd></div><div><dt>取り込み</dt><dd>{snapshot ? `${member.importedSetCount}セット` : '—'}</dd></div><div><dt>L3</dt><dd>{member.levels ? `${levelPercentages(member.levels)[3]}%` : '—'}</dd></div></dl>
-        </article>)}</div><details className="library-info"><summary>集計について</summary><p>共有済みセットの最終反映時点の値です。「—」は未共有・未反映です。今週は月曜から日曜（日本時間）です。</p></details>
+          <dl className="group-member-card__stats"><div><dt>今日</dt><dd>{member.todayCount === null ? '—' : `${member.todayCount}問`}</dd></div><div><dt>今週</dt><dd>{member.weekCount === null ? '—' : `${member.weekCount}問`}</dd></div><div><dt>教材</dt><dd>{snapshot ? `${member.importedSetCount}セット` : '—'}</dd></div><div><dt>L3</dt><dd>{member.levels ? `${levelPercentages(member.levels)[3]}%` : '—'}</dd></div></dl>
+        </article>)}</div><details className="library-info"><summary>集計について</summary><p>教材は、このグループに共有中の自分のセットと取り込んだセットの合計です。同じセットは1件で数えます。学習値は共有済みセットの最終反映時点の値です。「—」は未共有・未反映です。今週は月曜から日曜（日本時間）です。</p></details>
         {canManage ? <details className="group-member-management"><summary>メンバーを管理</summary>{members.filter(member => member.role !== 'owner' && member.userId !== userId).map(member => <div key={member.userId}><span>{member.displayName}</span><button type="button" disabled={busy} onClick={() => onRemoveMember(member)}>メンバーから外す</button></div>)}</details> : null}
       </section>
     </div>
