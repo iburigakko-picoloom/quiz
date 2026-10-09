@@ -134,6 +134,15 @@ function normalizeProblemSets(
     copyOptionalString(value, item, 'sourceOwnerId');
     copyOptionalString(value, item, 'sourceOwnerName');
     copyOptionalString(value, item, 'cloudSetId');
+    if(value.publicationSource!==undefined){
+      const source=value.publicationSource;
+      if(!isRecord(source)||!isNonEmptyString(source.setId)||source.setId!==item.cloudSetId||!isNonEmptyString(source.ownerId)||!isNonEmptyString(source.versionId)
+        ||!Array.isArray(source.groupIds)||!source.groupIds.every(isNonEmptyString)||new Set(source.groupIds).size!==source.groupIds.length
+        ||(source.manifest!==undefined&&(!Array.isArray(source.manifest)||!source.manifest.length||source.manifest.length>50000
+        ||!source.manifest.every(row=>isRecord(row)&&isNonEmptyString(row.logicalId)&&typeof row.contentRevision==='string'&&/^[a-f0-9]{64}$/.test(row.contentRevision))
+        ||new Set(source.manifest.map(row=>row.logicalId)).size!==source.manifest.length)))return invalid(`problemSets[${index}].publicationSource が不正です。`);
+      item.publicationSource={setId:source.setId,ownerId:source.ownerId,versionId:source.versionId,groupIds:[...source.groupIds],...(Array.isArray(source.manifest)?{manifest:source.manifest.map(row=>({logicalId:row.logicalId as string,contentRevision:row.contentRevision as string}))}:{})};
+    }
     const creationMethod = normalizeCreationMethod(value.creationMethod);
     if (creationMethod) item.creationMethod = creationMethod;
     if (typeof value.visibility === 'string') {

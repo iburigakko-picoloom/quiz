@@ -3,15 +3,15 @@ import type { CloudProblemSet,CloudQuestion } from '../utils/cloudService';
 import { displayGroupDate, GroupEmpty } from './GroupLearningUi';
 import { FolderOutlineIcon, GroupIcon, HistoryIcon, ProblemSetIcon } from './UiIcons';
 
-export function SharedSetDetail({ set, location, busy, onCopy, onPractice, onReport, progress }: {
+export function SharedSetDetail({ set, location, busy, onCopy, onOpenSource, onPractice, onReport, progress }: {
   set: CloudProblemSet; location: string; busy: boolean; progress?: ReactNode;
-  onCopy: () => void; onPractice: () => void; onReport: () => void;
+  onCopy: () => void; onOpenSource?: () => void; onPractice: () => void; onReport: () => void;
 }) {
   return <section className="group-set-detail" aria-label="問題セット詳細">
     {location ? <p className="group-breadcrumb"><FolderOutlineIcon size={17} />{location}</p> : null}
     <article className="group-panel group-set-summary"><div className="group-set-summary__top"><span className="group-folder-card__icon"><ProblemSetIcon size={44} /></span><div><h2>{set.title}</h2><div className="group-set-summary__meta"><span><ProblemSetIcon size={16} />{set.questionCount}問</span><span><GroupIcon size={16} />取り込み {set.importCount === undefined ? `${set.addCount}件` : `${set.importCount}人`}</span><span><HistoryIcon size={16} />最終更新 {displayGroupDate(set.updatedAt)}</span></div></div></div>
       {set.description ? <p className="group-muted">{set.description}</p> : null}
-      <button type="button" className="group-primary group-import-button" disabled={busy} onClick={onCopy}>取り込む</button>
+      <button type="button" className="group-primary group-import-button" disabled={busy} onClick={onOpenSource??onCopy}>{onOpenSource?'共有元を開く':'取り込む'}</button>
     </article>
     <SharedQuestionPreview questions={set.questions??[]}/>
     {progress}

@@ -1,18 +1,17 @@
 import type { AppData, ProblemSet } from '../types';
 import { questionRevision } from './studyPlans';
+import { groupStudySelection } from './groupStudySource';
 
-/** One explicitly selected copy, one immutable publication version. */
+/** One selected local original or copy, one immutable publication version. */
 export function commonVersionProgress(data: AppData, set: ProblemSet, publishedId: string, versionId: string) {
-  if (set.sourceSetId !== publishedId || set.sourceVersionId !== versionId || !set.sourceManifest?.length) return null;
-  const manifest = new Map(set.sourceManifest.map(item => [item.logicalId, item.contentRevision]));
-  if (manifest.size !== set.sourceManifest.length) return null;
-  const eligible = new Map(data.questions.filter(q => q.setId === set.id && q.origin?.setId === publishedId && q.origin.publicationVersionId === versionId && manifest.get(q.origin.logicalId) === q.origin.contentRevision && questionRevision(q) === q.origin.importedContent).map(q => [q.id, q]));
+  const selection=groupStudySelection(data,set,publishedId,versionId);if(!selection)return null;
+  const {manifest,eligible,logicalByQuestionId}=selection;
   const answered = new Set<string>();
   for (const log of data.answerLogs) {
     const q = eligible.get(log.questionId);
-    if (q && log.questionRevision === q.origin!.importedContent) answered.add(q.origin!.logicalId);
+    if (q && log.setId===set.id && log.questionRevision === questionRevision(q)) answered.add(logicalByQuestionId.get(q.id)!);
   }
-  return { answered: answered.size, total: set.sourceManifest.length };
+  return { answered: answered.size, total: manifest.size };
 }
 export type GroupProgressSnapshot = {
   version_id: string | null;

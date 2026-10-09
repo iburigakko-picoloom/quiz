@@ -31,6 +31,8 @@ export interface Folder {
 }
 
 export interface ProblemSet {
+  /** Publication provenance for the owner's original. Import provenance stays separate. */
+  publicationSource?: PublicationSource;
   sourceVersionId?: string;
   sourceManifest?: { logicalId: string; contentRevision: string }[];
   id: string;
@@ -52,6 +54,15 @@ export interface ProblemSet {
   copiedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PublicationSource {
+  setId: string;
+  ownerId: string;
+  versionId: string;
+  groupIds: string[];
+  /** Large manifests are read from the authorized publication instead of stored in one sync record. */
+  manifest?: { logicalId: string; contentRevision: string }[];
 }
 
 export interface DetailedAnswer {

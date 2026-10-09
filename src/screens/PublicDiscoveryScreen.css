@@ -3,13 +3,26 @@
 .public-more{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 
 /* Library rows emphasize the title and one readable line of counts. */
-.public-library-row { padding: 4px 0; }
-.public-library-row__open { min-height: 92px; padding: 12px 8px; gap: 14px; }
-.public-library-row__body { gap: 7px; }
-.public-library-row__body > strong { font-size: 18px; color: var(--ui-text); }
-.public-screen .public-counts { color: var(--ui-text-muted); font-size: 13px; gap: 6px 12px; }
+.public-screen { flex: 0 0 auto; padding-top: calc(12px + var(--safe-top,0px)); }
+.public-header { min-height: 44px; margin-bottom: 12px; }
+.public-header--home h1 { font-size: 26px; }
+.public-header .public-text { min-height: 44px; }
+.public-search { margin-bottom: 10px; }
+.public-search label { height: 44px; }
+.public-segments { margin-bottom: 12px; }
+.public-segments button { min-height: 44px; padding-block: 10px; }
+.public-section-heading { margin-top: 14px; }
+.public-section-heading h2 { font-size: 16px; }
+.public-section-heading .public-text { min-height: 44px; }
+.public-library-row { padding: 2px 0; }
+.public-library-row__open { min-height: 72px; padding: 6px; gap: 10px; }
+.public-library-row .public-artwork { width: 40px; height: 46px; border-radius: 8px; }
+.public-library-row .public-artwork svg { width: 30px; height: 34px; }
+.public-library-row__body { gap: 3px; }
+.public-library-row__body > strong { font-size: 16px; line-height: 1.3; color: var(--ui-text); }
+.public-screen .public-counts { color: var(--ui-text-muted); font-size: 12px; gap: 4px 8px; }
 .public-tags { margin: 0; }
-.public-tags > span { color: #465a70; font-size: 12px; padding: 3px 9px; }
+.public-tags > span { color: #465a70; font-size: 11px; padding: 1px 7px; }
 .public-description, .public-about p { color: var(--ui-text); font-size: 15px; line-height: 1.8; }
 .public-detail-top p { color: var(--ui-text-muted); }
 .public-detail-loading { display: flex; gap: 16px; align-items: center; min-height: 96px; margin-block: 16px; }
@@ -19,7 +32,7 @@
 .public-draft { display: inline-block; margin-left: 79px; margin-bottom: 8px; color: var(--ui-text-muted); font-size: 13px; }
 .public-screen .group-preview-card__text { color: var(--ui-text-muted); font-size: 13px; }
 @media (max-width: 350px) {
-  .public-library-row__open { gap: 11px; padding-inline: 4px; }
-  .public-library-row__body > strong { font-size: 17px; }
-  .public-screen .public-counts { gap: 6px 9px; }
+  .public-library-row__open { gap: 8px; padding-inline: 4px; }
+  .public-library-row__body > strong { font-size: 15px; }
+  .public-screen .public-counts { gap: 4px 7px; }
 }

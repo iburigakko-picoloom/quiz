@@ -1,6 +1,7 @@
 import type { AppData, ProblemSet } from '../types';
 import { getVirtualLevel, indexProgress } from './quiz';
 import { nextDay, questionRevision, studyDay } from './studyPlans';
+import { groupStudySelection } from './groupStudySource';
 
 export type LevelCounts = [number, number, number, number];
 export const groupTimeZone = 'Asia/Tokyo';
@@ -36,16 +37,15 @@ export function sumLevels(rows: readonly LevelCounts[]): LevelCounts {
 
 /** Count each immutable source question once. Edited / removed questions remain L0. */
 export function importedLearning(data: AppData, set: ProblemSet, publishedId: string, versionId: string, now = new Date()) {
-  if (set.sourceSetId !== publishedId || set.sourceVersionId !== versionId || !set.sourceManifest?.length) return null;
-  const manifest = new Map(set.sourceManifest.map(item => [item.logicalId, item.contentRevision]));
-  if (manifest.size !== set.sourceManifest.length) return null;
-  const eligible = new Map(data.questions.filter(q => q.setId === set.id && q.origin?.setId === publishedId && q.origin.publicationVersionId === versionId && manifest.get(q.origin.logicalId) === q.origin.contentRevision && questionRevision(q) === q.origin.importedContent).map(q => [q.id, q]));
+  const selection=groupStudySelection(data,set,publishedId,versionId);if(!selection)return null;
+  const {manifest,eligible,logicalByQuestionId}=selection;
   const progress = indexProgress(data.progress);
   const byLogical = new Map<string, number>();
   for (const q of eligible.values()) {
     const p = progress.get(q.id);
     const level = p?.isGraduated ? 3 : getVirtualLevel(p);
-    byLogical.set(q.origin!.logicalId, Math.max(byLogical.get(q.origin!.logicalId) ?? 0, level));
+    const logicalId=logicalByQuestionId.get(q.id)!;
+    byLogical.set(logicalId, Math.max(byLogical.get(logicalId) ?? 0, level));
   }
   const levels: LevelCounts = [0, 0, 0, 0];
   for (const logicalId of manifest.keys()) levels[byLogical.get(logicalId) ?? 0]++;
@@ -56,8 +56,8 @@ export function importedLearning(data: AppData, set: ProblemSet, publishedId: st
   const answered = new Set<string>();
   for (const log of data.answerLogs) {
     const q = eligible.get(log.questionId);
-    if (!q || log.setId !== set.id || log.questionRevision !== q.origin!.importedContent) continue;
-    answered.add(q.origin!.logicalId);
+    if (!q || log.setId !== set.id || log.questionRevision !== questionRevision(q)) continue;
+    answered.add(logicalByQuestionId.get(q.id)!);
     const logDay = studyDay(log.answeredAt, groupTimeZone);
     if (logDay === day) todayCount++;
     if (logDay >= weekStart && logDay <= day) weekCount++;

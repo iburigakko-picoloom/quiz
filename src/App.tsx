@@ -20,6 +20,7 @@ import { PlansScreen } from './screens/PlansScreen';
 import { PlanEditorScreen } from './screens/PlanEditorScreen';
 import { questionRevision } from './utils/studyPlans';
 import {planPublicImport} from './utils/publicImport';
+import {applyPublishedSource} from './utils/groupStudySource';
 import type {PublicSet} from './utils/publicLibrary';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
 import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
@@ -1162,17 +1163,11 @@ export default function App() {
     });
   };
 
-  const handlePublishedProblemSet = async (localSetId: string, result: CloudPublishResult): Promise<void> => {
+  const handlePublishedProblemSet = async (localSetId: string, result: CloudPublishResult, source?: import('./types').PublicationSource): Promise<void> => {
     const current = dataRef.current;
-    const saved = await persistThenCommitData({
-      ...current,
-      problemSets: current.problemSets.map((set) => set.id === localSetId ? {
-        ...set,
-        cloudSetId: result.id,
-        visibility: result.visibility,
-        updatedAt: nowIso(),
-      } : set),
-    });
+    const next=applyPublishedSource(current,localSetId,result,source,nowIso());
+    if(next===current)return;
+    const saved = await persistThenCommitData(next);
     if (!saved) throw new Error('共有状態を端末に保存できませんでした。');
   };
 
@@ -1183,6 +1178,7 @@ export default function App() {
       problemSets: current.problemSets.map((set) => set.id === localSetId ? {
         ...set,
         cloudSetId: undefined,
+        publicationSource: undefined,
         visibility: 'private',
         updatedAt: nowIso(),
       } : set),

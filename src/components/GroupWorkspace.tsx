@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppData } from '../types';
 import { indexProgress } from '../utils/quiz';
 import type { CloudGroup, CloudGroupMember, CloudProblemSet } from '../utils/cloudService';
+import {getSharedProblemSet} from '../utils/cloudService';
 import { importedLearning, levelPercentages, sortLearningMembers, sumLevels, type GroupLearningMember, type LevelCounts } from '../utils/groupLearning';
+import {groupStudyCandidates} from '../utils/groupStudySource';
 import { buildGroupLibrary, groupFolderSets, type GroupFolderCardData } from '../utils/groupLibrary';
 import type { GroupLearningSnapshot } from '../utils/groupLearningService';
 import { ChevronRightIcon, FolderOutlineIcon, PlusIcon, ProblemSetIcon, SettingsIcon } from './UiIcons';
@@ -17,6 +19,31 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
 }) {
   const [scope, setScope] = useState<'all' | 'self'>('all');
   const [sort, setSort] = useState<'today' | 'week' | 'l3'>('today');
+  const [sourceSnapshots,setSourceSnapshots]=useState<Map<string,CloudProblemSet>>(new Map());
+  const [sourceError,setSourceError]=useState('');
+  const neededSources=sets.filter(shared=>{
+    const local=data.problemSets.find(s=>shared.ownerId===userId&&s.id===shared.localSetId&&s.cloudSetId===shared.id);
+    const cached=sourceSnapshots.get(shared.id);
+    return local&&!shared.questions?.length&&(!local.publicationSource?.manifest||local.publicationSource.versionId!==shared.versionId)&&!(cached?.ownerId===userId&&cached.localSetId===local.id&&cached.versionId===shared.versionId);
+  });
+  const sourceKey=neededSources.map(s=>`${s.id}:${s.versionId}`).join('|');
+  useEffect(()=>{
+    let active=true;setSourceError('');
+    if(scope!=='self'||!sourceKey)return()=>{active=false;};
+    // Only originals lacking a compact manifest need this read. Fetch them
+    // sequentially; these immutable snapshots remain in memory and never sync.
+    void (async()=>{
+      const fetched:CloudProblemSet[]=[];
+      for(const shared of neededSources){
+        const detail=await getSharedProblemSet(shared.id);
+        if(!active)return;
+        if(detail.ownerId!==userId||detail.localSetId!==shared.localSetId||detail.versionId!==shared.versionId||!detail.questions?.length)throw new Error('共有元の公開版が更新されています。一覧を再読み込みしてください。');
+        groupStudyCandidates(data,detail,userId);fetched.push(detail);
+      }
+      if(active)setSourceSnapshots(old=>new Map([...old,...fetched.map(s=>[s.id,s] as const)]));
+    })().catch(reason=>{if(active)setSourceError(reason instanceof Error?reason.message:'共有元の公開版を確認できません。一覧を再読み込みしてください。');});
+    return()=>{active=false;};
+  },[scope,sourceKey,userId,group?.id,sets]);
   const workspaceRef = useRef<HTMLElement>(null);
   const folderKey = folderTrail.join('|');
   const previousFolderKey=useRef(folderKey);
@@ -38,22 +65,19 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
   const groupLevels = sumLevels(learningMembers.flatMap(member => member.levels ? [member.levels] : []));
   const localLevels = useMemo(() => {
     const chosen = new Map<string, typeof data.problemSets[number]>();
-    const groupSetIds = new Set(sets.map(set => set.id));
-    for (const copy of [...data.problemSets].sort((a, b) => (b.copiedAt ?? b.createdAt).localeCompare(a.copiedAt ?? a.createdAt) || a.id.localeCompare(b.id))) {
-      if (copy.sourceSetId && groupSetIds.has(copy.sourceSetId) && !chosen.has(copy.sourceSetId)) chosen.set(copy.sourceSetId, copy);
-    }
+    for(const shared of sets){const cached=sourceSnapshots.get(shared.id);const detail=cached?.ownerId===userId&&cached.localSetId===shared.localSetId&&cached.versionId===shared.versionId?cached:shared;const candidate=groupStudyCandidates(data,detail,userId,false)[0];if(candidate)chosen.set(shared.id,candidate);}
     const questionsBySet = new Map<string, AppData['questions']>();
     for (const question of data.questions) {
       const questions = questionsBySet.get(question.setId) ?? [];
       questions.push(question); questionsBySet.set(question.setId, questions);
     }
     const progressById = indexProgress(data.progress);
-    return sumLevels([...chosen.values()].flatMap(copy => {
+    return sumLevels([...chosen.entries()].flatMap(([publishedId,copy]) => {
       const questions = questionsBySet.get(copy.id) ?? [];
-      const aggregate = importedLearning({ ...data, questions, progress: questions.flatMap(question => { const p = progressById.get(question.id); return p ? [p] : []; }), answerLogs: [] }, copy, copy.sourceSetId!, copy.sourceVersionId ?? '');
+      const aggregate = importedLearning({ ...data, questions, progress: questions.flatMap(question => { const p = progressById.get(question.id); return p ? [p] : []; }), answerLogs: [] }, copy, publishedId, copy.publicationSource?.setId===publishedId?copy.publicationSource.versionId:copy.sourceVersionId ?? '');
       return aggregate ? [aggregate.levels] : [];
     }));
-  }, [data, sets]);
+  }, [data, sets,userId,sourceSnapshots]);
   const levels = scope === 'self' ? localLevels : groupLevels;
   const rankable = sortLearningMembers(learningMembers, 'today').filter(member => member.todayCount !== null);
   const renderFolder = (folder: GroupFolderCardData, parent = folderTrail) => {
@@ -76,7 +100,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
       </article> : null}
       <section id="group-panel-overview" role="tabpanel" aria-labelledby="group-tab-overview" hidden={tab !== 'overview'}>
         <article className="group-panel"><div className="group-panel__heading"><h2>取り込まれた問題の進捗</h2><div className="group-segment" aria-label="進捗の対象">{([['all', '全体'], ['self', '自分']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{label}</button>)}</div></div>
-          {levels.some(n => n > 0) ? <LevelProgress levels={levels} /> : <GroupEmpty>{scope === 'self' ? 'グループの問題セットを取り込むと、ここに進捗が表示されます。' : '共有されたレベル別の進捗はまだありません。'}</GroupEmpty>}
+          {scope==='self'&&neededSources.length ? sourceError ? <p className="group-error" role="alert">{sourceError}</p> : <p role="status" className="group-muted">共有元の公開版を確認中…</p> : levels.some(n => n > 0) ? <LevelProgress levels={levels} /> : <GroupEmpty>{scope === 'self' ? 'グループの共有元・取り込み済み教材があると、ここに進捗が表示されます。' : '共有されたレベル別の進捗はまだありません。'}</GroupEmpty>}
         </article>
         <article className="group-panel"><div className="group-panel__heading"><h2>今日の解答数</h2><button type="button" className="group-text-link" onClick={() => { setSort('today'); onTab('members'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
           {rankable.slice(0, 3).map((member, i) => <div className="group-ranking" key={member.userId}><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} /><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong><b>{member.todayCount}問</b></div>)}

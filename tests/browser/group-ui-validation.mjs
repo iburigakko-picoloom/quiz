@@ -5,16 +5,17 @@ import { pathToFileURL } from 'node:url';
 const packagePath=process.env.QUIZMAKE_PLAYWRIGHT_MODULE;
 const {chromium}=await import(packagePath ? pathToFileURL(resolve(packagePath,'index.mjs')).href : 'playwright');
 const browser=await chromium.launch({channel:'chrome',headless:true});
+const previewOrigin=process.env.QUIZMAKE_GROUP_PREVIEW_ORIGIN??'http://127.0.0.1:5174';
 await mkdir('tmp',{recursive:true});
 try {
   for(const width of [390,320,768]) {
     const page=await browser.newPage({viewport:{width,height:844}});
     const errors=[];page.on('pageerror',error=>errors.push(error.message));
-    await page.goto('http://127.0.0.1:5174/quiz/tests/browser/group-ui-preview.html');
+    await page.goto(previewOrigin+'/quiz/tests/browser/group-ui-preview.html');
     await page.getByRole('tab',{name:'概要',exact:true}).waitFor();
     const checkOverflow=async()=>assert.equal(await page.locator('.app-layout__scroll').evaluate(el=>el.scrollWidth>el.clientWidth+1),false,`${width}px horizontal overflow`);
     await checkOverflow();await page.screenshot({path:`tmp/group-ui-${width}-overview.png`});
-    await page.getByRole('button',{name:'自分',exact:true}).click();await page.getByText('グループの問題セットを取り込むと、ここに進捗が表示されます。').waitFor();
+    await page.getByRole('button',{name:'自分',exact:true}).click();await page.getByText('グループの共有元・取り込み済み教材があると、ここに進捗が表示されます。').waitFor();
     await page.getByRole('button',{name:'全体',exact:true}).click();
     await page.getByRole('tab',{name:/メンバー/}).click();assert.equal(await page.locator('.group-member-card').count(),8);await checkOverflow();
     assert.equal(await page.locator('.group-member-card').first().locator('strong').innerText(),'あなた');
@@ -28,7 +29,7 @@ try {
     await page.screenshot({path:`tmp/group-ui-${width}-set.png`});
     await page.mouse.move(width/2,400);await page.mouse.wheel(0,1200);
     await page.waitForFunction(()=>document.querySelector('.community-screen--group-workspace').scrollTop>0);
-    const progressBox=await page.getByRole('heading',{name:'取り込んだ人の進捗',exact:true}).boundingBox();assert.ok(progressBox.y>64&&progressBox.y+progressBox.height<770,'Imported member progress can be scrolled into view');
+    const progressBox=await page.getByRole('heading',{name:'メンバーの進捗',exact:true}).boundingBox();assert.ok(progressBox.y>64&&progressBox.y+progressBox.height<770,'Imported member progress can be scrolled into view');
     await page.screenshot({path:`tmp/group-ui-${width}-progress.png`});
     await page.getByRole('heading',{name:'問題プレビュー',exact:true}).scrollIntoViewIfNeeded();
     await page.locator('.group-preview-card button').first().click();assert.equal(await page.locator('.group-preview-card__expanded li').count(),4);

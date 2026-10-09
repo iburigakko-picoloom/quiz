@@ -13,6 +13,7 @@ import { GroupProgress } from '../components/GroupProgress';
 import {PublicationJobs} from '../components/PublicationJobs';
 import {usePublicationQueue} from '../hooks/usePublicationQueue';
 import {prepareLocalPublication} from '../utils/publicationPayload';
+import {groupStudyCandidates} from '../utils/groupStudySource';
 import { GroupAvatar } from '../components/GroupLearningUi';
 import { useGroupLearning } from '../hooks/useGroupLearning';
 import { groupAccents, groupIcons, type GroupAccent, type GroupIconName } from '../utils/groupLearning';
@@ -734,6 +735,7 @@ export function CommunityScreen({
     } finally { addBusyRef.current = false; setBusy(false); }
   };
 
+  const ownedSource=isGroupSetDetail&&directSet&&session?groupStudyCandidates(data,directSet,session.user.id).find(local=>local.publicationSource?.setId===directSet.id):undefined;
   const headerTitle = groupPage ? (groupPage === 'create' ? 'グループを作成' : '招待コードで参加') : directSet
     ? directSet?.title ?? '問題セット'
     : isGroupDetail
@@ -768,7 +770,7 @@ export function CommunityScreen({
           {isGroupDetail ? (
             <LibraryPane viewKey={isGroupSetDetail&&directSet?directSet.id:'workspace'} depth={isGroupSetDetail?2:1}>
             {isGroupSetDetail && directSet ? (
-              <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onPractice={() => void practiceSharedSet(directSet)} onReport={() => setReportTarget(directSet)} progress={session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onChanged={() => setGroupLearningRevision(n => n + 1)} /> : undefined} />
+              <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onOpenSource={ownedSource?()=>onOpenLocalSet(ownedSource.id):undefined} onPractice={() => void practiceSharedSet(directSet)} onReport={() => setReportTarget(directSet)} progress={session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onChanged={() => setGroupLearningRevision(n => n + 1)} /> : undefined} />
             ) : (
               <section className="community-section community-group-detail">
                 {!session ? (
