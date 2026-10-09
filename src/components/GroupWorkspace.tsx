@@ -94,21 +94,24 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
       {error ? <div className="group-error" role="alert">{error}<button type="button" onClick={onRefresh}>再読み込み</button></div> : null}
       {loading ? <p className="group-muted" role="status">グループの集計を読み込み中…</p> : null}
       {tab !== 'folders' ? <article className="group-summary group-panel">
-        <button type="button" className="group-summary__icon" aria-label="グループアイコンを変更" disabled={!canManage || busy} onClick={onSettings}><GroupAvatar icon={snapshot?.icon ?? group?.icon} accent={snapshot?.accent ?? group?.accent} />{canManage ? <span className="group-summary__edit" aria-hidden="true">✎</span> : null}</button>
-        <div><h2>{group?.name ?? 'グループ'}</h2><p>{members.length}人 · {folderCount}フォルダ · {sets.length}問題セット</p></div>
-        <button type="button" className="group-secondary" onClick={onSettings}><SettingsIcon size={17} />グループ設定</button>
+        <button type="button" className="group-summary__icon" aria-label="グループアイコンを変更" disabled={!canManage || busy} onClick={onSettings}><GroupAvatar icon={snapshot?.icon ?? group?.icon} accent={snapshot?.accent ?? group?.accent} />{canManage ? <span className="group-summary__edit" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 5 5-13 13-5 1 1-5z"/><path d="m14 5 5 5"/></svg></span> : null}</button>
+        <nav className="group-summary__stats" aria-label="グループの情報">
+          <button type="button" className="library-tappable" onClick={()=>onTab('members')} aria-label={`${members.length}人のメンバーを見る`}><strong>{members.length}</strong><span>メンバー</span></button>
+          <button type="button" className="library-tappable" onClick={()=>{onFolderTrail([]);onTab('folders');}} aria-label={`${folderCount}個のフォルダを見る`}><strong>{folderCount}</strong><span>フォルダ</span></button>
+          <button type="button" className="library-tappable" onClick={()=>{onFolderTrail([]);onTab('folders');}} aria-label={`${sets.length}個の問題セットを見る`}><strong>{sets.length}</strong><span>セット</span></button>
+        </nav>
+        <button type="button" className="group-summary__settings library-tappable" onClick={onSettings} aria-label="グループ設定"><SettingsIcon size={21}/></button>
       </article> : null}
       <section id="group-panel-overview" role="tabpanel" aria-labelledby="group-tab-overview" hidden={tab !== 'overview'}>
-        <article className="group-panel"><div className="group-panel__heading"><h2>取り込まれた問題の進捗</h2><div className="group-segment" aria-label="進捗の対象">{([['all', '全体'], ['self', '自分']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{label}</button>)}</div></div>
-          {scope==='self'&&neededSources.length ? sourceError ? <p className="group-error" role="alert">{sourceError}</p> : <p role="status" className="group-muted">共有元の公開版を確認中…</p> : levels.some(n => n > 0) ? <LevelProgress levels={levels} /> : <GroupEmpty>{scope === 'self' ? 'グループの共有元・取り込み済み教材があると、ここに進捗が表示されます。' : '共有されたレベル別の進捗はまだありません。'}</GroupEmpty>}
+        <article className="group-panel group-overview-progress"><div className="group-panel__heading"><h2>学習の進捗</h2><div className="group-segment" aria-label="進捗の対象">{([['all', '全体'], ['self', '自分']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{label}</button>)}</div></div>
+          {scope==='self'&&neededSources.length ? sourceError ? <p className="group-error" role="alert">{sourceError}</p> : <p role="status" className="group-muted">共有元の公開版を確認中…</p> : levels.some(n => n > 0) ? <LevelProgress levels={levels} /> : <GroupEmpty>{scope === 'self' ? '教材を学習すると、ここで進捗を確認できます。' : '進捗はまだ共有されていません。'}</GroupEmpty>}
         </article>
-        <article className="group-panel"><div className="group-panel__heading"><h2>今日の解答数</h2><button type="button" className="group-text-link" onClick={() => { setSort('today'); onTab('members'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
+        {rankable.length?<article className="group-panel"><div className="group-panel__heading"><h2>今日の解答数</h2><button type="button" className="group-text-link" onClick={() => { setSort('today'); onTab('members'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
           {rankable.slice(0, 3).map((member, i) => <div className="group-ranking" key={member.userId}><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} /><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong><b>{member.todayCount}問</b></div>)}
-          {!rankable.length ? <GroupEmpty>今日の解答はまだ共有されていません。</GroupEmpty> : null}
-        </article>
+        </article>:null}
         <article className="group-panel"><div className="group-panel__heading"><h2>フォルダ</h2><button type="button" className="group-text-link" onClick={() => { onFolderTrail([]); onTab('folders'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
           {folders.slice(0, 3).map(folder => <button type="button" className="group-folder-shortcut library-tappable" key={folder.key} onClick={() => { onFolderTrail([folder.key]); onTab('folders'); }}><FolderOutlineIcon size={36} /><span><strong>{folder.name}</strong><small>{groupFolderSets(folder).length}セット · {groupFolderSets(folder).reduce((sum, set) => sum + set.questionCount, 0)}問</small></span><ChevronRightIcon size={18} /></button>)}
-          {!folders.length ? <GroupEmpty>フォルダを追加して、共有する教材を整理しましょう。</GroupEmpty> : null}
+          {!folders.length ? <div className="group-overview-empty"><FolderOutlineIcon size={38}/><p>共有する教材はまだありません。</p>{canManage?<button type="button" className="group-primary" disabled={busy||!snapshot} onClick={onAddFolder}><PlusIcon size={18}/>フォルダを追加</button>:null}</div> : null}
         </article>
         <details className="library-info"><summary>集計について</summary><p>「全体」は進捗を共有したメンバーの現在の公開版、「自分」はこの端末の取り込み済みセットです。複数のコピーは最新の取り込みを集計します。</p><p>解答数はグループから取り込んだ問題が対象です。日付は日本時間で集計します。</p></details>
       </section>

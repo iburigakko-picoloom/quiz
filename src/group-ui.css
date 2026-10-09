@@ -219,6 +219,32 @@
 .group-breadcrumb { font-size: 13px; color: var(--ui-text-muted); }
 .community-group-card__main small { color: var(--ui-text-muted); font-size: 13px; }
 .group-owner-badge { font-size: 11px; }
+
+/* Group overview: one identity header, readable counts and direct shortcuts. */
+.group-summary { grid-template-columns: 52px minmax(0,1fr) 44px; gap: 10px; padding: 14px 12px; }
+.group-summary .group-avatar { width: 52px; height: 52px; }
+.group-summary__stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+.group-summary__stats button { display: grid; gap: 5px; min-height: 62px; padding: 8px 2px; border: 0; background: transparent; color: var(--ui-text); }
+.group-summary__stats strong { font-size: 23px; font-weight: 750; line-height: 1; }
+.group-summary__stats span { font-size: 12px; color: var(--ui-accent-dark); white-space: nowrap; }
+.group-summary__settings { display: grid; place-items: center; width: 44px; min-height: 44px; border: 0; background: #f3f6fb; color: var(--ui-accent-dark); }
+.group-summary__settings.library-tappable:not(:disabled):active > svg:last-child { transform: none; }
+.group-overview-progress .group-panel__heading h2 { font-size: 18px; }
+.group-overview-progress .group-segment button { min-height: 40px; font-size: 13px; }
+.group-overview-progress .level-progress__bar { height: 14px; }
+.group-overview-progress .level-progress__label { color: var(--ui-text-muted); font-size: 12px; }
+.group-overview-progress .level-progress__legend strong { margin-block: 8px 4px; font-size: 23px; }
+.group-overview-progress .level-progress__legend small { font-size: 12px; }
+.group-overview-empty { display: grid; justify-items: center; gap: 12px; padding: 18px 8px; }
+.group-overview-empty p { margin: 0; font-size: 14px; color: var(--ui-text-muted); }
+.group-overview-empty .group-primary { min-height: 44px; }
+@media (max-width:350px) {
+  .group-summary { grid-template-columns: 44px minmax(0,1fr) 44px; gap: 6px; padding-inline: 10px; }
+  .group-summary .group-avatar { width: 44px; height: 44px; }
+  .group-summary__stats strong { font-size: 21px; }
+  .group-summary__stats span { font-size: 11px; }
+  .group-overview-progress .level-progress__legend small { font-size: 11px; }
+}
 @media (max-width: 350px) {
   .community-screen .group-folder-card__open { padding: 13px 12px; gap: 10px; }
   .group-folder-card__body > strong, .group-set-row strong { font-size: 17px; }

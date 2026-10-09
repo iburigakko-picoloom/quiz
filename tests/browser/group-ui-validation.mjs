@@ -15,7 +15,7 @@ try {
     await page.getByRole('tab',{name:'概要',exact:true}).waitFor();
     const checkOverflow=async()=>assert.equal(await page.locator('.app-layout__scroll').evaluate(el=>el.scrollWidth>el.clientWidth+1),false,`${width}px horizontal overflow`);
     await checkOverflow();await page.screenshot({path:`tmp/group-ui-${width}-overview.png`});
-    await page.getByRole('button',{name:'自分',exact:true}).click();await page.getByText('グループの共有元・取り込み済み教材があると、ここに進捗が表示されます。').waitFor();
+    await page.getByRole('button',{name:'自分',exact:true}).click();await page.getByText('教材を学習すると、ここで進捗を確認できます。').waitFor();
     await page.getByRole('button',{name:'全体',exact:true}).click();
     await page.getByRole('tab',{name:/メンバー/}).click();assert.equal(await page.locator('.group-member-card').count(),8);await checkOverflow();
     assert.equal(await page.locator('.group-member-card').first().locator('strong').innerText(),'あなた');
@@ -37,6 +37,7 @@ try {
     await page.getByRole('button',{name:'3問だけ見る',exact:true}).click();
     await page.getByRole('button',{name:'戻る',exact:true}).click();assert.equal(await page.locator('.group-set-row').count(),3);
     await page.getByRole('button',{name:'戻る',exact:true}).click();assert.equal(await page.locator('.group-folder-card').count(),3);
+    for(const state of ['empty','member-empty']){await page.goto(previewOrigin+'/quiz/tests/browser/group-ui-preview.html?state='+state);await page.getByRole('button',{name:'1人のメンバーを見る'}).waitFor();assert.equal(await page.getByRole('heading',{name:'今日の解答数',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'フォルダを追加',exact:true}).count(),state==='empty'?1:0);await checkOverflow();await page.screenshot({path:`tmp/group-ui-${width}-${state}.png`});await page.getByRole('button',{name:'1人のメンバーを見る'}).click();assert.equal(await page.locator('.group-member-card').count(),1);await page.getByRole('tab',{name:'概要',exact:true}).click();await page.getByRole('button',{name:'0個のフォルダを見る'}).click();assert.equal(await page.getByRole('tab',{name:/フォルダ/}).getAttribute('aria-selected'),'true');}
     assert.deepEqual(errors,[],`Browser errors at ${width}px`);await page.close();console.log(`${width}px: tabs, sorting, preview, folder navigation and overflow passed`);
   }
 } finally {await browser.close();}
