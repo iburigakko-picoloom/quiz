@@ -197,7 +197,7 @@ export type AppScreen =
   | { name: 'questionEdit'; questionId: string; backScreen: AppScreen }
   | { name: 'detailedAnswer'; questionId: string; backScreen: AppScreen; editing?: boolean }
   | { name: 'settings'; page?: 'account' | 'transfer' | 'backups' | 'logout' }
-  | { name: 'community'; tab?: 'mine' | 'groups' | 'discover'; groupPage?: 'create' | 'join'; groupId?: string; shareSetId?: string; shareToken?: string; publicFolderId?:string;publicSetId?:string;backScreen?: AppScreen }
+  | { name: 'community'; tab?: 'mine' | 'groups' | 'discover'; groupPage?: 'create' | 'join'; groupId?: string; shareSetId?: string; shareToken?: string; publicFolderId?:string;publicSetId?:string;publicTitle?:string;backScreen?: AppScreen }
   | { name: 'sync'; page?: SyncScreenPage; backScreen?: AppScreen }
   | { name: 'privacy' }
   | { name: 'createProblemSet'; folderId?: string; editSetId?: string; copySetId?: string; importExplanations?: boolean; backScreen?: AppScreen }

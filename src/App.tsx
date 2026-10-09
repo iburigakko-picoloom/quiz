@@ -1663,11 +1663,11 @@ export default function App() {
     content = (
       <Suspense fallback={<div className="quiz-app-loading">共有機能を読み込み中...</div>}>
         {(communityScreen.tab==='discover'||communityScreen.tab==='mine')&&!communityScreen.groupId&&!communityScreen.groupPage&&!communityScreen.shareToken&&!communityScreen.shareSetId?<PublicDiscoveryScreen
-          data={data} mine={communityScreen.tab==='mine'} folderId={communityScreen.publicFolderId} setId={communityScreen.publicSetId}
+          data={data} mine={communityScreen.tab==='mine'} folderId={communityScreen.publicFolderId} setId={communityScreen.publicSetId} routeTitle={communityScreen.publicTitle}
           onBack={communityBackScreen.name==='home'?goHome:()=>goBackTo(communityBackScreen)}
           onMine={()=>navigate({name:'community',tab:'mine',backScreen:communityScreen})}
-          onFolder={id=>navigate({...communityScreen,publicFolderId:id,publicSetId:undefined,backScreen:communityScreen})}
-          onSet={id=>navigate({...communityScreen,publicSetId:id,publicFolderId:undefined,backScreen:communityScreen})}
+          onFolder={(id,title)=>navigate({...communityScreen,publicFolderId:id,publicSetId:undefined,publicTitle:title,backScreen:communityScreen})}
+          onSet={(id,title)=>navigate({...communityScreen,publicSetId:id,publicFolderId:undefined,publicTitle:title,backScreen:communityScreen})}
           onLogin={()=>navigatePrimary('settings')} onPublished={handlePublishedProblemSet} onImport={handleImportPublicLibrary}
           onOpenLocalSet={id=>navigate({name:'problemSetDetail',setId:id,backScreen:communityScreen})}
         />:<CommunityScreen

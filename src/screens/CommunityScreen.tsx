@@ -7,6 +7,7 @@ import { PublicationMenu } from '../components/PublicationMenu';
 import { Layout } from '../components/Layout';
 import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
 import { GroupWorkspace, type GroupDetailTab } from '../components/GroupWorkspace';
+import {LibraryPane} from '../components/LibraryPane';
 import { SharedSetDetail } from '../components/SharedSetDetail';
 import { GroupProgress } from '../components/GroupProgress';
 import {PublicationJobs} from '../components/PublicationJobs';
@@ -764,8 +765,9 @@ export function CommunityScreen({
             {!isGroupSetDetail && !shareToken ? <button type="button" onClick={() => { setDirectSet(null); setTab(detailBackTab); }}>‹ 一覧へ戻る</button> : <span />}
             {directSet.ownerId === session?.user.id ? <div><PublicationMenu title={directSet.title} busy={busy} onRemove={() => requestRemove([directSet], directSet.title)} /></div> : null}
           </div> : null}
-           {isGroupDetail ? (
-            isGroupSetDetail && directSet ? (
+          {isGroupDetail ? (
+            <LibraryPane viewKey={isGroupSetDetail&&directSet?directSet.id:'workspace'} depth={isGroupSetDetail?2:1}>
+            {isGroupSetDetail && directSet ? (
               <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onPractice={() => void practiceSharedSet(directSet)} onReport={() => setReportTarget(directSet)} progress={session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onChanged={() => setGroupLearningRevision(n => n + 1)} /> : undefined} />
             ) : (
               <section className="community-section community-group-detail">
@@ -777,7 +779,8 @@ export function CommunityScreen({
                   </>
                 )}
               </section>
-            )
+            )}
+            </LibraryPane>
           ) : (
           <>
           {tab === 'mine' && isDirectShare ? <section className="community-section">
@@ -846,7 +849,7 @@ export function CommunityScreen({
                   <div hidden={Boolean(groupPage)} className="community-card-list">
                     {groups.map((group) => (
                       <article key={group.id} className="community-group-card">
-                        <button type="button" className="community-group-card__main" onClick={() => onOpenGroup(group.id)}>
+                        <button type="button" className="community-group-card__main library-tappable" onClick={() => onOpenGroup(group.id)}>
                           <GroupAvatar icon={group.icon} accent={group.accent} />
                           <span><strong>{group.name}</strong><small>{group.memberCount}人 · {group.setCount}セット</small></span>
                           <ChevronRightIcon size={20} />

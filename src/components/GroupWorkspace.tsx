@@ -7,6 +7,7 @@ import { buildGroupLibrary, groupFolderSets, type GroupFolderCardData } from '..
 import type { GroupLearningSnapshot } from '../utils/groupLearningService';
 import { ChevronRightIcon, FolderOutlineIcon, PlusIcon, ProblemSetIcon, SettingsIcon } from './UiIcons';
 import { GroupAvatar, GroupEmpty, LevelProgress, MemberAvatar, SharedFolderCard, displayGroupDate } from './GroupLearningUi';
+import {LibraryPane} from './LibraryPane';
 
 export type GroupDetailTab = 'overview' | 'folders' | 'members';
 export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onSettings, onRefresh, onRemoveMember, busy }: {
@@ -18,7 +19,12 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
   const [sort, setSort] = useState<'today' | 'week' | 'l3'>('today');
   const workspaceRef = useRef<HTMLElement>(null);
   const folderKey = folderTrail.join('|');
-  useEffect(() => { (workspaceRef.current?.closest('.community-screen--group-workspace') ?? workspaceRef.current?.closest('.app-layout__scroll'))?.scrollTo({ top: 0 }); }, [tab, folderKey]);
+  const previousFolderKey=useRef(folderKey);
+  useEffect(() => {
+    (workspaceRef.current?.closest('.community-screen--group-workspace') ?? workspaceRef.current?.closest('.app-layout__scroll'))?.scrollTo({ top: 0 });
+    if(tab==='folders'&&previousFolderKey.current!==folderKey)workspaceRef.current?.querySelector<HTMLElement>('#group-panel-folders h2')?.focus({preventScroll:true});
+    previousFolderKey.current=folderKey;
+  }, [tab, folderKey]);
   const folders = useMemo(() => buildGroupLibrary(sets, snapshot), [sets, snapshot]);
   const countFolders = (rows: GroupFolderCardData[]): number => rows.reduce((count, folder) => count + (folder.key === 'unfiled' ? 0 : 1) + countFolders(folder.children), 0);
   const folderCount = countFolders(folders);
@@ -71,31 +77,34 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
       <section id="group-panel-overview" role="tabpanel" aria-labelledby="group-tab-overview" hidden={tab !== 'overview'}>
         <article className="group-panel"><div className="group-panel__heading"><h2>取り込まれた問題の進捗</h2><div className="group-segment" aria-label="進捗の対象">{([['all', '全体'], ['self', '自分']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{label}</button>)}</div></div>
           {levels.some(n => n > 0) ? <LevelProgress levels={levels} /> : <GroupEmpty>{scope === 'self' ? 'グループの問題セットを取り込むと、ここに進捗が表示されます。' : '共有されたレベル別の進捗はまだありません。'}</GroupEmpty>}
-          <p className="group-muted">{scope === 'all' ? '共有を選んだメンバーの、現在の公開版の集計です。' : 'この端末の取り込み済みセットを集計します。複数のコピーがある場合は最新の取り込みを使います。'}</p>
         </article>
         <article className="group-panel"><div className="group-panel__heading"><h2>今日の解答数</h2><button type="button" className="group-text-link" onClick={() => { setSort('today'); onTab('members'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
           {rankable.slice(0, 3).map((member, i) => <div className="group-ranking" key={member.userId}><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} /><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong><b>{member.todayCount}問</b></div>)}
-          {!rankable.length ? <GroupEmpty>今日の共有された解答数はまだありません。</GroupEmpty> : null}<p className="group-muted">グループから取り込んだ問題の解答数 · 日本時間</p>
+          {!rankable.length ? <GroupEmpty>今日の解答はまだ共有されていません。</GroupEmpty> : null}
         </article>
         <article className="group-panel"><div className="group-panel__heading"><h2>フォルダ</h2><button type="button" className="group-text-link" onClick={() => { onFolderTrail([]); onTab('folders'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
-          {folders.slice(0, 3).map(folder => <button type="button" className="group-folder-shortcut" key={folder.key} onClick={() => { onFolderTrail([folder.key]); onTab('folders'); }}><FolderOutlineIcon size={36} /><span><strong>{folder.name}</strong><small>{groupFolderSets(folder).length}問題セット · {groupFolderSets(folder).reduce((sum, set) => sum + set.questionCount, 0)}問</small></span><ChevronRightIcon size={18} /></button>)}
+          {folders.slice(0, 3).map(folder => <button type="button" className="group-folder-shortcut library-tappable" key={folder.key} onClick={() => { onFolderTrail([folder.key]); onTab('folders'); }}><FolderOutlineIcon size={36} /><span><strong>{folder.name}</strong><small>{groupFolderSets(folder).length}セット · {groupFolderSets(folder).reduce((sum, set) => sum + set.questionCount, 0)}問</small></span><ChevronRightIcon size={18} /></button>)}
           {!folders.length ? <GroupEmpty>フォルダを追加して、共有する教材を整理しましょう。</GroupEmpty> : null}
         </article>
+        <details className="library-info"><summary>集計について</summary><p>「全体」は進捗を共有したメンバーの現在の公開版、「自分」はこの端末の取り込み済みセットです。複数のコピーは最新の取り込みを集計します。</p><p>解答数はグループから取り込んだ問題が対象です。日付は日本時間で集計します。</p></details>
       </section>
       <section id="group-panel-folders" role="tabpanel" aria-labelledby="group-tab-folders" hidden={tab !== 'folders'}>
+        <LibraryPane viewKey={folderKey} depth={folderTrail.length}>
         {current ? <nav className="group-breadcrumb" aria-label="フォルダの位置"><button type="button" onClick={() => onFolderTrail([])}>フォルダ</button>{trail.map((folder, i) => <span key={folder.key}> / <button type="button" aria-current={i === trail.length - 1 ? 'page' : undefined} onClick={() => onFolderTrail(folderTrail.slice(0, i + 1))}>{folder.name}</button></span>)}</nav> : null}
-        <div className="group-panel__heading group-list-heading"><div><h2>{current?.name ?? 'フォルダ'}</h2><p className="group-muted">{current ? 'このフォルダに共有された問題セット' : 'フォルダの中に問題セットが含まれています'}</p></div>
+        <div className="group-panel__heading group-list-heading"><div><h2 tabIndex={-1}>{current?.name ?? 'フォルダ'}</h2>{current?<p className="group-folder-stats">{groupFolderSets(current).length}セット · {groupFolderSets(current).reduce((sum,set)=>sum+set.questionCount,0).toLocaleString('ja-JP')}問</p>:null}</div>
           {current ? <button type="button" className="group-primary" disabled={busy || !snapshot} onClick={() => onAddSet(current)}><PlusIcon size={18} />問題セットを追加</button> : canManage ? <button type="button" className="group-primary" disabled={busy || !snapshot} onClick={onAddFolder}><PlusIcon size={18} />フォルダを追加</button> : null}
         </div>
         <div className="group-folder-list">{(current ? current.children : folders).map(folder => renderFolder(folder))}</div>
-        {current ? <div className="group-set-list">{current.sets.map(set => <button type="button" className="group-set-row" key={set.id} disabled={busy} onClick={() => onOpenSet(set, trail.map(folder => folder.name).join(' / '))}><span className="group-set-row__icon"><ProblemSetIcon size={33} /></span><span><strong>{set.title}</strong><small>{set.questionCount}問 · 取り込み {set.addCount}件</small><small>{set.authorName} · 更新 {displayGroupDate(set.updatedAt)}</small></span><ChevronRightIcon size={20} /></button>)}{!current.sets.length && !current.children.length ? <GroupEmpty>問題セットはまだありません。「問題セットを追加」から、このフォルダに共有できます。</GroupEmpty> : null}</div> : !folders.length && !loading ? <GroupEmpty>フォルダはまだありません。</GroupEmpty> : null}
+        {current ? <div className="group-set-list">{current.sets.map(set => <button type="button" className="group-set-row library-tappable" key={set.id} disabled={busy} onClick={() => onOpenSet(set, trail.map(folder => folder.name).join(' / '))}><span className="group-set-row__icon"><ProblemSetIcon size={33} /></span><span><strong>{set.title}</strong><small>{set.questionCount.toLocaleString('ja-JP')}問{set.importCount===undefined?'':` · ${set.importCount}人が取り込み`}</small></span><ChevronRightIcon size={20} /></button>)}{!current.sets.length && !current.children.length ? <GroupEmpty>問題セットはまだありません。</GroupEmpty> : null}</div> : !folders.length && !loading ? <GroupEmpty>フォルダはまだありません。</GroupEmpty> : null}
+        {current?<details className="library-info"><summary>フォルダ情報</summary><p>作成者：{current.createdBy===userId?'あなた':current.creatorName}</p><p>更新：{displayGroupDate(current.updatedAt)}{current.importCount===null?'':` · ${current.importCount}人が取り込み`}</p></details>:null}
+        </LibraryPane>
       </section>
       <section id="group-panel-members" role="tabpanel" aria-labelledby="group-tab-members" hidden={tab !== 'members'}>
         <div className="group-panel__heading group-list-heading"><h2>メンバー {members.length}</h2><div className="group-segment" aria-label="メンバーの並び順">{([['today', '今日'], ['week', '今週'], ['l3', 'L3']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>)}</div></div>
         <div className="group-member-list">{sorted.map((member, i) => <article className="group-member-card" key={member.userId}>
           <div className="group-member-card__identity"><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} /><span><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong>{member.role === 'owner' ? <small className="group-owner-badge">オーナー</small> : null}</span></div>
           <dl className="group-member-card__stats"><div><dt>今日</dt><dd>{member.todayCount === null ? '—' : `${member.todayCount}問`}</dd></div><div><dt>今週</dt><dd>{member.weekCount === null ? '—' : `${member.weekCount}問`}</dd></div><div><dt>取り込み</dt><dd>{snapshot ? `${member.importedSetCount}セット` : '—'}</dd></div><div><dt>L3</dt><dd>{member.levels ? `${levelPercentages(member.levels)[3]}%` : '—'}</dd></div></dl>
-        </article>)}</div><p className="group-muted">今日・今週・L3は共有済みセットの最終反映時点の値です。未共有・未反映は「—」。今週は月曜から日曜（日本時間）です。</p>
+        </article>)}</div><details className="library-info"><summary>集計について</summary><p>共有済みセットの最終反映時点の値です。「—」は未共有・未反映です。今週は月曜から日曜（日本時間）です。</p></details>
         {canManage ? <details className="group-member-management"><summary>メンバーを管理</summary>{members.filter(member => member.role !== 'owner' && member.userId !== userId).map(member => <div key={member.userId}><span>{member.displayName}</span><button type="button" disabled={busy} onClick={() => onRemoveMember(member)}>メンバーから外す</button></div>)}</details> : null}
       </section>
     </div>

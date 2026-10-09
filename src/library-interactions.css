@@ -1,0 +1,27 @@
+/* Same press and screen-entry language as Home and the local folder library. */
+.library-tappable {
+  border-radius: 12px;
+  transition: background-color var(--motion-fast) ease, transform 120ms ease, border-color var(--motion-fast) ease;
+  touch-action: manipulation;
+}
+.library-tappable > svg:last-child { color: var(--ui-accent-dark); transition: transform var(--motion-fast) ease; }
+.library-tappable:not(:disabled):active { background-color: var(--ui-accent-soft); transform: scale(.992); }
+.library-tappable:not(:disabled):active > svg:last-child { transform: translateX(3px); }
+.group-folder-card__open[aria-expanded=true] > svg:last-child { transform: rotate(90deg); }
+@media (hover: hover) {
+  .library-tappable:not(:disabled):hover:not(:active) { background-color: var(--ui-surface-muted); }
+}
+.library-pane--forward { animation: quizScreenForwardIn 280ms var(--motion-ease) both; }
+.library-pane--back { animation: quizScreenBackIn var(--motion-ui) var(--motion-ease) both; }
+.library-pane--replace { animation: quizScreenReplaceIn 180ms var(--motion-ease) both; }
+.library-info { margin-top: 14px; font-size: 13px; color: var(--ui-text-muted); }
+.library-info > summary { width: fit-content; min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--ui-accent-dark); list-style: none; }
+.library-info > summary::-webkit-details-marker { display: none; }
+.library-info > summary::before { content: '›'; font-size: 22px; transition: transform var(--motion-fast) ease; }
+.library-info[open] > summary::before { transform: rotate(90deg); }
+.library-info p { margin: 4px 0 10px; line-height: 1.7; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) {
+  .library-pane { animation: none; }
+  .library-tappable, .library-tappable > svg:last-child, .library-info > summary::before { transition: none; }
+  .library-tappable:not(:disabled):active, .library-tappable:not(:disabled):active > svg:last-child { transform: none; }
+}

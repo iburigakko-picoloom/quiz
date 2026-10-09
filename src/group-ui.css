@@ -10,6 +10,7 @@
 .group-workspace__tabs button { min-height: 52px; padding: 12px 4px; border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: #fff; color: #77838f; font-weight: 600; font-size: 14px; }
 .group-workspace__tabs button[aria-selected=true] { border-bottom-color: #2d5eaa; color: #2d5eaa; }
 .group-workspace__content { padding: 16px; }
+.group-workspace__content .library-pane { min-width: 0; }
 .group-workspace [hidden] { display: none !important; }
 .group-panel { margin-bottom: 14px; padding: 18px; border: 1px solid #e1e6ed; border-radius: 16px; background: #fff; }
 .group-panel h2, .group-list-heading h2 { margin: 0; font-size: 17px; font-weight: 750; line-height: 1.5; }
@@ -200,4 +201,25 @@
   .group-folder-card__chips > span { max-width: 120px; }
   .level-progress__legend { gap: 3px; }
   .level-progress__label { font-size: 10px; }
+}
+/* Match the existing Home library: clear titles, restrained metadata, generous tap areas. */
+.community-screen.community-screen--group-workspace { background: #fff; }
+.group-panel, .community-screen .group-folder-card, .group-set-row, .group-member-card { border-radius: 12px; box-shadow: none; }
+.community-screen .group-folder-card { padding: 0; }
+.community-screen .group-folder-card__top { align-items: center; }
+.community-screen .group-folder-card__open { min-height: 94px; padding: 16px; }
+.group-folder-card__body > small, .group-folder-shortcut small, .group-set-row small, .group-summary p { font-size: 13px; color: var(--ui-text-muted); line-height: 1.6; }
+.group-folder-card__body > strong, .group-set-row strong { font-size: 18px; color: var(--ui-text); }
+.group-folder-shortcut { padding-block: 13px; }
+.group-folder-stats { margin: 7px 0 0; font-size: 13px; color: var(--ui-text-muted); }
+.group-folder-card > .library-info { margin: 0; padding: 0 16px 12px; }
+.group-muted, .group-empty, .group-member-card__stats dt, .group-set-summary__meta, .group-preview-card__text { color: var(--ui-text-muted); font-size: 13px; }
+.group-preview-card__text { line-height: 1.6; }
+.group-preview-card__tags > span { font-size: 12px; }
+.group-breadcrumb { font-size: 13px; color: var(--ui-text-muted); }
+.community-group-card__main small { color: var(--ui-text-muted); font-size: 13px; }
+.group-owner-badge { font-size: 11px; }
+@media (max-width: 350px) {
+  .community-screen .group-folder-card__open { padding: 13px 12px; gap: 10px; }
+  .group-folder-card__body > strong, .group-set-row strong { font-size: 17px; }
 }

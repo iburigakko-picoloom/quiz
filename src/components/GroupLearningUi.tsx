@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import '../library-interactions.css';
 import { FolderOutlineIcon, GroupIcon, HistoryIcon, ProfileIcon, StudyIcon, DocumentOutlineIcon, ChevronRightIcon } from './UiIcons';
 import { levelPercentages, type GroupAccent, type GroupIconName, type LevelCounts } from '../utils/groupLearning';
 
@@ -30,13 +31,12 @@ export function SharedFolderCard({ name, creatorName, creatorId, sets, questionC
   name: string; creatorName: string; creatorId?: string; sets: { title: string }[]; questionCount: number; updatedAt: string; importLabel: string; onOpen: () => void; actions?: ReactNode; busy?: boolean; partial?: boolean; expanded?: boolean;
 }) {
   return <article className="group-folder-card">
-    <div className="group-folder-card__top"><button type="button" className="group-folder-card__open" aria-expanded={expanded} disabled={busy} onClick={onOpen}>
+    <div className="group-folder-card__top"><button type="button" className="group-folder-card__open library-tappable" aria-expanded={expanded} disabled={busy} onClick={onOpen}>
       <span className="group-folder-card__icon"><FolderOutlineIcon size={46} /></span>
-      <span className="group-folder-card__body"><strong>{name}</strong><span className="group-folder-card__creator"><MemberAvatar name={creatorName} userId={creatorId ?? creatorName} />{creatorName}</span><small>{partial ? '表示中 ' : ''}{sets.length}問題セット · {questionCount.toLocaleString('ja-JP')}問</small></span>
+      <span className="group-folder-card__body"><strong>{name}</strong><small>{partial ? '表示中 ' : ''}{sets.length}セット · {questionCount.toLocaleString('ja-JP')}問</small></span>
       <ChevronRightIcon size={20} />
     </button>{actions}</div>
-    <button type="button" className="group-folder-card__examples" disabled={busy} onClick={onOpen}><span>含まれる<br />問題セット例</span><span className="group-folder-card__chips">{sets.slice(0, 3).map((set, i) => <span key={i}>{set.title}</span>)}{sets.length > 3 ? <span>+{sets.length - 3}</span> : null}{!sets.length ? <small>まだありません</small> : null}</span></button>
-    <div className="group-folder-card__meta"><span><HistoryIcon size={16} />最終更新 {displayGroupDate(updatedAt)}</span><span><GroupIcon size={16} />{importLabel}</span></div>
+    {expanded?<details className="library-info"><summary>フォルダ情報</summary><span className="group-folder-card__creator"><MemberAvatar name={creatorName} userId={creatorId ?? creatorName}/>{creatorName}</span><p>{sets.slice(0,3).map(set=>set.title).join(' / ')}</p><div className="group-folder-card__meta"><span><HistoryIcon size={16}/>更新 {displayGroupDate(updatedAt)}</span><span><GroupIcon size={16}/>{importLabel}</span></div></details>:null}
   </article>;
 }
 
