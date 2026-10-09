@@ -94,7 +94,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
     step('open');await rpc.open(remote.value.updatedAt);
   }
   const imageTransport = createQuestionImageTransport(config, initialAccess);
-  const materialTransport = createMaterialTransport(config,initialAccess);
+  const materialTransport = createMaterialTransport(config,initialAccess,{assertCurrent});
   if(WHOLE_SYNC_ROLLOUT_ENABLED){
     const progress=(value:SyncProgress)=>{try{publishSyncProgress(connection,value);}catch{/* Informational only. */}};
     const result=await runWholeRecordSync(db,connection,rpc,{assertCurrent,apply,step,

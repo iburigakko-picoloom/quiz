@@ -1,19 +1,20 @@
 import type { RecordSyncConnection } from './recordSyncOutbox';
 import type { AutoSyncQueueState } from './autoSyncScheduler';
 import { SyncInterruptedError } from './syncInterruption';
+import { integrityCodes, SyncDataError, type SyncFailureDetails } from './syncDataIntegrity';
 
 export const SYNC_ATTEMPT_EVENT = 'quiz-make-sync-attempt';
-export type SyncFailure = { code: string; step: string; at: string; message: string };
-export type SyncProgressStage = 'preparing' | 'comparing' | 'receiving_images' | 'receiving_materials' | 'archiving' | 'backup' | 'validating' | 'sending' | 'applying' | 'finalizing';
+export type SyncFailure = { code: string; step: string; at: string; message: string; diagnostic?: SyncFailureDetails };
+export type SyncProgressStage = 'preparing' | 'comparing' | 'receiving_images' | 'checking_materials' | 'receiving_materials' | 'building_backup' | 'archiving' | 'backup' | 'validating' | 'sending' | 'applying' | 'finalizing';
 export type SyncProgress = { label: string; completed: number; total: number | null; stage?: SyncProgressStage };
 // Stages have different costs, so this is a work-completion estimate, not an
 // elapsed-time forecast. Unknown totals hold at the stage's starting point.
 const progressRanges: Record<SyncProgressStage, readonly [number,number]> = {
-  preparing:[0,15], comparing:[15,30], receiving_images:[30,50], receiving_materials:[50,65],
-  archiving:[65,72], backup:[72,80], validating:[80,85], sending:[85,95], applying:[85,97], finalizing:[97,99],
+  preparing:[0,15], comparing:[15,30], receiving_images:[30,50], checking_materials:[50,50],receiving_materials:[50,65],building_backup:[65,68],
+  archiving:[68,72], backup:[72,80], validating:[80,85], sending:[85,95], applying:[85,97], finalizing:[97,99],
 };
 export const isBlockedSyncFailure = (code: string) => ['local_persistence_failed', 'invalid_response', 'invalid_request',
-  'invalid', 'operation_reused', 'quota', 'payload_too_large', 'unavailable', 'permission_denied', 'media_unsupported', 'legacy_snapshot'].includes(code);
+  'invalid', 'operation_reused', 'quota', 'payload_too_large', 'unavailable', 'permission_denied', 'media_unsupported', 'legacy_snapshot','storage_capacity','memory_limit',...integrityCodes].includes(code);
 export type SyncAttemptStatus = { phase: 'queued' | 'running' | 'paused' | 'failed' | 'done'; retryAt: number | null;
   pauseReason: string; step: string; lastFailure: SyncFailure | null; progress?: SyncProgress; overallPercent?: number; notice?: string };
 type Entry = { connection: RecordSyncConnection; queue: AutoSyncQueueState; remoteChecking: boolean; result: SyncAttemptStatus };
@@ -77,8 +78,8 @@ export async function observeRecordSyncAttempt<T extends { status: 'done' | 'mor
       notify({ phase: 'paused', pauseReason: error.reason }); return { outcome: 'paused', error };
     }
     const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'unexpected';
-    const paused = isBlockedSyncFailure(code);
-    notify({ phase: paused ? 'paused' : 'failed', pauseReason: paused ? code : '', lastFailure: { code, step, at: now(), message: error instanceof Error ? error.message : '同期を完了できませんでした。' } });
+    const paused = error instanceof SyncDataError ? !error.retryable : isBlockedSyncFailure(code);
+    notify({ phase: paused ? 'paused' : 'failed', pauseReason: paused ? code : '', lastFailure: { code, step, at: now(), message: error instanceof Error ? error.message : '同期を完了できませんでした。',...(error instanceof SyncDataError?{diagnostic:error.diagnostic}:{}) } });
     return { outcome: paused ? 'paused' : code === 'rate_limited' ? 'rate_limited' : 'retry', error };
   }
 }

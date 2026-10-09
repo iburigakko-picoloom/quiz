@@ -4,6 +4,7 @@ import { sharedFolderTree, folderSets, type SharedFolderNode } from '../utils/sh
 import { ChevronRightIcon, FolderOutlineIcon, ProblemSetIcon } from './UiIcons';
 import './SharedLibrary.css';
 import { PublicationMenu } from './PublicationMenu';
+import { SharedFolderCard } from './GroupLearningUi';
 
 export function SharedLibrary({ sets, userId, busy, onOpen, onRemove, loadFolder, onMove, onAdd }: {
   sets: CloudProblemSet[]; userId?: string; busy: boolean;
@@ -34,14 +35,12 @@ export function SharedLibrary({ sets, userId, busy, onOpen, onRemove, loadFolder
     const node = cached ? sharedFolderTree(cached).folders.find((item) => item.key === original.key) ?? original : original;
     const open = opened.includes(node.key);
     const path = [...parentPath, { id: node.id, name: node.name }];
+    const contents = folderSets(node);
     return <section className="shared-library__folder" key={node.key}>
-      <div className="shared-library__row">
-        <button type="button" className="shared-library__open" aria-expanded={open} disabled={busy || !!loading} onClick={async () => {
+      <SharedFolderCard name={node.name} creatorName={node.ownerId === userId ? 'あなたが作成' : node.authorName} creatorId={node.ownerId} sets={contents} questionCount={contents.reduce((sum, set) => sum + set.questionCount, 0)} updatedAt={contents.map(set => set.updatedAt).sort().slice(-1)[0] ?? ''} importLabel={`${loadFolder && !cached ? '表示中のセット ' : ''}累計取り込み ${contents.reduce((sum, set) => sum + set.addCount, 0)}件`} partial={Boolean(loadFolder && !cached)} expanded={open} busy={busy || !!loading} onOpen={async () => {
           if (open) setOpened((old) => old.filter((key) => key !== node.key));
           else { if (depth === 0 && loadFolder && !await ensure(node)) return; setOpened((old) => [...old, node.key]); }
-        }}><FolderOutlineIcon size={30} /><span><strong>{node.name}</strong><small>{loading === node.key ? '読み込み中…' : node.ownerId === userId ? '自分の公開' : node.authorName}</small></span><ChevronRightIcon className="shared-library__arrow" size={18} style={{ transform: open ? 'rotate(90deg)' : undefined }} /></button>
-        {node.ownerId === userId ? <PublicationMenu title={node.name} busy={busy || !!loading} onAdd={onAdd ? () => onAdd(path) : undefined} onRemove={() => { void ensure(node).then((contents) => { if (contents?.length) onRemove(contents, node.name); }); }} /> : null}
-      </div>
+        }} actions={node.ownerId === userId ? <PublicationMenu title={node.name} busy={busy || !!loading} onAdd={onAdd ? () => onAdd(path) : undefined} onRemove={() => { void ensure(node).then((contents) => { if (contents?.length) onRemove(contents, node.name); }); }} /> : null} />
       <div className={`shared-library__children${open ? ' is-open' : ''}`} inert={!open} aria-hidden={!open}><div>{node.folders.map((folder) => renderFolder(folder, depth + 1, path))}{node.sets.map(renderSet)}</div></div>
     </section>;
   };

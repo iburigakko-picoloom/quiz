@@ -18,6 +18,18 @@
 .community-screen button { cursor: pointer; }
 .community-group-header-actions { display: flex; align-items: center; gap: 0; }
 .community-group-danger { width: 100%; min-height: 48px; padding: 12px; border: 0; border-radius: 8px; background: #fff; color: #d72d40; font: inherit; text-align: left; }
+.publication-jobs { display:grid; gap:10px; }
+.publication-jobs--compact { width:min(calc(100% - 32px),728px);margin:14px auto;max-height:240px;overflow:auto; }
+.publication-job { display:grid;gap:7px;padding:13px;border:1px solid #e1e7ef;border-radius:12px;background:#fff;font-size:12px; }
+.publication-job__heading { display:flex;justify-content:space-between;gap:12px; }
+.publication-job__heading strong { min-width:0;overflow-wrap:anywhere; }
+.publication-job__heading span { flex-shrink:0;color:#6b7f96; }
+.publication-job--completed .publication-job__heading span { color:#398061; }
+.publication-job--failed .publication-job__heading span { color:#b45050; }
+.publication-job progress { width:100%;height:7px;accent-color:#2859a6; }
+.publication-job small { color:#8291a3; }
+.publication-job p { color:#9c5050;font-size:12px;line-height:1.6; }
+.publication-job button { justify-self:start;min-height:36px;padding:7px 10px;border:1px solid #ccd9ef;border-radius:8px;background:#fff;color:#2859a6;font:inherit; }
 
 .community-screen__header {
   position: sticky;

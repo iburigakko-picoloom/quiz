@@ -2,11 +2,14 @@ import type { SyncAttemptStatus, SyncFailure } from './syncAttemptStatus';
 import { safeSyncFailureMessage } from './syncFailureDiagnostic';
 
 export function syncFailureReason(failure:SyncFailure):string {
+  const typed:Record<string,string>={pdf_download:'PDFの取得に失敗しました。再試行してください。',pdf_missing:'PDF本体が見つかりません。保存元の端末を確認してください。',pdf_integrity:'PDFの内容を検証できませんでした。',material_reference:'資料の紐づけ情報に不備があります。',image_missing:'一部の画像を確認できません。',image_reference:'一部の画像の紐づけ情報を確認できません。',note_integrity:'ノートの保存状態を確認できません。',backup_integrity:'バックアップの内容を検証できませんでした。',storage_capacity:'端末への保存容量が不足しています。',memory_limit:'同期データを処理するメモリが不足しています。'};
+  if(typed[failure.code])return typed[failure.code];
   const message=failure.message;
   if(/^クラウドの画像[1-9][0-9]{0,5}件の紐づけ情報がありません。$/u.test(message))return message;
   if(message.includes('クラウドの画像・教材を完全')||message.includes('クラウドの参照関係')){
     const cause=message.includes('原本を保持しています。')?message.split('原本を保持しています。')[1]:message;
     if(message.includes('クラウドの参照関係')||cause.includes('存在しない問題セット')||cause.includes('存在しないフォルダ')||cause.includes('参照が壊れ'))return 'クラウドの教材の紐づけ情報に不備があります。';
+    if(cause.includes('画像・PDF・資料'))return 'クラウドの教材・画像を読み込めません。';
     if(cause.includes('PDF'))return 'クラウドのPDFを読み込めません。';
     if(cause.includes('画像'))return 'クラウドの画像を読み込めません。';
     return 'クラウドの教材・画像を読み込めません。';

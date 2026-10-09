@@ -8,6 +8,7 @@ import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { requestSyncRetry } from '../utils/syncRequest';
 import { safeSyncFailureMessage } from '../utils/syncFailureDiagnostic';
 import { syncStatusReason, syncStageLabel } from '../utils/syncStatusReason';
+import { integrityCodes } from '../utils/syncDataIntegrity';
 
 export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, lastState, disabled, onLogin, detailsOpen = false, diagnosticsOnly = false, onInitialSync,choiceOpen=false,onChooseSource }: {
   syncId: string; accountId: string; recordEnabled: boolean; autoEnabled: boolean; lastState: LastSyncState; disabled: boolean; onLogin: () => void; detailsOpen?: boolean; diagnosticsOnly?: boolean; onInitialSync?: () => void;choiceOpen?:boolean;onChooseSource?:()=>void;
@@ -58,7 +59,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const progress = attempt?.progress;
   const percentage = complete ? 100 : Math.min(99,Math.max(0,attempt?.overallPercent??0));
   const activeFailure=attempt?.lastFailure&&(attempt.phase==='failed'||attempt.phase==='paused'&&attempt.pauseReason===attempt.lastFailure.code)?attempt.lastFailure:null;
-  const canChoose=Boolean(onChooseSource&&record?.conflicts&&activeFailure&&['invalid_response','invalid','media_pending','media_unsupported'].includes(activeFailure.code));
+  const canChoose=Boolean(onChooseSource&&record?.conflicts&&activeFailure&&['invalid_response','invalid','media_pending','media_unsupported',...integrityCodes].includes(activeFailure.code));
   if(choiceOpen&&!detailsOpen&&!diagnosticsOnly)return null;
   return <section className="sync-status-card" aria-live="polite">
     {!diagnosticsOnly && presentation.text === '同期済み' ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
@@ -67,7 +68,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
     {!diagnosticsOnly && showProgress ? <div className="sync-progress" aria-live="polite">
       <div className="sync-progress__label"><span>{complete?'同期完了':'全体の進捗（目安）'}</span><strong>{percentage}%</strong></div>
       <div className="sync-progress__track" role="progressbar" aria-label="同期全体の進捗（目安）" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${percentage}%${complete?' 同期完了':''}`}><span className="sync-progress__fill" style={{width:`${percentage}%`}}/></div>
-      {!complete ? <small>{progress?.label ?? syncStageLabel(attempt?.step ?? '')}{progress && progress.completed > 0 ? ` · ${progress.total ? `${progress.completed.toLocaleString('ja-JP')} / ${progress.total.toLocaleString('ja-JP')} 件` : `${progress.completed.toLocaleString('ja-JP')} 件完了`}` : ''}</small> : null}
+      {!complete ? <small>{activeFailure?'停止した処理：':''}{progress?.label ?? syncStageLabel(attempt?.step ?? '')}{progress && progress.completed > 0 ? ` · ${progress.total ? `${progress.completed.toLocaleString('ja-JP')} / ${progress.total.toLocaleString('ja-JP')} 件` : `${progress.completed.toLocaleString('ja-JP')} 件完了`}` : ''}</small> : null}
     </div> : null}
     {!diagnosticsOnly && complete && attempt?.notice ? <p className="sync-status-reason">{attempt.notice}</p> : null}
     {!diagnosticsOnly && attempt?.phase === 'queued' && attempt.retryAt && attempt.retryAt > Date.now() ? <p>{new Date(attempt.retryAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}に再試行します。</p> : null}
@@ -79,6 +80,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
     {detailsOpen && attempt?.lastFailure ? <>
       <p>前回の失敗：{attempt.lastFailure.step} / {attempt.lastFailure.code} / {new Date(attempt.lastFailure.at).toLocaleString('ja-JP')}</p>
       <p role="alert">{safeSyncFailureMessage(attempt.lastFailure.message)}</p>
+      {attempt.lastFailure.diagnostic?<p>処理：{attempt.lastFailure.diagnostic.function} / {attempt.lastFailure.diagnostic.stage} / {attempt.lastFailure.diagnostic.cause??'—'}{attempt.lastFailure.diagnostic.httpStatus?` / HTTP ${attempt.lastFailure.diagnostic.httpStatus}`:''}{attempt.lastFailure.diagnostic.total!==undefined?` / 確認 ${attempt.lastFailure.diagnostic.completed??0}/${attempt.lastFailure.diagnostic.total}`:''}{attempt.lastFailure.diagnostic.pdfTotal!==undefined?` / PDF ${attempt.lastFailure.diagnostic.pdfCompleted??0}/${attempt.lastFailure.diagnostic.pdfTotal}`:''}{attempt.lastFailure.diagnostic.downloaded!==undefined?` / 取得 ${attempt.lastFailure.diagnostic.downloaded}・キャッシュ ${attempt.lastFailure.diagnostic.cacheReused??0}・端末再利用 ${attempt.lastFailure.diagnostic.localReused??0}`:''}</p>:null}
     </> : null}
   </section>;
 }

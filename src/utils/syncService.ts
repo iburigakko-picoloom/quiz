@@ -51,6 +51,7 @@ import { NOTES_KEY, REQUEST_KEY, WEAKNESS_STORAGE_KEYS, NOTES_EVENT, parseNotes,
 import { recordSyncMetric } from './syncMetrics';
 import { validatePlanStorage } from './studyPlanStorage';
 import { SyncLocalPersistenceError } from './syncInterruption';
+import type { SyncDataCode, SyncFailureDetails } from './syncDataIntegrity';
 export type SyncPayload = {
   version: 1;
   updatedAt: string;
@@ -59,6 +60,7 @@ export type SyncPayload = {
 };
 
 export type SyncErrorCode =
+  | SyncDataCode
   | 'authentication_required'
   | 'network'
   | 'permission_denied'
@@ -77,6 +79,7 @@ export type SyncResult<T> = { ok: true; value: T } | {
   ok: false;
   error: string;
   code?: SyncErrorCode;
+  diagnostic?: SyncFailureDetails;
   remoteUpdatedAt?: string;
 };
 

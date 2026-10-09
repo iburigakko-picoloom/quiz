@@ -18,6 +18,8 @@ import { materialFileEntry } from './materialModel';
 import { parseQuestionImageDescriptor } from './recordQuestionImageSync';
 import { remoteQuestionImageDescriptor } from './questionImageCloud';
 import { chunkIds, isChunkInternal, parseChunkManifest, RECORD_CHUNK_GUARD_ID } from './recordChunkFormat';
+import { assertMaterialIntegrity, integrityCodes } from './syncDataIntegrity';
+import { wholeRowsPayload } from './wholeSyncIncoming';
 
 type Reply={code:string;[key:string]:unknown};
 export type WholeTransport=RecordSyncTransport&{whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<Reply>;commitSmallWhole?(body:Record<string,unknown>):Promise<Reply>};
@@ -183,7 +185,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   let preservedOriginals:PreservedSyncOriginals|undefined;
   const offerChoice=async(error:unknown)=>{
     const code=error&&typeof error==='object'&&'code' in error?String(error.code):'';
-    if(!selected&&incoming&&guards.archiveOriginals&&code==='invalid_response'){
+    if(!selected&&incoming&&guards.archiveOriginals&&(code==='invalid_response'||integrityCodes.includes(code))){
       await guards.assertCurrent();
       await putWholeMeta(db,'wholeConflict',{version:1,connection,revision:remote.revision,generation:source.generation,localDigest,remoteDigest,device:remote.device,savedAt:remote.savedAt,localSavedAt:source.snapshot.state.savedAt,localDevice:guards.device,local:summarizeWholeRows(localRows),remote:summarizeWholeRows(incoming)});
     }
@@ -309,6 +311,10 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     }
   }
   const outgoing=[...outgoingMap.values()];
+  // Validate the exact captured full graph, including references introduced by
+  // ordinary edits. A small delta must not publish an incomplete whole dataset.
+  const outgoingPayload=wholeRowsPayload(localRows);
+  assertMaterialIntegrity(outgoingPayload,JSON.parse(outgoingPayload.localStorage['quiz-make-app-data-v1']),false);
   outgoing.forEach(row=>mediaReady(row as AppRecord,connection));
   const packed=await pack(outgoing.map(wire));
   const next:WholeFrozen={version:1,connection,id:crypto.randomUUID(),expectedRevision:remote.revision,generation:source.generation,digest:localDigest,wireDigest:packed.wireDigest,parts:packed.parts,records:outgoing.length,device:guards.device,replace,outbox:source.outbox.map(row=>({key:row.key,operationId:row.operationId}))};

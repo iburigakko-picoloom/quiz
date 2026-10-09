@@ -3,6 +3,7 @@ import test,{after} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {IDBFactory,IDBKeyRange,IDBObjectStore} from 'fake-indexeddb';
 import {createRecordProtocolDatabase} from './helpers/record-protocol-db.mjs';
+import {incomingFixture} from './helpers/whole-incoming-fixture.mjs';
 globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
 const values=new Map();globalThis.localStorage={get length(){return values.size},key:i=>[...values.keys()][i]??null,getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k)};
 Object.defineProperty(navigator,'locks',{value:{request:async(_name,_options,run)=>run()},configurable:true});Object.defineProperty(navigator,'storage',{value:{estimate:async()=>({quota:1024*1024*1024,usage:0})},configurable:true});
@@ -39,7 +40,7 @@ const guards={assertCurrent:async()=>{},prepareOutgoing:()=>prepareRecordChunks(
 const run=(overrides={})=>runWholeRecordSync(db,connection,transport,{...guards,...overrides});
 const names=async()=> (await storage.loadAppDataAsync()).folders.map(row=>row.name);
 async function edit(name){const prior=await storage.loadAppDataAsync();assert.equal(await storage.saveAppDataAsync({...prior,folders:[{...prior.folders[0],name}]}),true)}
-async function remoteReplace(name){const row={key:'["folders","f"]',collection:'folders',id:'f',raw:JSON.stringify(folder('f',name)),position:0},raw=JSON.stringify([row]),status=await transport.whole('status'),id=crypto.randomUUID();assert.equal((await transport.whole('begin',{p_operation_id:id,p_expected_revision:status.revision,p_parts:1,p_records:1,p_digest:await wholeHash(await wholeHash(raw)),p_device:'QA Android',p_replace:true})).code,'ok');assert.equal((await transport.whole('part',{p_commit_id:id,p_operation_id:crypto.randomUUID(),p_number:0,p_raw:raw})).code,'ok');assert.equal((await transport.whole('finish',{p_operation_id:id})).code,'ok')}
+async function remoteReplace(name,extra=[]){const row={key:'["folders","f"]',collection:'folders',id:'f',raw:JSON.stringify(folder('f',name)),position:0},raw=JSON.stringify([row,...extra]),status=await transport.whole('status'),id=crypto.randomUUID();assert.equal((await transport.whole('begin',{p_operation_id:id,p_expected_revision:status.revision,p_parts:1,p_records:extra.length+1,p_digest:await wholeHash(await wholeHash(raw)),p_device:'QA Android',p_replace:true})).code,'ok');assert.equal((await transport.whole('part',{p_commit_id:id,p_operation_id:crypto.randomUUID(),p_number:0,p_raw:raw})).code,'ok');assert.equal((await transport.whole('finish',{p_operation_id:id})).code,'ok')}
 
 test('unknown cursor zero is not an ancestor; identical initial whole data establishes the baseline without upload',async()=>{
   assert.equal(await readVerifiedWholeAncestorCursor(db,connection),undefined);const result=await run();assert.equal(result.status,'done');assert.equal((await records.readAppOutbox(db)).length,0);assert.equal((await readWholeBaseline(db,connection)).serverRevision,1);assert.equal(calls.filter(row=>row.name==='begin').length,0);assert.deepEqual(await listWholeRecovery(),[]);assert.equal((await (await import('../src/utils/recordSyncStatus.ts')).readRecordSyncStatus(db,connection)).staged,false);
@@ -144,4 +145,25 @@ test('a lost small commit response replays the exact frozen bytes and preserves 
   const sent=calls.slice(start).filter(row=>row.name==='commit');assert.equal(sent.length,2);assert.deepEqual(sent[0].body,sent[1].body);
   assert.equal((await runAtomic()).status,'done');assert.deepEqual(await names(),['Later answer remains']);
   assert.equal((await transport.whole('status')).revision,revision+1);
+});
+
+test('an invalid cloud material reference retains both originals across failure, retry and explicit source reselection',async()=>{
+  const fixture=await incomingFixture({badRef:true}),{buildWholeIncomingFile}=await import('../src/utils/wholeSyncIncoming.ts');
+  const {archiveSyncOriginals}=await import('../src/utils/syncOriginalBackup.ts'),{getSavedBackup}=await import('../src/utils/backupRepository.ts');
+  await edit('Healthy device');await runAtomic();
+  await remoteReplace('Invalid cloud',fixture.rows.filter(row=>row.collection!=='folders'));
+  const remoteRevision=(await transport.whole('status')).revision,cloudBefore=JSON.stringify(await readCloudRows()),outboxBefore=JSON.stringify(await records.readAppOutbox(db));
+  const media={userId:fixture.transport.userId,exists:async()=>true,upload:async()=>assert.fail('no image upload'),download:async()=>assert.fail('no image download')};
+  const exact={...guards,incoming:(rows,options)=>buildWholeIncomingFile(db,rows,fixture.transport,async()=>{},undefined,options?.allowMissingImages),archiveOriginals:(side,rows)=>archiveSyncOriginals(db,connection,side,rows,media,fixture.transport,async()=>{})};
+  const receive=()=>runWholeRecordSync(db,connection,transport,exact);
+  for(let i=0;i<2;i++){
+    await assert.rejects(receive(),e=>e.code==='material_reference');assert.deepEqual(await names(),['Healthy device']);assert.equal(JSON.stringify(await readCloudRows()),cloudBefore);assert.equal(JSON.stringify(await records.readAppOutbox(db)),outboxBefore);assert.equal(Boolean(await readWholeMeta(db,'wholeFrozen',connection)),false);
+  }
+  let choice=await readWholeMeta(db,'wholeConflict',connection);assert.equal(choice.choice,undefined);assert.equal(choice.revision,remoteRevision);
+  await chooseWholeConflict(db,connection,choice,'remote',{preferSelected:true});await assert.rejects(receive(),e=>e.code==='material_reference');assert.equal((await readWholeMeta(db,'wholeConflict',connection)).choice,'remote');assert.deepEqual(await names(),['Healthy device']);
+  choice=await readWholeMeta(db,'wholeConflict',connection);await chooseWholeConflict(db,connection,choice,'local',{preferSelected:true});
+  assert.equal((await receive()).status,'more');assert.equal((await receive()).status,'done');assert.deepEqual(await names(),['Healthy device']);
+  const backupRows=(await import('../src/utils/backupRepository.ts')).listSavedBackups;let preserved=false;
+  for(const header of await backupRows()){const copy=await getSavedBackup(header.id);if(copy?.format==='originals'&&copy.raw.includes('nonexistent-private-id'))preserved=true;}
+  assert.equal(preserved,true,'invalid references remain byte-for-byte in the nonchosen original backup');
 });

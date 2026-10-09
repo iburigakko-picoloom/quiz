@@ -6,7 +6,15 @@ import { BackButton } from '../components/BackButton';
 import { PublicationMenu } from '../components/PublicationMenu';
 import { Layout } from '../components/Layout';
 import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
-import { buildGroupProblemSetFolders } from '../utils/groupDataView';
+import { GroupWorkspace, type GroupDetailTab } from '../components/GroupWorkspace';
+import { SharedSetDetail } from '../components/SharedSetDetail';
+import { GroupProgress } from '../components/GroupProgress';
+import {PublicationJobs} from '../components/PublicationJobs';
+import {usePublicationQueue} from '../hooks/usePublicationQueue';
+import {prepareLocalPublication} from '../utils/publicationPayload';
+import { GroupAvatar } from '../components/GroupLearningUi';
+import { useGroupLearning } from '../hooks/useGroupLearning';
+import { groupAccents, groupIcons, type GroupAccent, type GroupIconName } from '../utils/groupLearning';
 import { PublishPicker } from '../components/PublishPicker';
 import { PublicationDetails, publicationPurposes, type PublicationInfo } from '../components/PublicationDetails';
 import { SharedLibrary } from '../components/SharedLibrary';
@@ -18,6 +26,7 @@ import {
   cloudConfigured,
   createCloudGroup,
   renameCloudGroup,
+  groupProgressRpc,
   deleteCloudGroup,
   createGroupInvite,
   getCloudDisplayName,
@@ -30,7 +39,6 @@ import {
   listMyPublishedSets,
   listPublicFolderSets,
   listPublicProblemSets,
-  publishLocalProblemSet,
   recordCloudCopy,
   removeCloudGroupMember,
   reportCloudProblemSet,
@@ -43,7 +51,6 @@ import {
   unpublishCloudProblemSet,
 } from '../utils/cloudService';
 import './CommunityScreen.css';
-import { GroupProgress } from '../components/GroupProgress';
 
 export type CommunityTab = 'mine' | 'groups' | 'discover';
 
@@ -85,8 +92,13 @@ export function CommunityScreen({
   onUnpublished,
 }: CommunityScreenProps) {
   const [tab, setTab] = useState<CommunityTab>(shareToken ? 'discover' : initialTab);
-  const [progressOpen, setProgressOpen] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const sessionUserId = useRef('');
+  sessionUserId.current = session?.user.id ?? '';
+  const publication = usePublicationQueue(session?.user.id ?? '',onPublished);
+  const [addPublicationIds,setAddPublicationIds]=useState<string[]>([]);
+  const [sharePublicationIds,setSharePublicationIds]=useState<string[]>([]);
+  const publicationWasRunning=useRef(false);
   const [authReady, setAuthReady] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -106,7 +118,16 @@ export function CommunityScreen({
   const renameLock = useRef(false);
   const [groupSets, setGroupSets] = useState<CloudProblemSet[]>([]);
   const [groupMembers, setGroupMembers] = useState<CloudGroupMember[]>([]);
-  const [groupDetailTab, setGroupDetailTab] = useState<'sets' | 'members'>('sets');
+  const [groupDetailTab, setGroupDetailTab] = useState<GroupDetailTab>('overview');
+  const [groupFolderTrail, setGroupFolderTrail] = useState<string[]>([]);
+  const [groupLearningRevision, setGroupLearningRevision] = useState(0);
+  const groupLearning = useGroupLearning(initialGroupId ?? '', session?.user.id ?? '', groupLearningRevision);
+  const [groupIconDraft, setGroupIconDraft] = useState<GroupIconName>('group');
+  const [groupAccentDraft, setGroupAccentDraft] = useState<GroupAccent>('blue');
+  const groupIconLock = useRef(false);
+  const [folderCreateOpen, setFolderCreateOpen] = useState(false);
+  const [folderNameDraft, setFolderNameDraft] = useState('');
+  const folderCreateLock = useRef(false);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'new' | 'popular'>('new');
   const [audienceFilter, setAudienceFilter] = useState('all');
@@ -117,12 +138,14 @@ export function CommunityScreen({
   const [shareVisibility, setShareVisibility] = useState<Exclude<ProblemSetVisibility, 'private'>>('link');
   const [shareGroupIds, setShareGroupIds] = useState<string[]>([]);
   const [shareResult, setShareResult] = useState<{ url: string; visibility: ProblemSetVisibility } | null>(null);
-  const [addTarget, setAddTarget] = useState<{ public: boolean; groupIds: string[]; folderPath?: SharedFolderPart[] } | null>(null);
+  const [addTarget, setAddTarget] = useState<{ public: boolean; groupIds: string[]; folderPath?: SharedFolderPart[]; groupFolderId?: string } | null>(null);
   const [moveTarget, setMoveTarget] = useState<CloudProblemSet | null>(null);
   const [movePath, setMovePath] = useState<SharedFolderPart[]>([]);
   const [moveError, setMoveError] = useState('');
   const moveLock = useRef(false);
   const [addIds, setAddIds] = useState<string[]>([]);
+  const [addSource, setAddSource] = useState<'local' | 'group'>('local');
+  const [addCloudIds, setAddCloudIds] = useState<string[]>([]);
   const [addReview, setAddReview] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<{ sets: CloudProblemSet[]; title: string } | null>(null);
   const [removeError, setRemoveError] = useState('');
@@ -143,7 +166,10 @@ export function CommunityScreen({
   const addSets = useMemo(() => {
     return data.problemSets.filter((set) => addIds.includes(set.id));
   }, [data.problemSets, addIds]);
+  const cloudAddSets = groupSets.filter(set => addCloudIds.includes(set.id));
+  const addSelectionCount = addSource === 'group' ? cloudAddSets.length : addSets.length;
   const [directSet, setDirectSet] = useState<CloudProblemSet | null>(null);
+  const [directSetLocation, setDirectSetLocation] = useState('');
   const [detailBackTab, setDetailBackTab] = useState<'discover' | 'groups'>('discover');
   const [newGroupName, setNewGroupName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
@@ -166,7 +192,33 @@ export function CommunityScreen({
     } catch (error) { setError(error instanceof Error ? error.message : '名前を変更できませんでした。'); }
     finally { renameLock.current = false; setBusy(false); }
   };
-  const groupFolders = useMemo(() => buildGroupProblemSetFolders(groupSets), [groupSets]);
+  const openGroupSettings = () => {
+    if (!selectedGroup) return;
+    setGroupNameDraft(selectedGroup.name);
+    setGroupIconDraft(groupLearning.snapshot?.icon ?? selectedGroup.icon ?? 'group');
+    setGroupAccentDraft(groupLearning.snapshot?.accent ?? selectedGroup.accent ?? 'blue');
+    setError(''); setGroupMenuOpen(true);
+  };
+  const saveGroupIcon = async () => {
+    if (!session || !selectedGroup || !canManageSelectedGroup || busy || groupIconLock.current) return;
+    groupIconLock.current = true; setBusy(true); setError('');
+    try {
+      await groupProgressRpc('quiz_group_learning_icon', { p_group_id: selectedGroup.id, p_icon: groupIconDraft, p_accent: groupAccentDraft }, session.user.id);
+      setGroups(items => items.map(group => group.id === selectedGroup.id ? { ...group, icon: groupIconDraft, accent: groupAccentDraft } : group));
+      groupLearning.refresh(); setGroupMenuOpen(false); setAuthMessage('グループアイコンを変更しました');
+    } catch (reason) { setError(getErrorMessage(reason)); }
+    finally { groupIconLock.current = false; setBusy(false); }
+  };
+  const createGroupFolder = async () => {
+    if (!session || !selectedGroup || !canManageSelectedGroup || !folderNameDraft.trim() || busy || folderCreateLock.current) return;
+    folderCreateLock.current = true; setBusy(true); setError('');
+    try {
+      await groupProgressRpc('manage_quiz_group_library', { p_group_id: selectedGroup.id, p_action: 'create', p_name: folderNameDraft.trim() }, session.user.id);
+      groupLearning.refresh(); setFolderCreateOpen(false); setFolderNameDraft('');
+      setAuthMessage('フォルダを追加しました');
+    } catch (reason) { setError(getErrorMessage(reason)); }
+    finally { folderCreateLock.current = false; setBusy(false); }
+  };
   const audienceOptions = useMemo(() => [...new Set([...publicationPurposes, ...publicSets.map((set) => set.audience).filter(Boolean)])], [publicSets]);
   const visiblePublicSets = useMemo(() => publicSets.filter((set) => (
     (audienceFilter === 'all' || set.audience === audienceFilter)
@@ -189,6 +241,17 @@ export function CommunityScreen({
       unsubscribe();
     };
   }, []);
+
+  useEffect(()=>{
+    const finished=publicationWasRunning.current&&!publication.running;publicationWasRunning.current=publication.running;
+    if(!finished||!session)return;let active=true;
+    void Promise.all([listMyPublishedSets(),selectedGroupId?listGroupProblemSets(selectedGroupId):Promise.resolve(null)]).then(([published,shared])=>{if(active){setPublishedSets(published);if(shared)setGroupSets(shared);groupLearning.refresh();}}).catch(()=>{if(active)setError('公開処理は完了しました。一覧の更新には再読み込みが必要です。');});
+    return ()=>{active=false;};
+  },[publication.running,session?.user.id,selectedGroupId]);
+  useEffect(()=>{
+    const job=publication.jobs.find(job=>sharePublicationIds.includes(job.id)&&job.state==='completed'&&job.result);
+    if(job?.result)setShareResult({url:buildShareUrl(job.result.id,job.result.shareToken),visibility:job.result.visibility});
+  },[publication.revision,sharePublicationIds]);
 
   useEffect(() => {
     if (!cloudConfigured || tab !== 'discover' || shareToken) return;
@@ -220,6 +283,9 @@ export function CommunityScreen({
     if (!session) {
       setGroups([]);
       setPublishedSets([]);
+      setGroupSets([]);
+      setGroupMembers([]);
+      setDirectSet(null);
       return () => {
         cancelled = true;
       };
@@ -236,12 +302,14 @@ export function CommunityScreen({
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session?.user.id]);
 
   useEffect(() => {
     if (!initialGroupId || !authReady || !session) return;
     let cancelled = false;
     setSelectedGroupId(initialGroupId);
+    setGroupFolderTrail([]); setGroupDetailTab('overview');
+    setGroupSets([]); setGroupMembers([]); setDirectSet(null);
     setBusy(true);
     setError('');
     void Promise.all([listGroupProblemSets(initialGroupId), listCloudGroupMembers(initialGroupId)])
@@ -259,7 +327,7 @@ export function CommunityScreen({
     return () => {
       cancelled = true;
     };
-  }, [authReady, initialGroupId, session]);
+  }, [authReady, initialGroupId, session?.user.id]);
 
   useEffect(() => {
     if (!initialSetId || !shareToken || !cloudConfigured) return;
@@ -334,6 +402,7 @@ export function CommunityScreen({
   const openShare = (localSetId: string) => {
     setShareLocalSetId(localSetId);
     setShareResult(null);
+    setSharePublicationIds([]);
     if (!requireLogin()) return;
     if (groups.length === 0) setShareVisibility('link');
   };
@@ -360,7 +429,7 @@ export function CommunityScreen({
     setError('');
     try {
       const profileName = await getCloudDisplayName().catch(() => '');
-      const result = await publishLocalProblemSet({
+      const payload = prepareLocalPublication({
         data,
         setId: shareLocalSetId,
         publicationInfo: detailsFor(shareLocalSetId),
@@ -369,15 +438,7 @@ export function CommunityScreen({
         addDestinations: true,
         authorName: profileName || session.user.user_metadata.display_name || session.user.email?.split('@')[0] || 'Quiz Make ユーザー',
       });
-      try {
-        await onPublished(shareLocalSetId, result);
-      } catch {
-        // Adding a destination must never remove an existing publication on local-save failure.
-        setError('公開済みですが、端末の状態保存に失敗しました。');
-      }
-      const url = buildShareUrl(result.id, result.shareToken);
-      setShareResult({ url, visibility: result.visibility });
-      setPublishedSets(await listMyPublishedSets());
+      setSharePublicationIds(await publication.enqueue([{payload}]));
     } catch (reason) {
       setError(getErrorMessage(reason));
     } finally {
@@ -429,11 +490,15 @@ export function CommunityScreen({
     }
   };
 
-  const openSharedDetail = async (summary: CloudProblemSet, backTab: 'discover' | 'groups') => {
+  const openSharedDetail = async (summary: CloudProblemSet, backTab: 'discover' | 'groups', location = '') => {
+    const viewer = session?.user.id ?? '';
     setBusy(true);
     setError('');
     try {
-      setDirectSet(await getSharedProblemSet(summary.id));
+      const detail = await getSharedProblemSet(summary.id);
+      if (sessionUserId.current !== viewer) return;
+      setDirectSet(detail);
+      setDirectSetLocation(location);
       setDetailBackTab(backTab);
       if (!initialGroupId) setTab('discover');
     } catch (reason) {
@@ -447,6 +512,7 @@ export function CommunityScreen({
     setBusy(true);
     setError('');
     try {
+      if(localSetId)await publication.cancelForSet(localSetId);
       await unpublishCloudProblemSet(cloudSetId);
       if (localSetId && data.problemSets.some((problemSet) => problemSet.id === localSetId)) {
         await onUnpublished(localSetId);
@@ -512,6 +578,7 @@ export function CommunityScreen({
       } else {
         setGroupMembers(await listCloudGroupMembers(selectedGroupId));
         await refreshGroups();
+        groupLearning.refresh();
       }
     } catch (reason) {
       setError(getErrorMessage(reason));
@@ -579,9 +646,10 @@ export function CommunityScreen({
     let localWarning = false;
     try {
       for (const set of removeTarget.sets) {
+        const local = data.problemSets.find((item) => item.cloudSetId === set.id || item.id === set.localSetId);
+        if(local)await publication.cancelForSet(local.id);
         await unpublishCloudProblemSet(set.id);
         removed.add(set.id);
-        const local = data.problemSets.find((item) => item.cloudSetId === set.id || item.id === set.localSetId);
         if (local) await onUnpublished(local.id).catch(() => { localWarning = true; });
       }
       setRemoveTarget(null);
@@ -623,48 +691,50 @@ export function CommunityScreen({
     finally { moveLock.current = false; setBusy(false); }
   };
 
-  const openAdd = (visibility: 'public' | 'group', folderPath?: SharedFolderPart[]) => {
+  const openAdd = (visibility: 'public' | 'group', folderPath?: SharedFolderPart[], groupFolderId?: string) => {
     if (!requireLogin()) return;
     setShareLocalSetId('');
     setAddIds([]);
+    setAddSource('local'); setAddCloudIds([]);
     setAddReview(false);
     setAddResults({});
-    setAddTarget({ public: visibility === 'public', folderPath, groupIds: visibility === 'group' && selectedGroupId ? [selectedGroupId] : [] });
+    setAddPublicationIds([]);
+    setAddTarget({ public: visibility === 'public', folderPath, groupFolderId, groupIds: visibility === 'group' && selectedGroupId ? [selectedGroupId] : [] });
   };
 
   const submitAdd = async () => {
+    if (addSource === 'group') {
+      if (!session || !addTarget?.groupFolderId || !cloudAddSets.length || addBusyRef.current) return;
+      const folderId = addTarget.groupFolderId;
+      addBusyRef.current = true; setBusy(true); setError('');
+      const results: Record<string, string> = {};
+      try {
+        for (const set of cloudAddSets) {
+          try { await groupProgressRpc('quiz_group_learning_place', { p_group_id: selectedGroupId, p_set_id: set.id, p_folder_id: folderId }, session.user.id); results[set.id] = 'フォルダに追加済み'; }
+          catch (reason) { results[set.id] = `追加失敗：${getErrorMessage(reason)}`; }
+          setAddResults({ ...results });
+        }
+        groupLearning.refresh();
+      } finally { addBusyRef.current = false; setBusy(false); }
+      return;
+    }
     if (!session || !addTarget || !addSets.length || addBusyRef.current || !addSets.every((set) => detailsValid(set.id))) return;
     const target = addTarget;
     if (!target.public && !target.groupIds.length) return;
     addBusyRef.current = true;
     setBusy(true);
-    const results: Record<string, string> = {};
     try {
       const authorName = await getCloudDisplayName().catch(() => '');
-      for (const set of addSets) {
-        try {
-          const result = await publishLocalProblemSet({ data, setId: set.id, includeFolder: true, folderPath: target.folderPath, publicationInfo: detailsFor(set.id), visibility: target.public ? 'public' : 'group', groupIds: target.groupIds, addDestinations: true, authorName: authorName || 'Quiz Make ユーザー' });
-          // A remote success must never be undone merely because local storage failed.
-          try { await onPublished(set.id, result); results[set.id] = '公開済み'; }
-          catch { results[set.id] = '公開済み（端末の状態保存に失敗）'; }
-        } catch (reason) {
-          const message = getErrorMessage(reason);
-          results[set.id] = `公開失敗：${message}`;
-        }
-        setAddResults({ ...results });
-      }
-      try {
-        setPublishedSets(await listMyPublishedSets());
-        if (selectedGroupId) setGroupSets(await listGroupProblemSets(selectedGroupId));
-        const requestId = publicRequestIdRef.current;
-        const nextPublic = await listPublicProblemSets(query, sort);
-        if (publicRequestIdRef.current === requestId) { setPublicSets(nextPublic); setPublicLoaded(true); setPublicError(''); }
-      } catch { setError('公開結果は下に表示しています。一覧の更新には再読み込みが必要です。'); }
+      const questionsBySet=new Map<string,AppData['questions']>();
+      for(const question of data.questions){const rows=questionsBySet.get(question.setId)??[];rows.push(question);questionsBySet.set(question.setId,rows);}
+      const rows=addSets.map(set=>{try{return {payload:prepareLocalPublication({data:{...data,problemSets:[set],questions:questionsBySet.get(set.id)??[]},setId:set.id,includeFolder:true,folderPath:target.folderPath,publicationInfo:detailsFor(set.id),visibility:target.public?'public':'group',groupIds:target.groupIds,addDestinations:true,authorName:authorName||'Quiz Make ユーザー'}),groupFolderId:target.groupFolderId,groupId:selectedGroupId};}catch(reason){return {payload:{p_set:{local_set_id:set.id,title:set.title},p_questions:[]},preparationError:getErrorMessage(reason)};}});
+      setAddPublicationIds(await publication.enqueue(rows));
+    } catch(reason) {setError(getErrorMessage(reason));
     } finally { addBusyRef.current = false; setBusy(false); }
   };
 
-  const headerTitle = groupPage ? (groupPage === 'create' ? 'グループを作成' : '招待コードで参加') : isGroupSetDetail
-    ? '問題セット'
+  const headerTitle = groupPage ? (groupPage === 'create' ? 'グループを作成' : '招待コードで参加') : directSet
+    ? directSet?.title ?? '問題セット'
     : isGroupDetail
       ? selectedGroup?.name ?? 'グループ'
       : tab === 'groups'
@@ -672,71 +742,40 @@ export function CommunityScreen({
         : tab === 'discover'
           ? '見つける'
           : isDirectShare ? '共有設定' : '共有の管理';
-  const handleHeaderBack = isGroupSetDetail ? () => { setProgressOpen(false); setDirectSet(null); } : onBack;
+  const handleHeaderBack = directSet && !shareToken ? () => { setDirectSet(null); if (!isGroupDetail) setTab(detailBackTab); } : isGroupDetail && groupDetailTab === 'folders' && groupFolderTrail.length ? () => setGroupFolderTrail(trail => trail.slice(0, -1)) : onBack;
 
   return (
     <Layout>
-      <div className={`community-screen${!directSet && ((tab === 'discover' && !isGroupDetail) || isGroupDetail) ? ' community-screen--library-scroll' : ''}${isGroupDetail && !isGroupSetDetail ? ' community-screen--group-library' : ''}`}>
+      <div className={`community-screen${!directSet && tab === 'discover' && !isGroupDetail ? ' community-screen--library-scroll' : ''}${isGroupDetail ? ' community-screen--group-workspace' : ''}`}>
         <header className="community-screen__header">
           {isPrimaryRoot ? <span className="community-screen__header-spacer" aria-hidden="true" /> : <BackButton onClick={handleHeaderBack} label="戻る" />}
           <div><h1>{headerTitle}</h1></div>
-          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={()=>{setGroupNameDraft(selectedGroup.name);setError('');setGroupMenuOpen(true);}}>…</button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
+          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={openGroupSettings}>…</button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
         </header>
 
         {!cloudConfigured ? <div className="community-notice community-notice--warning">共有機能の接続設定が未完了です。端末内の作成・学習機能はそのまま使えます。</div> : null}
         {error ? <div className="community-notice community-notice--error" role="alert">{error}<button type="button" onClick={() => setError('')}>閉じる</button></div> : null}
         {authMessage ? <div className="community-notice" role="status">{authMessage}<button type="button" onClick={() => setAuthMessage('')}>閉じる</button></div> : null}
+        {publication.error?<div className="community-notice community-notice--error" role="alert">{publication.error}</div>:null}
+        {!addTarget&&!shareLocalSetId?<PublicationJobs jobs={publication.jobs.slice(-10)} onRetry={id=>void publication.retry(id)} compact/>:null}
 
         <main className="community-screen__body">
           {directSet ? <div className="community-detail-toolbar">
             {!isGroupSetDetail && !shareToken ? <button type="button" onClick={() => { setDirectSet(null); setTab(detailBackTab); }}>‹ 一覧へ戻る</button> : <span />}
-            {directSet.ownerId === session?.user.id ? <div><span>自分の公開</span><PublicationMenu title={directSet.title} busy={busy} onRemove={() => requestRemove([directSet], directSet.title)} /></div> : null}
+            {directSet.ownerId === session?.user.id ? <div><PublicationMenu title={directSet.title} busy={busy} onRemove={() => requestRemove([directSet], directSet.title)} /></div> : null}
           </div> : null}
-           {progressOpen && isGroupSetDetail && directSet && session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onClose={() => setProgressOpen(false)} /> : isGroupDetail ? (
+           {isGroupDetail ? (
             isGroupSetDetail && directSet ? (
-              <section className="community-section" aria-label="グループの問題セット詳細">
-                <button type="button" className="community-primary" disabled={!session || busy} onClick={() => setProgressOpen(true)}>みんなの進捗</button>
-                <ProblemSetCards
-                  sets={[directSet]}
-                  busy={busy}
-                  onCopy={(set) => void copySharedSet(set)}
-                  onPractice={(set) => void practiceSharedSet(set)}
-                  onReport={setReportTarget}
-                  detailed
-                />
-              </section>
+              <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onPractice={() => void practiceSharedSet(directSet)} onReport={() => setReportTarget(directSet)} progress={session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onChanged={() => setGroupLearningRevision(n => n + 1)} /> : undefined} />
             ) : (
               <section className="community-section community-group-detail">
                 {!session ? (
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
-                    <div className="qm-group-tabs" data-active-tab={groupDetailTab} role="tablist" aria-label="グループの表示">
-                      <button role="tab" aria-selected={groupDetailTab === 'sets'} onClick={() => setGroupDetailTab('sets')}>問題セット {groupSets.length}</button>
-                      <button role="tab" aria-selected={groupDetailTab === 'members'} onClick={() => setGroupDetailTab('members')}>メンバー {groupMembers.length}</button>
-                    </div>
-                    {busy && groupFolders.length === 0 ? <div className="community-loading" role="status">読み込み中…</div> : null}
-                    <div hidden={groupDetailTab !== 'sets'} className="community-group-folder-list community-library-scroll" aria-label="グループのフォルダ" tabIndex={0}>
-                      <SharedLibrary key={groupSets.map((set) => `${set.id}:${set.updatedAt}`).join('|')} sets={groupSets} userId={session?.user.id} busy={busy} onOpen={(set) => void openSharedDetail(set, 'groups')} onRemove={requestRemove} onMove={(set) => void openMove(set)} onAdd={(path) => openAdd('group', path)} />
-                      {!busy && groupFolders.length === 0 ? <EmptyState title="問題セットはまだありません" /> : null}
-                    </div>
-                    {groupMembers.length > 0 ? (
-                      <section hidden={groupDetailTab !== 'members'} className="community-members" aria-label="メンバー">
-                        <div className="community-members__list">
-                          {[...groupMembers].sort((a,b) => ({owner:0,admin:1,member:2}[a.role] - {owner:0,admin:1,member:2}[b.role])).map((member) => (
-                            <div key={member.userId}>
-                              <span><strong>{member.displayName}</strong><small>{roleLabel(member.role)}</small></span>
-                              {member.role !== 'owner' && member.userId !== session.user.id && canManageSelectedGroup ? (
-                                <button type="button" disabled={busy} onClick={() => void removeGroupMember(member)}>メンバーから外す</button>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </section>
-                    ) : null}
+                    <GroupWorkspace data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} busy={busy} />
                   </>
                 )}
-                <div className="community-group-publish"><button type="button" disabled={busy || !cloudConfigured} onClick={() => openAdd('group')}>＋ このグループに公開</button></div>
               </section>
             )
           ) : (
@@ -808,7 +847,7 @@ export function CommunityScreen({
                     {groups.map((group) => (
                       <article key={group.id} className="community-group-card">
                         <button type="button" className="community-group-card__main" onClick={() => onOpenGroup(group.id)}>
-                          <span className="community-group-card__icon" aria-hidden="true"><GroupIcon size={24} /></span>
+                          <GroupAvatar icon={group.icon} accent={group.accent} />
                           <span><strong>{group.name}</strong><small>{group.memberCount}人 · {group.setCount}セット</small></span>
                           <ChevronRightIcon size={20} />
                         </button>
@@ -822,7 +861,7 @@ export function CommunityScreen({
 
           {tab === 'discover' ? (
             <section className="community-section">
-              {directSet ? <ProblemSetCards sets={[directSet]} busy={busy} onCopy={(set) => void copySharedSet(set, shareToken)} onPractice={(set) => void practiceSharedSet(set, shareToken)} onReport={setReportTarget} detailed /> : (
+              {directSet ? <SharedSetDetail key={directSet.id} set={directSet} location={directSet.folderPath?.map(part => part.name).join(' / ') ?? ''} busy={busy} onCopy={() => copySharedSet(directSet, shareToken)} onPractice={() => void practiceSharedSet(directSet, shareToken)} onReport={() => setReportTarget(directSet)} /> : (
                 <>
                   <div className="community-search">
                     <div className="community-search__input"><SearchIcon size={19} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="公開問題セットを検索" /></div>
@@ -878,11 +917,16 @@ export function CommunityScreen({
         {groupMenuOpen && selectedGroup ? <CommunityModal ariaLabel="グループの管理" busy={busy} onClose={()=>setGroupMenuOpen(false)}>
           <h2>{selectedGroup.name}</h2>
           {error ? <p role="alert" className="community-notice--error">{error}</p> : null}
+          {canManageSelectedGroup ? <section className="group-icon-picker"><h3>グループアイコン</h3><GroupAvatar icon={groupIconDraft} accent={groupAccentDraft} /><div className="group-icon-picker__choices" aria-label="アイコンの種類">{groupIcons.map(icon => <button type="button" key={icon} disabled={busy} aria-label={{ group: 'グループ', book: '教材', study: '学習', folder: 'フォルダ' }[icon]} aria-pressed={groupIconDraft === icon} onClick={() => setGroupIconDraft(icon)}><GroupAvatar icon={icon} accent={groupAccentDraft} /></button>)}</div><div className="group-icon-picker__colors" aria-label="アイコンの色">{groupAccents.map(accent => <button type="button" key={accent} disabled={busy} className={`group-color-choice group-avatar--${accent}`} aria-label={{ blue: '青', cyan: '水色', green: '緑', violet: '紫' }[accent]} aria-pressed={groupAccentDraft === accent} onClick={() => setGroupAccentDraft(accent)} />)}</div><button type="button" className="group-secondary" disabled={busy || !groupLearning.snapshot} onClick={() => void saveGroupIcon()}>アイコンを保存</button></section> : null}
           {selectedGroup.role === 'owner' ? <form className="community-group-edit" onSubmit={event => { event.preventDefault(); void saveGroupName(); }}>
             <label>グループ名<input value={groupNameDraft} maxLength={60} disabled={busy} onChange={event => setGroupNameDraft(event.target.value)} /></label>
             <button type="submit" disabled={busy || !groupNameDraft.trim() || groupNameDraft.trim() === selectedGroup.name}>{busy ? '保存中…' : '名前を保存'}</button>
           </form> : null}
           {selectedGroup.role === 'owner' ? <button type="button" className="community-group-danger" disabled={busy} onClick={()=>void deleteSelectedGroup()}>グループを削除</button> : <button type="button" className="community-group-danger" disabled={busy || !groupMembers.some(m=>m.userId===session?.user.id)} onClick={()=>{const member=groupMembers.find(m=>m.userId===session?.user.id);if(member)void removeGroupMember(member);}}>グループから退出</button>}
+        </CommunityModal> : null}
+        {folderCreateOpen ? <CommunityModal ariaLabel="フォルダを追加" busy={busy} onClose={() => setFolderCreateOpen(false)}>
+          <h2>フォルダを追加</h2><p>このグループのメンバーで共有するフォルダです。</p>
+          <form className="group-folder-form" onSubmit={event => { event.preventDefault(); void createGroupFolder(); }}><label>フォルダ名<input data-dialog-autofocus value={folderNameDraft} maxLength={60} required disabled={busy} onChange={event => setFolderNameDraft(event.target.value)} placeholder="例：CBT対策" /></label>{error ? <p role="alert" className="group-error">{error}</p> : null}<div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setFolderCreateOpen(false)}>キャンセル</button><button type="submit" className="community-primary" disabled={busy || !folderNameDraft.trim()}>{busy ? '追加中…' : '追加する'}</button></div></form>
         </CommunityModal> : null}
         {copyTarget ? <CommunityModal ariaLabel="取り込み先を選択" busy={busy} onClose={() => setCopyTarget(null)}>
           <h2>取り込み先を選択</h2>
@@ -900,21 +944,26 @@ export function CommunityScreen({
         </CommunityModal> : null}
         {addTarget ? (
           <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)} publishing>
-            <h2>{Object.keys(addResults).length ? busy ? '公開中…' : '公開結果' : addReview ? '公開の設定' : '公開する問題を選択'}</h2>
-            {addReview && !Object.keys(addResults).length ? <fieldset disabled={busy} className="community-destinations"><legend>公開先（複数選択可）</legend>
+            <h2>{addPublicationIds.length?'公開状況':Object.keys(addResults).length ? busy ? '追加中…' : '追加結果' : addReview ? '共有する内容を確認' : addTarget.groupFolderId ? 'フォルダに追加する問題セット' : '公開する問題を選択'}</h2>
+            {addPublicationIds.length?<><PublicationJobs jobs={publication.jobs.filter(job=>addPublicationIds.includes(job.id))} onRetry={id=>void publication.retry(id)}/><p>画面を閉じても公開処理は続きます。アプリ終了後は、同じアカウントで続きから再開します。</p></>:null}
+            {addTarget.groupFolderId ? <p>追加先：{groupLearning.snapshot?.folders.find(folder => folder.id === addTarget.groupFolderId)?.name} / {selectedGroup?.name}</p> : null}
+            {addReview && !addPublicationIds.length && !Object.keys(addResults).length && !addTarget.groupFolderId ? <fieldset disabled={busy} className="community-destinations"><legend>公開先（複数選択可）</legend>
               <label className="community-check"><input type="checkbox" checked={addTarget.public} onChange={(event) => setAddTarget({ ...addTarget, public: event.target.checked })} />全体公開</label>
               {groups.map((group) => <label key={group.id} className="community-check"><input type="checkbox" checked={addTarget.groupIds.includes(group.id)} onChange={(event) => setAddTarget({ ...addTarget, groupIds: event.target.checked ? [...addTarget.groupIds, group.id] : addTarget.groupIds.filter((id) => id !== group.id) })} />{group.name}</label>)}
             </fieldset> : null}
             {addTarget.folderPath ? <p>{addTarget.folderPath.map((part) => part.name).join(' / ')}</p> : null}
-            <div hidden={addReview}><PublishPicker data={data} selected={addIds} onChange={setAddIds} /></div>
-            {addReview ? <>
-              <div className="community-publication-preview">{addSets.map((set) => <section key={set.id}><strong>{set.title}</strong>{Object.keys(addResults).length ? <p>{addResults[set.id] ?? '公開待ち'}</p> : renderPublicationDetails(set.id)}</section>)}</div>
+            <div hidden={addReview}>
+              {addTarget.groupFolderId ? <div className="group-add-source group-segment" aria-label="追加する問題セットの場所"><button type="button" aria-pressed={addSource === 'local'} disabled={busy} onClick={() => setAddSource('local')}>ホームから選ぶ</button><button type="button" aria-pressed={addSource === 'group'} disabled={busy} onClick={() => setAddSource('group')}>グループから選ぶ</button></div> : null}
+              {addSource === 'local' ? <PublishPicker data={data} selected={addIds} onChange={setAddIds} /> : <div className="group-add-existing">{groupSets.filter(set => (canManageSelectedGroup || set.ownerId === session?.user.id) && groupLearning.snapshot?.placements.find(row => row.setId === set.id)?.folderId !== addTarget.groupFolderId).map(set => <label key={set.id}><input type="checkbox" checked={addCloudIds.includes(set.id)} disabled={busy} onChange={event => setAddCloudIds(ids => event.target.checked ? [...ids,set.id] : ids.filter(id => id !== set.id))} /><span><strong>{set.title}</strong><small>{set.authorName} · {set.questionCount}問</small></span></label>)}<p className="group-muted">選んだ問題セットをこのフォルダへ移動します。管理者はグループ内のすべてのセットを整理できます。</p></div>}
+            </div>
+            {addReview && !addPublicationIds.length ? <>
+              <div className="community-publication-preview">{addSource === 'group' ? cloudAddSets.map(set => <section key={set.id}><strong>{set.title}</strong><p>{Object.keys(addResults).length ? addResults[set.id] : 'このフォルダへ移動します。'}</p></section>) : addSets.map((set) => <section key={set.id}><strong>{set.title}</strong>{Object.keys(addResults).length ? <p>{addResults[set.id] ?? '公開待ち'}</p> : renderPublicationDetails(set.id)}</section>)}</div>
             </> : null}
-            {!Object.keys(addResults).length ? <>
+            {!Object.keys(addResults).length && !addPublicationIds.length ? <>
               {addReview ? <p className="community-publication-note">{addTarget.public ? '全体公開は誰でも閲覧・コピーできます。' : ''}学習履歴は共有しません。</p> : null}
             </> : null}
             {error ? <p role="alert" className="community-notice--error">{error}</p> : null}
-            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length ? '閉じる' : addReview ? '戻る' : 'キャンセル'}</button>{!Object.keys(addResults).length ? <button type="button" className="community-primary" disabled={busy || !addSets.length || (addReview && ((!addTarget.public && !addTarget.groupIds.length) || !addSets.every((set) => detailsValid(set.id))))} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '公開中…' : !addReview ? `次へ（${addSets.length}セット）` : '公開する'}</button> : null}</div>
+            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { if (addReview && !Object.keys(addResults).length && !addPublicationIds.length) setAddReview(false); else setAddTarget(null); }}>{Object.keys(addResults).length||addPublicationIds.length ? '閉じる' : addReview ? '戻る' : 'キャンセル'}</button>{!Object.keys(addResults).length && !addPublicationIds.length ? <button type="button" className="community-primary" disabled={busy || !addSelectionCount || (addReview && ((!addTarget.public && !addTarget.groupIds.length) || (addSource === 'local' && !addSets.every((set) => detailsValid(set.id)))))} onClick={() => { if (!addReview) setAddReview(true); else void submitAdd(); }}>{busy ? '追加中…' : !addReview ? `次へ（${addSelectionCount}セット）` : addTarget.groupFolderId ? 'フォルダに追加する' : '公開する'}</button> : null}</div>
           </CommunityModal>
         ) : null}
         {loginOpen ? (
@@ -929,7 +978,7 @@ export function CommunityScreen({
           <CommunityModal ariaLabel="問題セットを共有" busy={busy} onClose={closeShare} publishing>
               <h2>問題セットを共有</h2>
               <div className="community-share-title"><ProblemSetIcon size={30} /><strong>{data.problemSets.find((set) => set.id === shareLocalSetId)?.title}</strong></div>
-              {!shareResult ? (
+              {sharePublicationIds.length?<><PublicationJobs jobs={publication.jobs.filter(job=>sharePublicationIds.includes(job.id))} onRetry={id=>void publication.retry(id)}/>{shareResult?<button type="button" className="community-primary" onClick={()=>void writeClipboardText(shareResult.url).then(()=>setAuthMessage('共有リンクをコピーしました。'))}>共有リンクをコピー</button>:null}<p>画面を閉じても公開処理は続きます。</p><button type="button" onClick={closeShare}>閉じる</button></>:!shareResult ? (
                 <>
                   <fieldset disabled={busy} className="community-share-scope"><legend>共有先</legend>
                     <div className="community-share-options">{([{ value: 'link', label: 'リンク' }, { value: 'public', label: '全体公開' }, { value: 'group', label: 'グループ共有' }] as const).map((option) => <label key={option.value}>
@@ -1049,44 +1098,8 @@ function CommunityModal({ ariaLabel, busy = false, onClose, children, sidePanel 
   );
 }
 
-function ProblemSetCards({ sets, busy, onCopy, onPractice, onDetail, onReport, detailed = false }: { sets: CloudProblemSet[]; busy: boolean; onCopy: (set: CloudProblemSet) => void; onPractice: (set: CloudProblemSet) => void; onDetail?: (set: CloudProblemSet) => void; onReport: (set: CloudProblemSet) => void; detailed?: boolean }) {
-  if (!detailed && onDetail) return <div className="community-discovery-list">{sets.map((set) => <button key={set.id} className="community-discovery-row" disabled={busy} onClick={() => onDetail(set)}>
-    <span className="library-icon"><ProblemSetIcon /></span>
-    <span className="library-row__body"><strong>{set.title}</strong><span>{[set.audience, set.subject, `${set.questionCount}問`].filter(Boolean).join(' · ')}</span></span>
-    <ChevronRightIcon size={22} />
-  </button>)}</div>;
-  return <div className="community-public-list">{sets.map((set) => (
-    <article key={set.id} className={`community-public-card${detailed ? ' community-public-card--detail' : ''}`}>
-      <div className="community-public-card__top"><div>{set.subject ? <span>{set.subject}</span> : null}<h3>{set.title}</h3></div>{!detailed ? <small>更新 {formatDate(set.updatedAt)}</small> : null}</div>
-      {set.audience ? <p>{set.audience}</p> : null}
-      {set.description ? <p>{set.description}</p> : null}
-      <div className="community-public-card__meta"><span>{set.questionCount}問</span><span>{difficultyLabel(set.difficulty)}</span><span>追加 {set.addCount}</span><span>作成：{set.authorName}</span></div>
-      {detailed && set.questions ? <details><summary>問題の内容を確認</summary>{set.questions.slice(0, 5).map((question, index) => <div className="community-question-preview" key={`${index}_${question.question}`}><strong>{index + 1}. {question.question}</strong><span>{question.choices.join(' / ')}</span></div>)}</details> : null}
-      <div className="community-public-card__actions"><button type="button" className="community-primary" disabled={busy} onClick={() => onPractice(set)}>このまま解く</button><button type="button" disabled={busy} onClick={() => onCopy(set)}>自分のフォルダにコピー</button></div>
-      <div className="community-public-card__minor-actions">{onDetail && !detailed ? <button type="button" onClick={() => onDetail(set)}>詳細を見る</button> : null}<button type="button" onClick={() => onReport(set)}>誤りを報告</button></div>
-    </article>
-  ))}</div>;
-}
-
 function EmptyState({ title, body, action, onAction }: { title: string; body?: string; action?: string; onAction?: () => void }) {
   return <div className="community-empty"><span aria-hidden="true"><ProblemSetIcon size={30} /></span><h3>{title}</h3>{body ? <p>{body}</p> : null}{action && onAction ? <button type="button" className="community-primary" onClick={onAction}>{action}</button> : null}</div>;
-}
-
-function formatDate(value: string) {
-  if (!value) return '';
-  return new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(value));
-}
-
-function difficultyLabel(value: string) {
-  if (value === 'advanced') return '発展';
-  if (value === 'standard') return '標準';
-  return '基礎';
-}
-
-function roleLabel(value: CloudGroup['role']) {
-  if (value === 'owner') return 'オーナー';
-  if (value === 'admin') return '管理者';
-  return 'メンバー';
 }
 
 function getErrorMessage(reason: unknown) {

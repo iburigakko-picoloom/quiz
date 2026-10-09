@@ -7,6 +7,8 @@ import { getLineAvatarUrl } from './lineAvatar';
 import { lineWebLoginQuery } from './linePwaLogin';
 import { localFolderPath, type SharedFolderPart } from './sharedFolders';
 import type { AppData, ProblemSetVisibility } from '../types';
+import {prepareLocalPublication,type LocalPublicationOptions} from './publicationPayload';
+import {publicationDigest,publicationId,publicationFailure,uploadPublication,type PublicationProgress,type PublicationRpcName} from './publicationProtocol';
 import {
   beginNativeAuthAttempt,
   getCloudAuthRedirectUrl,
@@ -94,6 +96,7 @@ export interface CloudQuestion {
 }
 
 export interface CloudProblemSet {
+  importCount?: number;
   versionId?: string;
   folderPath?: SharedFolderPart[];
   id: string;
@@ -116,6 +119,8 @@ export interface CloudProblemSet {
 }
 
 export interface CloudGroup {
+  icon?: import('./groupLearning').GroupIconName;
+  accent?: import('./groupLearning').GroupAccent;
   id: string;
   name: string;
   role: 'owner' | 'admin' | 'member';
@@ -275,75 +280,26 @@ export async function getCloudDisplayName(): Promise<string> {
   return String(data?.display_name ?? '');
 }
 
-export async function publishLocalProblemSet(params: {
-  data: AppData;
-  setId: string;
-  visibility: Exclude<ProblemSetVisibility, 'private'>;
-  groupIds?: string[];
-  addDestinations?: boolean;
-  authorName: string;
-  publicationInfo?: { audience: string; description: string };
-  includeFolder?: boolean;
-  folderPath?: SharedFolderPart[];
-}): Promise<CloudPublishResult> {
-  const client = requireCloudClient();
-  const problemSet = params.data.problemSets.find((item) => item.id === params.setId);
-  if (!problemSet) throw new Error('共有する問題セットが見つかりません。');
-  const audience = (params.publicationInfo?.audience ?? problemSet.audience ?? '').trim();
-  const description = (params.publicationInfo?.description ?? problemSet.description ?? '').trim();
-  if (!audience) throw new Error('対策・用途を選んでください。');
-  if (description.length > 300) throw new Error('説明は300文字以内で入力してください。');
-  const questions = params.data.questions.filter((item) => item.setId === params.setId);
-  if (questions.length === 0) throw new Error('問題がないセットは共有できません。');
+export async function publishLocalProblemSet(params:LocalPublicationOptions & {operationId?:string;onProgress?:(value:PublicationProgress)=>void}):Promise<CloudPublishResult> {
+  const payload=prepareLocalPublication(params);
+  if(!payload.p_questions.length)throw new Error('問題がないセットは共有できません。');
+  const access=await getCloudAccessToken();if(!access.ok)throw publicationFailure('account');
+  return uploadPublication(payload,params.operationId??publicationId(),await publicationDigest(payload),(name,args)=>publicationRpc(name,args,access.userId),params.onProgress);
+}
 
-  const payload = {
-    p_set: {
-      local_set_id: problemSet.id,
-      ...(params.folderPath !== undefined ? { folder_path: params.folderPath } : params.includeFolder ? { folder_path: localFolderPath(params.data.folders, problemSet.folderId) } : {}),
-      title: problemSet.title,
-      description,
-      subject: problemSet.subject ?? '',
-      audience,
-      difficulty: problemSet.difficulty ?? 'basic',
-      creation_method: problemSet.creationMethod ?? 'manual',
-      source: problemSet.source ?? '',
-      visibility: params.visibility,
-      author_name: params.authorName.trim(),
-      group_ids: params.groupIds ?? [],
-      add_destinations: params.addDestinations ?? false,
-    },
-    p_questions: questions.map((question, position) => ({
-      logical_id: question.logicalId ?? question.origin?.logicalId ?? question.id,
-      position,
-      question: question.question,
-      choices: question.choices,
-      distractors: question.distractors ?? [],
-      shuffle_choices: question.shuffleChoices ?? null,
-      answer_indexes: question.answerIndexes?.length ? question.answerIndexes : [question.answerIndex],
-      answer_text: question.answerText,
-      explanation: question.explanation,
-      detailed_explanation: question.detailedExplanation ?? '',
-      source_page: question.sourcePage,
-      category: question.category,
-      difficulty: question.difficulty,
-    })),
-  };
-  let response = await client.rpc('publish_problem_set_versioned', payload);
-  // An unprepared server retains existing publication behavior. Such copies
-  // carry no version and cannot participate in common-version progress.
-  if (response.error?.code === 'PGRST202' || response.error?.code === '42883') response = await client.rpc('publish_problem_set', payload);
-  const { data, error } = response;
-  if (error) throw new Error(toFriendlyCloudError(error.message));
-  const value = data as { id?: unknown; share_token?: unknown; visibility?: unknown; version_id?: unknown } | null;
-  if (!value || typeof value.id !== 'string' || typeof value.share_token !== 'string') {
-    throw new Error('共有結果を確認できませんでした。');
-  }
-  return {
-    id: value.id,
-    versionId: typeof value.version_id === 'string' ? value.version_id : undefined,
-    shareToken: value.share_token,
-    visibility: normalizeVisibility(value.visibility),
-  };
+export function publicationIdentity(userId:string):LocalAccountIdentity {return {project:new URL(supabaseUrl).origin,userId};}
+export async function publicationRpc(name:PublicationRpcName,params:Record<string,unknown>,expectedUserId:string):Promise<unknown> {
+  const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
+  try {
+    const operation=(async()=>{
+      const access=await getCloudAccessToken();if(controller.signal.aborted)throw publicationFailure('network');if(!access.ok||access.userId!==expectedUserId)throw publicationFailure('account');
+      const response=await accountGuardedCloudFetch(`${supabaseUrl}/rest/v1/rpc/${name}`,{method:'POST',headers:{apikey:supabaseAnonKey,Authorization:`Bearer ${access.accessToken}`,'Content-Type':'application/json'},body:JSON.stringify(params),redirect:'error',signal:controller.signal});
+      if((await getCloudSession())?.user.id!==expectedUserId)throw publicationFailure('account');
+      const value=await response.json();if(!response.ok)throw publicationFailure(String(value?.code??response.status),String(value?.message??''));return value;
+    })();
+    return await Promise.race([operation,new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(publicationFailure('network','Authorization/request deadline exceeded'));},15000);})]);
+  }catch(reason){if(reason instanceof Error&&reason.name==='AbortError')throw publicationFailure('network','Request deadline exceeded');throw reason;}
+  finally{clearTimeout(timer);}
 }
 
 export async function listPublicProblemSets(query = '', sort: 'new' | 'popular' = 'new'): Promise<CloudProblemSet[]> {
@@ -490,7 +446,7 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
-export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
+export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_learning_place' | 'manage_quiz_group_library', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
   const access = await getCloudAccessToken();
   if (!access.ok || access.userId !== expectedUserId) throw new Error('アカウントが変更されています。開き直してください。');
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
@@ -533,7 +489,7 @@ function requireCloudClient() {
   return cloudClient;
 }
 
-function mapProblemSetRow(row: Record<string, unknown>): CloudProblemSet {
+export function mapProblemSetRow(row: Record<string, unknown>): CloudProblemSet {
   return {
     folderPath: Array.isArray(row.folder_path) ? row.folder_path.filter((part): part is SharedFolderPart => Boolean(part && typeof part === 'object' && typeof part.id === 'string' && typeof part.name === 'string')).slice(0, 2) : [],
     id: String(row.id ?? ''),
@@ -550,9 +506,21 @@ function mapProblemSetRow(row: Record<string, unknown>): CloudProblemSet {
     visibility: normalizeVisibility(row.visibility),
     questionCount: Number(row.question_count ?? row.questionCount ?? 0),
     addCount: Number(row.add_count ?? row.addCount ?? 0),
+    importCount: Number.isSafeInteger(row.import_count) && Number(row.import_count) >= 0 ? Number(row.import_count) : undefined,
     publishedAt: String(row.published_at ?? row.publishedAt ?? ''),
     updatedAt: String(row.updated_at ?? row.updatedAt ?? ''),
   };
+}
+
+export async function publicLibraryRpc(name:'quiz_public_search'|'quiz_public_folder'|'quiz_public_mine'|'quiz_public_folder_manage'|'quiz_public_set_visibility'|'quiz_public_record_import',params:Record<string,unknown>,expectedUserId?:string):Promise<unknown>{
+  const client=requireCloudClient(),controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
+  try{return await Promise.race([(async()=>{
+    if(expectedUserId){const access=await getCloudAccessToken();if(!access.ok||access.userId!==expectedUserId)throw new Error('公開を開始したアカウントでログインしてください。');}
+    if(controller.signal.aborted)throw new Error('公開ライブラリの通信が時間切れになりました。');
+    const {data,error}=await client.rpc(name,params).abortSignal(controller.signal);
+    if(expectedUserId&&(await getCloudSession())?.user.id!==expectedUserId)throw new Error('アカウントが変更されています。');
+    if(error)throw new Error(error.code==='PGRST202'||error.code==='42883'?'公開ライブラリのサーバー更新が必要です。':error.message==='not authorized'?'この公開内容を変更する権限がありません。':'公開ライブラリを処理できませんでした。もう一度お試しください。');return data;
+  })(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('公開ライブラリの通信が時間切れになりました。再試行してください。'));},15000);})]);}finally{clearTimeout(timer);}
 }
 
 function mapProblemSetJson(value: Record<string, unknown>): CloudProblemSet {
@@ -589,6 +557,8 @@ function mapGroupJson(value: Record<string, unknown>): CloudGroup {
   return {
     id: String(value.id ?? ''),
     name: String(value.name ?? ''),
+    icon: ['group', 'book', 'study', 'folder'].includes(String(value.icon)) ? value.icon as CloudGroup['icon'] : 'group',
+    accent: ['blue', 'cyan', 'green', 'violet'].includes(String(value.accent)) ? value.accent as CloudGroup['accent'] : 'blue',
     role: normalizeGroupRole(value.role),
     memberCount: Number(value.member_count ?? value.memberCount ?? 1),
     setCount: Number(value.set_count ?? value.setCount ?? 0),
@@ -603,7 +573,7 @@ function normalizeGroupRole(value: unknown): CloudGroup['role'] {
   return value === 'owner' || value === 'admin' ? value : 'member';
 }
 
-function getInstallationId(): string {
+export function getInstallationId(): string {
   const key = 'quizMake:cloud:installationId';
   const stored = accountLocalStorage.getItem(key);
   if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(stored)) return stored;

@@ -41,6 +41,11 @@ import {
 
 const readSource = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
+test('public folder and set detail have distinct navigation identities and return to their exact parent',()=>{
+ const home={name:'community',tab:'discover'},folder={...home,publicFolderId:'folder',backScreen:home},set={...home,publicSetId:'set',backScreen:folder};
+ assert.notEqual(getScreenKey(home),getScreenKey(folder));assert.notEqual(getScreenKey(folder),getScreenKey(set));assert.deepEqual(getCommunityBackScreen(set),folder);assert.equal(getBackNavigationSteps([home,folder,set],folder),1);
+});
+
 test('sync settings and recovery children return to the screen that opened them', () => {
   const sync = { name: 'sync' }, settings = { name: 'sync', page: 'settings', backScreen: sync };
   const danger = { name: 'sync', page: 'danger', backScreen: settings };

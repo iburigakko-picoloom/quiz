@@ -4,7 +4,6 @@ import { loadAppDataAsync, establishCurrentAppDataAuthority } from '../storage';
 import { withCoordinatedDataRead, withCoordinatedDataMutation, assertDataEpochSnapshotCurrent } from './dataCoordination';
 import { getNoteBackupIssues, exportCategoryNotesRaw, CATEGORY_NOTES_MANIFEST_KEY, CATEGORY_NOTES_RECOVERY_REQUIRED_KEY } from './noteStorage';
 import { openCoLocatedNoteDb } from './noteRecordMigration';
-import { materialFileEntry, validMaterialRecord, type MaterialIndex } from './materialModel';
 import { openQuestionImageRecordDb, readQuestionImages, describeQuestionImage, validQuestionImageDescriptor, questionImageMetadataKey, type StoredQuestionImage, type QuestionImageDescriptor } from './questionImageRecords';
 import { verifyQuestionImageBlob } from './questionImageCloud';
 import { saveAppRecords, readAppRecordSnapshot, appRecordKey } from './appRecordStorage';
@@ -23,6 +22,7 @@ import { getSavedBackup } from './backupRepository';
 import { validateSyncOriginalsFile } from './syncOriginalBackup';
 import { sameRecordSyncConnection, type RecordSyncConnection } from './recordSyncOutbox';
 import { acceptsLegacyImages, readLegacyImageSync, type LegacyImageSync } from './legacyImageSync';
+import { assertMaterialIntegrity, SyncDataError, syncDataFailure, type SyncDataCode } from './syncDataIntegrity';
 
 export type FileBackup = SyncPayload & {
   backupManifest: { schema:1; completeness:'complete'|'partial'; issues:string[]; questionCount:number; noteCount:number; imageCount:number; contentDigest:string };
@@ -36,9 +36,11 @@ async function createFileBackup(payload:SyncPayload,images:readonly StoredQuesti
   const files:FileBackup['questionImageFiles']=[];
   for(const image of images)files.push({descriptor:await describeQuestionImage(image),dataUrl:await encode(image.blob)});
   const included=new Set(files.map(file=>file.descriptor.id)),issues=allowMissingImages?[...imageOwners(data).keys()].filter(id=>!included.has(id)).map(id=>`画像本体未確認: ${id}`):[];
-  if(allowMissingImages&&(getNoteBackupIssues(payload.indexedDbNotes??{}).length||materialIssues(payload,data).length))throw new Error('PDF・ノートを完全に確認できません。');
+  // This is a pure incoming snapshot. The current device's note manifest belongs
+  // to the other side; exportQuizMakeData still checks it for local exports.
+  assertMaterialIntegrity(payload,data,true);
   const result:FileBackup={...payload,questionImageFiles:files,backupManifest:{schema:1,completeness:issues.length?'partial':'complete',issues,questionCount:data.questions.length,noteCount:Object.keys(payload.indexedDbNotes??{}).length,imageCount:files.length,contentDigest:await digest(payload,files)}};
-  const checked=await validateFileBackup(result);if(!checked.ok)throw new Error(checked.error);return result;
+  const checked=await validateFileBackup(result);if(!checked.ok)throw new SyncDataError(checked.code&&['image_missing','image_reference','pdf_missing','pdf_integrity','material_reference','note_integrity'].includes(checked.code)?checked.code as SyncDataCode:'backup_integrity',checked.error,checked.diagnostic??{function:'validateFileBackup',stage:'backup_validate',cause:'manifest'});return result;
 }
 const hash=async(text:string)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))].map(n=>n.toString(16).padStart(2,'0')).join('');
 const sorted=(value:Record<string,string>)=>Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));
@@ -60,24 +62,11 @@ export function isImageOptionalSyncFile(file:FileBackup):boolean{
   try{
     if(file.backupManifest.completeness!=='partial')return false;
     const missing=missingSyncImages(file),expected=new Set(missing.map(row=>`画像本体未確認: ${row.id}`));
-    return missing.length>0&&file.backupManifest.issues.length===expected.size&&file.backupManifest.issues.every(issue=>expected.has(issue))&&!getNoteBackupIssues(file.indexedDbNotes??{}).length&&!materialIssues(file,JSON.parse(file.localStorage['quiz-make-app-data-v1'])).length;
+    return missing.length>0&&file.backupManifest.issues.length===expected.size&&file.backupManifest.issues.every(issue=>expected.has(issue))&&!materialIssues(file,JSON.parse(file.localStorage['quiz-make-app-data-v1'])).length;
   }catch{return false;}
 }
 function materialIssues(payload:SyncPayload,data:AppData):string[]{
-  const notes={...payload.localStorage,...payload.indexedDbNotes},owners=new Map<string,MaterialIndex>(),issues:string[]=[];
-  for(const [key,raw] of Object.entries(notes))if(key.endsWith(':__materials_v1')){
-    try{const index=JSON.parse(raw) as MaterialIndex;if(index.kind!=='quiz-material-index'||!validMaterialRecord(index as unknown as Record<string,unknown>))throw new Error();
-      for(const material of index.materials){owners.set(material.id,index);if(material.pages.some(page=>page.kind==='pdf')){
-        const file=materialFileEntry(`quizMake:notes:${index.problemSetId}:__material_pdf_${material.id}`,notes[`quizMake:notes:${index.problemSetId}:__material_pdf_${material.id}`]??'');
-        if(file?.kind!=='quiz-material-file')issues.push(`PDF本体未収録: ${material.title}`);
-      }}
-    }catch{issues.push(`資料一覧未確認: ${key}`);}
-  }
-  for(const question of data.questions)for(const ref of question.materialReferences??[]){
-    const index=owners.get(ref.materialId);
-    if(!index?.materials.some(material=>material.id===ref.materialId&&material.pages.some(page=>page.id===ref.pageId)))issues.push(`参照資料未収録: ${question.id}`);
-  }
-  return issues;
+  try{assertMaterialIntegrity(payload,data,true);return [];}catch(error){return [error instanceof SyncDataError?error.message:'資料の紐づけ情報に不備があります。'];}
 }
 async function encode(blob:Blob):Promise<string>{
   const bytes=new Uint8Array(await blob.arrayBuffer());let text='';
@@ -121,13 +110,17 @@ export async function validateFileBackup(value:unknown):Promise<SyncResult<{payl
     // This versioned complete file covers the existing 128 MiB record dataset.
     // Legacy Snapshot wire stays at 32 MiB; PDF/image limits stay at 50 MiB.
     const payload={version:input.version,updatedAt:input.updatedAt,localStorage:input.localStorage,indexedDbNotes:input.indexedDbNotes};
-    const validation=await validateHydratedSyncPayload(payload,{recordRecovery:true});if(!validation.ok)return validation;
+    const validation=await validateHydratedSyncPayload(payload,{recordRecovery:true});if(!validation.ok){if(validation.error.startsWith('ノートデータ')||validation.error.startsWith('同期データのindexedDbNotes')||validation.error.startsWith('ノート以外'))throw new SyncDataError('note_integrity','ノートの保存状態を確認できません。',{function:'validateFileBackup',stage:'backup_validate',cause:'format'});return validation;}
     const data=JSON.parse(validation.value.localStorage['quiz-make-app-data-v1']) as AppData,owners=imageOwners(data),images:StoredQuestionImage[]=[],seen=new Set<string>();
-    for(const file of input.questionImageFiles){const image=await decode(file);if(seen.has(image.id)||owners.get(image.id)!==image.questionId)throw new Error('画像の参照先またはIDが一致しません。');seen.add(image.id);images.push(image);}
+    for(const file of input.questionImageFiles){let image:StoredQuestionImage;try{image=await decode(file);}catch{throw new SyncDataError('image_reference','画像の内容または紐づけ情報を確認できません。',{function:'validateFileBackup',stage:'backup_validate',cause:'format'});}if(seen.has(image.id)||owners.get(image.id)!==image.questionId)throw new SyncDataError('image_reference','画像の紐づけ情報に不備があります。',{function:'validateFileBackup',stage:'backup_validate',cause:'reference'});seen.add(image.id);images.push(image);}
     if(input.backupManifest.questionCount!==data.questions.length||input.backupManifest.noteCount!==Object.keys(validation.value.indexedDbNotes??{}).length||input.backupManifest.imageCount!==images.length||input.backupManifest.contentDigest!==await digest(validation.value,input.questionImageFiles))throw new Error('復元コピーの収録数またはハッシュが一致しません。');
-    if(input.backupManifest.completeness==='complete'&&(input.backupManifest.issues.length||seen.size!==owners.size||materialIssues(validation.value,data).length))throw new Error('完全な復元に必要な画像・PDF・資料が不足しています。');
+    if(input.backupManifest.completeness==='complete'){
+      if(seen.size!==owners.size)throw new SyncDataError('image_missing','一部の画像を確認できません。',{function:'validateFileBackup',stage:'backup_validate',cause:'missing',total:owners.size,completed:seen.size});
+      assertMaterialIntegrity(validation.value,data,true);
+      if(input.backupManifest.issues.length)throw new SyncDataError('backup_integrity','バックアップの収録一覧に不備があります。',{function:'validateFileBackup',stage:'backup_validate',cause:'manifest'});
+    }
     return {ok:true,value:{payload:{...validation.value,backupManifest:input.backupManifest,questionImageFiles:input.questionImageFiles},images}};
-  }catch(error){return {ok:false,code:'invalid',error:error instanceof Error?error.message:'復元コピーを検証できません。'};}
+  }catch(error){if(error instanceof RangeError||error instanceof Error&&error.name==='QuotaExceededError')error=syncDataFailure(error,'validateFileBackup','backup_validate');if(error instanceof SyncDataError)return {ok:false,code:error.code as import('./syncService').SyncErrorCode,error:error.message,diagnostic:error.diagnostic};return {ok:false,code:'invalid',error:error instanceof Error?error.message:'復元コピーを検証できません。'};}
 }
 
 /** New complete files use the existing shared database transaction. Old formats

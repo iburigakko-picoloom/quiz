@@ -7,6 +7,7 @@ import { registerServiceWorker } from './registerServiceWorker';
 import './index.css';
 import './ui-spec.css';
 import './final-reference.css';
+import './group-ui.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

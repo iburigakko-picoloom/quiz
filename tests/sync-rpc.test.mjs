@@ -460,7 +460,7 @@ test('PDF sync separates bytes, skips unchanged uploads, and restores portable l
   const reorderedFile = { updatedAt: file.updatedAt, dataUrl: file.dataUrl, ...file };
   assert.equal(sync.computePayloadHash({ ...payload, indexedDbNotes: { [key]: JSON.stringify(reorderedFile) } }), sync.computePayloadHash(payload));
   await assert.rejects(materials.hydrateMaterialDownload(wire, { ...transport, userId: '00000000-0000-4000-8000-000000000002' }), /所有者/);
-  await assert.rejects(materials.hydrateMaterialDownload(wire, { ...transport, download: async () => new Uint8Array([1, 2, 3]) }), /保存内容/);
+  await assert.rejects(materials.hydrateMaterialDownload(wire, { ...transport, download: async () => new Uint8Array([1, 2, 3]) }), error=>error.code==='pdf_integrity'&&error.diagnostic.cause==='size');
   await assert.rejects(materials.prepareMaterialUpload(payload, { ...transport, exists: async () => false, upload: async () => { throw new Error('offline'); } }), /offline/);
   assert.equal(payload.indexedDbNotes[key], original);
 });
@@ -481,8 +481,8 @@ test('verified PDF reuse avoids repeated transfers and isolates sessions and rev
   await materials.hydrateMaterialDownload(wire, { ...transport, cacheScope: 'project-a:session-b' });
   assert.equal(downloads, 2, 'new session cannot reuse previous session content');
   const corrupt = { ...wire, indexedDbNotes: { [key]: JSON.stringify({ ...JSON.parse(wire.indexedDbNotes[key]), sha256: '0'.repeat(64), path: `${transport.userId}/${'0'.repeat(64)}.pdf` }) } };
-  await assert.rejects(materials.hydrateMaterialDownload(corrupt, transport), /保存内容/);
-  await assert.rejects(materials.hydrateMaterialDownload(corrupt, transport), /保存内容/);
+  await assert.rejects(materials.hydrateMaterialDownload(corrupt, transport), error=>error.code==='pdf_integrity'&&error.diagnostic.cause==='sha256');
+  await assert.rejects(materials.hydrateMaterialDownload(corrupt, transport), error=>error.code==='pdf_integrity'&&error.diagnostic.cause==='sha256');
   assert.equal(downloads, 4, 'failed verification is never cached');
   assert.deepEqual(await materials.hydrateMaterialDownload(wire, { ...transport, cacheScope: 'fresh-launch' }, payload), payload);
   assert.equal(downloads, 4, 'verified durable PDFs survive application restarts without another transfer');

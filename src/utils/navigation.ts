@@ -11,7 +11,7 @@ export function getScreenKey(screen: AppScreen): string {
   if (screen.name === 'detailedAnswer') return `detailed-answer-${screen.questionId}-${Boolean(screen.editing)}`;
   if (screen.name === 'createProblemSet') return screen.copySetId ? `create-copy-${screen.copySetId}` : `create-${screen.editSetId ?? ''}-${screen.folderId ?? ''}${!screen.editSetId && screen.backScreen && screen.backScreen.name !== 'createProblemSet' ? '-direct' : ''}`;
   if (screen.name === 'folder') return `folder-${screen.folderId}`;
-  if (screen.name === 'community') return `community-${screen.tab ?? 'mine'}-${screen.groupPage ?? ''}-${screen.groupId ?? ''}-${screen.shareSetId ?? ''}`;
+  if (screen.name === 'community') return `community-${screen.tab ?? 'mine'}-${screen.groupPage ?? ''}-${screen.groupId ?? ''}-${screen.shareSetId ?? ''}${screen.publicFolderId||screen.publicSetId?`-public-${screen.publicFolderId??''}-${screen.publicSetId??''}`:''}`;
   if (screen.name === 'problemSetDetail') return `detail-${screen.setId}`;
   if (screen.name === 'problemList') return `problem-list-${screen.setId}`;
   if (screen.name === 'noteList') return `note-list-${screen.setId}`;

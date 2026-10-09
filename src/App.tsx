@@ -19,6 +19,8 @@ import { hasPendingImportSession } from './utils/importDraftSessions';
 import { PlansScreen } from './screens/PlansScreen';
 import { PlanEditorScreen } from './screens/PlanEditorScreen';
 import { questionRevision } from './utils/studyPlans';
+import {planPublicImport} from './utils/publicImport';
+import type {PublicSet} from './utils/publicLibrary';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
 import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
 import { deleteLocalQuestionImage, deleteLocalQuestionImages, MAX_QUESTION_DETAIL_IMAGES, pruneLocalQuestionImages, saveLocalQuestionImage, shouldPruneQuestionImages } from './utils/localQuestionImages';
@@ -93,6 +95,7 @@ import {
   type CloudPublishResult,
 } from './utils/cloudService';
 const CommunityScreen = lazy(() => import('./screens/CommunityScreen').then((module) => ({ default: module.CommunityScreen })));
+const PublicDiscoveryScreen=lazy(()=>import('./screens/PublicDiscoveryScreen').then(module=>({default:module.PublicDiscoveryScreen})));
 const CreateProblemSetScreen = lazy(() => import('./screens/CreateProblemSetScreen').then((module) => ({ default: module.CreateProblemSetScreen })));
 const QuizScreen = lazy(() => import('./screens/QuizScreen').then((module) => ({ default: module.QuizScreen })));
 const QuizRunner = lazy(() => import('./screens/QuizRunner').then((module) => ({ default: module.QuizRunner })));
@@ -1095,6 +1098,12 @@ export default function App() {
     return saved ? setId : null;
   };
 
+  const handleImportPublicLibrary=async(sets:PublicSet[],options:Parameters<typeof planPublicImport>[2])=>{
+    const plan=planPublicImport(dataRef.current,sets,options);
+    if(!await persistThenCommitData(plan.data))throw new Error('取り込みを端末に保存できませんでした。元のデータは保持しています。');
+    return plan;
+  };
+
   const handlePracticeSharedProblemSet = (sharedSet: CloudProblemSet): void => {
     const timestamp = nowIso();
     const questions: Question[] = (sharedSet.questions ?? []).map((question, index) => {
@@ -1653,7 +1662,15 @@ export default function App() {
     const communityBackScreen = getCommunityBackScreen(communityScreen);
     content = (
       <Suspense fallback={<div className="quiz-app-loading">共有機能を読み込み中...</div>}>
-        <CommunityScreen
+        {(communityScreen.tab==='discover'||communityScreen.tab==='mine')&&!communityScreen.groupId&&!communityScreen.groupPage&&!communityScreen.shareToken&&!communityScreen.shareSetId?<PublicDiscoveryScreen
+          data={data} mine={communityScreen.tab==='mine'} folderId={communityScreen.publicFolderId} setId={communityScreen.publicSetId}
+          onBack={communityBackScreen.name==='home'?goHome:()=>goBackTo(communityBackScreen)}
+          onMine={()=>navigate({name:'community',tab:'mine',backScreen:communityScreen})}
+          onFolder={id=>navigate({...communityScreen,publicFolderId:id,publicSetId:undefined,backScreen:communityScreen})}
+          onSet={id=>navigate({...communityScreen,publicSetId:id,publicFolderId:undefined,backScreen:communityScreen})}
+          onLogin={()=>navigatePrimary('settings')} onPublished={handlePublishedProblemSet} onImport={handleImportPublicLibrary}
+          onOpenLocalSet={id=>navigate({name:'problemSetDetail',setId:id,backScreen:communityScreen})}
+        />:<CommunityScreen
           groupPage={communityScreen.groupPage}
           onGroupPage={(groupPage) => navigate({ name: 'community', tab: 'groups', groupPage, backScreen: { name: 'community', tab: 'groups' } })}
           data={data}
@@ -1674,7 +1691,7 @@ export default function App() {
           onPracticeSharedSet={handlePracticeSharedProblemSet}
           onPublished={handlePublishedProblemSet}
           onUnpublished={handleUnpublishedProblemSet}
-        />
+        />}
       </Suspense>
     );
   } else if (screen.name === 'folder') {
@@ -2045,7 +2062,7 @@ function getPrimaryNavItem(screen: AppScreen): PrimaryNavItem | null {
   if (screen.name === 'createProblemSet') return 'create';
   if (screen.name === 'community' && !screen.groupPage && !screen.groupId && !screen.shareSetId && !screen.shareToken) {
     if (screen.tab === 'groups') return 'groups';
-    if (screen.tab === 'discover') return 'discover';
+    if (screen.tab === 'discover'||screen.tab === 'mine') return 'discover';
   }
 
   return null;

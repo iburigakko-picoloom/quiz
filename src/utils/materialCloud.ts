@@ -1,6 +1,7 @@
 import { MATERIAL_BUCKET, materialFileEntry, type MaterialFile, type RemoteMaterialFile } from './materialModel';
 import type { SyncPayload } from './syncService';
 import { recordSyncMetric } from './syncMetrics';
+import { SyncDataError, type SyncFailureDetails } from './syncDataIntegrity';
 
 // Key by exact immutable content, never ID/timestamp. Bound retained base64 text.
 const pdfDigests = new Map<string, Promise<{ sha256: string; size: number }>>();
@@ -101,7 +102,7 @@ function encodePdf(bytes: Uint8Array) {
   for (let i = 0; i < bytes.length; i += 0x8000) parts.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));
   return 'data:application/pdf;base64,' + btoa(parts.join(''));
 }
-async function mapFiles(payload: SyncPayload, transform: (file: MaterialFile | RemoteMaterialFile) => Promise<MaterialFile | RemoteMaterialFile>,progress?:(completed:number,total:number)=>void) {
+async function mapFiles(payload: SyncPayload, transform: (file: MaterialFile | RemoteMaterialFile,key:string) => Promise<MaterialFile | RemoteMaterialFile>,progress?:(completed:number,total:number)=>void) {
   let completed=0;const total=progress?fileEntries(payload).length:0;
   const report=()=>{try{progress?.(completed,total);}catch{/* Informational only. */}};report();
   const map = async (entries: Record<string, string>) => {
@@ -109,7 +110,7 @@ async function mapFiles(payload: SyncPayload, transform: (file: MaterialFile | R
     // Sequential processing bounds memory and avoids bursts of large uploads.
     for (const [key, raw] of Object.entries(entries)) {
       const file = materialFileEntry(key, raw);
-      if (file) { result[key] = JSON.stringify(await transform(file));completed++;report(); }
+      if (file) { result[key] = JSON.stringify(await transform(file,key));completed++;report(); }
     }
     return result;
   };
@@ -136,33 +137,42 @@ export async function prepareMaterialUpload(payload: SyncPayload, transport: Mat
 }
 
 /** No local writes until every PDF has downloaded and passed its hash check. */
-export async function hydrateMaterialDownload(payload: SyncPayload, transport: MaterialTransport, localPayload?: SyncPayload,progress?:(completed:number,total:number)=>void): Promise<SyncPayload> {
+export async function hydrateMaterialDownload(payload: SyncPayload, transport: MaterialTransport, localPayload?: SyncPayload,progress?:(completed:number,total:number)=>void,options:{assertCurrent?:()=>Promise<void>;localFile?:(key:string)=>Promise<MaterialFile|RemoteMaterialFile|null>;diagnostic?:(value:SyncFailureDetails)=>void}={}): Promise<SyncPayload> {
   selectCacheScope(transport.cacheScope);
   const localFiles = new Map(fileEntries(localPayload ?? { version: 1, updatedAt: '', localStorage: {} })
     .filter((file): file is MaterialFile => file.kind === 'quiz-material-file').map(file => [file.materialId, file]));
-  return mapFiles(payload, async file => {
-    if (file.kind === 'quiz-material-file') return file; // Old backups/cloud snapshots remain readable.
-    if (file.path.split('/')[0] !== transport.userId) throw new Error('資料の所有者が現在のアカウントと一致しません。');
+  const counts={total:fileEntries(payload).length,completed:0,downloaded:0,cacheReused:0,localReused:0};
+  const report=()=>{try{options.diagnostic?.({function:'hydrateMaterialDownload',stage:'pdf_download',...counts});}catch{}};
+  try{return await mapFiles(payload, async (file,keyName) => {
+    await options.assertCurrent?.();
+    if (file.kind === 'quiz-material-file'){counts.completed++;report();return file;} // Old backups/cloud snapshots remain readable.
+    if (file.path.split('/')[0] !== transport.userId) throw new SyncDataError('permission_denied','資料の所有者が現在のアカウントと一致しません。',{function:'hydrateMaterialDownload',stage:'pdf_download',cause:'reference'});
     const key = `${file.bucket}:${file.path}:${file.sha256}:${file.size}`;
     let dataUrl = transport.cacheScope && cacheScope === transport.cacheScope ? verifiedPdfs.get(key) : undefined;
-    const localFile = localFiles.get(file.materialId);
+    if(dataUrl)counts.cacheReused++;
+    const candidate=!dataUrl?(localFiles.get(file.materialId)??await options.localFile?.(keyName)):undefined;
+    const localFile=candidate?.kind==='quiz-material-file'?candidate:undefined;
     if (!dataUrl && localFile) {
       // Reuse durable local PDFs across app launches, but never trust the ID or
       // timestamp alone: verify the exact content against the cloud digest.
-      const described = await describePdf(localFile.dataUrl);
-      if (described.size === file.size && described.sha256 === file.sha256) dataUrl = localFile.dataUrl;
+      try{const described = await describePdf(localFile.dataUrl);
+      if (described.size === file.size && described.sha256 === file.sha256){dataUrl = localFile.dataUrl;counts.localReused++;}}catch{/* A bad local cache is not a verified cloud PDF. Keep it and fetch the source. */}
     }
     if (!dataUrl) {
       const bytes = await transport.download(file);
-      if (bytes.byteLength !== file.size || await digest(bytes) !== file.sha256) throw new Error('PDFの保存内容を確認できませんでした。端末データは変更していません。');
+      if (bytes.byteLength !== file.size)throw new SyncDataError('pdf_integrity','PDFの内容を検証できませんでした。',{function:'hydrateMaterialDownload',stage:'pdf_integrity',cause:'size'});
+      if(await digest(bytes)!==file.sha256)throw new SyncDataError('pdf_integrity','PDFの内容を検証できませんでした。',{function:'hydrateMaterialDownload',stage:'pdf_integrity',cause:'sha256'});
+      counts.downloaded++;
       dataUrl = encodePdf(bytes);
     }
     if (transport.cacheScope && cacheScope === transport.cacheScope) cachePdf(key, dataUrl);
+    await options.assertCurrent?.();counts.completed++;report();
     return { kind: 'quiz-material-file', version: 1, materialId: file.materialId, updatedAt: file.updatedAt, dataUrl };
-  },progress);
+  },progress);}catch(error){report();if(error instanceof SyncDataError){Object.assign(error.diagnostic,counts);throw error;}throw error;}
 }
 
-export function createMaterialTransport(config: { url: string; anonKey: string }, access: { userId: string; accessToken: string }): MaterialTransport {
+export function createMaterialTransport(config: { url: string; anonKey: string }, access: { userId: string; accessToken: string },options:{fetch?:typeof fetch;wait?:(ms:number)=>Promise<void>;downloadTimeoutMs?:number;assertCurrent?:()=>Promise<void>}={}): MaterialTransport {
+  const downloadFetch=options.fetch??fetch,wait=options.wait??(ms=>new Promise<void>(resolve=>setTimeout(resolve,ms)));
   const headers = { apikey: config.anonKey, Authorization: `Bearer ${access.accessToken}` };
   const storageUrl = config.url.replace(/\/$/, '') + '/storage/v1';
   const objectUrl = (file: RemoteMaterialFile) => `${storageUrl}/object/${MATERIAL_BUCKET}/${file.path}`;
@@ -191,20 +201,31 @@ export function createMaterialTransport(config: { url: string; anonKey: string }
       });
     },
     async download(file) {
-      const response = await fetch(objectUrl(file), { headers, signal: AbortSignal.timeout(120000) });
-      if (!response.ok) throw new Error('クラウドのPDFを取得できませんでした。端末データは変更していません。');
+      if(file.path.split('/')[0]!==access.userId)throw new SyncDataError('permission_denied','資料の所有者が現在のアカウントと一致しません。',{function:'materialDownload',stage:'pdf_download',cause:'reference'});
+      for(let attempt=0;;attempt++)try{
+      await options.assertCurrent?.();
+      const response = await downloadFetch(objectUrl(file), { headers, redirect:'error', signal: AbortSignal.timeout(options.downloadTimeoutMs??120000) });
+      if (!response.ok){const status=response.status;await response.body?.cancel();throw new SyncDataError(status===401?'authentication_required':status===403?'permission_denied':status===404?'pdf_missing':'pdf_download',status===404?'クラウドのPDF本体が見つかりません。':'PDFの取得に失敗しました。再試行してください。',{function:'materialDownload',stage:'pdf_download',cause:'http',httpStatus:status,attempts:attempt+1},status===408||status===429||status>=500);}
       // Enforce the advertised length while streaming, including chunked responses.
       const reader = response.body?.getReader();
-      if (!reader) throw new Error('PDFの受信を開始できませんでした。');
+      if (!reader) throw new SyncDataError('pdf_download','PDFの受信を開始できませんでした。',{function:'materialDownload',stage:'pdf_download',cause:'network'},true);
       const bytes = new Uint8Array(file.size); let offset = 0;
       try {
         while (true) {
           const { done, value } = await reader.read(); if (done) break;
-          if (offset + value.length > file.size) throw new Error('PDFのサイズが登録情報と一致しません。');
+          if (offset + value.length > file.size) throw new SyncDataError('pdf_integrity','PDFの内容を検証できませんでした。',{function:'materialDownload',stage:'pdf_integrity',cause:'size'});
           bytes.set(value, offset); offset += value.length;
         }
-      } finally { await reader.cancel(); }
+      } finally { await reader.cancel().catch(()=>{}); }
+      if(offset!==file.size)throw new SyncDataError('pdf_integrity','PDFの内容を検証できませんでした。',{function:'materialDownload',stage:'pdf_integrity',cause:'size'});
+      await options.assertCurrent?.();
       return bytes.subarray(0, offset);
+      }catch(reason){
+        if(reason instanceof Error&&reason.name==='SyncInterruptedError')throw reason;
+        if(reason&&typeof reason==='object'&&'code' in reason&&['authentication_required','permission_denied','local_persistence_failed','connection_changed','local_changed','mode_changed'].includes(String(reason.code))&&!(reason instanceof SyncDataError))throw reason;
+        const error=reason instanceof SyncDataError?reason:reason instanceof RangeError?new SyncDataError('memory_limit','同期データを処理するメモリが不足しています。',{function:'materialDownload',stage:'pdf_download',cause:'memory'}):new SyncDataError('pdf_download','PDFの取得に失敗しました。再試行してください。',{function:'materialDownload',stage:'pdf_download',cause:reason instanceof Error&&['AbortError','TimeoutError'].includes(reason.name)?'timeout':'network'},true);
+        error.diagnostic.attempts=attempt+1;if(!error.retryable||attempt>=2)throw error;await wait([500,1500][attempt]);
+      }
     },
   };
 }
