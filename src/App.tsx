@@ -407,7 +407,7 @@ export default function App() {
     return saved;
   };
 
-  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange): Promise<boolean> => {
+  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange, materialReferenceQuestionIds?: readonly string[]): Promise<boolean> => {
     if (libraryMutationBusyRef.current) {
       setStorageError('削除処理が完了するまでお待ちください。');
       return false;
@@ -418,7 +418,7 @@ export default function App() {
     // Reserve the next snapshot immediately. Any action taken while this durable
     // save is pending will now build on top of it instead of an older snapshot.
     dataRef.current = nextData;
-    const saveResult = await saveAppDataResult(nextData, { questionImages, answerChange });
+    const saveResult = await saveAppDataResult(nextData, { questionImages, answerChange, materialReferenceQuestionIds });
     const saved = saveResult.ok;
     if (!saved) {
       if (dataRevisionRef.current === revision) {
@@ -765,7 +765,7 @@ export default function App() {
         reviewLevel: null,
         isGraduated: false,
       }))],
-    });
+    }, [], undefined, questions.filter(question=>question.materialReferences?.length).map(question=>question.id));
     if (!saved) {
       return '問題セットを端末へ保存できませんでした。入力内容を残したまま、空き容量やブラウザの保存設定を確認してください。';
     }
@@ -810,6 +810,7 @@ export default function App() {
   const handleCreateProblemSet = async (submission: CreateProblemSetSubmission): Promise<string | null> => {
     const timestamp = nowIso();
     const current = dataRef.current;
+    if(submission.sourceSetId&&!current.problemSets.some(set=>set.id===submission.sourceSetId))return 'コピー元の教材が変更・削除されています。入力は保持しています。元の教材を確認してください。';
     let folderId = submission.folderId;
     let folders = current.folders;
     if (!folderId) {
@@ -900,7 +901,7 @@ export default function App() {
         reviewLevel: null,
         isGraduated: false,
       }))],
-    }, prepared.images);
+    }, prepared.images, undefined, questions.filter(question=>question.materialReferences?.length).map(question=>question.id));
     if (!saved) return '問題セットを端末へ保存できませんでした。入力内容はこの画面に保持しています。保存エラーの理由を確認してください。';
     if (screenRef.current.name === 'createProblemSet') {
       setCreateDraftDirty(false);
@@ -1001,7 +1002,7 @@ export default function App() {
         })),
       ],
       answerLogs: current.answerLogs.filter((log) => !removedQuestionIds.has(log.questionId)).map(log => !log.questionRevision && previousById.has(log.questionId) ? { ...log, questionRevision: questionRevision(previousById.get(log.questionId)!) } : log),
-    });
+    }, [], undefined, nextQuestions.filter(question=>question.materialReferences?.length).map(question=>question.id));
     if (!saved) return '変更を端末へ保存できませんでした。入力内容を残したまま、空き容量や保存設定を確認してください。';
     if (screenRef.current.name === 'createProblemSet' && screenRef.current.editSetId === setId) {
       setCreateDraftDirty(false);
@@ -1278,12 +1279,12 @@ export default function App() {
   };
 
   const handleLinkMaterialPage = async (questionId: string, reference: MaterialReference, linked: boolean): Promise<void> => {
-    const saved = await persistThenCommitData(linkQuestionMaterialPage(dataRef.current, questionId, reference, linked, nowIso()));
+    const saved = await persistThenCommitData(linkQuestionMaterialPage(dataRef.current, questionId, reference, linked, nowIso()), [], undefined, linked?[questionId]:[]);
     if (!saved) throw new Error('参照ページを保存できませんでした。もう一度お試しください。');
   };
   const handleLinkMaterialBatch = async (setId: string, links: ReferenceLink[]): Promise<void> => {
     if (!links.length) return;
-    const saved = await persistThenCommitData(applyReferenceLinks(dataRef.current, setId, links, nowIso()));
+    const saved = await persistThenCommitData(applyReferenceLinks(dataRef.current, setId, links, nowIso()), [], undefined, links.map(link=>link.questionId));
     if (!saved) throw new Error('参照ページを保存できませんでした。もう一度お試しください。');
   };
 

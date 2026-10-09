@@ -59,7 +59,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const progress = attempt?.progress;
   const percentage = complete ? 100 : Math.min(99,Math.max(0,attempt?.overallPercent??0));
   const activeFailure=attempt?.lastFailure&&(attempt.phase==='failed'||attempt.phase==='paused'&&attempt.pauseReason===attempt.lastFailure.code)?attempt.lastFailure:null;
-  const canChoose=Boolean(onChooseSource&&record?.conflicts&&activeFailure&&['invalid_response','invalid','media_pending','media_unsupported',...integrityCodes].includes(activeFailure.code));
+  const canChoose=Boolean(onChooseSource&&record?.conflicts&&activeFailure&&activeFailure.code!=='material_reference'&&['invalid_response','invalid','media_pending','media_unsupported',...integrityCodes].includes(activeFailure.code));
   if(choiceOpen&&!detailsOpen&&!diagnosticsOnly)return null;
   return <section className="sync-status-card" aria-live="polite">
     {!diagnosticsOnly && presentation.text === '同期済み' ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
@@ -81,6 +81,13 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
       <p>前回の失敗：{attempt.lastFailure.step} / {attempt.lastFailure.code} / {new Date(attempt.lastFailure.at).toLocaleString('ja-JP')}</p>
       <p role="alert">{safeSyncFailureMessage(attempt.lastFailure.message)}</p>
       {attempt.lastFailure.diagnostic?<p>処理：{attempt.lastFailure.diagnostic.function} / {attempt.lastFailure.diagnostic.stage} / {attempt.lastFailure.diagnostic.cause??'—'}{attempt.lastFailure.diagnostic.httpStatus?` / HTTP ${attempt.lastFailure.diagnostic.httpStatus}`:''}{attempt.lastFailure.diagnostic.total!==undefined?` / 確認 ${attempt.lastFailure.diagnostic.completed??0}/${attempt.lastFailure.diagnostic.total}`:''}{attempt.lastFailure.diagnostic.pdfTotal!==undefined?` / PDF ${attempt.lastFailure.diagnostic.pdfCompleted??0}/${attempt.lastFailure.diagnostic.pdfTotal}`:''}{attempt.lastFailure.diagnostic.downloaded!==undefined?` / 取得 ${attempt.lastFailure.diagnostic.downloaded}・キャッシュ ${attempt.lastFailure.diagnostic.cacheReused??0}・端末再利用 ${attempt.lastFailure.diagnostic.localReused??0}`:''}</p>:null}
+      {attempt.lastFailure.diagnostic?.referenceIssues?.length ? <div style={{overflowWrap:'anywhere'}}>
+        <p>資料参照の不整合：{attempt.lastFailure.diagnostic.issueCount??attempt.lastFailure.diagnostic.referenceIssues.length}件（先頭10件まで）</p>
+        <ul>{attempt.lastFailure.diagnostic.referenceIssues.slice(0,10).map((issue,index)=><li key={index}>
+          {({invalid_index:'資料一覧の形式',index_identity:'保存キーの不一致',missing_owner:'所属教材の欠落',missing_material:'資料の欠落',missing_page:'ページの欠落',ambiguous_material:'資料IDの重複'} as const)[issue.reason]}
+          {Object.entries(issue).filter(([key,value])=>key!=='reason'&&typeof value==='string'&&/^[A-Za-z0-9_-]{1,200}$/.test(value)).map(([key,value])=><span key={key}> / {key}: {String(value)}</span>)}
+        </li>)}</ul>
+      </div>:null}
     </> : null}
   </section>;
 }

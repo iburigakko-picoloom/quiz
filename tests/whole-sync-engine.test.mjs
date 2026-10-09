@@ -147,7 +147,7 @@ test('a lost small commit response replays the exact frozen bytes and preserves 
   assert.equal((await transport.whole('status')).revision,revision+1);
 });
 
-test('an invalid cloud material reference retains both originals across failure, retry and explicit source reselection',async()=>{
+test('an invalid cloud material reference retains both originals, avoids whole-data selection, and resumes after proven reference repair',async()=>{
   const fixture=await incomingFixture({badRef:true}),{buildWholeIncomingFile}=await import('../src/utils/wholeSyncIncoming.ts');
   const {archiveSyncOriginals}=await import('../src/utils/syncOriginalBackup.ts'),{getSavedBackup}=await import('../src/utils/backupRepository.ts');
   await edit('Healthy device');await runAtomic();
@@ -159,11 +159,17 @@ test('an invalid cloud material reference retains both originals across failure,
   for(let i=0;i<2;i++){
     await assert.rejects(receive(),e=>e.code==='material_reference');assert.deepEqual(await names(),['Healthy device']);assert.equal(JSON.stringify(await readCloudRows()),cloudBefore);assert.equal(JSON.stringify(await records.readAppOutbox(db)),outboxBefore);assert.equal(Boolean(await readWholeMeta(db,'wholeFrozen',connection)),false);
   }
-  let choice=await readWholeMeta(db,'wholeConflict',connection);assert.equal(choice.choice,undefined);assert.equal(choice.revision,remoteRevision);
-  await chooseWholeConflict(db,connection,choice,'remote',{preferSelected:true});await assert.rejects(receive(),e=>e.code==='material_reference');assert.equal((await readWholeMeta(db,'wholeConflict',connection)).choice,'remote');assert.deepEqual(await names(),['Healthy device']);
-  choice=await readWholeMeta(db,'wholeConflict',connection);await chooseWholeConflict(db,connection,choice,'local',{preferSelected:true});
-  assert.equal((await receive()).status,'more');assert.equal((await receive()).status,'done');assert.deepEqual(await names(),['Healthy device']);
+  assert.equal(await readWholeMeta(db,'wholeConflict',connection),undefined);
+  assert.equal((await transport.whole('status')).revision,remoteRevision);
+  await exact.archiveOriginals('remote',await readCloudRows());
   const backupRows=(await import('../src/utils/backupRepository.ts')).listSavedBackups;let preserved=false;
   for(const header of await backupRows()){const copy=await getSavedBackup(header.id);if(copy?.format==='originals'&&copy.raw.includes('nonexistent-private-id'))preserved=true;}
-  assert.equal(preserved,true,'invalid references remain byte-for-byte in the nonchosen original backup');
+  assert.equal(preserved,true,'invalid references remain byte-for-byte in the recovery original');
+  // This fixture's known original is supplied additively, without selecting or
+  // dropping either full dataset. The following receive uses the normal path.
+  const recoveredRows=structuredClone(fixture.rows),indexRow=recoveredRows.find(row=>row.id.endsWith(':__materials_v1'));
+  const index=JSON.parse(indexRow.raw);index.materials.push({id:'nonexistent-private-id',title:'Recovered fixture original',pages:[{id:'missing-page',kind:'blank'}]});indexRow.raw=JSON.stringify(index);
+  await remoteReplace('Repaired cloud',recoveredRows.filter(row=>row.collection!=='folders'));
+  assert.equal((await receive()).status,'done');assert.deepEqual(await names(),['Repaired cloud']);
+  assert.deepEqual((await storage.loadAppDataAsync()).questions[0].materialReferences,[{materialId:'nonexistent-private-id',pageId:'missing-page'}]);
 });

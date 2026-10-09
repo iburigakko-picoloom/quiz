@@ -118,7 +118,7 @@ export function saveAppData(data: AppData): Promise<boolean> {
 }
 
 /** A per-call result keeps concurrent saves' failure reasons separate. */
-export async function saveAppDataResult(data: AppData, options: { questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
+export async function saveAppDataResult(data: AppData, options: { questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[] } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
   let failure: AppSaveFailure | undefined;
   const saved = await saveAppDataAsync(data, { ...options, onFailure: value => { failure = value; } });
   return saved ? { ok: true } : { ok: false, failure: failure ?? appSaveFailure([{ stage: 'indexeddb', error: new Error() }]) };
@@ -137,14 +137,14 @@ export function establishCurrentAppDataAuthority(): boolean {
 
 export async function saveAppDataAsync(
   data: AppData,
-  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange } = {},
+  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[] } = {},
 ): Promise<boolean> {
-  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange);
+  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds);
   const queuedSave = appSaveQueue
     .catch(() => true)
     .then(async () => {
       try {
-        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange));
+        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds));
       } catch (error) {
         console.error('Refused to overwrite app data changed in another tab.', error);
         try { options.onFailure?.(appSaveFailure([{ stage: 'coordination', error }])); } catch { /* Informational only. */ }
@@ -163,9 +163,23 @@ export async function waitForPendingAppDataSaves(): Promise<boolean> {
   }
 }
 
-async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailure) => void, imageCopies: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange): Promise<boolean> {
+async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailure) => void, imageCopies: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange, materialReferenceQuestionIds: readonly string[] = []): Promise<boolean> {
   const savedAt = new Date().toISOString();
   const attempts: Array<{ stage: 'indexeddb' | 'fallback'; error: unknown }> = [];
+  if(materialReferenceQuestionIds.length){
+    try{
+      // Runs inside the same origin lock as deletion, immediately before the
+      // AppData/Blob commit. A draft copied before source deletion stays a draft.
+      const {exportCategoryNotesRaw}=await import('./utils/noteStorage');
+      const {assertMaterialIntegrity}=await import('./utils/syncDataIntegrity');
+      const ids=new Set(materialReferenceQuestionIds);
+      const notes=await exportCategoryNotesRaw({coordinationLockHeld:true});
+      assertMaterialIntegrity({localStorage:{},indexedDbNotes:notes},{...data,questions:data.questions.filter(question=>ids.has(question.id))},false);
+    }catch{
+      try{onFailure?.(appSaveFailure([{stage:'validation',error:new Error()}],'参照先の資料が変更・削除されています。元の教材の資料を確認してから保存してください。'));}catch{/* Informational only. */}
+      return false;
+    }
+  }
   if (answerChange && !imageCopies.length && isIndexedDbAvailable() && !getLocalFallbackRecord().raw) {
     try {
       if (await saveAnswerRecordChanges(await openAppDb(), data, savedAt, answerChange)) {

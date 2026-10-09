@@ -185,7 +185,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   let preservedOriginals:PreservedSyncOriginals|undefined;
   const offerChoice=async(error:unknown)=>{
     const code=error&&typeof error==='object'&&'code' in error?String(error.code):'';
-    if(!selected&&incoming&&guards.archiveOriginals&&(code==='invalid_response'||integrityCodes.includes(code))){
+    if(!selected&&incoming&&guards.archiveOriginals&&code!=='material_reference'&&(code==='invalid_response'||integrityCodes.includes(code))){
       await guards.assertCurrent();
       await putWholeMeta(db,'wholeConflict',{version:1,connection,revision:remote.revision,generation:source.generation,localDigest,remoteDigest,device:remote.device,savedAt:remote.savedAt,localSavedAt:source.snapshot.state.savedAt,localDevice:guards.device,local:summarizeWholeRows(localRows),remote:summarizeWholeRows(incoming)});
     }
