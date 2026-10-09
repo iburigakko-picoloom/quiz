@@ -23,8 +23,8 @@ try {
     await page.getByRole('button',{name:'今週',exact:true}).click();assert.equal(await page.locator('.group-member-card').first().locator('strong').innerText(),'あなた');
     await page.screenshot({path:`tmp/group-ui-${width}-members.png`});
     await page.getByRole('tab',{name:/フォルダ/}).click();await checkOverflow();await page.screenshot({path:`tmp/group-ui-${width}-folders.png`});
-    await page.locator('.group-folder-card__open').first().click();assert.equal(await page.locator('.group-set-row').count(),3);assert.equal(await page.evaluate(()=>document.activeElement===document.querySelector('#group-panel-folders h2')),true,'Folder destination receives focus');assert.equal(await page.locator('#group-panel-folders .library-pane').evaluate(el=>getComputedStyle(el).animationName),'quizScreenForwardIn');await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('#group-panel-folders .library-pane').evaluate(el=>getComputedStyle(el).animationName),'none');await page.emulateMedia({reducedMotion:'no-preference'});
-    await page.locator('.group-set-row').first().click();await page.getByRole('button',{name:'取り込む',exact:true}).waitFor();await checkOverflow();
+    await page.locator('.group-folder-card__open').first().click();assert.equal(await page.locator('.group-set-list .library-content-row__open').count(),3);assert.equal(await page.evaluate(()=>document.activeElement===document.querySelector('#group-panel-folders h2')),true,'Folder destination receives focus');assert.equal(await page.locator('#group-panel-folders .library-pane').evaluate(el=>getComputedStyle(el).animationName),'quizScreenForwardIn');await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('#group-panel-folders .library-pane').evaluate(el=>getComputedStyle(el).animationName),'none');await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.locator('.group-set-list .library-content-row__open').first().click();await page.getByRole('button',{name:'取り込む',exact:true}).waitFor();await checkOverflow();
     assert.equal(await page.locator('.group-preview-card').count(),3);assert.equal(await page.locator('.group-progress-member').count(),5);
     await page.screenshot({path:`tmp/group-ui-${width}-set.png`});
     await page.mouse.move(width/2,400);await page.mouse.wheel(0,1200);
@@ -35,7 +35,7 @@ try {
     await page.locator('.group-preview-card button').first().click();assert.equal(await page.locator('.group-preview-card__expanded li').count(),4);
     await page.getByRole('button',{name:/すべて見る（45問）/}).click();assert.equal(await page.locator('.group-preview-card').count(),45);
     await page.getByRole('button',{name:'3問だけ見る',exact:true}).click();
-    await page.getByRole('button',{name:'戻る',exact:true}).click();assert.equal(await page.locator('.group-set-row').count(),3);
+    await page.getByRole('button',{name:'戻る',exact:true}).click();assert.equal(await page.locator('.group-set-list .library-content-row__open').count(),3);
     await page.getByRole('button',{name:'戻る',exact:true}).click();assert.equal(await page.locator('.group-folder-card').count(),3);
     assert.deepEqual(errors,[],`Browser errors at ${width}px`);await page.close();console.log(`${width}px: tabs, sorting, preview, folder navigation and overflow passed`);
   }
