@@ -20,8 +20,19 @@ try{
  await mkdir('tmp/latest-mockup-screenshots',{recursive:true});
  await page.goto('http://127.0.0.1:5178/quiz/tests/browser/latest-mockup-preview.html');await page.getByRole('heading',{name:'脳神経',exact:true}).waitFor();
  assert.equal(await page.locator('.quiz-detail__filters summary').count(),0);
- assert.deepEqual(await page.locator('.level-progress__legend small').allTextContents(),['112問','75問','80問','0問']);
- for(const width of [320,390]){await page.setViewportSize({width,height:866});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:`tmp/latest-mockup-screenshots/detail-${width}.png`});}
+ assert.equal(await page.locator('.quiz-detail__summary svg,.level-progress__legend small').count(),0);await page.getByRole('heading',{name:'進捗',exact:true}).waitFor();
+ assert.deepEqual(await page.locator('.quiz-detail__metric strong').allTextContents(),['110','0%']);
+ assert.equal(await page.locator('.quiz-detail__completion-row').evaluate(el=>Boolean(document.querySelector('.quiz-detail__body').compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING)),true);
+ for(const width of [320,390]){
+   await page.setViewportSize({width,height:866});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+   for(const chips of await page.locator('.quiz-detail__segments').all()){
+     await chips.evaluate(el=>{el.scrollLeft=0});assert.equal(await chips.evaluate(el=>el.firstElementChild.getBoundingClientRect().left>=el.getBoundingClientRect().left),true);
+   }
+   assert.equal(await page.locator('.quiz-detail__segment-item').first().evaluate(el=>el.getBoundingClientRect().height),36);
+   assert.equal(await page.locator('.quiz-detail__entry-grid').evaluate(el=>el.getBoundingClientRect().top-document.querySelector('.quiz-detail__start-action--review').getBoundingClientRect().bottom>=24),true);
+   assert.equal(await page.locator('.quiz-detail__summary').evaluate(el=>getComputedStyle(el).borderRadius),'0px');
+   await page.screenshot({path:`tmp/latest-mockup-screenshots/detail-${width}.png`});
+ }
  await page.getByRole('button',{name:'Level 1',exact:true}).click();await page.getByRole('button',{name:'登録順で解く',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-session')).count,75);
  for(const [name,action] of [['資料','materials'],['問題一覧','questions'],['学習計画','plan'],['追加解説・メモ','notes']]){await page.getByRole('button',{name,exact:false}).click();assert.equal(await page.locator('body').getAttribute('data-action'),action);}
  await page.getByRole('button',{name:'学習済みにする',exact:true}).click();await page.getByRole('button',{name:'学習済みを解除',exact:true}).waitFor();

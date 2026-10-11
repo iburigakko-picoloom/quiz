@@ -18,7 +18,7 @@ import './ProblemSetDetailScreen.css';
 import {LevelProgress} from '../components/GroupLearningUi';
 import {learningLevel,levelPercentages,type LevelCounts} from '../utils/groupLearning';
 
-import {DocumentOutlineIcon,HistoryIcon,StudyIcon,BookIcon,CalendarIcon,NoteIcon} from '../components/UiIcons';
+import {DocumentOutlineIcon,HistoryIcon,BookIcon,CalendarIcon,NoteIcon} from '../components/UiIcons';
 
 type CategoryFilter = 'all' | string;
 
@@ -144,26 +144,15 @@ export function ProblemSetDetailScreen({
           <div className="quiz-detail__main-column">
             <section className="quiz-detail__summary" aria-label="学習状況">
               <div className="quiz-detail__metric">
-                <DocumentOutlineIcon size={22}/><span>{'\u554f\u984c\u6570'}</span>
-                <strong>{questions.length}</strong>
-              </div>
-              <div className="quiz-detail__metric">
-                <HistoryIcon size={22}/><span>{'\u5fa9\u7fd2'}</span>
+                <span>{'\u5fa9\u7fd2'}</span>
                 <strong>{allReviewQuestions.length}</strong>
               </div>
               <div className="quiz-detail__metric">
-                <StudyIcon size={22}/><span>Level 3到達率</span>
+                <span>Level 3到達率</span>
                 <strong>{levelThreeRate}%</strong>
               </div>
-              <div className="quiz-detail__level-summary"><h2>Level別の問題数の割合</h2><LevelProgress levels={levels} mockup /></div>
+              <div className="quiz-detail__level-summary"><h2>進捗</h2><LevelProgress levels={levels} mockup showCounts={false} /></div>
             </section>
-            <div className="quiz-detail__completion-row" aria-label="問題セットの学習状態">
-              <span>{problemSet.isStudyCompleted ? '学習済み・復習対象外' : '学習中'}</span>
-              <button type="button" onClick={() => void toggleCompletion()} disabled={completionBusy} aria-pressed={problemSet.isStudyCompleted === true}>
-                {completionBusy ? '保存中…' : problemSet.isStudyCompleted ? '学習済みを解除' : '学習済みにする'}
-              </button>
-            </div>
-            {completionError ? <p className="quiz-detail__completion-error" role="alert">{completionError}</p> : null}
             <section className="quiz-detail__start-panel" aria-labelledby="quiz-detail-start-title">
               <h2 id="quiz-detail-start-title" className="sr-only">出題条件と学習開始</h2>
 
@@ -240,9 +229,6 @@ export function ProblemSetDetailScreen({
                 </button>
               </div>
             </section>
-
-
-
             <section className="quiz-detail__body">
               <div className="quiz-detail__entry-grid">
                 <button type="button" className="quiz-detail__list-entry" disabled={!onOpenMaterials} onClick={onOpenMaterials}><BookIcon size={26}/><strong>資料</strong><b aria-hidden="true">›</b></button>
@@ -251,9 +237,13 @@ export function ProblemSetDetailScreen({
                 <button type="button" className="quiz-detail__list-entry" onClick={onOpenNoteList}><NoteIcon size={26}/><strong>追加解説・メモ</strong><b aria-hidden="true">›</b></button>
               </div>
             </section>
-
-
-
+            <div className="quiz-detail__completion-row" aria-label="問題セットの学習状態">
+              <span>{problemSet.isStudyCompleted ? '学習済み・復習対象外' : '学習中'}</span>
+              <button type="button" onClick={() => void toggleCompletion()} disabled={completionBusy} aria-pressed={problemSet.isStudyCompleted === true}>
+                {completionBusy ? '保存中…' : problemSet.isStudyCompleted ? '学習済みを解除' : '学習済みにする'}
+              </button>
+            </div>
+            {completionError ? <p className="quiz-detail__completion-error" role="alert">{completionError}</p> : null}
           </div>
         </div>
       </div>

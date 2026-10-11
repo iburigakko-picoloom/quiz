@@ -13,7 +13,7 @@ export function MemberAvatar({ name, userId }: { name: string; userId: string })
   return <span className={`member-avatar member-avatar--${hue}`} role="img" aria-label={`${name}のアバター`}><ProfileIcon size={28} /></span>;
 }
 
-export function LevelProgress({ levels, compact = false, label = '進捗', mockup=false }: { levels: LevelCounts; compact?: boolean; label?: string; mockup?:boolean }) {
+export function LevelProgress({ levels, compact = false, label = '進捗', mockup=false, showCounts=true }: { levels: LevelCounts; compact?: boolean; label?: string; mockup?:boolean; showCounts?:boolean }) {
   const percentages = levelPercentages(levels);
   const total = levels.reduce((sum, n) => sum + n, 0);
   return <div className={`level-progress${compact ? ' level-progress--compact' : ''}${mockup?' level-progress--mockup':''}`}>
@@ -22,7 +22,7 @@ export function LevelProgress({ levels, compact = false, label = '進捗', mocku
     </div>
     <div className="level-progress__legend">{levels.map((count, i) => <div key={i}>
       <span className="level-progress__label"><i className={`level-color-${i}`} />{compact ? `L${i}` : `Level${i}`}</span>
-      {mockup?null:<strong>{percentages[i]}%</strong>}<small>{mockup?`${count.toLocaleString('ja-JP')}問`:`（${count.toLocaleString('ja-JP')}問）`}</small>
+      {mockup?null:<strong>{percentages[i]}%</strong>}{showCounts?<small>{mockup?`${count.toLocaleString('ja-JP')}問`:`（${count.toLocaleString('ja-JP')}問）`}</small>:null}
     </div>)}</div>
   </div>;
 }
