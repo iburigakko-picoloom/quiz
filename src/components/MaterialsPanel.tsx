@@ -41,6 +41,9 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const menu = useRef<HTMLDetailsElement>(null);
   useEffect(() => () => { previews.current.clear(); stopAnimation.current?.(); }, []);
   const material = index?.materials.find(item => item.id === materialId);
+  // Following an existing cross-set reference opens that material only; the
+  // other set's complete library is not this problem set's PDF picker.
+  const visibleMaterials = index?.materials.filter(item => ownerId === setId || item.id === reference?.materialId) ?? [];
   const page = material?.pages.find(item => item.id === pageId);
   const pageIndex = material?.pages.findIndex(item => item.id === pageId) ?? -1;
   const pagePending = !!page && displayed?.page.id !== page.id;
@@ -142,6 +145,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     let cancelled = false;
     const delta = reference && material?.id === reference.materialId ? material.pages.findIndex(item => item.id === reference.pageId) - pageIndex : 1;
     if (!reference || reference.materialId !== displayed?.materialId || reference.pageId !== displayed?.page.id) captureTransition(delta < 0 ? -1 : 1, Math.abs(delta));
+    else clearTransition(); // Returning to the already-painted page cancels a pending departure.
     setIndex(null); setError('');
     void (async () => {
       let found = await loadMaterials(setId);
@@ -210,6 +214,17 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     if (!material || pageIndex + delta < 0 || pageIndex + delta >= material.pages.length) return;
     await update(moveMaterialPage(material, pageId, pageIndex + delta));
   });
+  const appendLocalMaterial = async (create: (local: MaterialIndex) => Promise<StudyMaterial>) => {
+    const local = ownerId === setId && index ? index : await loadMaterials(setId);
+    const added = await create(local);
+    const next = { ...local, materials: [...local.materials, added] };
+    await saveMaterials(next);
+    captureTransition(); setIndex(next); setOwnerId(setId); setMaterialId(added.id); setPageId(added.pages[0].id);
+  };
+  const openLocalMaterials = () => run(async () => {
+    const local = await loadMaterials(setId), selected = local.materials[0];
+    captureTransition(); setIndex(local); setOwnerId(setId); setMaterialId(selected?.id ?? ''); setPageId(selected?.pages[0]?.id ?? '');
+  });
   const addPdf = (file: File) => run(async () => {
     if (!index) throw new Error('資料一覧を読み込んでから登録してください。');
     if (file.size > MAX_MATERIAL_PDF_BYTES) throw new Error('PDFは1ファイル50MB以下にしてください。');
@@ -219,34 +234,29 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     try {
       const doc = await task.promise;
       if (doc.numPages > 500) throw new Error('PDFは500ページ以下にしてください。');
-      const added = await storeMaterialPdf(ownerId, file, doc.numPages);
-      const next = { ...index, materials: [...index.materials, added] }; await saveMaterials(next);
-      captureTransition(); setIndex(next); setMaterialId(added.id); setPageId(added.pages[0].id);
+      await appendLocalMaterial(() => storeMaterialPdf(setId, file, doc.numPages));
     } finally { await task.destroy(); }
   });
   const addPhotos = (files: File[]) => run(async () => {
     if (!index) throw new Error('資料一覧を読み込んでから追加してください。');
     const { photosToMaterialFile } = await import('../utils/photoMaterial');
     const file = await photosToMaterialFile(files);
-    const stored = await storeMaterialPdf(ownerId, file, files.length);
-    const added = { ...stored, title: files.length === 1 ? files[0].name || '写真' : `写真 ${files.length}枚` };
-    const next = { ...index, materials: [...index.materials, added] };
-    await saveMaterials(next);
-    captureTransition(); setIndex(next); setMaterialId(added.id); setPageId(added.pages[0].id);
+    await appendLocalMaterial(async () => ({ ...await storeMaterialPdf(setId, file, files.length), title: files.length === 1 ? files[0].name || '写真' : `写真 ${files.length}枚` }));
   });
   return <section className="materials-panel" aria-label="資料" aria-busy={busy}>
     <div className="materials-controls">
-      {index && index.materials.length > 0 && (index.materials.length > 1 || !material) ? <select className="materials-picker" aria-label="資料を切り替え" disabled={busy || pagePending || transitioning} value={materialId} onChange={event => { const value = event.target.value; run(async () => { captureTransition(); setMaterialId(value); setPageId(index.materials.find(item => item.id === value)?.pages[0]?.id ?? ''); }); }}>
-        {!material ? <option value="" disabled hidden>資料を選ぶ</option> : null}{index.materials.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+      {index && visibleMaterials.length > 0 && (visibleMaterials.length > 1 || !material) ? <select className="materials-picker" aria-label="資料を切り替え" disabled={busy || pagePending || transitioning} value={materialId} onChange={event => { const value = event.target.value; run(async () => { captureTransition(); setMaterialId(value); setPageId(visibleMaterials.find(item => item.id === value)?.pages[0]?.id ?? ''); }); }}>
+        {!material ? <option value="" disabled hidden>資料を選ぶ</option> : null}{visibleMaterials.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
       </select> : <span className="materials-title" title={material?.title}>{material?.title ?? (index ? '資料' : '読み込み中…')}</span>}
       {material ? <div className="materials-pagination"><button aria-label="前のページ" disabled={busy || pagePending || pageIndex <= 0} onClick={() => goToPage(material.pages[pageIndex - 1].id)}>‹</button><select aria-label="ページ" value={pageId} disabled={busy || pagePending} onChange={event => goToPage(event.target.value)}>{material.pages.map((item, n) => <option key={item.id} value={item.id}>p{n + 1}</option>)}</select><button aria-label="次のページ" disabled={busy || pagePending || pageIndex >= material.pages.length - 1} onClick={() => goToPage(material.pages[pageIndex + 1].id)}>›</button></div> : null}
       <ActionMenu ref={menu} className="materials-menu"><summary aria-label="資料の操作" title="資料の操作">•••</summary><div>
+        {ownerId !== setId ? <><button disabled={busy || pagePending || transitioning} onClick={() => void openLocalMaterials()}>この問題セットの資料に戻る</button><hr/></> : null}
         {onAdjustReferences ? <><button disabled={busy || pagePending || transitioning} onClick={() => run(async () => onAdjustReferences(material?.id))}>参照ページを調整</button><hr/></> : null}
         {onOpenReference && (questionReferences?.length ?? 0) > 1 ? <>{questionReferences?.map((item, i) => <button key={`${item.materialId}/${item.pageId}`} disabled={busy} onClick={() => { if (menu.current) menu.current.open = false; onOpenReference(item); }}>参照資料 {i + 1}へ移動</button>)}<hr/></> : null}
         {onLinkPage && material && page ? <><button disabled={busy || pagePending} onClick={() => run(async () => onLinkPage({ materialId, pageId }, !linked))}>{linked ? 'このページの紐付けを解除' : 'このページを問題に紐付け'}</button><hr/></> : null}
         <button type="button" disabled={!index || busy} onClick={() => { if (menu.current) menu.current.open = false; fileInput.current?.click(); }}>PDFを追加</button>
         <button type="button" disabled={!index || busy} onClick={() => { if (menu.current) menu.current.open = false; photoInput.current?.click(); }}>写真を追加</button>
-        <button type="button" disabled={!index || busy} onClick={() => run(async () => { if (!index) return; const added: StudyMaterial = { id: createId('material'), title: `白紙の資料 ${index.materials.length + 1}`, pages: [{ id: createId('page'), kind: 'blank' }] }; const next = { ...index, materials: [...index.materials, added] }; await saveMaterials(next); setIndex(next); setMaterialId(added.id); setPageId(added.pages[0].id); })}>白紙の資料を追加</button>
+        <button type="button" disabled={!index || busy} onClick={() => run(async () => { await appendLocalMaterial(async local => ({ id: createId('material'), title: `白紙の資料 ${local.materials.length + 1}`, pages: [{ id: createId('page'), kind: 'blank' }] })); })}>白紙の資料を追加</button>
         {material ? <><hr/><button disabled={busy} onClick={() => addBlank(false)}>前に白紙ページ</button><button disabled={busy} onClick={() => addBlank(true)}>後ろに白紙ページ</button><hr/><button disabled={busy || pageIndex <= 0} onClick={() => move(-1)}>このページを前へ移動</button><button disabled={busy || pageIndex >= material.pages.length - 1} onClick={() => move(1)}>このページを後ろへ移動</button></> : null}
       </div></ActionMenu>
       {onClose ? <button className="materials-close" type="button" aria-label="資料を閉じる" title="資料を閉じる" disabled={busy} onClick={() => run(async () => onClose())}>×</button> : null}

@@ -4,7 +4,7 @@ import { loadMaterials } from '../utils/materialStorage';
 import type { StudyMaterial } from '../utils/materialModel';
 import { referenceCandidates, type ReferenceLink } from '../utils/referenceLinking';
 
-export function ReferenceLinkDialog({ setIds, questions, initialMaterialId, onSave, onClose }: { setIds: string[]; questions: Question[]; initialMaterialId?: string; onSave: (links: ReferenceLink[]) => Promise<void>; onClose: () => void }) {
+export function ReferenceLinkDialog({ setId, questions, initialMaterialId, onSave, onClose }: { setId: string; questions: Question[]; initialMaterialId?: string; onSave: (links: ReferenceLink[]) => Promise<void>; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [materials, setMaterials] = useState<StudyMaterial[]>([]), [selected, setSelected] = useState('');
   const [offset, setOffset] = useState(0), [checked, setChecked] = useState<Set<string>>(new Set());
@@ -13,7 +13,7 @@ export function ReferenceLinkDialog({ setIds, questions, initialMaterialId, onSa
   const rows = useMemo(() => material ? referenceCandidates(questions, material, offset) : [], [questions, material, offset]);
   const questionNumbers = useMemo(() => new Map(questions.map((question, index) => [question.id, index + 1])), [questions]);
   useEffect(() => { const previous = document.activeElement as HTMLElement; dialog.current?.showModal(); return () => previous?.focus?.(); }, []);
-  useEffect(() => { let cancelled = false; void Promise.all(setIds.map(loadMaterials)).then(indexes => { if (!cancelled) setMaterials([...new Map(indexes.flatMap(i => i.materials).filter(m => m.pages.some(p => p.kind === 'pdf')).map(m => [m.id, m])).values()]); }).catch(() => { if (!cancelled) setError('資料を読み込めませんでした。開き直してください。'); }).finally(() => { if (!cancelled) setLoading(false); }); return () => { cancelled = true; }; }, [setIds.join('|')]);
+  useEffect(() => { let cancelled = false; setLoading(true); setMaterials([]); setSelected(''); void loadMaterials(setId).then(index => { if (!cancelled) setMaterials(index.materials.filter(m => m.pages.some(p => p.kind === 'pdf'))); }).catch(() => { if (!cancelled) setError('資料を読み込めませんでした。開き直してください。'); }).finally(() => { if (!cancelled) setLoading(false); }); return () => { cancelled = true; }; }, [setId]);
   useEffect(() => {
     if (loading || materials.some(m => m.id === selected)) return;
     const named = materials.filter(m => questions.some(q => q.sourcePage?.normalize('NFKC').includes(m.title.normalize('NFKC'))));
@@ -27,7 +27,7 @@ export function ReferenceLinkDialog({ setIds, questions, initialMaterialId, onSa
   return <dialog ref={dialog} className="reference-link-dialog" aria-labelledby="reference-link-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <header><h2 id="reference-link-title">参照ページの設定</h2><button autoFocus disabled={busy} onClick={onClose} aria-label="閉じる">×</button></header>
     <div className="reference-link-body">
-      {loading ? <p role="status">読み込み中…</p> : materials.length === 1 ? <div className="reference-link-material"><small>資料</small><strong>{materials[0].title}</strong></div> : materials.length > 1 ? <label>資料<select disabled={busy} value={selected} onChange={e => setSelected(e.target.value)}>{!material ? <option value="" disabled hidden>資料を選ぶ</option> : null}{materials.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></label> : !error ? <p>PDFを追加してから設定できます。</p> : null}
+      {loading ? <p role="status">読み込み中…</p> : materials.length === 1 ? <div className="reference-link-material"><small>この問題セットのPDF</small><strong>{materials[0].title}</strong></div> : materials.length > 1 ? <label>この問題セットのPDF<select disabled={busy} value={selected} onChange={e => setSelected(e.target.value)}>{!material ? <option value="" disabled hidden>PDFを選ぶ</option> : null}{materials.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}</select></label> : !error ? <p>この問題セットにPDFを追加してから設定できます。</p> : null}
       {material && <>
       {rows.length > 0 ? <div className="reference-link-selection"><strong>登録する問題</strong>{availableRows.length > 0 ? <button disabled={busy} onClick={() => setChecked(selectedRows.length === availableRows.length ? new Set() : new Set(availableRows.map(r => r.question.id)))}>{selectedRows.length === availableRows.length ? '選択を解除' : 'すべて選択'}</button> : null}</div> : null}
       {rows.map((row) => <label className="reference-link-row" key={row.question.id}><input type="checkbox" disabled={busy || !row.page} checked={checked.has(row.question.id)} onChange={e => setChecked(old => { const next = new Set(old); if (e.target.checked) next.add(row.question.id); else next.delete(row.question.id); return next; })}/><span><strong>{questionNumbers.get(row.question.id)}. {row.question.question}</strong><small className={row.page ? 'reference-link-pages' : ''}>{row.page ? row.pages.map(p => `p${p.pdfPage}`).join('・') : row.reason}</small></span></label>)}

@@ -104,7 +104,7 @@ export const MaterialsDrawer = forwardRef<MaterialsDrawerHandle, {
   };
   return <>
     {error && !open ? <p className="materials-error" role="alert">{error}</p> : null}
-    {linkDialog && onLinkBatch ? <ReferenceLinkDialog setIds={setIds} questions={questions} initialMaterialId={linkDialog.materialId} onSave={onLinkBatch} onClose={() => setLinkDialog(null)} /> : null}
+    {linkDialog && onLinkBatch ? <ReferenceLinkDialog setId={problemSetId} questions={questions} initialMaterialId={linkDialog.materialId} onSave={onLinkBatch} onClose={() => setLinkDialog(null)} /> : null}
     {launcherTarget && !open ? createPortal(<button className="materials-mobile-launcher" type="button" aria-label="資料を開く" aria-expanded={open} onClick={() => void openAt()}><span aria-hidden="true">▤</span> 資料</button>, launcherTarget) : null}
     {createPortal(<><button type="button" className={`materials-edge-tab${open ? ' is-open' : ''}`} aria-label={open ? '資料を閉じる' : '資料を開く'} aria-expanded={open}
       onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={event => void endDrag(event)} onPointerCancel={event => void endDrag(event)}
