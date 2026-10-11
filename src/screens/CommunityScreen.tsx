@@ -187,6 +187,9 @@ export function CommunityScreen({
   const isGroupDetail = Boolean(initialGroupId);
   const isGroupSetDetail = isGroupDetail && Boolean(directSet);
   const isPrimaryRoot = !groupPage && !initialSetId && !initialGroupId && !shareToken && (initialTab === 'discover' || initialTab === 'groups');
+  const visiblePublicationJobs = tab === 'groups'
+    ? isGroupDetail ? publication.jobs.filter(job => job.groupId === initialGroupId) : []
+    : publication.jobs.filter(job => !job.groupId);
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const canManageSelectedGroup = selectedGroup?.role === 'owner' || selectedGroup?.role === 'admin';
   const saveGroupName = async () => {
@@ -252,10 +255,10 @@ export function CommunityScreen({
 
   useEffect(()=>{
     const finished=publicationWasRunning.current&&!publication.running;publicationWasRunning.current=publication.running;
-    if(!finished||!session)return;let active=true;
+    if(!finished||!session||tab==='groups'&&(!isGroupDetail||!publication.jobs.some(job=>job.groupId===initialGroupId)))return;let active=true;
     void Promise.all([listMyPublishedSets(),selectedGroupId?listGroupProblemSets(selectedGroupId):Promise.resolve(null)]).then(([published,shared])=>{if(active){setPublishedSets(published);if(shared)setGroupSets(shared);groupLearning.refresh();}}).catch(()=>{if(active)setError('公開処理は完了しました。一覧の更新には再読み込みが必要です。');});
     return ()=>{active=false;};
-  },[publication.running,session?.user.id,selectedGroupId]);
+  },[publication.running,session?.user.id,selectedGroupId,tab,isGroupDetail,initialGroupId]);
   useEffect(()=>{
     const job=publication.jobs.find(job=>sharePublicationIds.includes(job.id)&&job.state==='completed'&&job.result);
     if(job?.result)setShareResult({url:buildShareUrl(job.result.id,job.result.shareToken),visibility:job.result.visibility});
@@ -766,8 +769,8 @@ export function CommunityScreen({
         {!cloudConfigured ? <div className="community-notice community-notice--warning">共有機能の接続設定が未完了です。端末内の作成・学習機能はそのまま使えます。</div> : null}
         {error ? <div className="community-notice community-notice--error" role="alert">{error}<button type="button" onClick={() => setError('')}>閉じる</button></div> : null}
         {authMessage ? <div className="community-notice" role="status">{authMessage}<button type="button" onClick={() => setAuthMessage('')}>閉じる</button></div> : null}
-        {publication.error?<div className="community-notice community-notice--error" role="alert">{publication.error}</div>:null}
-        {!addTarget&&!shareLocalSetId?<PublicationJobs jobs={publication.jobs.slice(-10)} onRetry={id=>void publication.retry(id)} compact/>:null}
+        {publication.error&&(tab!=='groups'||addTarget||shareLocalSetId||visiblePublicationJobs.length)?<div className="community-notice community-notice--error" role="alert">{publication.error}</div>:null}
+        {!addTarget&&!shareLocalSetId?<PublicationJobs jobs={visiblePublicationJobs.slice(-10)} onRetry={id=>void publication.retry(id)} compact/>:null}
 
         <main className="community-screen__body">
           {directSet ? <div className="community-detail-toolbar">
@@ -852,8 +855,8 @@ export function CommunityScreen({
                     <button type="button" disabled={busy || !inviteCode.trim()} onClick={() => void joinGroup()}>参加</button>
                     </>}
                   </div> : <div className="qm-group-entry">
-                    <button className="qm-group-action qm-group-action--create" onClick={() => onGroupPage('create')}><span><GroupIcon size={34}/></span><strong>グループを作成</strong> <ChevronRightIcon size={18} /></button>
-                    <button className="qm-group-action qm-group-action--join" onClick={() => onGroupPage('join')}><span><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h3v3h3v3h-6v-3M21 12v3M12 12h3M12 21v-3"/></svg></span><strong>コードで参加</strong> <ChevronRightIcon size={18} /></button>
+                    <button className="qm-group-action qm-group-action--create" onClick={() => onGroupPage('create')}><span><GroupIcon size={24}/></span><strong>グループを作成</strong> <ChevronRightIcon size={16} /></button>
+                    <button className="qm-group-action qm-group-action--join" onClick={() => onGroupPage('join')}><span><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h3v3h3v3h-6v-3M21 12v3M12 12h3M12 21v-3"/></svg></span><strong>コードで参加</strong> <ChevronRightIcon size={16} /></button>
                   </div>}
                   <div hidden={Boolean(groupPage)} className="community-card-list qm-participating-groups"><div className="qm-group-list-heading"><h2>参加中のグループ</h2><span>{groups.length}グループ</span></div>
                     {groups.map((group) => (
