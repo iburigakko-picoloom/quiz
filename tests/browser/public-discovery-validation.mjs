@@ -58,7 +58,7 @@ try{
  await page.getByRole('button',{name:'戻る',exact:true}).click();await page.getByRole('button',{name:'このフォルダを取り込む'}).click();await page.getByRole('button',{name:'ここに取り込む'}).click();await page.waitForFunction(()=>document.body.dataset.importCount==='3');
  await page.getByRole('button',{name:'戻る',exact:true}).click();await page.getByRole('button',{name:'自分の公開',exact:true}).click();await page.getByRole('button',{name:'自分の公開フォルダの公開メニュー'}).waitFor();await page.screenshot({path:'tmp/public-discovery-screenshots/mine-390.png'});
  await page.getByRole('button',{name:'自分の公開フォルダの公開メニュー'}).click();await page.getByRole('button',{name:'フォルダ情報を編集'}).click();await page.getByLabel('フォルダ名',{exact:true}).fill('編集した公開フォルダ');await page.getByLabel('タグ',{exact:true}).fill('CBT,復習');await page.getByRole('button',{name:'保存する'}).click();await page.getByRole('button',{name:'編集した公開フォルダの公開メニュー'}).waitFor();
- await page.getByRole('button',{name:'＋ 公開する'}).click();await page.getByRole('button',{name:'フォルダを公開',exact:true}).click();await page.getByRole('radio',{name:/^自分の教材 1セット/}).check();await page.getByLabel('カテゴリー・用途').fill('医学');await page.getByRole('button',{name:'公開する',exact:true}).click();await page.getByText('公開完了',{exact:true}).waitFor();await page.getByRole('button',{name:'自分の教材の公開メニュー'}).waitFor();assert.equal(sets.find(s=>s.id==='published-local-set').visibility,'link');
+ await page.getByRole('button',{name:'＋ 公開する'}).click();await page.getByRole('button',{name:'フォルダを公開',exact:true}).click();await page.getByRole('radio',{name:/^自分の教材 1セット/}).check();await page.getByRole('button',{name:'自分の教材の子フォルダを見る'}).click();assert.equal(await page.locator('.public-folder-option--child').count(),1);await page.getByRole('button',{name:'‹ 戻る',exact:true}).click();await page.getByRole('button',{name:'次へ',exact:true}).click();await page.getByLabel('カテゴリー・用途').selectOption('大学入試');await page.getByRole('button',{name:'公開する',exact:true}).click();await page.getByText('公開完了',{exact:true}).waitFor();await page.getByRole('button',{name:'自分の教材の公開メニュー'}).waitFor();assert.equal(sets.find(s=>s.id==='published-local-set').visibility,'link');
 
  await page.getByRole('button',{name:'自分の教材',exact:false}).first().click();
  assert.equal(await page.getByRole('button',{name:'問題セットを追加',exact:true}).count(),0);
@@ -84,10 +84,10 @@ try{
  assert.equal(await page.getByText('削除済みの公開',{exact:true}).count(),0);
  await page.getByRole('button',{name:'＋ 公開する'}).click();
  await page.getByRole('button',{name:'フォルダを公開',exact:true}).click();
- await page.getByRole('radio',{name:/^自分の教材 1セット/}).check();
+ await page.getByRole('radio',{name:/^自分の教材 1セット/}).check();await page.getByRole('button',{name:'自分の教材の子フォルダを見る'}).click();assert.equal(await page.locator('.public-folder-option--child').count(),1);await page.getByRole('button',{name:'‹ 戻る',exact:true}).click();
  assert.equal(await page.locator('.public-folder-choice.is-selected').count(),1);
  await page.screenshot({path:'tmp/public-discovery-screenshots/folder-picker-390.png'});
- await page.getByLabel('カテゴリー・用途').fill('医学');
+ await page.getByRole('button',{name:'次へ',exact:true}).click();await page.getByLabel('カテゴリー・用途').selectOption('大学入試');
  await page.getByRole('button',{name:'公開する',exact:true}).click();
  await page.getByRole('button',{name:'自分の教材の公開メニュー'}).waitFor();
  assert.ok(calls.some(call=>call.name==='quiz_public_folder_manage'&&call.args.p_action==='restore'&&call.args.p_id==='new-folder'));

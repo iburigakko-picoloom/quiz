@@ -15,6 +15,10 @@ import {
 import { ALL_CATEGORIES, buildProblemCategories, filterQuestionsByCategory } from '../utils/questionSelection';
 import { useLocalDay } from '../hooks/useLocalDay';
 import './ProblemSetDetailScreen.css';
+import {LevelProgress} from '../components/GroupLearningUi';
+import {learningLevel,levelPercentages,type LevelCounts} from '../utils/groupLearning';
+
+import {DocumentOutlineIcon,HistoryIcon,StudyIcon,BookIcon,CalendarIcon,NoteIcon} from '../components/UiIcons';
 
 type CategoryFilter = 'all' | string;
 
@@ -100,7 +104,7 @@ export function ProblemSetDetailScreen({
   if (!problemSet) {
     return (
       <Layout>
-        <div className="quiz-detail">
+        <div className="quiz-detail quiz-detail--reference">
           <DetailHeader title="Quiz make" onBack={onBack} />
           <MissingResourceState
             title="問題セットが見つかりません"
@@ -112,11 +116,9 @@ export function ProblemSetDetailScreen({
     );
   }
 
-  const reachedLevelThree = questions.filter((question) => {
-    const progress = progressById.get(question.id);
-    return progress?.reviewLevel === 3 || progress?.isGraduated;
-  }).length;
-  const levelThreeRate = questions.length ? Math.round(reachedLevelThree / questions.length * 100) : 0;
+  const levels:LevelCounts=[0,0,0,0];
+  for(const question of questions){const progress=progressById.get(question.id);levels[learningLevel(progress)]++;}
+  const levelThreeRate=levelPercentages(levels)[3];
   const selectedLabel = getCategoryLabel(startCategory);
   const reviewFilterLabel = getReviewFilterLabel(reviewFilter);
 
@@ -135,24 +137,25 @@ export function ProblemSetDetailScreen({
 
   return (
     <Layout>
-      <div className="quiz-detail">
+      <div className="quiz-detail quiz-detail--reference">
         <DetailHeader title={problemSet.title} onBack={onBack} onEdit={onEdit} onCopy={onCopy} onShare={onShare} />
 
         <div className="quiz-detail__content-grid">
           <div className="quiz-detail__main-column">
             <section className="quiz-detail__summary" aria-label="学習状況">
               <div className="quiz-detail__metric">
-                <span>{'\u554f\u984c\u6570'}</span>
+                <DocumentOutlineIcon size={22}/><span>{'\u554f\u984c\u6570'}</span>
                 <strong>{questions.length}</strong>
               </div>
               <div className="quiz-detail__metric">
-                <span>{'\u5fa9\u7fd2'}</span>
+                <HistoryIcon size={22}/><span>{'\u5fa9\u7fd2'}</span>
                 <strong>{allReviewQuestions.length}</strong>
               </div>
               <div className="quiz-detail__metric">
-                <span>Level 3到達率</span>
+                <StudyIcon size={22}/><span>Level 3到達率</span>
                 <strong>{levelThreeRate}%</strong>
               </div>
+              <div className="quiz-detail__level-summary"><h2>Level別の問題数の割合</h2><LevelProgress levels={levels} mockup /></div>
             </section>
             <div className="quiz-detail__completion-row" aria-label="問題セットの学習状態">
               <span>{problemSet.isStudyCompleted ? '学習済み・復習対象外' : '学習中'}</span>
@@ -164,10 +167,9 @@ export function ProblemSetDetailScreen({
             <section className="quiz-detail__start-panel" aria-labelledby="quiz-detail-start-title">
               <h2 id="quiz-detail-start-title" className="sr-only">出題条件と学習開始</h2>
 
-              <details className="quiz-detail__filters" open>
-                <summary className="quiz-detail__conditions-summary">出題条件：{selectedLabel}・{reviewFilterLabel}・{filteredStartQuestions.length}問</summary>
+              <div className="quiz-detail__filters">
                 <div className="quiz-detail__filters-body">
-                  {questions.some(question => question.category.trim() && question.category !== '未分類') ? <>
+                  <>
                   <div className="quiz-detail__segment-caption">{'\u5206\u985e'}</div>
                   <div className="quiz-detail__segments" aria-label={'\u5206\u985e\u4e00\u89a7'}>
                     {categories.map((item, index) => {
@@ -186,7 +188,7 @@ export function ProblemSetDetailScreen({
                       );
                     })}
                   </div>
-                  </> : null}
+                  </>
 
                   <div className="quiz-detail__segment-caption">Level</div>
                   <div className="quiz-detail__segments" aria-label={'Level\u6761\u4ef6'}>
@@ -203,7 +205,7 @@ export function ProblemSetDetailScreen({
                     ))}
                   </div>
                 </div>
-              </details>
+              </div>
 
               {filteredStartQuestions.length === 0 ? (
                 <p className="quiz-detail__empty-condition">{'\u3053\u306e\u6761\u4ef6\u306b\u8a72\u5f53\u3059\u308b\u554f\u984c\u304c\u3042\u308a\u307e\u305b\u3093'}</p>
@@ -216,7 +218,7 @@ export function ProblemSetDetailScreen({
                   disabled={filteredStartQuestions.length === 0}
                   onClick={() => start('ordered')}
                 >
-                  <strong>登録順で解く</strong>
+                  <span aria-hidden="true">▶</span><strong>登録順で解く</strong>
                 </button>
                 <button
                   type="button"
@@ -224,7 +226,7 @@ export function ProblemSetDetailScreen({
                   disabled={filteredStartQuestions.length === 0}
                   onClick={() => start('random')}
                 >
-                  <strong>ランダムで解く</strong>
+                  <span aria-hidden="true">⤨</span><strong>ランダムで解く</strong>
                 </button>
                 <button
                   type="button"
@@ -233,7 +235,7 @@ export function ProblemSetDetailScreen({
                   onClick={() => start('review')}
                   aria-label={`復習する問題を${selectedReviewQuestions.length}問開始`}
                 >
-                  <strong>復習で解く</strong>
+                  <HistoryIcon size={23}/><strong>復習で解く</strong>
                   <small>{selectedReviewQuestions.length}問</small>
                 </button>
               </div>
@@ -243,22 +245,10 @@ export function ProblemSetDetailScreen({
 
             <section className="quiz-detail__body">
               <div className="quiz-detail__entry-grid">
-                <button type="button" className="quiz-detail__list-entry" onClick={onCreatePlan}><strong>この問題セットで計画を作成</strong><b aria-hidden="true">›</b></button>
-                {onOpenMaterials ? <button type="button" className="quiz-detail__list-entry" onClick={onOpenMaterials}><strong>資料</strong><b aria-hidden="true">›</b></button> : null}
-                <button type="button" className="quiz-detail__list-entry" onClick={onOpenProblemList}>
-                  <span>
-                    <strong>{'\u554f\u984c\u4e00\u89a7'}</strong>
-                  </span>
-                  <b aria-hidden="true">{'\u203a'}</b>
-                </button>
-                {(
-                  <button type="button" className="quiz-detail__list-entry quiz-detail__note-list-entry" onClick={onOpenNoteList}>
-                    <span>
-                      <strong>追加解説・メモ一覧</strong>
-                    </span>
-                    <b aria-hidden="true">{'\u203a'}</b>
-                  </button>
-                )}
+                <button type="button" className="quiz-detail__list-entry" disabled={!onOpenMaterials} onClick={onOpenMaterials}><BookIcon size={26}/><strong>資料</strong><b aria-hidden="true">›</b></button>
+                <button type="button" className="quiz-detail__list-entry" onClick={onOpenProblemList}><DocumentOutlineIcon size={26}/><strong>問題一覧</strong><b aria-hidden="true">›</b></button>
+                <button type="button" className="quiz-detail__list-entry" onClick={onCreatePlan}><CalendarIcon size={26}/><strong>学習計画</strong><b aria-hidden="true">›</b></button>
+                <button type="button" className="quiz-detail__list-entry" onClick={onOpenNoteList}><NoteIcon size={26}/><strong>追加解説・メモ</strong><b aria-hidden="true">›</b></button>
               </div>
             </section>
 

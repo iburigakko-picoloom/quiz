@@ -5,7 +5,7 @@ import {IDBFactory} from 'fake-indexeddb';
 const hooks=registerHooks({resolve(s,c,next){return next(/^\.\.?\//.test(s)&&! /\.[cm]?[jt]sx?$/.test(s)&&c.parentURL?.endsWith('.ts')?s+'.ts':s,c)}});
 after(()=>hooks.deregister());
 const {createAutoSyncScheduler}=await import('../src/utils/autoSyncScheduler.ts');
-const {clearSyncAttemptStatus,readSyncAttemptStatus,publishSyncAttempt,publishSyncQueue,publishRemoteCheck,observeRecordSyncAttempt}=await import('../src/utils/syncAttemptStatus.ts');
+const {clearSyncAttemptStatus,readSyncAttemptStatus,publishSyncAttempt,publishSyncProgress,publishSyncQueue,publishRemoteCheck,observeRecordSyncAttempt}=await import('../src/utils/syncAttemptStatus.ts');
 const {SyncInterruptedError,SyncLocalPersistenceError,SyncProtocolError}=await import('../src/utils/syncInterruption.ts');
 const {syncStatusPresentation}=await import('../src/utils/syncStatusPresentation.ts');
 const {createRecordSyncRpc,RecordSyncRpcError}=await import('../src/utils/recordSyncNetwork.ts');
@@ -20,6 +20,15 @@ function harness(run){
   const queue=createAutoSyncScheduler(async()=> (await observeRecordSyncAttempt(run,u=>publishSyncAttempt(connection,u),()=>new Date(now).toISOString())).outcome,clock,s=>publishSyncQueue(connection,s));
   return {queue,settle,now:()=>now,async advance(ms){const end=now+ms;for(let n=0;n<100;n++){const next=[...timers].sort((a,b)=>a[1].at-b[1].at)[0];if(!next||next[1].at>end){now=end;return}now=next[1].at;timers.delete(next[0]);next[1].fn();await settle()}throw Error('Runaway timer')}};
 }
+test('retrying authentication does not show the previous failed attempt at 85 percent',()=>{
+ clearSyncAttemptStatus();publishSyncAttempt(connection,{phase:'running',step:'prepare'});
+ publishSyncProgress(connection,{stage:'validating',label:'送信内容を検証中',completed:1,total:1});
+ assert.equal(readSyncAttemptStatus(connection).overallPercent,85);
+ publishSyncAttempt(connection,{phase:'failed',lastFailure:{code:'network',step:'open',at:'now',message:'safe'}});
+ publishSyncAttempt(connection,{phase:'running',step:'prepare'});publishSyncAttempt(connection,{step:'authentication'});
+ assert.equal(readSyncAttemptStatus(connection).overallPercent,0);assert.equal(readSyncAttemptStatus(connection).progress,undefined);
+ assert.equal(readSyncAttemptStatus(connection).lastFailure.step,'open');
+});
 test('failure → delayed repeated retry → more → done uses current attempt instead of old errors or receipts',async()=>{
   let calls=0,release;const h=harness(async step=>{calls++;step('pull');if(calls===1)throw new RecordSyncRpcError('network','old failure');if(calls===2)return {status:'more'};await new Promise(r=>release=r);return {status:'done'}});
   h.queue.request(true);await h.advance(0);assert.equal(readSyncAttemptStatus(connection).lastFailure.step,'pull');assert.equal(present().text,'再試行を待っています');

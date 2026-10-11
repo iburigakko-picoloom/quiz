@@ -3,9 +3,9 @@ import '../library-interactions.css';
 import { FolderOutlineIcon, GroupIcon, HistoryIcon, ProfileIcon, StudyIcon, DocumentOutlineIcon, ChevronRightIcon } from './UiIcons';
 import { levelPercentages, type GroupAccent, type GroupIconName, type LevelCounts } from '../utils/groupLearning';
 
-export function GroupAvatar({ icon = 'group', accent = 'blue' }: { icon?: GroupIconName; accent?: GroupAccent }) {
+export function GroupAvatar({ icon = 'group', accent = 'blue', photo }: { icon?: GroupIconName; accent?: GroupAccent; photo?:string }) {
   const Icon = { group: GroupIcon, book: DocumentOutlineIcon, study: StudyIcon, folder: FolderOutlineIcon }[icon];
-  return <span className={`group-avatar group-avatar--${accent}`} aria-hidden="true"><Icon size={32} /></span>;
+  return <span className={`group-avatar group-avatar--${accent}`} aria-hidden="true">{photo?<img src={photo} alt=""/>:<Icon size={32} />}</span>;
 }
 
 export function MemberAvatar({ name, userId }: { name: string; userId: string }) {
@@ -13,16 +13,16 @@ export function MemberAvatar({ name, userId }: { name: string; userId: string })
   return <span className={`member-avatar member-avatar--${hue}`} role="img" aria-label={`${name}のアバター`}><ProfileIcon size={28} /></span>;
 }
 
-export function LevelProgress({ levels, compact = false, label = '進捗' }: { levels: LevelCounts; compact?: boolean; label?: string }) {
+export function LevelProgress({ levels, compact = false, label = '進捗', mockup=false }: { levels: LevelCounts; compact?: boolean; label?: string; mockup?:boolean }) {
   const percentages = levelPercentages(levels);
   const total = levels.reduce((sum, n) => sum + n, 0);
-  return <div className={`level-progress${compact ? ' level-progress--compact' : ''}`}>
+  return <div className={`level-progress${compact ? ' level-progress--compact' : ''}${mockup?' level-progress--mockup':''}`}>
     <div className="level-progress__bar" role="img" aria-label={`${label}、${total}問、${percentages.map((p, i) => `Level${i} ${p}%（${levels[i]}問）`).join('、')}`}>
-      {levels.map((count, i) => <span key={i} className={`level-progress__segment level-color-${i}`} style={{ width: total ? `${count / total * 100}%` : '0%' }} />)}
+      {levels.map((count, i) => <span key={i} className={`level-progress__segment level-color-${i}`} style={{ width: total ? `${count / total * 100}%` : '0%' }}>{mockup&&percentages[i]>=8?`${percentages[i]}%`:null}</span>)}
     </div>
     <div className="level-progress__legend">{levels.map((count, i) => <div key={i}>
       <span className="level-progress__label"><i className={`level-color-${i}`} />{compact ? `L${i}` : `Level${i}`}</span>
-      <strong>{percentages[i]}%</strong><small>（{count.toLocaleString('ja-JP')}問）</small>
+      {mockup?null:<strong>{percentages[i]}%</strong>}<small>{mockup?`${count.toLocaleString('ja-JP')}問`:`（${count.toLocaleString('ja-JP')}問）`}</small>
     </div>)}</div>
   </div>;
 }

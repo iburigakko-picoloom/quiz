@@ -1,3 +1,4 @@
+import {prepareGroupPhoto} from '../utils/groupPhoto';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '@supabase/supabase-js';
@@ -124,6 +125,10 @@ export function CommunityScreen({
   const [groupFolderTrail, setGroupFolderTrail] = useState<string[]>([]);
   const [groupLearningRevision, setGroupLearningRevision] = useState(0);
   const groupLearning = useGroupLearning(initialGroupId ?? '', session?.user.id ?? '', groupLearningRevision);
+  const [newGroupPhoto,setNewGroupPhoto]=useState<string|undefined>();
+  const [groupPhotoDraft,setGroupPhotoDraft]=useState<string|undefined>();
+  const [photoBusy,setPhotoBusy]=useState(false);
+  const selectGroupPhoto=async(file:File|undefined,creating=false)=>{if(!file||photoBusy)return;setPhotoBusy(true);try{const photo=await prepareGroupPhoto(file);if(creating)setNewGroupPhoto(photo);else setGroupPhotoDraft(photo);}catch(reason){setError(getErrorMessage(reason));}finally{setPhotoBusy(false);}};
   const [groupIconDraft, setGroupIconDraft] = useState<GroupIconName>('group');
   const [groupAccentDraft, setGroupAccentDraft] = useState<GroupAccent>('blue');
   const groupIconLock = useRef(false);
@@ -202,11 +207,12 @@ export function CommunityScreen({
     setError(''); setGroupMenuOpen(true);
   };
   const saveGroupIcon = async () => {
-    if (!session || !selectedGroup || !canManageSelectedGroup || busy || groupIconLock.current) return;
+    if (!session || !selectedGroup || selectedGroup.role!=='owner' || busy || photoBusy || groupIconLock.current) return;
     groupIconLock.current = true; setBusy(true); setError('');
     try {
+      if(groupPhotoDraft!==selectedGroup.photo)await groupProgressRpc('quiz_group_photo',{p_group_id:selectedGroup.id,p_photo:groupPhotoDraft??null},session.user.id);
       await groupProgressRpc('quiz_group_learning_icon', { p_group_id: selectedGroup.id, p_icon: groupIconDraft, p_accent: groupAccentDraft }, session.user.id);
-      setGroups(items => items.map(group => group.id === selectedGroup.id ? { ...group, icon: groupIconDraft, accent: groupAccentDraft } : group));
+      setGroups(items => items.map(group => group.id === selectedGroup.id ? { ...group, photo:groupPhotoDraft,icon: groupIconDraft, accent: groupAccentDraft } : group));
       groupLearning.refresh(); setGroupMenuOpen(false); setAuthMessage('グループアイコンを変更しました');
     } catch (reason) { setError(getErrorMessage(reason)); }
     finally { groupIconLock.current = false; setBusy(false); }
@@ -539,6 +545,7 @@ export function CommunityScreen({
     try {
       const created = await createCloudGroup(newGroupName);
       setNewGroupName('');
+      if(newGroupPhoto)try{await groupProgressRpc('quiz_group_photo',{p_group_id:created.id,p_photo:newGroupPhoto},session!.user.id);setNewGroupPhoto(undefined);}catch(reason){await refreshGroups();throw new Error('グループは作成済みです。写真はグループ設定から保存してください。');}
       await refreshGroups();
       onOpenGroup(created.id);
     } catch (reason) {
@@ -838,21 +845,21 @@ export function CommunityScreen({
                 <>
                   {groupPage ? <div className="community-group-actions qm-group-form">
                     {groupPage === 'create' ? <>
-                    <label>新しいグループ<input value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} /></label>
-                    <button type="button" disabled={busy || !newGroupName.trim()} onClick={() => void createGroup()}>作成</button>
+                    <label className="group-photo-picker"><GroupAvatar photo={newGroupPhoto}/>写真を選ぶ<input type="file" accept="image/*" disabled={busy||photoBusy} onChange={event=>{void selectGroupPhoto(event.target.files?.[0],true);event.target.value='';}}/></label><label>新しいグループ<input value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} /></label>
+                    <button type="button" disabled={busy || photoBusy || !newGroupName.trim()} onClick={() => void createGroup()}>作成</button>
                     </> : <>
                     <label>招待コードで参加<input value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} /></label>
                     <button type="button" disabled={busy || !inviteCode.trim()} onClick={() => void joinGroup()}>参加</button>
                     </>}
                   </div> : <div className="qm-group-entry">
-                    <button className="library-row" onClick={() => onGroupPage('create')}>グループを作成 <ChevronRightIcon size={18} /></button>
-                    <button className="library-row" onClick={() => onGroupPage('join')}>招待コードで参加 <ChevronRightIcon size={18} /></button>
+                    <button className="qm-group-action qm-group-action--create" onClick={() => onGroupPage('create')}><span><GroupIcon size={34}/></span><strong>グループを作成</strong> <ChevronRightIcon size={18} /></button>
+                    <button className="qm-group-action qm-group-action--join" onClick={() => onGroupPage('join')}><span><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h3v3h3v3h-6v-3M21 12v3M12 12h3M12 21v-3"/></svg></span><strong>コードで参加</strong> <ChevronRightIcon size={18} /></button>
                   </div>}
-                  <div hidden={Boolean(groupPage)} className="community-card-list">
+                  <div hidden={Boolean(groupPage)} className="community-card-list qm-participating-groups"><div className="qm-group-list-heading"><h2>参加中のグループ</h2><span>{groups.length}グループ</span></div>
                     {groups.map((group) => (
                       <article key={group.id} className="community-group-card">
                         <button type="button" className="community-group-card__main library-tappable" onClick={() => onOpenGroup(group.id)}>
-                          <GroupAvatar icon={group.icon} accent={group.accent} />
+                          <GroupAvatar photo={group.photo} icon={group.icon} accent={group.accent} />
                           <span><strong>{group.name}</strong><small>{group.memberCount}人 · {group.setCount}セット</small></span>
                           <ChevronRightIcon size={20} />
                         </button>
@@ -922,7 +929,7 @@ export function CommunityScreen({
         {groupMenuOpen && selectedGroup ? <CommunityModal ariaLabel="グループの管理" busy={busy} onClose={()=>setGroupMenuOpen(false)}>
           <h2>{selectedGroup.name}</h2>
           {error ? <p role="alert" className="community-notice--error">{error}</p> : null}
-          {canManageSelectedGroup ? <section className="group-icon-picker"><h3>グループアイコン</h3><GroupAvatar icon={groupIconDraft} accent={groupAccentDraft} /><div className="group-icon-picker__choices" aria-label="アイコンの種類">{groupIcons.map(icon => <button type="button" key={icon} disabled={busy} aria-label={{ group: 'グループ', book: '教材', study: '学習', folder: 'フォルダ' }[icon]} aria-pressed={groupIconDraft === icon} onClick={() => setGroupIconDraft(icon)}><GroupAvatar icon={icon} accent={groupAccentDraft} /></button>)}</div><div className="group-icon-picker__colors" aria-label="アイコンの色">{groupAccents.map(accent => <button type="button" key={accent} disabled={busy} className={`group-color-choice group-avatar--${accent}`} aria-label={{ blue: '青', cyan: '水色', green: '緑', violet: '紫' }[accent]} aria-pressed={groupAccentDraft === accent} onClick={() => setGroupAccentDraft(accent)} />)}</div><button type="button" className="group-secondary" disabled={busy || !groupLearning.snapshot} onClick={() => void saveGroupIcon()}>アイコンを保存</button></section> : null}
+          {selectedGroup?.role==='owner' ? <section className="group-icon-picker"><h3>グループアイコン</h3><label className="group-photo-picker">写真を選ぶ<input type="file" accept="image/*" disabled={busy||photoBusy} onChange={event=>{void selectGroupPhoto(event.target.files?.[0]);event.target.value='';}}/></label><GroupAvatar photo={groupPhotoDraft} icon={groupIconDraft} accent={groupAccentDraft} /><div className="group-icon-picker__choices" aria-label="アイコンの種類">{groupIcons.map(icon => <button type="button" key={icon} disabled={busy} aria-label={{ group: 'グループ', book: '教材', study: '学習', folder: 'フォルダ' }[icon]} aria-pressed={groupIconDraft === icon} onClick={() => {setGroupPhotoDraft(undefined);setGroupIconDraft(icon);}}><GroupAvatar icon={icon} accent={groupAccentDraft} /></button>)}</div><div className="group-icon-picker__colors" aria-label="アイコンの色">{groupAccents.map(accent => <button type="button" key={accent} disabled={busy} className={`group-color-choice group-avatar--${accent}`} aria-label={{ blue: '青', cyan: '水色', green: '緑', violet: '紫' }[accent]} aria-pressed={groupAccentDraft === accent} onClick={() => setGroupAccentDraft(accent)} />)}</div><button type="button" className="group-secondary" disabled={busy || photoBusy || !groupLearning.snapshot} onClick={() => void saveGroupIcon()}>アイコンを保存</button></section> : null}
           {selectedGroup.role === 'owner' ? <form className="community-group-edit" onSubmit={event => { event.preventDefault(); void saveGroupName(); }}>
             <label>グループ名<input value={groupNameDraft} maxLength={60} disabled={busy} onChange={event => setGroupNameDraft(event.target.value)} /></label>
             <button type="submit" disabled={busy || !groupNameDraft.trim() || groupNameDraft.trim() === selectedGroup.name}>{busy ? '保存中…' : '名前を保存'}</button>

@@ -40,7 +40,7 @@ export function publishSyncQueue(connection: RecordSyncConnection, queue: AutoSy
 }
 export function publishSyncAttempt(connection: RecordSyncConnection, update: Partial<SyncAttemptStatus>) {
   const current = owned(connection);
-  if(update.phase==='running'&&update.step==='prepare'&&(current.result.phase==='done'||current.result.overallPercent===undefined))resetProgress(current);
+  if(update.phase==='running'&&update.step==='prepare'&&(['done','failed','paused'].includes(current.result.phase)||current.result.overallPercent===undefined))resetProgress(current);
   if (update.step && update.step !== current.result.step || update.phase === 'running' && update.step === 'prepare') delete current.result.progress;
   current.result = { ...current.result, ...update, ...(update.phase==='done'?{overallPercent:100}:{}) }; changed();
 }

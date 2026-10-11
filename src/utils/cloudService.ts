@@ -1,3 +1,4 @@
+import {isGroupPhoto} from './groupPhoto';
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
 import { CloudSessionReadError, verifiedCloudAccess, watchCloudSession, type CloudAccessTokenResult } from './cloudAuthAccess';
 export type { CloudAccessTokenResult } from './cloudAuthAccess';
@@ -119,6 +120,7 @@ export interface CloudProblemSet {
 }
 
 export interface CloudGroup {
+  photo?:string;
   icon?: import('./groupLearning').GroupIconName;
   accent?: import('./groupLearning').GroupAccent;
   id: string;
@@ -446,7 +448,7 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
-export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_learning_place' | 'manage_quiz_group_library', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
+export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_photo' | 'quiz_group_learning_place' | 'manage_quiz_group_library', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
   const access = await getCloudAccessToken();
   if (!access.ok || access.userId !== expectedUserId) throw new Error('アカウントが変更されています。開き直してください。');
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
@@ -557,6 +559,7 @@ function mapGroupJson(value: Record<string, unknown>): CloudGroup {
   return {
     id: String(value.id ?? ''),
     name: String(value.name ?? ''),
+    photo:isGroupPhoto(value.photo)?value.photo:undefined,
     icon: ['group', 'book', 'study', 'folder'].includes(String(value.icon)) ? value.icon as CloudGroup['icon'] : 'group',
     accent: ['blue', 'cyan', 'green', 'violet'].includes(String(value.accent)) ? value.accent as CloudGroup['accent'] : 'blue',
     role: normalizeGroupRole(value.role),

@@ -61,6 +61,7 @@ export type SyncPayload = {
 
 export type SyncErrorCode =
   | SyncDataCode
+  | 'authentication_busy'
   | 'authentication_required'
   | 'network'
   | 'permission_denied'
@@ -1859,7 +1860,7 @@ async function getAuthenticatedSyncHeaders(
   if (!access.ok) {
     return {
       ok: false,
-      code: access.reason === 'not-configured' ? undefined : access.reason === 'temporarily-unavailable' ? 'network' : access.reason === 'account-changed' ? 'connection_changed' : 'authentication_required',
+      code: access.reason === 'not-configured' ? undefined : access.reason === 'temporarily-unavailable' ? access.cause==='token_rotation'?'authentication_busy':access.cause==='session_capacity'?'storage_capacity':'network' : access.reason === 'account-changed' ? 'connection_changed' : 'authentication_required',
       error: access.message,
     };
   }

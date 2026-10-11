@@ -47,7 +47,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   if ((!started.enabled && !manual) || started.syncId !== syncId) throw new SyncInterruptedError('connection_changed', '同期先が変わりました。');
   step('authentication');
   const initialAccess = await getCloudAccessToken();
-  if (!initialAccess.ok) throw new RecordSyncRpcError(cloudAccessFailureCode(initialAccess.reason), initialAccess.message);
+  if (!initialAccess.ok) throw new RecordSyncRpcError(cloudAccessFailureCode(initialAccess.reason,initialAccess.cause), initialAccess.message);
   const connection = { project: new URL(config.url).origin, userId: initialAccess.userId, syncId };
   const assertCurrent = async () => {
     if (isSyncInteractionProtected() || isAutoUploadBlocked(getActiveProtectedWorkReason())) throw new SyncInterruptedError('protected_work', '内容の確認が終わってから同期を再開します。');
@@ -67,7 +67,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   const rpc = createRecordSyncRpc({ url: config.url, anonKey: config.anonKey, connection, onRequest: step,
     async access() {
       const current = await getCloudAccessToken();
-      if (!current.ok) throw new RecordSyncRpcError(cloudAccessFailureCode(current.reason), current.message);
+      if (!current.ok) throw new RecordSyncRpcError(cloudAccessFailureCode(current.reason,current.cause), current.message);
       return current;
     },
     assertCurrent() {

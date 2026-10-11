@@ -120,6 +120,9 @@ export function DocumentOutlineIcon({ size = 34, ...props }: IconProps) {
   );
 }
 
+export function BookIcon({size=24,...props}:IconProps){return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}><path d="M12 5v16M12 5C9 2 5 3 2 4v15c4-1 7-1 10 2 3-3 6-3 10-2V4c-3-1-7-2-10 1Z"/></svg>;}
+export function CalendarIcon({size=24,...props}:IconProps){return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 2v6M17 2v6M3 11h18M7 15h4M7 18h8"/></svg>;}
+export function NoteIcon({size=24,...props}:IconProps){return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}><path d="M14 21H4V3h15v9M7 7h9M7 11h7M7 15h4M14 18l5-5 3 3-5 5h-3Z"/></svg>;}
 export function StudyIcon({ size = 24, ...props }: IconProps) {
   return (
     <svg {...iconProps(size, props)} aria-hidden={props['aria-hidden'] ?? true}>

@@ -59,4 +59,17 @@
 .public-folder-choice__text > span { color:#536579; font-size:12px; overflow-wrap:anywhere; }
 .public-form .public-folder-choice input { width:20px; height:20px; margin:0; flex-shrink:0; accent-color:#2465c4; }
 .public-form .public-folder-selection-note { margin-top:10px; }
+.public-folder-option { display:flex; align-items:center; gap:6px; min-width:0; }
+.public-folder-option .public-folder-choice { flex:1; min-width:0; }
+.public-folder-option--child { margin-left:18px; border-left:2px solid #dbe6f4; padding-left:10px; }
+.public-folder-explore { display:flex; align-items:center; gap:2px; padding:8px 4px; min-height:44px; flex-shrink:0; border:0; background:none; color:#2162b9; font-size:12px!important; }
+.public-folder-explore:disabled { visibility:hidden; }
+.public-folder-location { display:flex; align-items:center; gap:10px; margin:12px 0 4px; }
+.public-folder-location button { border:0; border-radius:7px; padding:8px; min-height:44px; background:#edf4ff; color:#1856ab; flex-shrink:0; }
+.public-folder-location span { font-weight:600; overflow-wrap:anywhere; min-width:0; font-size:13px; }
+.public-publish-wizard { margin-top:20px; }
+.public-publish-wizard .public-segments { margin-bottom:0; }
+.public-publish-selection { padding:12px; border-radius:8px; background:#edf4ff; color:#1856ab; overflow-wrap:anywhere; }
+.public-publish-footer { display:grid; grid-template-columns:auto 1fr; gap:10px; }
+.public-publish-tags summary { cursor:pointer; min-height:44px; display:flex; align-items:center; color:#245b9e; }
 @media (max-width:350px) { .public-header .public-mine-entry { padding-inline:9px; font-size:13px; } }

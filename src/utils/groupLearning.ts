@@ -1,9 +1,10 @@
-import type { AppData, ProblemSet } from '../types';
+import type { AppData, ProblemSet,QuestionProgress } from '../types';
 import { getVirtualLevel, indexProgress } from './quiz';
 import { nextDay, questionRevision, studyDay } from './studyPlans';
 import { groupStudySelection } from './groupStudySource';
 
 export type LevelCounts = [number, number, number, number];
+export const learningLevel=(progress:QuestionProgress|undefined)=>progress?.isGraduated?3:getVirtualLevel(progress);
 export const groupTimeZone = 'Asia/Tokyo';
 export const groupIcons = ['group', 'book', 'study', 'folder'] as const;
 export type GroupIconName = typeof groupIcons[number];
@@ -43,7 +44,7 @@ export function importedLearning(data: AppData, set: ProblemSet, publishedId: st
   const byLogical = new Map<string, number>();
   for (const q of eligible.values()) {
     const p = progress.get(q.id);
-    const level = p?.isGraduated ? 3 : getVirtualLevel(p);
+    const level = learningLevel(p);
     const logicalId=logicalByQuestionId.get(q.id)!;
     byLogical.set(logicalId, Math.max(byLogical.get(logicalId) ?? 0, level));
   }

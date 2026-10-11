@@ -134,6 +134,7 @@ const safeMessages = new Set([
 ]);
 
 export function safeSyncFailureMessage(message: string): string {
+  if(['ログイン・設定用の保存領域が不足しています。教材データは保持しています。','端末のログイン情報を読み出せませんでした。端末データを保持して再試行します。','認証サーバーの応答を確認できませんでした。端末データを保持して再試行します。','認証確認後のログイン情報を読み直せませんでした。端末データを保持して再試行します。','確認中にログイン情報が更新されました。端末データを保持して再試行します。'].includes(message))return message;
   if (safeMessages.has(message)) return message;
   if (/^クラウドの画像[1-9][0-9]{0,5}件の紐づけ情報がありません。$/u.test(message)) return message;
   const oversized = message.match(/^1レコードの同期サイズが大きすぎます（対象：([^、]+)、計算サイズ：([0-9]{1,13})B、上限：921600B）。データは端末に保持しています。$/u);
