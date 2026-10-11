@@ -25,16 +25,23 @@ try{
  assert.equal(await page.locator('.quiz-detail__completion-row').evaluate(el=>Boolean(document.querySelector('.quiz-detail__body').compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING)),true);
  for(const width of [320,390]){
    await page.setViewportSize({width,height:866});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-   for(const chips of await page.locator('.quiz-detail__segments').all()){
-     await chips.evaluate(el=>{el.scrollLeft=0});assert.equal(await chips.evaluate(el=>el.firstElementChild.getBoundingClientRect().left>=el.getBoundingClientRect().left),true);
-   }
-   assert.equal(await page.locator('.quiz-detail__segment-item').first().evaluate(el=>el.getBoundingClientRect().height),36);
+   assert.equal(await page.locator('.quiz-detail__segment-item').count(),0,'conditions stay off the main screen');
    assert.equal(await page.locator('.quiz-detail__entry-grid').evaluate(el=>el.getBoundingClientRect().top-document.querySelector('.quiz-detail__start-action--review').getBoundingClientRect().bottom>=24),true);
    assert.equal(await page.locator('.quiz-detail__summary').evaluate(el=>getComputedStyle(el).borderRadius),'10px');
    for(const button of await page.locator('.quiz-detail__start-action').all())assert.equal(await button.evaluate(el=>el.getBoundingClientRect().height),44);
    await page.screenshot({path:`tmp/latest-mockup-screenshots/detail-${width}.png`});
+   await page.getByRole('button',{name:'出題条件を開く',exact:true}).click();
+   const drawer=page.getByRole('dialog',{name:'出題条件',exact:true});await drawer.waitFor();
+   await page.waitForFunction(()=>Math.abs(document.querySelector('.quiz-detail__condition-drawer').getBoundingClientRect().right-innerWidth)<1);
+   assert.ok(await drawer.evaluate(el=>el.getBoundingClientRect().left>0));
+   assert.equal(await page.locator('.quiz-detail__segment-item').first().evaluate(el=>el.getBoundingClientRect().height),36);
+   assert.equal(await drawer.evaluate(el=>el.scrollWidth>el.clientWidth),false);
+   await page.screenshot({path:`tmp/latest-mockup-screenshots/conditions-${width}.png`});
+   await page.keyboard.press('Escape');await drawer.waitFor({state:'hidden'});
+   assert.equal(await page.getByRole('button',{name:'出題条件を開く',exact:true}).evaluate(el=>document.activeElement===el),true);
  }
- await page.getByRole('button',{name:'Level 1',exact:true}).click();await page.getByRole('button',{name:'登録順で解く',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-session')).count,75);
+ await page.getByRole('button',{name:'出題条件を開く',exact:true}).click();await page.getByRole('button',{name:'Level 1',exact:true}).click();await page.getByRole('button',{name:'完了',exact:true}).click();
+ await page.getByRole('button',{name:'出題条件を開く',exact:true}).click();assert.equal(await page.getByRole('button',{name:'Level 1',exact:true}).getAttribute('aria-pressed'),'true');await page.mouse.click(5,400);await page.getByRole('dialog',{name:'出題条件',exact:true}).waitFor({state:'hidden'});await page.getByRole('button',{name:'登録順で解く',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-session')).count,75);
  for(const [name,action] of [['資料','materials'],['問題一覧','questions'],['学習計画','plan'],['追加解説・メモ','notes']]){await page.getByRole('button',{name,exact:false}).click();assert.equal(await page.locator('body').getAttribute('data-action'),action);}
  await page.getByRole('button',{name:'学習済みにする',exact:true}).click();await page.getByRole('button',{name:'学習済みを解除',exact:true}).waitFor();
  await page.evaluate(async owner=>{

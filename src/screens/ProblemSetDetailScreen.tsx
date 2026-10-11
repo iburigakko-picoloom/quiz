@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { registerTransientDialog } from '../utils/transientDialog';
 import type { AppData, Question } from '../types';
 import { BackButton } from '../components/BackButton';
 import { ActionMenu } from '../components/ActionMenu';
@@ -74,6 +76,7 @@ export function ProblemSetDetailScreen({
   const allReviewQuestions = useMemo(() => getReviewQuestions(data, questions), [data, questions, day]);
   const [startCategory, setStartCategory] = useState<CategoryFilter>('all');
   const [reviewFilter, setReviewFilter] = useState<ReviewLevelFilter>('all');
+  const [conditionsOpen,setConditionsOpen]=useState(false);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [completionError, setCompletionError] = useState('');
 
@@ -160,7 +163,10 @@ export function ProblemSetDetailScreen({
             <section className="quiz-detail__start-panel" aria-labelledby="quiz-detail-start-title">
               <h2 id="quiz-detail-start-title" className="sr-only">出題条件と学習開始</h2>
 
-              <div className="quiz-detail__filters">
+              <button type="button" className="quiz-detail__conditions-toggle" aria-label="出題条件を開く" aria-haspopup="dialog" aria-expanded={conditionsOpen} onClick={()=>setConditionsOpen(true)}>
+                <span>{selectedLabel} · {reviewFilterLabel}</span><strong>条件 <b aria-hidden="true">›</b></strong>
+              </button>
+              {conditionsOpen?<ConditionsDrawer onClose={()=>setConditionsOpen(false)}>
                 <div className="quiz-detail__filters-body">
                   <>
                   <div className="quiz-detail__segment-caption">{'\u5206\u985e'}</div>
@@ -198,7 +204,7 @@ export function ProblemSetDetailScreen({
                     ))}
                   </div>
                 </div>
-              </div>
+              </ConditionsDrawer>:null}
 
               {filteredStartQuestions.length === 0 ? (
                 <p className="quiz-detail__empty-condition">{'\u3053\u306e\u6761\u4ef6\u306b\u8a72\u5f53\u3059\u308b\u554f\u984c\u304c\u3042\u308a\u307e\u305b\u3093'}</p>
@@ -253,6 +259,26 @@ export function ProblemSetDetailScreen({
       </div>
     </Layout>
   );
+}
+
+
+function ConditionsDrawer({onClose,children}:{onClose:()=>void;children:ReactNode}){
+  const ref=useRef<HTMLDialogElement>(null),close=useRef(onClose);close.current=onClose;
+  useEffect(()=>{
+    const dialog=ref.current!,previous=document.activeElement as HTMLElement|null;
+    dialog.showModal();
+    const unregister=registerTransientDialog(()=>close.current());
+    return()=>{unregister();dialog.close();previous?.focus();};
+  },[]);
+  return createPortal(<dialog ref={ref} className="quiz-detail__condition-drawer" aria-label="出題条件" onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{
+    if(event.target!==event.currentTarget)return;
+    const bounds=event.currentTarget.getBoundingClientRect();
+    if(event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom)onClose();
+  }}>
+    <header><h2>出題条件</h2><button type="button" aria-label="出題条件を閉じる" onClick={onClose}>×</button></header>
+    <div className="quiz-detail__condition-content">{children}</div>
+    <button type="button" className="quiz-detail__condition-done" onClick={onClose}>完了</button>
+  </dialog>,document.body);
 }
 
 function DetailHeader({ title, onBack, onEdit, onShare, onCopy }: { title: string; onBack: () => void; onEdit?: () => void; onShare?: () => void; onCopy?: () => void }) {
