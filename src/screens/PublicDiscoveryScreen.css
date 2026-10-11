@@ -42,3 +42,21 @@
 .public-archive-row button { flex-shrink:0; }
 .public-delete-option { display:flex !important; align-items:center; gap:10px; min-height:44px; }
 .public-delete-option input { width:20px !important; height:20px; }
+
+.public-header .public-mine-entry { min-height:44px; box-sizing:border-box; padding:9px 12px; border:1px solid #a9c7ee; border-radius:10px; background:#edf4ff; color:#1856ab; font-size:14px; font-weight:700; gap:5px; }
+.public-header .public-mine-entry:hover { background:#e0edff; border-color:#6f9edc; }
+.public-header .public-mine-entry:active { background:#d5e6ff; }
+.public-folder-picker { border:0; margin:0; padding:0; min-width:0; }
+.public-folder-picker legend { padding:0; margin-bottom:12px; font-weight:700; }
+.public-folder-options { display:grid; gap:8px; max-height:320px; overflow:auto; margin-top:8px; padding:3px; }
+.public-form .public-folder-choice { display:flex; align-items:center; gap:12px; border:1px solid #dfe6ee; border-radius:10px; padding:12px; cursor:pointer; }
+.public-folder-choice.is-selected { border-color:#2465c4; background:#edf4ff; box-shadow:0 0 0 1px #2465c4; }
+.public-folder-choice:focus-within { outline:2px solid #2465c4; outline-offset:2px; }
+.public-folder-choice.is-empty { opacity:.6; cursor:default; }
+.public-folder-choice__icon { color:#2765b3; display:flex; flex-shrink:0; }
+.public-folder-choice__text { min-width:0; flex:1; display:grid; gap:4px; font-weight:400; }
+.public-folder-choice__text strong { font-size:15px; overflow-wrap:anywhere; }
+.public-folder-choice__text > span { color:#536579; font-size:12px; overflow-wrap:anywhere; }
+.public-form .public-folder-choice input { width:20px; height:20px; margin:0; flex-shrink:0; accent-color:#2465c4; }
+.public-form .public-folder-selection-note { margin-top:10px; }
+@media (max-width:350px) { .public-header .public-mine-entry { padding-inline:9px; font-size:13px; } }

@@ -115,7 +115,6 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
           {folders.slice(0, 3).map(folder => <button type="button" className="group-folder-shortcut library-tappable" key={folder.key} onClick={() => { onFolderTrail([folder.key]); onTab('folders'); }}><FolderOutlineIcon size={36} /><span><strong>{folder.name}</strong><small>{groupFolderSets(folder).length}セット · {groupFolderSets(folder).reduce((sum, set) => sum + set.questionCount, 0)}問</small></span><ChevronRightIcon size={18} /></button>)}
           {!folders.length ? <div className="group-overview-empty"><FolderOutlineIcon size={38}/><p>共有する教材はまだありません。</p>{canManage?<button type="button" className="group-primary" disabled={busy||!snapshot} onClick={onAddFolder}><PlusIcon size={18}/>フォルダを追加</button>:null}</div> : null}
         </article>
-        <details className="library-info"><summary>集計について</summary><p>「全体」は進捗を共有したメンバーの現在の公開版、「自分」はこの端末の取り込み済みセットです。複数のコピーは最新の取り込みを集計します。</p><p>解答数はグループから取り込んだ問題が対象です。日付は日本時間で集計します。</p></details>
       </section>
       <section id="group-panel-folders" role="tabpanel" aria-labelledby="group-tab-folders" hidden={tab !== 'folders'}>
         <LibraryPane viewKey={folderKey} depth={folderTrail.length}>
@@ -133,7 +132,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         <div className="group-member-list">{sorted.map((member, i) => <article className="group-member-card" key={member.userId}>
           <div className="group-member-card__identity"><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} /><span><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong>{member.role === 'owner' ? <small className="group-owner-badge">オーナー</small> : null}</span></div>
           <dl className="group-member-card__stats"><div><dt>今日</dt><dd>{member.todayCount === null ? '—' : `${member.todayCount}問`}</dd></div><div><dt>今週</dt><dd>{member.weekCount === null ? '—' : `${member.weekCount}問`}</dd></div><div><dt>教材</dt><dd>{snapshot ? `${member.importedSetCount}セット` : '—'}</dd></div><div><dt>L3</dt><dd>{member.levels ? `${levelPercentages(member.levels)[3]}%` : '—'}</dd></div></dl>
-        </article>)}</div><details className="library-info"><summary>集計について</summary><p>教材は、このグループに共有中の自分のセットと取り込んだセットの合計です。同じセットは1件で数えます。学習値は共有済みセットの最終反映時点の値です。「—」は未共有・未反映です。今週は月曜から日曜（日本時間）です。</p></details>
+        </article>)}</div>
         {canManage ? <details className="group-member-management"><summary>メンバーを管理</summary>{members.filter(member => member.role !== 'owner' && member.userId !== userId).map(member => <div key={member.userId}><span>{member.displayName}</span><button type="button" disabled={busy} onClick={() => onRemoveMember(member)}>メンバーから外す</button></div>)}</details> : null}
       </section>
     </div>

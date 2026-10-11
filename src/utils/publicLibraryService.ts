@@ -1,6 +1,12 @@
 import {publicLibraryRpc,mapProblemSetRow,getSharedProblemSet,getInstallationId,type CloudPublishResult} from './cloudService';
 import type {PublicFolder,PublicSet,PublicFilters} from './publicLibrary';
 import {publicFilterArgs} from './publicLibrary';
+import {restoreSelectedPublications} from './publicRepublish';
+
+export async function preparePublicRepublish(userId:string,selection:Parameters<typeof restoreSelectedPublications>[2]) {
+  const library=await readMyPublicLibrary(userId);
+  await restoreSelectedPublications(userId,library,selection,(action,id,metadata)=>managePublicFolder(userId,action,id,metadata));
+}
 export function parsePublicSet(row:Record<string,unknown>):PublicSet{return {...mapProblemSetRow(row),versionId:typeof row.version_id==='string'?row.version_id:undefined,standalonePublic:row.standalone_public===true,publicCatalog:row.public_catalog===true,deletedAt:typeof row.deleted_at==='string'?row.deleted_at:undefined,tags:Array.isArray(row.tags)?row.tags.map(String):[],memberPath:Array.isArray(row.member_path)?row.member_path as PublicSet['memberPath']:undefined};}
 export function parsePublicFolder(row:Record<string,unknown>):PublicFolder{return {id:String(row.id),ownerId:String(row.owner_id),localFolderId:typeof row.local_folder_id==='string'?row.local_folder_id:undefined,name:String(row.name),description:String(row.description??''),category:String(row.category??''),tags:Array.isArray(row.tags)?row.tags.map(String):[],authorName:String(row.author_name??''),published:row.published===true,deletedAt:typeof row.deleted_at==='string'?row.deleted_at:undefined,retainedSetCount:Number(row.retained_set_count??0),standaloneSetCount:Number(row.standalone_set_count??0),setCount:Number(row.set_count),questionCount:Number(row.question_count),importCount:Number(row.import_count),updatedAt:String(row.updated_at),members:Array.isArray(row.members)?row.members.map(item=>parsePublicSet(item as Record<string,unknown>)):undefined};}
 export async function searchPublicLibrary(query:string,filters:PublicFilters,offset=0){const row=await publicLibraryRpc('quiz_public_search',publicFilterArgs(query,filters,offset)) as Record<string,unknown>;if(!row||!Array.isArray(row.folders)||!Array.isArray(row.sets)||!Array.isArray(row.categories))throw new Error('公開一覧を確認できません。');return {folders:row.folders.map(item=>parsePublicFolder(item as Record<string,unknown>)),sets:row.sets.map(item=>parsePublicSet(item as Record<string,unknown>)),categories:row.categories.map(String)};}

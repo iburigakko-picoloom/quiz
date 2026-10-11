@@ -4,7 +4,7 @@ const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','1
 let browser,page;const errors=[],calls=[];
 try{
  await new Promise((r,j)=>{const timer=setTimeout(()=>j(Error('Server timeout')),15000);server.stdout.on('data',raw=>{if(raw.toString().includes('5176')){clearTimeout(timer);r();}});server.once('exit',code=>{clearTimeout(timer);j(Error('Server exit '+code));});});
- browser=await chromium.launch({channel:'chrome',headless:true});page=await browser.newPage({viewport:{width:390,height:844}});page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));
+ browser=await chromium.launch({channel:'chrome',headless:true});page=await browser.newPage({viewport:{width:390,height:844}});page.setDefaultTimeout(10000);page.setDefaultNavigationTimeout(30000);page.on('pageerror',e=>errors.push(e.message));
  const owner='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-000000000002',time='2026-10-08T00:00:00Z';
  const user={id:owner,aud:'authenticated',role:'authenticated',email:'fixture@example.test',is_anonymous:false,user_metadata:{},app_metadata:{},created_at:time},token=`${Buffer.from('{}').toString('base64url')}.${Buffer.from(JSON.stringify({sub:owner,exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')}.test`;
  await page.addInitScript(({user,token})=>localStorage.setItem('sb-public-preview-auth-token',JSON.stringify({user,access_token:token,refresh_token:'fixture-refresh',token_type:'bearer',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600})),{user,token});
@@ -58,20 +58,40 @@ try{
  await page.getByRole('button',{name:'戻る',exact:true}).click();await page.getByRole('button',{name:'このフォルダを取り込む'}).click();await page.getByRole('button',{name:'ここに取り込む'}).click();await page.waitForFunction(()=>document.body.dataset.importCount==='3');
  await page.getByRole('button',{name:'戻る',exact:true}).click();await page.getByRole('button',{name:'自分の公開',exact:true}).click();await page.getByRole('button',{name:'自分の公開フォルダの公開メニュー'}).waitFor();await page.screenshot({path:'tmp/public-discovery-screenshots/mine-390.png'});
  await page.getByRole('button',{name:'自分の公開フォルダの公開メニュー'}).click();await page.getByRole('button',{name:'フォルダ情報を編集'}).click();await page.getByLabel('フォルダ名',{exact:true}).fill('編集した公開フォルダ');await page.getByLabel('タグ',{exact:true}).fill('CBT,復習');await page.getByRole('button',{name:'保存する'}).click();await page.getByRole('button',{name:'編集した公開フォルダの公開メニュー'}).waitFor();
- await page.getByRole('button',{name:'＋ 公開する'}).click();await page.getByRole('button',{name:'フォルダを公開',exact:true}).click();await page.getByLabel('公開するフォルダ').selectOption('local-root');await page.getByLabel('カテゴリー・用途').fill('医学');await page.getByRole('button',{name:'公開する',exact:true}).click();await page.getByText('公開完了',{exact:true}).waitFor();await page.getByRole('button',{name:'自分の教材の公開メニュー'}).waitFor();assert.equal(sets.find(s=>s.id==='published-local-set').visibility,'link');
- await page.getByRole('button',{name:'自分の教材',exact:false}).first().click();await page.getByRole('button',{name:'公開用セットをフォルダから削除'}).click();await page.getByRole('button',{name:'実行する'}).click();await page.getByText('問題セットはまだありません。').waitFor();
- // Reversible delete UI, explicit legacy standalone choice and visible stale-confirmation errors.
+ await page.getByRole('button',{name:'＋ 公開する'}).click();await page.getByRole('button',{name:'フォルダを公開',exact:true}).click();await page.getByRole('radio',{name:/^自分の教材 1セット/}).check();await page.getByLabel('カテゴリー・用途').fill('医学');await page.getByRole('button',{name:'公開する',exact:true}).click();await page.getByText('公開完了',{exact:true}).waitFor();await page.getByRole('button',{name:'自分の教材の公開メニュー'}).waitFor();assert.equal(sets.find(s=>s.id==='published-local-set').visibility,'link');
+
+ await page.getByRole('button',{name:'自分の教材',exact:false}).first().click();
+ assert.equal(await page.getByRole('button',{name:'問題セットを追加',exact:true}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'外す',exact:true}).count(),0);
+ assert.ok(!(await page.locator('body').innerText()).includes('子フォルダ'));
  await page.getByRole('button',{name:'戻る',exact:true}).click();
- await page.getByRole('button',{name:'編集した公開フォルダの公開メニュー'}).click();await page.getByRole('button',{name:'公開から削除',exact:true}).click();
- const checkbox=page.getByRole('checkbox',{name:'単独公開中の1セットも削除する'});await checkbox.waitFor();assert.equal(await checkbox.isChecked(),false);await checkbox.check();
- assert.ok((await page.getByRole('dialog').innerText()).includes('元教材・学習履歴・グループ共有は残り'));
- await page.getByRole('button',{name:'実行する'}).click();await page.getByRole('dialog').getByRole('alert').waitFor();assert.ok((await page.getByRole('dialog').getByRole('alert').innerText()).includes('公開内容が変更'));
- await page.getByRole('dialog').getByRole('button',{name:'公開設定の確認を閉じる',exact:true}).click();await page.getByRole('button',{name:'編集した公開フォルダの公開メニュー'}).click();await page.getByRole('button',{name:'公開から削除',exact:true}).click();await page.getByRole('checkbox',{name:'単独公開中の1セットも削除する'}).check();
- await page.screenshot({path:'tmp/public-discovery-screenshots/delete-confirm-390.png'});await page.getByRole('button',{name:'実行する'}).click();await page.getByText('公開フォルダを削除しました。元教材と学習履歴は残っています。',{exact:true}).waitFor();await page.getByRole('button',{name:'編集した公開フォルダの公開メニュー'}).waitFor({state:'hidden'});assert.equal(await page.getByRole('button',{name:'編集した公開フォルダの公開メニュー'}).count(),0);
- await page.getByText('削除済みの公開',{exact:true}).click();await page.locator('.public-archive-row').filter({hasText:'編集した公開フォルダ'}).getByRole('button',{name:'非公開で復元'}).click();await page.getByRole('button',{name:'編集した公開フォルダの公開メニュー'}).waitFor();assert.equal(folders.find(f=>f.id==='own-folder').published,false);assert.equal(sets[2].standalone_public,false);assert.equal(await page.locator('body').getAttribute('data-import-count'),'3');
- // Set management preserves current imports and offers separate nonpublic restoration.
- await page.getByRole('tab',{name:'問題セット',exact:true}).click();const ownSet=sets.find(s=>s.id==='delete-ui-set');
- await page.getByRole('tab',{name:'フォルダ',exact:true}).click();await page.getByRole('tab',{name:'問題セット',exact:true}).click();await page.getByRole('button',{name:'削除確認セットの公開メニュー'}).waitFor();await page.getByRole('button',{name:'削除確認セットの公開メニュー'}).click();await page.getByRole('button',{name:'公開から削除',exact:true}).click();await page.getByRole('button',{name:'実行する'}).click();await page.getByText('公開から削除しました。元教材と学習履歴は残っています。',{exact:true}).waitFor();
- await page.getByText('削除済みの公開',{exact:true}).click();await page.locator('.public-archive-row').filter({hasText:'削除確認セット'}).getByRole('button',{name:'非公開で復元'}).click();await page.getByText('非公開で復元しました。公開する場合は公開先を選んでください。',{exact:true}).waitFor();assert.equal(ownSet.standalone_public,false);assert.equal(await page.locator('body').getAttribute('data-import-count'),'3');
- assert.deepEqual(errors,[]);console.log('Public discovery browser: 320/390/768px, search/filter, folder/set preview, new destination, hierarchy import, owner edit, independent folder publishing and removal passed');
+ await page.getByRole('button',{name:'自分の教材の公開メニュー'}).click();
+ await page.getByRole('button',{name:'含まれる問題セットを管理'}).click();
+ await page.getByRole('button',{name:'公開用セットをフォルダから削除'}).click();
+ await page.getByRole('button',{name:'実行する'}).click();
+ await page.getByRole('dialog').getByText('問題セットはまだありません。',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'フォルダ内の問題セットを閉じる',exact:true}).click();
+ await page.getByRole('button',{name:'自分の教材の公開メニュー'}).click();
+ await page.getByRole('button',{name:'公開から削除',exact:true}).click();
+ await page.getByRole('button',{name:'実行する'}).click();
+ await page.getByRole('dialog').getByRole('alert').waitFor();
+ assert.ok((await page.getByRole('dialog').getByRole('alert').innerText()).includes('公開内容が変更'));
+ await page.getByRole('button',{name:'公開設定の確認を閉じる',exact:true}).click();
+ await page.getByRole('button',{name:'自分の教材の公開メニュー'}).click();
+ await page.getByRole('button',{name:'公開から削除',exact:true}).click();
+ await page.getByRole('button',{name:'実行する'}).click();
+ await page.getByRole('button',{name:'自分の教材の公開メニュー'}).waitFor({state:'hidden'});
+ assert.equal(await page.getByText('削除済みの公開',{exact:true}).count(),0);
+ await page.getByRole('button',{name:'＋ 公開する'}).click();
+ await page.getByRole('button',{name:'フォルダを公開',exact:true}).click();
+ await page.getByRole('radio',{name:/^自分の教材 1セット/}).check();
+ assert.equal(await page.locator('.public-folder-choice.is-selected').count(),1);
+ await page.screenshot({path:'tmp/public-discovery-screenshots/folder-picker-390.png'});
+ await page.getByLabel('カテゴリー・用途').fill('医学');
+ await page.getByRole('button',{name:'公開する',exact:true}).click();
+ await page.getByRole('button',{name:'自分の教材の公開メニュー'}).waitFor();
+ assert.ok(calls.some(call=>call.name==='quiz_public_folder_manage'&&call.args.p_action==='restore'&&call.args.p_id==='new-folder'));
+ assert.equal(folders.find(folder=>folder.id==='new-folder').deleted_at,null);
+ assert.equal(await page.locator('body').getAttribute('data-import-count'),'3');
+ assert.deepEqual(errors,[]);console.log('Public discovery: responsive layouts, search/import, folder picker, mine-only management, conflict handling and direct republishing passed');
 }catch(error){if(page)console.error((await page.locator('body').innerText()).slice(0,5000));throw error;}finally{await browser?.close();server.kill();}
