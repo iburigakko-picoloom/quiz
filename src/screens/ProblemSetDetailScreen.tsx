@@ -144,6 +144,10 @@ export function ProblemSetDetailScreen({
           <div className="quiz-detail__main-column">
             <section className="quiz-detail__summary" aria-label="学習状況">
               <div className="quiz-detail__metric">
+                <span>問題数</span>
+                <strong>{questions.length}</strong>
+              </div>
+              <div className="quiz-detail__metric">
                 <span>{'\u5fa9\u7fd2'}</span>
                 <strong>{allReviewQuestions.length}</strong>
               </div>
@@ -151,7 +155,7 @@ export function ProblemSetDetailScreen({
                 <span>Level 3到達率</span>
                 <strong>{levelThreeRate}%</strong>
               </div>
-              <div className="quiz-detail__level-summary"><h2>進捗</h2><LevelProgress levels={levels} mockup showCounts={false} /></div>
+              <div className="quiz-detail__level-summary"><h2>進捗</h2><LevelProgress levels={levels} mockup /></div>
             </section>
             <section className="quiz-detail__start-panel" aria-labelledby="quiz-detail-start-title">
               <h2 id="quiz-detail-start-title" className="sr-only">出題条件と学習開始</h2>

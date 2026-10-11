@@ -591,22 +591,24 @@
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-action--review small{border-radius:20px;background:#fff;padding:3px 8px;font-size:12px}
 
 /* Compact detail controls; keep scrolling chips within the page gutter. */
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column{min-width:0;padding:16px 16px max(24px,var(--safe-bottom,0px))}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__summary{grid-template-columns:repeat(2,minmax(0,1fr));border-radius:0;padding:12px 10px;box-shadow:none}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric{gap:4px;padding:0 4px}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric:nth-child(2){border-right:0}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column{min-width:0;padding:8px 16px max(24px,var(--safe-bottom,0px))}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__summary{grid-template-columns:repeat(3,minmax(0,1fr));border-radius:10px;padding:10px;box-shadow:none}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric{gap:4px;padding:0 4px;min-height:40px}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric:nth-child(3){border-right:0}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric strong{font-size:22px}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric:first-child strong{color:#d94f64}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric:nth-child(2) strong{color:var(--ui-text,#173042)}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric:first-child strong{color:var(--ui-text,#173042)}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric:nth-child(2) strong{color:#d94f64}
 .quiz-detail.quiz-detail--reference .quiz-detail__level-summary{margin-top:12px;padding-top:10px}
 .quiz-detail.quiz-detail--reference .quiz-detail__level-summary h2{margin-bottom:8px}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__bar{border-radius:0}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__bar{border-radius:5px}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__segments{margin:0;min-width:0;max-width:100%;padding:2px 1px 6px}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__segment-item{height:36px;min-height:36px;padding:6px 12px;border-radius:0;font-size:12px}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-action{min-height:46px;padding:10px 8px;border-radius:0}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-action--review{min-height:52px}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-action--review small{border-radius:0}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__segment-item{height:36px;min-height:36px;padding:6px 12px;border-radius:6px;font-size:12px}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-action{min-height:44px;padding:8px;border-radius:8px}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-action--review{min-height:44px}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-action--review small{border-radius:6px}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__entry-grid{margin-top:24px}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__entry-grid .quiz-detail__list-entry{min-height:72px;gap:8px;border-radius:0;box-shadow:none}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__entry-grid .quiz-detail__list-entry{min-height:72px;gap:8px;border-radius:10px;box-shadow:none}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__list-entry svg{padding:8px}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__completion-row{margin-top:20px}
+
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-actions{margin-top:10px;gap:8px}

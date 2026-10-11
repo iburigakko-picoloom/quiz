@@ -20,8 +20,8 @@ try{
  await mkdir('tmp/latest-mockup-screenshots',{recursive:true});
  await page.goto('http://127.0.0.1:5178/quiz/tests/browser/latest-mockup-preview.html');await page.getByRole('heading',{name:'脳神経',exact:true}).waitFor();
  assert.equal(await page.locator('.quiz-detail__filters summary').count(),0);
- assert.equal(await page.locator('.quiz-detail__summary svg,.level-progress__legend small').count(),0);await page.getByRole('heading',{name:'進捗',exact:true}).waitFor();
- assert.deepEqual(await page.locator('.quiz-detail__metric strong').allTextContents(),['110','0%']);
+ assert.equal(await page.locator('.quiz-detail__summary svg').count(),0);assert.equal(await page.locator('.level-progress__legend small').count(),4);await page.getByRole('heading',{name:'進捗',exact:true}).waitFor();
+ assert.deepEqual(await page.locator('.quiz-detail__metric strong').allTextContents(),['267','110','0%']);
  assert.equal(await page.locator('.quiz-detail__completion-row').evaluate(el=>Boolean(document.querySelector('.quiz-detail__body').compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING)),true);
  for(const width of [320,390]){
    await page.setViewportSize({width,height:866});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
@@ -30,7 +30,8 @@ try{
    }
    assert.equal(await page.locator('.quiz-detail__segment-item').first().evaluate(el=>el.getBoundingClientRect().height),36);
    assert.equal(await page.locator('.quiz-detail__entry-grid').evaluate(el=>el.getBoundingClientRect().top-document.querySelector('.quiz-detail__start-action--review').getBoundingClientRect().bottom>=24),true);
-   assert.equal(await page.locator('.quiz-detail__summary').evaluate(el=>getComputedStyle(el).borderRadius),'0px');
+   assert.equal(await page.locator('.quiz-detail__summary').evaluate(el=>getComputedStyle(el).borderRadius),'10px');
+   for(const button of await page.locator('.quiz-detail__start-action').all())assert.equal(await button.evaluate(el=>el.getBoundingClientRect().height),44);
    await page.screenshot({path:`tmp/latest-mockup-screenshots/detail-${width}.png`});
  }
  await page.getByRole('button',{name:'Level 1',exact:true}).click();await page.getByRole('button',{name:'登録順で解く',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-session')).count,75);
