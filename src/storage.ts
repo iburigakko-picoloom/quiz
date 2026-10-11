@@ -118,7 +118,7 @@ export function saveAppData(data: AppData): Promise<boolean> {
 }
 
 /** A per-call result keeps concurrent saves' failure reasons separate. */
-export async function saveAppDataResult(data: AppData, options: { questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[] } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
+export async function saveAppDataResult(data: AppData, options: { questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[]; materialRecords?:Record<string,string> } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
   let failure: AppSaveFailure | undefined;
   const saved = await saveAppDataAsync(data, { ...options, onFailure: value => { failure = value; } });
   return saved ? { ok: true } : { ok: false, failure: failure ?? appSaveFailure([{ stage: 'indexeddb', error: new Error() }]) };
@@ -137,14 +137,14 @@ export function establishCurrentAppDataAuthority(): boolean {
 
 export async function saveAppDataAsync(
   data: AppData,
-  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[] } = {},
+  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[]; materialRecords?:Record<string,string> } = {},
 ): Promise<boolean> {
-  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds);
+  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds,options.materialRecords);
   const queuedSave = appSaveQueue
     .catch(() => true)
     .then(async () => {
       try {
-        return await withCoordinatedDataMutation(['app'], () => saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds));
+        return await withCoordinatedDataMutation(Object.keys(options.materialRecords??{}).length?['app','notes']:['app'], () => saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds,options.materialRecords));
       } catch (error) {
         console.error('Refused to overwrite app data changed in another tab.', error);
         try { options.onFailure?.(appSaveFailure([{ stage: 'coordination', error }])); } catch { /* Informational only. */ }
@@ -163,9 +163,23 @@ export async function waitForPendingAppDataSaves(): Promise<boolean> {
   }
 }
 
-async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailure) => void, imageCopies: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange, materialReferenceQuestionIds: readonly string[] = []): Promise<boolean> {
+async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailure) => void, imageCopies: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange, materialReferenceQuestionIds: readonly string[] = [],materialRecords:Record<string,string>={}): Promise<boolean> {
   const savedAt = new Date().toISOString();
   const attempts: Array<{ stage: 'indexeddb' | 'fallback'; error: unknown }> = [];
+  if(Object.keys(materialRecords).length){
+    try{
+      const {validMaterialRecord,materialFileEntry}=await import('./utils/materialModel');
+      for(const [key,raw] of Object.entries(materialRecords)){
+        const value=JSON.parse(raw);
+        if(!validMaterialRecord(value)||!(value.kind==='quiz-material-index'?key===`quizMake:notes:${value.problemSetId}:__materials_v1`&&data.problemSets.some(s=>s.id===value.problemSetId):materialFileEntry(key,raw)?.kind==='quiz-material-file'))throw new Error('取り込む資料の形式を確認できません。');
+      }
+      const {assertMaterialIntegrity}=await import('./utils/syncDataIntegrity');
+      const {exportCategoryNotesRaw}=await import('./utils/noteStorage');
+      const notes=await exportCategoryNotesRaw({coordinationLockHeld:true});
+      const setIds=new Set(Object.values(materialRecords).map(raw=>JSON.parse(raw)).filter(value=>value.kind==='quiz-material-index').map(value=>value.problemSetId));
+      assertMaterialIntegrity({localStorage:{},indexedDbNotes:{...notes,...materialRecords}},{...data,questions:data.questions.filter(q=>setIds.has(q.setId))},false);
+    }catch(error){try{onFailure?.(appSaveFailure([{stage:'validation',error}]));}catch{}return false;}
+  }
   if(materialReferenceQuestionIds.length){
     try{
       // Runs inside the same origin lock as deletion, immediately before the
@@ -180,7 +194,7 @@ async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailur
       return false;
     }
   }
-  if (answerChange && !imageCopies.length && isIndexedDbAvailable() && !getLocalFallbackRecord().raw) {
+  if (answerChange && !imageCopies.length && !Object.keys(materialRecords).length && isIndexedDbAvailable() && !getLocalFallbackRecord().raw) {
     try {
       if (await saveAnswerRecordChanges(await openAppDb(), data, savedAt, answerChange)) {
         markAppDataExpectedBestEffort(savedAt);
@@ -204,7 +218,7 @@ async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailur
   }
   if (isIndexedDbAvailable() && !attempts.length) {
     try {
-      await saveAppRecords(await openAppDb(), normalized.data, savedAt, getLocalFallbackRecord, imageCopies);
+      await saveAppRecords(await openAppDb(), normalized.data, savedAt, getLocalFallbackRecord, imageCopies,undefined,true,materialRecords);
       markAppDataExpectedBestEffort(savedAt);
       await cleanupLegacyAppData();
       advanceLocalDataRevision();
@@ -216,7 +230,7 @@ async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailur
   }
 
   // A native fallback cannot include the Blob half of an atomic image copy.
-  if(imageCopies.length){
+  if(imageCopies.length||Object.keys(materialRecords).length){
     try { onFailure?.(appSaveFailure(attempts.length?attempts:[{stage:'indexeddb',error:new Error('画像の保存領域を利用できません。')}])); } catch { /* Informational only. */ }
     return false;
   }

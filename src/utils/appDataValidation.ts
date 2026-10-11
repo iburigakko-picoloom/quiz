@@ -87,6 +87,8 @@ function normalizeFolders(values: unknown[]): NormalizationResult<Folder[]> {
       ...(isFolderColor(value.color) ? { color: value.color } : {}),
       name: typeof value.name === 'string' ? value.name : '',
       ...(isNonEmptyString(value.parentFolderId) ? { parentFolderId: value.parentFolderId } : {}),
+      ...(isNonEmptyString(value.sourceGroupId)?{sourceGroupId:value.sourceGroupId}:{}),
+      ...(isNonEmptyString(value.sourceGroupFolderKey)?{sourceGroupFolderKey:value.sourceGroupFolderKey}:{}),
       ...(isNonEmptyString(value.sourcePublicFolderId)?{sourcePublicFolderId:value.sourcePublicFolderId}:{}),
       ...(isNonEmptyString(value.sourcePublicFolderOwnerId)?{sourcePublicFolderOwnerId:value.sourcePublicFolderOwnerId}:{}),
       ...(isNonEmptyString(value.sourcePublicChildId)?{sourcePublicChildId:value.sourcePublicChildId}:{}),

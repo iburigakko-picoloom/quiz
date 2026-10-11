@@ -20,6 +20,7 @@ import { PlansScreen } from './screens/PlansScreen';
 import { PlanEditorScreen } from './screens/PlanEditorScreen';
 import { questionRevision } from './utils/studyPlans';
 import {planPublicImport} from './utils/publicImport';
+import {hydratePublishedMaterials} from './utils/publicationMaterialService';
 import {applyPublishedSource} from './utils/groupStudySource';
 import type {PublicSet} from './utils/publicLibrary';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
@@ -408,7 +409,7 @@ export default function App() {
     return saved;
   };
 
-  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange, materialReferenceQuestionIds?: readonly string[]): Promise<boolean> => {
+  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange, materialReferenceQuestionIds?: readonly string[],materialRecords?:Record<string,string>): Promise<boolean> => {
     if (libraryMutationBusyRef.current) {
       setStorageError('削除処理が完了するまでお待ちください。');
       return false;
@@ -419,7 +420,7 @@ export default function App() {
     // Reserve the next snapshot immediately. Any action taken while this durable
     // save is pending will now build on top of it instead of an older snapshot.
     dataRef.current = nextData;
-    const saveResult = await saveAppDataResult(nextData, { questionImages, answerChange, materialReferenceQuestionIds });
+    const saveResult = await saveAppDataResult(nextData, { questionImages, answerChange, materialReferenceQuestionIds,materialRecords });
     const saved = saveResult.ok;
     if (!saved) {
       if (dataRevisionRef.current === revision) {
@@ -1013,98 +1014,19 @@ export default function App() {
     return null;
   };
 
-  const handleCopySharedProblemSet = async (sharedSet: CloudProblemSet, targetFolderId: string): Promise<string | null> => {
-    const importedQuestions = sharedSet.questions ?? [];
-    if (importedQuestions.length === 0) {
-      setStorageError('追加できる問題がありません。');
-      return null;
-    }
-    if (importedQuestions.some((question) => question.choices.length < 4 || question.choices.length > 5 || question.answerIndexes.length === 0)) {
-      setStorageError('共有された問題セットの形式を確認できませんでした。');
-      return null;
-    }
-
-    const timestamp = nowIso();
-    const current = dataRef.current;
-    if (!current.folders.some((folder) => folder.id === targetFolderId)) {
-      setStorageError('取り込み先のフォルダが見つかりません。選び直してください。');
-      return null;
-    }
-    const folders = current.folders.map((folder) => folder.id === targetFolderId ? { ...folder, updatedAt: timestamp } : folder);
-    const existingCopy = sharedSet.versionId ? current.problemSets.find(set => set.sourceSetId === sharedSet.id && set.sourceVersionId === sharedSet.versionId && set.folderId === targetFolderId) : undefined;
-    if (existingCopy && current.questions.filter(q => q.setId === existingCopy.id).length === importedQuestions.length && current.questions.filter(q => q.setId === existingCopy.id).every(q => q.origin && questionRevision(q) === q.origin.importedContent)) return existingCopy.id;
-    const setId = createId('set');
-    const problemSet: ProblemSet = {
-      id: setId,
-      folderId: targetFolderId,
-      title: makeUniqueProblemSetTitle(current, targetFolderId, sharedSet.title),
-      source: sharedSet.source,
-      description: sharedSet.description,
-      subject: sharedSet.subject,
-      audience: sharedSet.audience,
-      difficulty: sharedSet.difficulty,
-      creationMethod: 'public-copy',
-      visibility: 'private',
-      sourceSetId: sharedSet.id,
-      sourceVersionId: sharedSet.versionId,
-      sourceManifest: sharedSet.versionId && importedQuestions.every(q => q.logicalId && q.contentRevision) ? importedQuestions.map(q => ({ logicalId: q.logicalId!, contentRevision: q.contentRevision! })) : undefined,
-      sourceOwnerId: sharedSet.ownerId,
-      sourceOwnerName: sharedSet.authorName,
-      copiedAt: timestamp,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    const questions: Question[] = importedQuestions.map((question) => {
-      const answerIndexes = [...new Set(question.answerIndexes)].filter((index) => index >= 0 && index < question.choices.length);
-      const imported: Question = {
-        logicalId: question.logicalId,
-        id: createId('q'),
-        setId,
-        question: question.question,
-        choices: question.choices.slice(0, 5) as Question['choices'],
-        distractors: question.distractors ? [...question.distractors] : undefined,
-        shuffleChoices: question.shuffleChoices,
-        answerIndex: answerIndexes[0] ?? 0,
-        answerIndexes,
-        answerText: question.answerText || answerIndexes.map((index) => question.choices[index]).filter(Boolean).join(' / '),
-        explanation: question.explanation,
-        detailedExplanation: question.detailedExplanation,
-        sourcePage: question.sourcePage,
-        category: question.category || '未分類',
-        difficulty: question.difficulty,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      if (sharedSet.versionId && question.logicalId && question.contentRevision) imported.origin = { setId: sharedSet.id, logicalId: question.logicalId, publicationVersionId: sharedSet.versionId, contentRevision: question.contentRevision, importedContent: questionRevision(imported) };
-      return imported;
-    });
-    const saved = await persistThenCommitData({
-      ...current,
-      folders,
-      problemSets: [problemSet, ...current.problemSets],
-      questions: [...questions, ...current.questions],
-      progress: [...current.progress, ...questions.map((question) => ({
-        questionId: question.id,
-        answeredCount: 0,
-        correctCount: 0,
-        wrongCount: 0,
-        lastSelectedIndex: null,
-        lastAnswerCorrect: null,
-        lastAnsweredAt: null,
-        isReview: false,
-        isAmbiguous: false,
-        reviewLevel: null,
-        isGraduated: false,
-      }))],
-    });
-    return saved ? setId : null;
+  const handleCopySharedProblemSet = async (sharedSet: CloudProblemSet, targetFolderId: string,token=''): Promise<string | null> => {
+    const [hydrated]=await hydratePublishedMaterials([sharedSet],token);
+    const plan=planPublicImport(dataRef.current,[{...hydrated,standalonePublic:false,tags:[]}],{targetId:targetFolderId});
+    if(!await persistThenCommitData(plan.data,[],undefined,undefined,plan.materialRecords))return null;
+    return plan.imported[0].localId;
   };
-
   const handleImportPublicLibrary=async(sets:PublicSet[],options:Parameters<typeof planPublicImport>[2])=>{
-    const plan=planPublicImport(dataRef.current,sets,options);
-    if(!await persistThenCommitData(plan.data))throw new Error('取り込みを端末に保存できませんでした。元のデータは保持しています。');
+    const hydrated=await hydratePublishedMaterials(sets);
+    const plan=planPublicImport(dataRef.current,hydrated,options);
+    if(!await persistThenCommitData(plan.data,[],undefined,undefined,plan.materialRecords))throw new Error('取り込みを端末に保存できませんでした。元のデータは保持しています。');
     return plan;
   };
+
 
   const handlePracticeSharedProblemSet = (sharedSet: CloudProblemSet): void => {
     const timestamp = nowIso();

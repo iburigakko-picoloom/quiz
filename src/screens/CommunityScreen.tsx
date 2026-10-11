@@ -70,7 +70,7 @@ interface CommunityScreenProps {
   onCreateProblemSet: () => void;
   onOpenGroup: (groupId: string) => void;
   onOpenLocalSet: (setId: string) => void;
-  onCopySharedSet: (set: CloudProblemSet, folderId: string) => Promise<string | null>;
+  onCopySharedSet: (set: CloudProblemSet, folderId: string,token?:string) => Promise<string | null>;
   onPracticeSharedSet: (set: CloudProblemSet) => void;
   onPublished: (localSetId: string, result: CloudPublishResult) => Promise<void>;
   onUnpublished: (localSetId: string) => Promise<void>;
@@ -470,7 +470,7 @@ export function CommunityScreen({
     setCopyError('');
     try {
       const detail = summary.questions ? summary : await getSharedProblemSet(summary.id, token);
-      const localSetId = await onCopySharedSet(detail, copyFolderId);
+      const localSetId = await onCopySharedSet(detail, copyFolderId,token);
       if (localSetId) {
         await recordCloudCopy(detail.id, localSetId).catch(() => undefined);
         setDirectSet((current) => current?.id === detail.id ? { ...current, addCount: current.addCount + 1 } : current);

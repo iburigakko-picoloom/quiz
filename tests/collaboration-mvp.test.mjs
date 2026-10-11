@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import {planPublicImport} from '../src/utils/publicImport.ts';
 
 const [appSource, screenSource, serviceSource, typesSource, validationSource, collaborationMigration, groupManagementMigration, accountDeletionMigration, reportReasonsMigration] = await Promise.all([
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
@@ -30,11 +31,10 @@ test('practicing a public preview does not mutate the local learning history', (
   assert.doesNotMatch(previewAnswerBody, /commitData|persistThenCommitData|recordAnswer/);
 });
 test('a copied cloud set gets new local ids and source attribution', () => {
-  assert.match(appSource, /const setId = createId\('set'\)/);
-  assert.match(appSource, /id: createId\('q'\)/);
-  assert.match(appSource, /creationMethod: 'public-copy'/);
-  assert.match(appSource, /sourceSetId: sharedSet\.id/);
-  assert.match(appSource, /sourceOwnerName: sharedSet\.authorName/);
+  const source={id:'cloud-source',ownerId:'owner',authorName:'Author',title:'Shared set',questionCount:1,questions:[{logicalId:'source-question',question:'Q',choices:['A','B','C','D'],answerIndexes:[0]}]};
+  const before=structuredClone(source),plan=planPublicImport({version:1,folders:[],problemSets:[],questions:[],progress:[],answerLogs:[]},[source],{newFolderName:'Imported'}),copy=plan.data.problemSets[0];
+  assert.notEqual(copy.id,source.id);assert.notEqual(plan.data.questions[0].id,source.questions[0].logicalId);assert.equal(plan.data.questions[0].setId,copy.id);
+  assert.equal(copy.creationMethod,'public-copy');assert.equal(copy.sourceSetId,source.id);assert.equal(copy.sourceOwnerName,source.authorName);assert.deepEqual(source,before);
 });
 
 test('publishing sends only set content, never progress or answer logs', () => {

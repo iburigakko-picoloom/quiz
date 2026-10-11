@@ -231,6 +231,7 @@ export async function saveAppRecords(
   imageCopies: readonly PreparedQuestionImageCopy[] = [],
   extraCommit?: (transaction: IDBTransaction) => void,
   userEdit = true,
+  materialRecords: Record<string,string> = {},
 ): Promise<void> {
   const started = performance.now();
   const readTx = db.transaction('appRecordMeta', 'readonly');
@@ -277,6 +278,12 @@ export async function saveAppRecords(
     liveKeys.add(key);
     changes.push({key,collection:'questionImages',id:image.id,raw:JSON.stringify(descriptor),position:0,serverRevision:0,localRevision:revision});
   }
+  for(const [id,raw] of Object.entries(materialRecords)){
+    const key=appRecordKey('indexedDbNotes',id);
+    // Import only creates fresh material identities. Never overwrite local ink.
+    if(rows.has(key))throw new Error('取り込み先の資料がすでに存在します。もう一度取り込んでください。');
+    changes.push({key,collection:'indexedDbNotes',id,raw,position:0,serverRevision:0,localRevision:revision});
+  }
   if (previous && changes.length === 0 && !extraCommit) { recordSyncMetric('recordSaveUnchanged'); return; }
   const nextState: AppRecordState = { schema: 1, revision, commitId: crypto.randomUUID(), savedAt, counts };
   const fallback = !previous ? migrationFallback?.() : undefined;
@@ -292,6 +299,11 @@ export async function saveAppRecords(
   check.onsuccess = () => {
     try {
     if (check.result?.commitId !== previous?.state.commitId) { conflict = true; tx.abort(); return; }
+    for(const [id,raw] of Object.entries(materialRecords)){
+      const existing=tx.objectStore('categoryNotes').get(id);
+      existing.onsuccess=()=>{if(existing.result!==undefined){conflict=true;tx.abort();return;}tx.objectStore('categoryNotes').put(raw,id);};
+      if(/"kind"\s*:\s*"quiz-material-file"/u.test(raw))tx.objectStore('appRecordMeta').put(1,'recordMediaPresent');
+    }
     for(const {image,descriptor,source} of imageCopies){
       const sourceBlob=tx.objectStore('questionImageBlobs').get(source.id);
       sourceBlob.onsuccess=()=>{

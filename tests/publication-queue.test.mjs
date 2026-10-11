@@ -91,3 +91,10 @@ test('a job queued while the preceding batch is finishing starts without reopeni
   await queue.enqueue([{payload:payload('second',4)}]);release();await preceding;await queue.run();
   assert.deepEqual(applied,['first','second']);assert.deepEqual(queue.jobs.map(job=>job.state),['completed','completed']);
 });
+
+test('PDF transfer failure stays retryable and does not stop other set publications',async()=>{
+ const owner={...identity,userId:'pdf-transfer'},repository=publicationRepository(owner),scope=publicationScope(owner),server=mockServer();let fail=true;
+ const queue=new PublicationQueue({repository,scope,rpc:server.rpc,prepare:async payload=>{if(payload.p_set.title==='PDF'&&fail)throw new PublicationError('PDF transfer interrupted','network',true);},apply:async()=>{}});
+ const [id]=await queue.enqueue([{payload:payload('PDF',4)},{payload:payload('Other',4)}]);await queue.run();assert.equal(queue.jobs.find(job=>job.id===id).state,'failed');assert.equal(queue.jobs.find(job=>job.id===id).retryable,true);assert.equal(server.counts.commits,1);
+ fail=false;await queue.retry(id);await queue.run();assert.equal(queue.jobs.find(job=>job.id===id).state,'completed');assert.equal(server.counts.commits,2);
+});

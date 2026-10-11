@@ -10,8 +10,8 @@ export function LibraryTags({tags,limit}:{tags:string[];limit?:number}){
 export function LibraryArtwork({folder=false}:{folder?:boolean}){
   return <span className="public-artwork">{folder?<FolderOutlineIcon size={45}/>:<ProblemSetIcon size={40}/>}</span>;
 }
-export function LibraryCounts({questions,people,sets}:{questions:number;people?:number;sets?:number}){
-  return <span className="public-counts">{sets!==undefined?<span>{sets.toLocaleString('ja-JP')}セット</span>:null}<span>{questions.toLocaleString('ja-JP')}問</span>{typeof people==='number'?<span><GroupIcon size={16}/>{people.toLocaleString('ja-JP')}人</span>:null}</span>;
+export function LibraryCounts({questions,people,sets,pdfs}:{questions:number;people?:number;sets?:number;pdfs?:number}){
+  return <span className="public-counts">{sets!==undefined?<span>{sets.toLocaleString('ja-JP')}セット</span>:null}<span>{questions.toLocaleString('ja-JP')}問</span>{pdfs?<span>PDF {pdfs}件</span>:null}{typeof people==='number'?<span><GroupIcon size={16}/>{people.toLocaleString('ja-JP')}人</span>:null}</span>;
 }
 export function PublicLibraryRow({item,onOpen,actions,simple=false}:{item:PublicFolder|PublicSet;onOpen:()=>void;actions?:ReactNode;simple?:boolean}){
   const folder='name' in item;

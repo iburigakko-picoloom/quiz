@@ -6,6 +6,7 @@ import {publicationRepository,publicationScope,type PublicationJob} from '../uti
 import {PublicationQueue} from '../utils/publicationQueue';
 import type {PublicationPayload} from '../utils/publicationPayload';
 import {assertAccountNetworkCurrent} from '../utils/accountStorage';
+import {attachPublicationMaterials,uploadPublicationMaterials} from '../utils/publicationMaterialService';
 const queues=new Map<string,PublicationQueue>();
 export function usePublicationQueue(userId:string,onPublished:(id:string,result:CloudPublishResult,source?:PublicationSource)=>Promise<void>) {
   const callback=useRef(onPublished);callback.current=onPublished;
@@ -14,7 +15,7 @@ export function usePublicationQueue(userId:string,onPublished:(id:string,result:
   const scope=userId?publicationScope(publicationIdentity(userId)):'';
   useEffect(()=>{
     queueRef.current=null;if(!scope)return;
-    let queue=queues.get(scope);if(!queue){queue=new PublicationQueue({scope,repository:publicationRepository(publicationIdentity(userId)),rpc:(name,args)=>publicationRpc(name,args,userId),apply:async()=>{}});queues.set(scope,queue);}
+    let queue=queues.get(scope);if(!queue){queue=new PublicationQueue({scope,repository:publicationRepository(publicationIdentity(userId)),rpc:(name,args)=>publicationRpc(name,args,userId),prepare:payload=>uploadPublicationMaterials(payload,userId),apply:async()=>{}});queues.set(scope,queue);}
     queue.dependencies.apply=async(job,result)=>{
       assertAccountNetworkCurrent(publicationIdentity(userId));
       const payload=await queue!.dependencies.repository.payload(job.id),shared=await getSharedProblemSet(result.id);
@@ -32,6 +33,8 @@ export function usePublicationQueue(userId:string,onPublished:(id:string,result:
     return stop;
   },[scope,userId]);
   return {jobs:state.scope===scope?state.jobs:[],running:state.scope===scope&&state.running,revision:state.scope===scope?state.revision:0,error:state.scope===scope?state.error:'',
-    enqueue:async(rows:{payload:PublicationPayload;groupFolderId?:string;groupId?:string;publicFolderId?:string;publicFolderPath?:import('../utils/sharedFolders').SharedFolderPart[];preparationError?:string}[])=>{const queue=queueRef.current;if(!queue||queue.dependencies.scope!==scope)throw new Error('公開アカウントが変わりました。画面を開き直してください。');return queue.enqueue(rows);},
+    enqueue:async(rows:{payload:PublicationPayload;groupFolderId?:string;groupId?:string;publicFolderId?:string;publicFolderPath?:import('../utils/sharedFolders').SharedFolderPart[];preparationError?:string}[])=>{const queue=queueRef.current;if(!queue||queue.dependencies.scope!==scope)throw new Error('公開アカウントが変わりました。画面を開き直してください。');
+      const prepared=[];for(const row of rows){assertAccountNetworkCurrent(publicationIdentity(userId));try{prepared.push(row.preparationError?row:{...row,payload:await attachPublicationMaterials(row.payload,userId)});}catch(error){assertAccountNetworkCurrent(publicationIdentity(userId));prepared.push({...row,preparationError:error instanceof Error?error.message:'PDFの公開準備に失敗しました。'});}}
+      assertAccountNetworkCurrent(publicationIdentity(userId));return queue.enqueue(prepared);},
     retry:(id:string)=>queueRef.current?.dependencies.scope===scope?queueRef.current.retry(id):undefined,cancelForSet:(id:string)=>queueRef.current?.dependencies.scope===scope?queueRef.current.cancelForSet(id):undefined,cancelForFolder:(id:string)=>queueRef.current?.dependencies.scope===scope?queueRef.current.cancelForFolder(id):undefined};
 }

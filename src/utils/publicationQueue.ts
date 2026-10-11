@@ -2,7 +2,7 @@ import type {CloudPublishResult} from './cloudService';
 import type {PublicationPayload} from './publicationPayload';
 import {publicationDigest,publicationFailure,publicationId,publicationResult,parsePublicationStatus,PublicationError,uploadPublication,type PublicationTransport} from './publicationProtocol';
 import type {PublicationJob,PublicationRepository} from './publicationStorage';
-export interface PublicationQueueDependencies {repository:PublicationRepository;scope:string;rpc:PublicationTransport;apply:(job:PublicationJob,result:CloudPublishResult)=>Promise<void>}
+export interface PublicationQueueDependencies {repository:PublicationRepository;scope:string;rpc:PublicationTransport;prepare?:(payload:PublicationPayload)=>Promise<void>;apply:(job:PublicationJob,result:CloudPublishResult)=>Promise<void>}
 export class PublicationQueue {
   jobs:PublicationJob[]=[];running=false;revision=0;error='';private listeners=new Set<()=>void>();private task:Promise<void>|null=null;private cancelled=new Set<string>();private creationClock=0;private rerun=false;
   readonly dependencies:PublicationQueueDependencies;
@@ -26,6 +26,8 @@ export class PublicationQueue {
     const work=async()=>{this.running=true;this.error='';this.emit();try {
       for(;;){const jobs=await this.dependencies.repository.list();let job=jobs.find(job=>job.state==='queued'||job.state==='completed'&&!job.applied&&!job.warning);if(!job)break;
         try {if(!job.result){await this.save(job={...job,state:'publishing',error:undefined});const payload=await this.dependencies.repository.payload(job.id);
+          if(await publicationDigest(payload)!==job.digest)throw new PublicationError('保存した公開データを確認できません。公開設定を確認してやり直してください。','snapshot',false);
+          await this.dependencies.prepare?.(payload);
           const result=await uploadPublication(payload,job.id,job.digest,this.dependencies.rpc,async progress=>{await this.save(job={...job!,...progress,uploaded:progress.phase==='preparing'?job!.uploaded:progress.uploaded});});
           await this.save(job={...job,state:'completed',phase:'completed',uploaded:job.total,result,applied:false});
         }

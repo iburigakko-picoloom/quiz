@@ -19,6 +19,8 @@ export interface AppData {
 export type FolderColor = 'blue' | 'teal' | 'green' | 'orange' | 'red' | 'pink' | 'purple' | 'gray';
 
 export interface Folder {
+  sourceGroupId?: string;
+  sourceGroupFolderKey?: string;
   sourcePublicFolderId?: string;
   sourcePublicFolderOwnerId?: string;
   sourcePublicChildId?: string;

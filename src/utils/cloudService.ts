@@ -9,6 +9,8 @@ import { lineWebLoginQuery } from './linePwaLogin';
 import { localFolderPath, type SharedFolderPart } from './sharedFolders';
 import type { AppData, ProblemSetVisibility } from '../types';
 import {prepareLocalPublication,type LocalPublicationOptions} from './publicationPayload';
+import {parsePublishedMaterials} from './publicationMaterials';
+import {normalizeMaterialReferences} from './materialModel';
 import {publicationDigest,publicationId,publicationFailure,uploadPublication,type PublicationProgress,type PublicationRpcName} from './publicationProtocol';
 import {
   beginNativeAuthAttempt,
@@ -81,6 +83,7 @@ export { onNativeAuthResult };
 export type { NativeAuthResultEvent, NativeAuthReturnTarget };
 
 export interface CloudQuestion {
+  materialReferences?: import('../types').MaterialReference[];
   logicalId?: string;
   contentRevision?: string;
   distractors?: string[];
@@ -97,6 +100,9 @@ export interface CloudQuestion {
 }
 
 export interface CloudProblemSet {
+  materials?: import('./publicationMaterials').PublishedMaterial[];
+  /** Verified PDF bodies, held only while preparing a local copy. */
+  materialFiles?: Record<string,string>;
   importCount?: number;
   versionId?: string;
   folderPath?: SharedFolderPart[];
@@ -283,9 +289,11 @@ export async function getCloudDisplayName(): Promise<string> {
 }
 
 export async function publishLocalProblemSet(params:LocalPublicationOptions & {operationId?:string;onProgress?:(value:PublicationProgress)=>void}):Promise<CloudPublishResult> {
-  const payload=prepareLocalPublication(params);
+  let payload=prepareLocalPublication(params);
   if(!payload.p_questions.length)throw new Error('問題がないセットは共有できません。');
   const access=await getCloudAccessToken();if(!access.ok)throw publicationFailure('account');
+  const {attachPublicationMaterials,uploadPublicationMaterials}=await import('./publicationMaterialService');
+  payload=await attachPublicationMaterials(payload,access.userId);await uploadPublicationMaterials(payload,access.userId);
   return uploadPublication(payload,params.operationId??publicationId(),await publicationDigest(payload),(name,args)=>publicationRpc(name,args,access.userId),params.onProgress);
 }
 
@@ -527,6 +535,7 @@ export async function publicLibraryRpc(name:'quiz_public_search'|'quiz_public_fo
 
 function mapProblemSetJson(value: Record<string, unknown>): CloudProblemSet {
   const result = mapProblemSetRow(value);
+  if (value.materials !== undefined) result.materials = parsePublishedMaterials(value.materials, result.ownerId);
   result.versionId = typeof value.version_id === 'string' ? value.version_id : undefined;
   const questions = value.questions;
   if (Array.isArray(questions)) {
@@ -536,6 +545,7 @@ function mapProblemSetJson(value: Record<string, unknown>): CloudProblemSet {
       return {
         logicalId: typeof row.logical_id === 'string' ? row.logical_id : undefined,
         contentRevision: typeof row.content_revision === 'string' ? row.content_revision : undefined,
+        materialReferences: normalizeMaterialReferences(row.material_references),
         question: String(row.question ?? ''),
         choices: Array.isArray(row.choices) ? row.choices.map(String) : [],
         distractors: Array.isArray(row.distractors) ? row.distractors.filter((text): text is string => typeof text === 'string') : undefined,

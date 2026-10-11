@@ -171,11 +171,12 @@ export async function hydrateMaterialDownload(payload: SyncPayload, transport: M
   },progress);}catch(error){report();if(error instanceof SyncDataError){Object.assign(error.diagnostic,counts);throw error;}throw error;}
 }
 
-export function createMaterialTransport(config: { url: string; anonKey: string }, access: { userId: string; accessToken: string },options:{fetch?:typeof fetch;wait?:(ms:number)=>Promise<void>;downloadTimeoutMs?:number;assertCurrent?:()=>Promise<void>}={}): MaterialTransport {
+export function createMaterialTransport(config: { url: string; anonKey: string }, access: { userId: string; accessToken: string },options:{fetch?:typeof fetch;wait?:(ms:number)=>Promise<void>;downloadTimeoutMs?:number;assertCurrent?:()=>Promise<void>;bucket?:string}={}): MaterialTransport {
+  const bucket=options.bucket??MATERIAL_BUCKET;
   const downloadFetch=options.fetch??fetch,wait=options.wait??(ms=>new Promise<void>(resolve=>setTimeout(resolve,ms)));
   const headers = { apikey: config.anonKey, Authorization: `Bearer ${access.accessToken}` };
   const storageUrl = config.url.replace(/\/$/, '') + '/storage/v1';
-  const objectUrl = (file: RemoteMaterialFile) => `${storageUrl}/object/${MATERIAL_BUCKET}/${file.path}`;
+  const objectUrl = (file: RemoteMaterialFile) => `${storageUrl}/object/${bucket}/${file.path}`;
   const exists = async (file: RemoteMaterialFile) => {
     const response = await fetch(objectUrl(file), { method: 'HEAD', headers, signal: AbortSignal.timeout(30000) });
     if (response.ok) return true;
@@ -191,8 +192,8 @@ export function createMaterialTransport(config: { url: string; anonKey: string }
         const upload = new Upload(new Blob([bytes], { type: 'application/pdf' }), {
           endpoint, headers, chunkSize: 6 * 1024 * 1024, retryDelays: [0, 1000, 3000, 5000],
           uploadDataDuringCreation: true, removeFingerprintOnSuccess: true,
-          fingerprint: async () => `${config.url}/${MATERIAL_BUCKET}/${file.path}`,
-          metadata: { bucketName: MATERIAL_BUCKET, objectName: file.path, contentType: 'application/pdf', cacheControl: '3600' },
+          fingerprint: async () => `${config.url}/${bucket}/${file.path}`,
+          metadata: { bucketName: bucket, objectName: file.path, contentType: 'application/pdf', cacheControl: '3600' },
           onSuccess: () => { clearTimeout(timeout); resolve(); },
           onError: () => { clearTimeout(timeout); void exists(file).then(found => found ? resolve() : reject(new Error('PDFを同期できませんでした。通信とストレージの空き容量を確認し、再試行してください。')), reject); },
         });

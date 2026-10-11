@@ -12,6 +12,8 @@ export function publicationFailure(code:string,message=''):PublicationError {
   if(value.includes('public set deleted; restore'))return new PublicationError('削除済みの公開です。「自分の公開」の削除済み一覧から復元してから公開してください。','deleted',false,message);
   if(value.includes('57014')||value.includes('statement timeout'))return new PublicationError('公開処理に時間がかかりました。保存済みの位置から再試行できます。','timeout',true,message);
   if(value.includes('network')||value.includes('fetch')||value.includes('abort')||value.includes('timeout'))return new PublicationError('通信が途切れました。再試行すると続きから公開します。','network',true,message);
+  if(value.includes('publication_pdf_missing'))return new PublicationError('PDFの保存を確認できません。再試行してください。','pdf_missing',true,message);
+  if(value.includes('publication_invalid_material'))return new PublicationError('PDF・資料の紐づけを確認できません。元の資料を確認してから公開してください。','material_reference',false,message);
   if(value.includes('publication_busy'))return new PublicationError('同じセットを別の画面で公開中です。完了後に再試行してください。','busy',true,message);
   if(value.includes('publication_payload_too_large')||value.includes('publication_question_too_large'))return new PublicationError('公開データが容量上限を超えています。セットを分割して公開してください。','size',false,message);
   if(value.includes('publication_conflict'))return new PublicationError('公開情報が別の画面で変更されました。公開設定を確認してやり直してください。','conflict',false,message);
@@ -20,7 +22,7 @@ export function publicationFailure(code:string,message=''):PublicationError {
   if(value.includes('not authorized')||value.includes('account')||value.includes('401')||value.includes('403'))return new PublicationError('公開を開始したアカウントでログインしてください。','account',true,message);
   return new PublicationError('公開できませんでした。問題の内容と公開設定を確認してください。','invalid',false,message);
 }
-export const publicationDigest=async(payload:PublicationPayload)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(payload))))).map(n=>n.toString(16).padStart(2,'0')).join('');
+export const publicationDigest=async(payload:PublicationPayload)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(payload.materialFiles?{p_set:payload.p_set,p_questions:payload.p_questions}:payload))))).map(n=>n.toString(16).padStart(2,'0')).join('');
 export function publicationId(){const bytes=crypto.getRandomValues(new Uint8Array(16));bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const h=Array.from(bytes).map(n=>n.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;}
 export function publicationParts(questions:PublicationPayload['p_questions']) {
   const parts:{start:number;questions:PublicationPayload['p_questions']}[]=[];let current:PublicationPayload['p_questions']=[],bytes=2,start=0;
