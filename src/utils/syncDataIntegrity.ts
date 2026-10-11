@@ -5,8 +5,8 @@ import { SyncProtocolError } from './syncInterruption';
 
 export type SyncDataCode = 'pdf_download' | 'pdf_missing' | 'pdf_integrity' | 'material_reference' | 'image_missing' | 'image_reference' | 'note_integrity' | 'backup_integrity' | 'storage_capacity' | 'memory_limit';
 export type SyncFailureDetails = {
-  function: 'materialReferences' | 'hydrateMaterialDownload' | 'materialDownload' | 'createFileBackup' | 'validateFileBackup' | 'buildWholeIncomingFile' | 'replaceCompleteFile';
-  stage: 'material_references' | 'pdf_download' | 'pdf_integrity' | 'backup_build' | 'backup_validate' | 'local_backup_validate';
+  function: 'materialReferences' | 'hydrateMaterialDownload' | 'materialDownload' | 'createFileBackup' | 'validateFileBackup' | 'buildWholeIncomingFile' | 'replaceCompleteFile' | 'exportFileBackup' | 'downloadSyncData';
+  stage: 'material_references' | 'pdf_download' | 'pdf_integrity' | 'backup_build' | 'backup_validate' | 'local_backup_validate' | 'cloud_snapshot_read';
   side?: 'local' | 'remote';
   cause?: 'network' | 'timeout' | 'http' | 'size' | 'sha256' | 'missing' | 'reference' | 'manifest' | 'quota' | 'memory' | 'format';
   total?: number; completed?: number; downloaded?: number; cacheReused?: number; localReused?: number; httpStatus?: number; attempts?: number;

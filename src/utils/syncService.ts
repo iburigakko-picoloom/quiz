@@ -44,6 +44,7 @@ import {
   withCoordinatedDataRead,
 } from './dataCoordination';
 import type { CloudAccessTokenResult } from './cloudService';
+import { SyncDataError, syncDataFailure } from './syncDataIntegrity';
 import { saveBackupPayload } from './backupRepository';
 import { materialFileEntry, materialMetadataOnly } from './materialModel';
 import { createMaterialTransport, hasMaterialFiles, hasRemoteMaterialFiles, hydrateMaterialDownload, prepareMaterialUpload } from './materialCloud';
@@ -64,6 +65,8 @@ export type SyncErrorCode =
   | 'authentication_busy'
   | 'authentication_required'
   | 'network'
+  | 'timeout'
+  | 'server_timeout'
   | 'permission_denied'
   | 'connection_changed'
   | 'conflict'
@@ -936,7 +939,10 @@ export async function downloadSyncData(syncId: string, options: { materialFiles?
 
     if (!response.ok && await isMissingSyncRpc(response)) return { ok: false, error: '安全な同期RPCが見つかりません。Supabaseへ最新の同期マイグレーションを適用してください。' };
 
-    if (!response.ok) return { ok: false, code: syncHttpFailureCode(response.status), error: await responseError(response, 'クラウドからの読み込みに失敗しました。') };
+    if (!response.ok) {
+      const details=await readSupabaseError(response.clone());
+      return { ok: false, code: details.code==='57014'?'server_timeout':syncHttpFailureCode(response.status), error: await responseError(response, 'クラウドからの読み込みに失敗しました。'), diagnostic: {function:'downloadSyncData',stage:'cloud_snapshot_read',side:'remote',cause:details.code==='57014'?'timeout':'http',httpStatus:response.status} };
+    }
 
     const rows = (await response.json()) as unknown;
     if (!isCurrentSyncConnection(normalizedSyncId)) return syncConnectionChangedResult();
@@ -958,8 +964,15 @@ export async function downloadSyncData(syncId: string, options: { materialFiles?
     }
     return record;
   } catch (error) {
+    if(error instanceof SyncDataError)return {ok:false,code:error.code as SyncErrorCode,error:error.message,diagnostic:error.diagnostic};
+    if(error instanceof RangeError||error instanceof Error&&error.name==='QuotaExceededError'){
+      const failure=syncDataFailure(error,'downloadSyncData','cloud_snapshot_read');
+      return {ok:false,code:failure.code as SyncErrorCode,error:failure.message,diagnostic:failure.diagnostic};
+    }
     return {
       ok: false,
+      code:error instanceof Error&&error.message.startsWith('接続がタイムアウトしました。')?'timeout':'network',
+      diagnostic:{function:'downloadSyncData',stage:'cloud_snapshot_read',side:'remote',cause:error instanceof Error&&error.message.startsWith('接続がタイムアウトしました。')?'timeout':'network'},
       error: error instanceof Error ? `クラウドからの読み込みに失敗しました: ${error.message}` : 'クラウドからの読み込みに失敗しました。',
     };
   }
@@ -1101,6 +1114,8 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
           name: '同期ID限定の読み込み',
           ok: false,
           message: readResult.error,
+          errorCode: readResult.code,
+          errorDetails: readResult.diagnostic?`${readResult.diagnostic.function} / ${readResult.diagnostic.stage} / ${readResult.diagnostic.cause??'—'}${readResult.diagnostic.httpStatus?` / HTTP ${readResult.diagnostic.httpStatus}`:''}`:undefined,
           suggestion: getDiagnosticSuggestion(readResult.error),
         });
   } catch (error) {

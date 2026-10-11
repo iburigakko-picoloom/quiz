@@ -174,7 +174,8 @@ test('an invalid cloud material reference retains both originals, avoids whole-d
   assert.deepEqual((await storage.loadAppDataAsync()).questions[0].materialReferences,[{materialId:'nonexistent-private-id',pageId:'missing-page'}]);
 });
 
-for(const fault of ['missing_pdf','orphan_material'])test(`current ${fault} stops apply with its exact diagnostic; explicit cloud recovery preserves local originals before replacement`,async()=>{
+for(const scenario of ['missing_pdf','orphan_material','initial_missing_pdf','initial_orphan_material'])test(`current ${scenario} stops apply with its exact diagnostic; explicit cloud recovery preserves local originals before replacement`,async()=>{
+  const initial=scenario.startsWith('initial_'),fault=scenario.replace('initial_','');
   const fixture=await incomingFixture({count:1}),{buildWholeIncomingFile}=await import('../src/utils/wholeSyncIncoming.ts');
   const {archiveSyncOriginals,validateSyncOriginalsFile}=await import('../src/utils/syncOriginalBackup.ts');
   const {listSavedBackups,getSavedBackup}=await import('../src/utils/backupRepository.ts');
@@ -191,6 +192,7 @@ for(const fault of ['missing_pdf','orphan_material'])test(`current ${fault} stop
   const source=await records.readAppRecordSnapshot(db),generation=await readUserEditGeneration(db);
   await acknowledgeIdenticalWhole(db,{version:1,connection,serverRevision:(await transport.whole('status')).revision,userGeneration:generation,digest:await (await import('../src/utils/wholeSyncDigest.ts')).computeWholeRecordDigest([...source.records.values()].filter(r=>r.raw!==null).map(r=>({...r,revision:r.serverRevision})))});
   await remoteReplace('Cloud PDF restored',fixture.rows.filter(row=>row.collection!=='folders'));
+  if(initial)await pg.exec('update private.quiz_sync_heads set whole_enabled=false');
   const media={userId:fixture.transport.userId,exists:async()=>true,upload:async()=>assert.fail('no image upload'),download:async()=>assert.fail('no image download')};
   const current=async()=>{assert.equal(applyActive,false,'account guards run after the protected apply overlay closes');};
   const exact={...guards,assertCurrent:current,incoming:(rows,options)=>buildWholeIncomingFile(db,rows,fixture.transport,current,undefined,options?.allowMissingImages),archiveOriginals:(side,rows)=>archiveSyncOriginals(db,connection,side,rows,media,fixture.transport,current)};
@@ -203,7 +205,12 @@ for(const fault of ['missing_pdf','orphan_material'])test(`current ${fault} stop
   const shown=await readWholeMeta(db,'wholeConflict',connection);assert.ok(shown);assert.equal(shown.choice,undefined);
   await assert.rejects(receive(),error=>error.code===code);
   assert.equal((await readWholeMeta(db,'wholeConflict',connection)).choice,undefined,'no side is selected automatically');
-  await chooseWholeConflict(db,connection,shown,'remote',{preferSelected:true});
+  await chooseWholeConflict(db,connection,shown,'local',{preferSelected:true});
+  await assert.rejects(receive(),error=>error.code===code&&error.diagnostic.side==='local');
+  assert.deepEqual(await storage.loadAppDataAsync(),deviceBefore);assert.deepEqual(await notes.exportCategoryNotesRaw(),damaged);
+  assert.equal(JSON.stringify(await readCloudRows()),cloudBefore);
+  const selectedLocal=await readWholeMeta(db,'wholeConflict',connection);assert.equal(selectedLocal.choice,'local');
+  await chooseWholeConflict(db,connection,selectedLocal,'remote',{preferSelected:true});
   assert.equal((await receive()).status,'done');assert.deepEqual(await names(),['Cloud PDF restored']);
   assert.equal(await notes.loadCategoryNoteRaw(pdfKey),hydrated.indexedDbNotes[pdfKey]);assert.equal(JSON.stringify(await readCloudRows()),cloudBefore);
   const backups=await Promise.all((await listSavedBackups()).map(row=>getSavedBackup(row.id)));

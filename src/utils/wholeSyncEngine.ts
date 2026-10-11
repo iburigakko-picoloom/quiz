@@ -216,6 +216,10 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     if(selected==='remote')verifiedCloud=await incomingFile();
     else {try{verifiedLocal=await exportFileBackup({recovery:true});}catch(error){if(!mayRescue(error))throw error;throw new SyncProtocolError('invalid_response','この端末の画像・教材を完全に退避できません。別の側を選び直してください。');}}
     const selectedFile=selected==='remote'?verifiedCloud!:verifiedLocal!;
+    if(selected==='local')try{assertMaterialIntegrity(selectedFile,JSON.parse(selectedFile.localStorage['quiz-make-app-data-v1']),true);}catch(error){
+      if(error instanceof SyncDataError)throw new SyncDataError(error.code as SyncDataCode,error.message,{...error.diagnostic,function:'exportFileBackup',stage:'local_backup_validate',side:'local'});
+      throw error;
+    }
     const validation=await validateFileBackup(selectedFile);
     const imageOnly=isImageOptionalSyncFile(selectedFile);
     if(!validation.ok||selectedFile.backupManifest.completeness!=='complete'&&!imageOnly)throw new SyncProtocolError('invalid_response',selected==='remote'?'クラウドの参照関係を確認できません。端末と受信原本を保持しています。':'この端末の画像・教材を完全に退避できません。別の側を選び直してください。');
@@ -250,7 +254,10 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
       verifiedCloud=await incomingFile();
       await guards.assertCurrent();
       try { verifiedLocal=await exportFileBackup(); }
-      catch(error){throw new SyncProtocolError('local_persistence_failed','この端末の画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。'+(error instanceof Error?' '+error.message:''));}
+      catch(error){
+        if(error instanceof SyncDataError){await offerChoice(error);throw error;}
+        throw new SyncProtocolError('local_persistence_failed','この端末の画像・教材を完全に退避できないため、同期を中止しました。両方の原本を保持しています。');
+      }
       await guards.assertCurrent();
       try {
         progress(guards,'backup','同期前のバックアップを保存中',0,2);

@@ -118,7 +118,7 @@ test('available capacity and incomplete images stop replacement; partial rescue 
   quota=1;const before=(await storage.loadAppDataAsync()).questions[0].question;
   assert.equal((await restoreFileBackup(original)).ok,false);assert.equal((await storage.loadAppDataAsync()).questions[0].question,before);quota=1024*1024*1024;
   const tx=db.transaction('questionImageBlobs','readwrite'),done=new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=j});tx.objectStore('questionImageBlobs').delete('i');await done;
-  await assert.rejects(exportFileBackup(),/完全/);
+  await assert.rejects(exportFileBackup(),error=>error.code==='image_missing'&&error.diagnostic.function==='exportFileBackup'&&error.diagnostic.side==='local'&&error.diagnostic.total===1&&error.diagnostic.completed===0);
   const partial=await exportFileBackup({recovery:true});assert.equal(partial.backupManifest.completeness,'partial');
   assert.equal((await validateFileBackup(partial)).ok,true);assert.equal((await restoreFileBackup(partial)).ok,false);
   assert.equal((await restoreFileBackup(original)).ok,false,'cannot discard current data without a complete recovery copy');

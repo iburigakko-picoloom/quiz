@@ -515,6 +515,25 @@ test('remote PDF download is verified before returning an importable snapshot', 
   const nextFile = { ...JSON.parse(wire.indexedDbNotes[key]), sha256: '1'.repeat(64), path: `${(await testAccessTokenProvider()).userId}/${'1'.repeat(64)}.pdf` };
   wire.indexedDbNotes[key] = JSON.stringify(nextFile);
   globalThis.fetch = async url => String(url).includes('/storage/v1/object/') ? new Response('broken') : rpcResponse([{ sync_id: syncId, updated_at: updatedAt, data: wire }]);
-  assert.equal((await sync.downloadSyncData(syncId)).ok, false);
+  const corruptResult=await sync.downloadSyncData(syncId);
+  assert.equal(corruptResult.ok,false);assert.equal(corruptResult.code,'pdf_integrity');assert.equal(corruptResult.diagnostic.cause,'size');
   assert.equal(localStorage.getItem(key), null, 'failed downloads never write notes');
+});
+
+test('cloud read diagnostics distinguish HTTP failures from connection failures without changing device data',async()=>{
+  localStorage.clear();sync.setStoredSyncId(syncId);
+  const before=JSON.stringify(await storage.loadAppDataAsync());
+  for(const [status,code] of [[401,'authentication_required'],[403,'permission_denied'],[500,'network']]){
+    globalThis.fetch=async()=>rpcResponse({},status);
+    const result=await sync.downloadSyncData(syncId);
+    assert.equal(result.ok,false);assert.equal(result.code,code);
+    assert.equal(result.diagnostic.stage,'cloud_snapshot_read');assert.equal(result.diagnostic.httpStatus,status);
+  }
+  globalThis.fetch=async()=>{throw new TypeError('Failed to fetch')};
+  const result=await sync.downloadSyncData(syncId);assert.equal(result.code,'network');assert.equal(result.diagnostic.cause,'network');
+  globalThis.fetch=async()=>rpcResponse({code:'57014',message:'canceling statement due to statement timeout'},500);
+  const serverTimeout=await sync.downloadSyncData(syncId);assert.equal(serverTimeout.code,'server_timeout');assert.equal(serverTimeout.diagnostic.cause,'timeout');
+  globalThis.fetch=async()=>{throw new RangeError('Invalid string length')};
+  const memory=await sync.downloadSyncData(syncId);assert.equal(memory.code,'memory_limit');assert.equal(memory.diagnostic.cause,'memory');
+  assert.equal(JSON.stringify(await storage.loadAppDataAsync()),before);
 });

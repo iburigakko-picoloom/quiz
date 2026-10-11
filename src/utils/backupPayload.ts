@@ -48,7 +48,7 @@ const digest=(payload:SyncPayload,images:FileBackup['questionImageFiles'])=>hash
 function imageOwners(data:AppData):Map<string,string>{
   const owners=new Map<string,string>();
   for(const question of data.questions)for(const id of new Set([...(question.questionImageIds??[]),...(question.detailedAnswer?.imageIds??[])])){
-    if(owners.has(id)&&owners.get(id)!==question.id)throw new Error('同じ画像IDが異なる問題から参照されています。原本を残して画像を確認してください。');
+    if(owners.has(id)&&owners.get(id)!==question.id)throw new SyncDataError('image_reference','画像の紐づけ情報に不備があります。',{function:'createFileBackup',stage:'backup_build',cause:'reference'});
     owners.set(id,question.id);
   }
   return owners;
@@ -89,7 +89,15 @@ export async function exportFileBackup(options:{recovery?:boolean}={}):Promise<F
   return withCoordinatedDataRead(['app','notes'],async()=>{
     assertDataEpochSnapshotCurrent(payload,['app','notes']);
     const data=JSON.parse(payload.localStorage['quiz-make-app-data-v1']) as AppData,files:FileBackup['questionImageFiles']=[];
-    issues.push(...getNoteBackupIssues(payload.indexedDbNotes??{}),...materialIssues(payload,data));
+    const noteIssues=getNoteBackupIssues(payload.indexedDbNotes??{});
+    if(!options.recovery){
+      if(noteIssues.length)throw new SyncDataError('note_integrity','ノートの保存状態を確認できません。',{function:'exportFileBackup',stage:'local_backup_validate',side:'local',cause:'manifest',issueCount:noteIssues.length});
+      try{assertMaterialIntegrity(payload,data,true);}catch(error){
+        if(error instanceof SyncDataError)throw new SyncDataError(error.code as SyncDataCode,error.message,{...error.diagnostic,function:'exportFileBackup',stage:'local_backup_validate',side:'local'});
+        throw error;
+      }
+    }
+    issues.push(...noteIssues,...(options.recovery?materialIssues(payload,data):[]));
     const db=await openQuestionImageRecordDb(),snapshot=await readAppRecordSnapshot(db);
     for(const [id,owner] of imageOwners(data)){
       const image=(await readQuestionImages(owner,[id]))[0];
@@ -98,7 +106,7 @@ export async function exportFileBackup(options:{recovery?:boolean}={}):Promise<F
       if(!image||!descriptor||!validQuestionImageDescriptor(descriptor)||descriptor.questionId!==owner||!await verifyQuestionImageBlob(image.blob,descriptor)){issues.push(`画像本体未確認: ${id}`);continue;}
       files.push({descriptor:await describeQuestionImage(image),dataUrl:await encode(image.blob)});
     }
-    if(issues.length&&!options.recovery)throw new Error('完全な復元コピーを作成できません。'+issues.join(' '));
+    if(issues.length&&!options.recovery)throw new SyncDataError('image_missing','一部の画像を確認できません。',{function:'exportFileBackup',stage:'local_backup_validate',side:'local',cause:'missing',total:imageOwners(data).size,completed:files.length});
     const result:FileBackup={...payload,questionImageFiles:files,backupManifest:{schema:1,completeness:issues.length?'partial':'complete',issues:[...new Set(issues)],questionCount:data.questions.length,noteCount:Object.keys(payload.indexedDbNotes??{}).length,imageCount:files.length,contentDigest:await digest(payload,files)}};
     assertDataEpochSnapshotCurrent(payload,['app','notes']);return result;
   },{requireCrossContext:true});
