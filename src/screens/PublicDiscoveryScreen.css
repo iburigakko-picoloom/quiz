@@ -73,3 +73,8 @@
 .public-publish-footer { display:grid; grid-template-columns:auto 1fr; gap:10px; }
 .public-publish-tags summary { cursor:pointer; min-height:44px; display:flex; align-items:center; color:#245b9e; }
 @media (max-width:350px) { .public-header .public-mine-entry { padding-inline:9px; font-size:13px; } }
+
+.public-dialog-backdrop--right{justify-content:flex-end;align-items:stretch;padding:0}
+.public-dialog.public-dialog--right{width:min(360px,92vw);height:100dvh;max-height:100dvh;border-radius:0;padding:max(20px,var(--safe-top,0px),env(safe-area-inset-top)) 20px max(20px,var(--safe-bottom,0px),env(safe-area-inset-bottom));animation:public-conditions-enter .2s ease-out}
+@keyframes public-conditions-enter{from{transform:translateX(100%)}to{transform:translateX(0)}}
+@media(prefers-reduced-motion:reduce){.public-dialog.public-dialog--right{animation:none}}

@@ -612,20 +612,3 @@
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__completion-row{margin-top:20px}
 
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__start-actions{margin-top:10px;gap:8px}
-
-.quiz-detail .quiz-detail__conditions-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:40px;padding:6px 0;font-size:12px;text-align:left}
-.quiz-detail__conditions-toggle>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#667182}
-.quiz-detail__conditions-toggle strong{flex-shrink:0;color:#326bac;font-size:13px}.quiz-detail__conditions-toggle b{margin-left:6px;font-size:20px}
-.quiz-detail__condition-drawer{box-sizing:border-box;position:fixed;inset:0 0 0 auto;margin:0;width:min(360px,90vw);height:100%;height:100dvh;max-width:none;max-height:none;padding:max(16px,var(--safe-top,0px)) 18px max(18px,var(--safe-bottom,0px));border:0;background:white;color:#173042;box-shadow:-8px 0 32px #17304224;overflow-y:auto;animation:quiz-condition-enter .2s ease-out}
-.quiz-detail__condition-drawer::backdrop{background:#17304255}
-.quiz-detail__condition-drawer[open]{display:flex;flex-direction:column}
-.quiz-detail__condition-drawer header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}.quiz-detail__condition-drawer h2{margin:0;font-size:18px}
-.quiz-detail__condition-drawer header button{width:44px;height:44px;border:0;background:transparent;font-size:26px;color:#607586}
-.quiz-detail__condition-content{flex:1;min-height:0;overflow-y:auto}
-.quiz-detail__condition-drawer .quiz-detail__segment-caption{font-size:13px;margin:0 0 10px}
-.quiz-detail__condition-drawer .quiz-detail__segments{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
-.quiz-detail__condition-drawer .quiz-detail__segment-item{height:36px;padding:6px 12px;border:1px solid #dfe2e7;border-radius:6px;background:white;color:#173042;font:inherit;font-size:12px}
-.quiz-detail__condition-drawer .quiz-detail__segment-item--active{border-color:#326bac;background:#eaf3ff;color:#326bac}
-.quiz-detail__condition-done{flex-shrink:0;width:100%;min-height:44px;margin-top:18px;border:0;border-radius:8px;background:#3263a7;color:white;font:inherit;font-weight:700}
-@keyframes quiz-condition-enter{from{transform:translateX(100%)}to{transform:translateX(0)}}
-@media(prefers-reduced-motion:reduce){.quiz-detail__condition-drawer{animation:none}}
