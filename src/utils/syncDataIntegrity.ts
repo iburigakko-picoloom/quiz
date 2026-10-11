@@ -5,8 +5,9 @@ import { SyncProtocolError } from './syncInterruption';
 
 export type SyncDataCode = 'pdf_download' | 'pdf_missing' | 'pdf_integrity' | 'material_reference' | 'image_missing' | 'image_reference' | 'note_integrity' | 'backup_integrity' | 'storage_capacity' | 'memory_limit';
 export type SyncFailureDetails = {
-  function: 'materialReferences' | 'hydrateMaterialDownload' | 'materialDownload' | 'createFileBackup' | 'validateFileBackup' | 'buildWholeIncomingFile';
-  stage: 'material_references' | 'pdf_download' | 'pdf_integrity' | 'backup_build' | 'backup_validate';
+  function: 'materialReferences' | 'hydrateMaterialDownload' | 'materialDownload' | 'createFileBackup' | 'validateFileBackup' | 'buildWholeIncomingFile' | 'replaceCompleteFile';
+  stage: 'material_references' | 'pdf_download' | 'pdf_integrity' | 'backup_build' | 'backup_validate' | 'local_backup_validate';
+  side?: 'local' | 'remote';
   cause?: 'network' | 'timeout' | 'http' | 'size' | 'sha256' | 'missing' | 'reference' | 'manifest' | 'quota' | 'memory' | 'format';
   total?: number; completed?: number; downloaded?: number; cacheReused?: number; localReused?: number; httpStatus?: number; attempts?: number;
   pdfTotal?:number;pdfCompleted?:number;
@@ -14,7 +15,7 @@ export type SyncFailureDetails = {
   issueCount?: number;
 };
 export type MaterialReferenceIssue = {
-  reason: 'invalid_index' | 'index_identity' | 'missing_owner' | 'missing_material' | 'missing_page' | 'ambiguous_material';
+  reason: 'invalid_index' | 'index_identity' | 'missing_owner' | 'missing_material' | 'missing_page' | 'ambiguous_material' | 'missing_pdf' | 'invalid_pdf' | 'unhydrated_pdf';
   questionId?: string; problemSetId?: string; materialId?: string; pageId?: string; ownerSetIds?: string[];
 };
 export const integrityCodes: readonly string[] = ['pdf_missing','pdf_integrity','material_reference','image_missing','image_reference','note_integrity','backup_integrity'];
@@ -53,10 +54,11 @@ export function assertMaterialIntegrity(payload: Pick<SyncPayload,'localStorage'
     }
     for(const material of index.materials)if(material.pages.some(page=>page.kind==='pdf')){
       const fileKey=`quizMake:notes:${index.problemSetId}:__material_pdf_${material.id}`,rawFile=notes[fileKey];
-      if(!rawFile)fail('pdf_missing','資料一覧にあるPDF本体が見つかりません。','missing');
+      const issue={problemSetId:index.problemSetId,materialId:material.id};
+      if(!rawFile)fail('pdf_missing','資料一覧にあるPDF本体が見つかりません。','missing',{...issue,reason:'missing_pdf'});
       const file=materialFileEntry(fileKey,rawFile);
-      if(!file)fail('pdf_integrity','PDFの内容を検証できませんでした。','format');
-      if(hydrated&&file!.kind!=='quiz-material-file')fail('pdf_missing','PDF本体の受信が完了していません。','missing');
+      if(!file)fail('pdf_integrity','PDFの内容を検証できませんでした。','format',{...issue,reason:'invalid_pdf'});
+      if(hydrated&&file!.kind!=='quiz-material-file')fail('pdf_missing','PDF本体の受信が完了していません。','missing',{...issue,reason:'unhydrated_pdf'});
     }
   }
   let references=0,missing=0;

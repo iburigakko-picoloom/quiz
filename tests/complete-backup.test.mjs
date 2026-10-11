@@ -81,6 +81,29 @@ test('a real 25 MiB PDF and its index survive file export, whole restore and loc
   assert.equal((await restoreFileBackup(original)).ok,true);
 });
 
+test('current PDF and material failures retain typed local diagnostics and leave every original unchanged on repeated restore',async()=>{
+  const {readAppRecordSnapshot,readAppOutbox}=await import('../src/utils/appRecordStorage.ts');
+  const beforeNotes=await notes.exportCategoryNotesRaw();
+  const cases=[
+    {set:'s',code:'pdf_missing',reason:'missing_pdf',pages:[{id:'p',kind:'pdf',pdfPage:1}]},
+    {set:'orphan',code:'material_reference',reason:'missing_owner',pages:[{id:'p',kind:'blank'}]},
+  ];
+  for(const fixture of cases){
+    const key=`quizMake:notes:${fixture.set}:__materials_v1`,index=JSON.stringify({kind:'quiz-material-index',version:1,problemSetId:fixture.set,updatedAt:stamp,materials:[{id:'missing',title:'Private title must not enter diagnostics',pages:fixture.pages}]});
+    await notes.saveCategoryNoteRaw(key,index);
+    const current=await storage.loadAppDataAsync(),snapshot=await readAppRecordSnapshot(db),outbox=await readAppOutbox(db),copies=await listWholeRecovery();
+    try{for(let attempt=0;attempt<2;attempt++){
+      const result=await restoreFileBackup(original);
+      assert.equal(result.ok,false);assert.equal(result.committed,false);assert.equal(result.code,fixture.code);
+      assert.equal(result.diagnostic.function,'replaceCompleteFile');assert.equal(result.diagnostic.stage,'local_backup_validate');assert.equal(result.diagnostic.side,'local');
+      assert.equal(result.diagnostic.referenceIssues[0].reason,fixture.reason);assert.equal(result.diagnostic.referenceIssues[0].problemSetId,fixture.set);
+      assert.ok(!JSON.stringify(result.diagnostic).includes('Private title'));
+      assert.deepEqual(await storage.loadAppDataAsync(),current);assert.deepEqual(await readAppRecordSnapshot(db),snapshot);assert.deepEqual(await readAppOutbox(db),outbox);
+      assert.equal(await notes.loadCategoryNoteRaw(key),index);assert.deepEqual(await listWholeRecovery(),copies);
+    }}finally{await notes.replaceCategoryNotesRaw(beforeNotes);}
+  }
+});
+
 test('quota failure while archiving aborts every store and keeps the current copy',async()=>{
   assert.equal(await storage.saveAppDataAsync({...data,questions:[{...question,question:'quota Q'}]}),true);
   const before=await exportFileBackup(),list=await listWholeRecovery(),put=IDBObjectStore.prototype.add;

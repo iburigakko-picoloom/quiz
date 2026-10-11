@@ -176,7 +176,12 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     const previousOwners=proof?new Map<string,string>():imageOwners(previous),previousImages=oldImages.result as StoredQuestionImage[];
     if(!proof)for(const [id,owner] of previousOwners){const image=previousImages.find(image=>image.id===id&&image.questionId===owner),raw=snapshot.records.get(appRecordKey('questionImages',id))?.raw;if(!raw&&acceptsLegacyImages([{id,questionId:owner}],legacy))continue;if(!image||!raw||!await verifyQuestionImageBlob(image.blob,JSON.parse(raw)))throw new Error('現在の画像を完全に退避できないため、復元を中止しました。');}
     const previousSettings=Object.fromEntries([...existingSettings].map(key=>[key,localStorage.getItem(key)!]));
-    if(!proof&&materialIssues({version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes},previous).length)throw new Error('現在のPDF・参照資料を完全に退避できないため、復元を中止しました。');
+    if(!proof)try{
+      assertMaterialIntegrity({localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes},previous,true);
+    }catch(error){
+      if(error instanceof SyncDataError)throw new SyncDataError(error.code as SyncDataCode,error.message,{...error.diagnostic,function:'replaceCompleteFile',stage:'local_backup_validate',side:'local'});
+      throw error;
+    }
     let queueArchive:(tx:IDBTransaction)=>void=()=>{};
     if(!proof&&(!sync||sync.archiveConflict)){
       const archivePayload:SyncPayload={version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes};
@@ -212,5 +217,9 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     if(!establishCurrentAppDataAuthority())throw new Error('復元データは保存しましたが、表示の保護状態を更新できません。再読み込みしてください。');
     advanceLocalDataRevision();window.dispatchEvent(new Event(PLAN_EVENT));window.dispatchEvent(new Event(NOTES_EVENT));return {ok:true,value:target.questions.length};
   };
-  try{return await (sync?operation():withCoordinatedDataMutation(['app','notes'],operation,{requireCrossContext:true}));}catch(error){return {ok:false,committed,code:'local_persistence_failed',error:error instanceof Error?error.message:'復元を保存できません。現在のコピーは保持しています。'};}
+  try{return await (sync?operation():withCoordinatedDataMutation(['app','notes'],operation,{requireCrossContext:true}));}catch(error){
+    if(error instanceof RangeError||error instanceof Error&&error.name==='QuotaExceededError')error=syncDataFailure(error,'replaceCompleteFile','local_backup_validate');
+    if(error instanceof SyncDataError)return {ok:false,committed,code:error.code as import('./syncService').SyncErrorCode,error:error.message,diagnostic:error.diagnostic};
+    return {ok:false,committed,code:'local_persistence_failed',error:error instanceof Error?error.message:'復元を保存できません。現在のコピーは保持しています。'};
+  }
 }

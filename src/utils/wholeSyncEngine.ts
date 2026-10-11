@@ -18,7 +18,7 @@ import { materialFileEntry } from './materialModel';
 import { parseQuestionImageDescriptor } from './recordQuestionImageSync';
 import { remoteQuestionImageDescriptor } from './questionImageCloud';
 import { chunkIds, isChunkInternal, parseChunkManifest, RECORD_CHUNK_GUARD_ID } from './recordChunkFormat';
-import { assertMaterialIntegrity, integrityCodes } from './syncDataIntegrity';
+import { assertMaterialIntegrity, integrityCodes, SyncDataError, type SyncDataCode } from './syncDataIntegrity';
 import { wholeRowsPayload } from './wholeSyncIncoming';
 
 type Reply={code:string;[key:string]:unknown};
@@ -185,7 +185,8 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   let preservedOriginals:PreservedSyncOriginals|undefined;
   const offerChoice=async(error:unknown)=>{
     const code=error&&typeof error==='object'&&'code' in error?String(error.code):'';
-    if(!selected&&incoming&&guards.archiveOriginals&&code!=='material_reference'&&(code==='invalid_response'||integrityCodes.includes(code))){
+    const localReference=error instanceof SyncDataError&&error.diagnostic.side==='local';
+    if(!selected&&incoming&&guards.archiveOriginals&&(code!=='material_reference'||localReference)&&(code==='invalid_response'||integrityCodes.includes(code))){
       await guards.assertCurrent();
       await putWholeMeta(db,'wholeConflict',{version:1,connection,revision:remote.revision,generation:source.generation,localDigest,remoteDigest,device:remote.device,savedAt:remote.savedAt,localSavedAt:source.snapshot.state.savedAt,localDevice:guards.device,local:summarizeWholeRows(localRows),remote:summarizeWholeRows(incoming)});
     }
@@ -287,10 +288,18 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
       if(!committed.ok){
         if(committed.committed)throw new Error(committed.error);
         if(preferSelected&&(committed.error.includes('端末の内容が変更')||committed.error.includes('現在の端末データが一致しません')))throw new SyncProtocolError('local_changed','同期中に端末の内容が変わりました。選んだ側で再試行します。');
+        if(committed.diagnostic&&committed.code){
+          throw new SyncDataError(committed.code as SyncDataCode,committed.error,committed.diagnostic);
+        }
         throw new SyncProtocolError('local_persistence_failed',committed.error);
       }
       const snapshot=await readAppRecordSnapshot(db);if(!snapshot)throw new Error('全体保存後の確認に失敗しました。');
       return {applied:true as const,data:JSON.parse(file.localStorage['quiz-make-app-data-v1']),cursor:remote.revision,changed:Math.max(1,incoming!.length),commitId:snapshot.state.commitId};
+    }).catch(async error=>{
+      // The protected apply lock/overlay has been released. Network/account
+      // guards and the existing explicit rescue choice are safe again here.
+      if(error instanceof SyncDataError)await offerChoice(error);
+      throw error;
     });
     return result(applied?.applied?'done':'deferred',0,downloaded);
   }

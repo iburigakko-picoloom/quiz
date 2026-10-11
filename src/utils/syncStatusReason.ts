@@ -2,6 +2,9 @@ import type { SyncAttemptStatus, SyncFailure } from './syncAttemptStatus';
 import { safeSyncFailureMessage } from './syncFailureDiagnostic';
 
 export function syncFailureReason(failure:SyncFailure):string {
+  if(failure.diagnostic?.side==='local'&&failure.code==='pdf_missing')return 'この端末のPDF本体を確認できません。原本を保持しています。';
+  if(failure.diagnostic?.side==='local'&&failure.code==='pdf_integrity')return 'この端末のPDFの内容を検証できません。原本を保持しています。';
+  if(failure.diagnostic?.side==='local'&&failure.code==='material_reference')return 'この端末の資料の紐づけを確認できません。原本を保持しています。';
   if(failure.code==='storage_capacity'&&failure.message==='ログイン・設定用の保存領域が不足しています。教材データは保持しています。')return 'ログイン・設定用の保存領域が不足しています。';
   if(failure.code==='material_reference'&&failure.diagnostic?.referenceIssues?.length){
     const reason=failure.diagnostic.referenceIssues[0].reason;
