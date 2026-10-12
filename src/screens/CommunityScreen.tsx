@@ -8,6 +8,8 @@ import { PublicationMenu } from '../components/PublicationMenu';
 import { Layout } from '../components/Layout';
 import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
 import { GroupWorkspace, type GroupDetailTab } from '../components/GroupWorkspace';
+import {LibrarySkeleton} from '../components/LibrarySkeleton';
+import {createViewCache} from '../utils/viewCache';
 import {LibraryPane} from '../components/LibraryPane';
 import { SharedSetDetail } from '../components/SharedSetDetail';
 import { GroupProgress } from '../components/GroupProgress';
@@ -80,6 +82,9 @@ interface CommunityScreenProps {
   onUnpublished: (localSetId: string) => Promise<void>;
 }
 
+const groupPreviews=createViewCache<CloudGroup[]>(60_000,1);
+let groupPreviewUser='';
+
 export function CommunityScreen({
   groupPage,
   onGroupPage,
@@ -120,6 +125,8 @@ export function CommunityScreen({
   const [publicAttempt, setPublicAttempt] = useState(0);
   const [publishedSets, setPublishedSets] = useState<CloudProblemSet[]>([]);
   const [groups, setGroups] = useState<CloudGroup[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupsReady, setGroupsReady] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId ?? '');
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState('');
@@ -285,6 +292,9 @@ export function CommunityScreen({
     let active = true;
     const unsubscribe = onCloudSessionSnapshot((value) => {
       if (!active) return;
+      const id=value?.user.id??'';
+      if(groupPreviewUser!==id){groupPreviews.clear();groupPreviewUser=id;}
+      if(sessionUserId.current!==id){const preview=groupPreviews.read(id);setGroups(preview??[]);setGroupsReady(preview!==undefined);setGroupsLoading(Boolean(id));}
       setSession(value);
       setAuthReady(true);
       if (value) setLoginOpen(false);
@@ -294,6 +304,7 @@ export function CommunityScreen({
       unsubscribe();
     };
   }, []);
+  useEffect(()=>{if(groupsReady&&session?.user.id===groupPreviewUser&&groupPreviews.read(groupPreviewUser)!==groups)groupPreviews.write(groupPreviewUser,groups);},[groups,groupsReady,session?.user.id]);
 
   useEffect(()=>{
     const finished=publicationWasRunning.current&&!publication.running;publicationWasRunning.current=publication.running;
@@ -335,6 +346,7 @@ export function CommunityScreen({
     let cancelled = false;
     if (!session) {
       setGroups([]);
+      setGroupsReady(false);setGroupsLoading(false);
       setPublishedSets([]);
       setGroupSets([]);
       setGroupMembers([]);
@@ -343,15 +355,20 @@ export function CommunityScreen({
         cancelled = true;
       };
     }
-    void Promise.all([listMyGroups(), listMyPublishedSets()])
-      .then(([nextGroups, nextSets]) => {
+    const preview=groupPreviews.read(session.user.id);
+    if(preview){setGroups(preview);setGroupsReady(true);}
+    setGroupsLoading(true);
+    void listMyGroups()
+      .then((nextGroups) => {
         if (cancelled) return;
         setGroups(nextGroups);
-        setPublishedSets(nextSets);
+        setGroupsReady(true);
       })
       .catch((reason) => {
         if (!cancelled) setError(getErrorMessage(reason));
-      });
+      }).finally(()=>{if(!cancelled)setGroupsLoading(false);});
+    // Published-material metadata must not hold up the group list.
+    void listMyPublishedSets().then(nextSets=>{if(!cancelled)setPublishedSets(nextSets);}).catch(reason=>{if(!cancelled)setError(getErrorMessage(reason));});
     return () => {
       cancelled = true;
     };
@@ -858,7 +875,7 @@ export function CommunityScreen({
               <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onOpenSource={ownedSource?()=>onOpenLocalSet(ownedSource.id):undefined} onPractice={() => void practiceSharedSet(directSet)} onReport={() => setReportTarget(directSet)} progress={session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onChanged={() => setGroupLearningRevision(n => n + 1)} /> : undefined} />
             ) : (
               <section className="community-section community-group-detail">
-                {!session ? (
+                {!authReady ? <LibrarySkeleton label="グループを読み込み中"/> : !session ? (
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
@@ -919,7 +936,7 @@ export function CommunityScreen({
 
           {tab === 'groups' ? (
             <section className="community-section">
-              {!session ? <EmptyState title="グループ機能はログイン後に使えます" action="ログイン" onAction={() => setLoginOpen(true)} /> : (
+              {!authReady ? <LibrarySkeleton label="グループを読み込み中"/> : !session ? <EmptyState title="グループ機能はログイン後に使えます" action="ログイン" onAction={() => setLoginOpen(true)} /> : (
                 <>
                   {groupPage ? <div className="community-group-actions qm-group-form">
                     {groupPage === 'create' ? <>
@@ -933,7 +950,8 @@ export function CommunityScreen({
                     <button className="qm-group-action qm-group-action--create" onClick={() => onGroupPage('create')}><span><GroupIcon size={24}/></span><strong>グループを作成</strong> <ChevronRightIcon size={16} /></button>
                     <button className="qm-group-action qm-group-action--join" onClick={() => onGroupPage('join')}><span><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h3v3h3v3h-6v-3M21 12v3M12 12h3M12 21v-3"/></svg></span><strong>コードで参加</strong> <ChevronRightIcon size={16} /></button>
                   </div>}
-                  <div hidden={Boolean(groupPage)} className="community-card-list qm-participating-groups"><div className="qm-group-list-heading"><h2>参加中のグループ</h2><span>{groups.length}グループ</span></div>
+                  <div hidden={Boolean(groupPage)} className="community-card-list qm-participating-groups" aria-busy={groupsLoading}><div className="qm-group-list-heading"><h2>参加中のグループ</h2><span>{groupsReady?`${groups.length}グループ`:''}</span></div>
+                    {groupsLoading&&!groupsReady?<LibrarySkeleton label="参加中のグループを読み込み中"/>:null}
                     {groups.map((group) => (
                       <article key={group.id} className="community-group-card">
                         <button type="button" className="community-group-card__main library-tappable" onClick={() => onOpenGroup(group.id)}>

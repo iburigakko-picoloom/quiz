@@ -1,0 +1,6 @@
+.library-skeleton{width:100%;}
+.library-skeleton__row{display:flex;align-items:center;gap:16px;min-height:96px;padding:16px 8px;box-sizing:border-box;}
+.library-skeleton__row>i{width:52px;height:52px;flex-shrink:0;border-radius:14px;background:#edf1f7;}
+.library-skeleton__row>span{display:grid;gap:12px;width:65%;}
+.library-skeleton__row b{display:block;height:14px;border-radius:6px;background:#edf1f7;}
+.library-skeleton__row b+ b{width:65%;height:10px;}
