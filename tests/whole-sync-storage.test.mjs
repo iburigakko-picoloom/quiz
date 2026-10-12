@@ -79,3 +79,37 @@ test('a failed cursor save retains the original and old position, allowing the a
   assert.deepEqual(await rawMeta('wholeFrozen'),original);assert.equal((await readWholeMeta(db,'wholeFrozen',connection)).nextPart,0);
   await releaseWholeUpload(db,await advanceWholePart(db,frozen,1));
 });
+
+
+test('large acknowledgement bounds pending reads and rolls back every batch when a later read fails',async()=>{
+  const rows=Array.from({length:1100},(_,i)=>row('bounded-'+i,'Folder '+i));
+  const ops=rows.map(r=>({...r,operationId:crypto.randomUUID()}));
+  const tx=db.transaction(['appRecords','appOutbox'],'readwrite');
+  for(const r of rows)tx.objectStore('appRecords').put({...r,serverRevision:1,localRevision:0},r.key);
+  for(const op of ops)tx.objectStore('appOutbox').put(op,op.key);
+  await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)});
+  const parts=[];for(let i=0;i<rows.length;i+=500)parts.push({id:crypto.randomUUID(),raw:JSON.stringify(rows.slice(i,i+500))});
+  const frozen={version:1,connection,id:crypto.randomUUID(),expectedRevision:10,generation:await readUserEditGeneration(db),digest:'a'.repeat(64),wireDigest:'b'.repeat(64),parts,records:rows.length,device:'QA',replace:false,outbox:ops.map(({key,operationId})=>({key,operationId}))};
+  await putWholeMeta(db,'wholeFrozen',frozen);
+  const original=IDBObjectStore.prototype.get;let reads=0,pending=0,peak=0,fail=true;
+  IDBObjectStore.prototype.get=function(key){
+    const tracked=this.name==='appRecords'||this.name==='appOutbox';
+    if(tracked&&++reads===700&&fail)throw new Error('disk read failed');
+    const request=original.call(this,key);
+    if(tracked){peak=Math.max(peak,++pending);request.addEventListener('success',()=>pending--);request.addEventListener('error',()=>pending--)}
+    return request;
+  };
+  try{
+    await assert.rejects(acknowledgeWholeUpload(db,frozen,11));
+    assert.ok(await readWholeMeta(db,'wholeFrozen',connection));
+    assert.equal((await readAppRecordSnapshot(db)).records.get(rows[0].key).serverRevision,1);
+    assert.ok((await readAppOutbox(db)).some(op=>op.operationId===ops[0].operationId));
+    fail=false;pending=0;peak=0;reads=0;
+    await acknowledgeWholeUpload(db,frozen,11);
+    assert.ok(peak<=256,`pending reads: ${peak}`);
+  }finally{IDBObjectStore.prototype.get=original}
+  const snapshot=await readAppRecordSnapshot(db);
+  for(const r of rows)assert.equal(snapshot.records.get(r.key).serverRevision,11);
+  const remaining=new Set((await readAppOutbox(db)).map(op=>op.operationId));
+  for(const op of ops)assert.equal(remaining.has(op.operationId),false);
+});

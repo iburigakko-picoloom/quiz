@@ -1,3 +1,4 @@
+import { incrementalJsonDigest } from './incrementalJsonDigest';
 import { accountLocalStorage as localStorage } from './accountStorage';
 import { exportQuizMakeData, exportQuizMakeRecoveryData, validateHydratedSyncPayload, isQuizMakeStorageKey, waitForLocalPersistence, type SyncPayload, type SyncResult } from './syncService';
 import { loadAppDataAsync, establishCurrentAppDataAuthority } from '../storage';
@@ -42,9 +43,8 @@ async function createFileBackup(payload:SyncPayload,images:readonly StoredQuesti
   const result:FileBackup={...payload,questionImageFiles:files,backupManifest:{schema:1,completeness:issues.length?'partial':'complete',issues,questionCount:data.questions.length,noteCount:Object.keys(payload.indexedDbNotes??{}).length,imageCount:files.length,contentDigest:await digest(payload,files)}};
   const checked=await validateFileBackup(result);if(!checked.ok)throw new SyncDataError(checked.code&&['image_missing','image_reference','pdf_missing','pdf_integrity','material_reference','note_integrity'].includes(checked.code)?checked.code as SyncDataCode:'backup_integrity',checked.error,checked.diagnostic??{function:'validateFileBackup',stage:'backup_validate',cause:'manifest'});return result;
 }
-const hash=async(text:string)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))].map(n=>n.toString(16).padStart(2,'0')).join('');
 const sorted=(value:Record<string,string>)=>Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));
-const digest=(payload:SyncPayload,images:FileBackup['questionImageFiles'])=>hash(JSON.stringify({localStorage:sorted(payload.localStorage),indexedDbNotes:sorted(payload.indexedDbNotes??{}),images:[...images].sort((a,b)=>a.descriptor.id.localeCompare(b.descriptor.id)).map(image=>image.descriptor)}));
+const digest=(payload:SyncPayload,images:FileBackup['questionImageFiles'])=>incrementalJsonDigest({localStorage:sorted(payload.localStorage),indexedDbNotes:sorted(payload.indexedDbNotes??{}),images:[...images].sort((a,b)=>a.descriptor.id.localeCompare(b.descriptor.id)).map(image=>image.descriptor)});
 function imageOwners(data:AppData):Map<string,string>{
   const owners=new Map<string,string>();
   for(const question of data.questions)for(const id of new Set([...(question.questionImageIds??[]),...(question.detailedAnswer?.imageIds??[])])){

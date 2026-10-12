@@ -47,8 +47,10 @@ function mediaReady(row:AppRecord,connection:RecordSyncConnection){
 }
 async function pack(rows:Array<ReturnType<typeof wire>>):Promise<{parts:WholeFrozen['parts'];wireDigest:string}>{
   const groups:string[]=[],parts:WholeFrozen['parts']=[];let current:string[]=[],bytes=2;
+  let deadline=performance.now()+8;
   for(const row of rows){const raw=JSON.stringify(row),size=new TextEncoder().encode(raw).length+1;if(size+2>921600)throw new SyncProtocolError('payload_too_large','全体送信の1レコードが大きすぎます。');
-    if(current.length&&(bytes+size>921600||current.length===500)){groups.push('['+current.join(',')+']');current=[];bytes=2}current.push(raw);bytes+=size;}
+    if(current.length&&(bytes+size>921600||current.length===500)){groups.push('['+current.join(',')+']');current=[];bytes=2}current.push(raw);bytes+=size;
+    if(performance.now()>=deadline){await new Promise<void>(resolve=>setTimeout(resolve,0));deadline=performance.now()+8;}}
   if(current.length||!groups.length)groups.push('['+current.join(',')+']');
   if(groups.length>512||rows.length>200000)throw new SyncProtocolError('payload_too_large','全体送信の上限を超えています。');
   let hashes='';for(const raw of groups){parts.push({id:crypto.randomUUID(),raw});hashes+=await wholeHash(raw)}

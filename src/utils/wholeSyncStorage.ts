@@ -43,7 +43,12 @@ function withProgress(value:WholeFrozen,progress:WholeProgress|undefined):WholeF
 }
 function matchesFrozen(current:WholeFrozen|undefined,value:WholeFrozen,progress:WholeProgress|undefined):boolean{
   if(!current)return false;const saved=withProgress(current,progress);
-  return JSON.stringify({...saved,nextPart:saved.nextPart??0})===JSON.stringify({...value,nextPart:value.nextPart??0});
+  // Compare large bodies directly instead of allocating two escaped copies of
+  // the entire frozen upload inside an IndexedDB transaction.
+  const {parts:a,outbox:ao,...am}=saved,{parts:b,outbox:bo,...bm}=value;
+  return JSON.stringify({...am,nextPart:saved.nextPart??0})===JSON.stringify({...bm,nextPart:value.nextPart??0})
+    &&a.length===b.length&&a.every((part,index)=>part.id===b[index].id&&part.raw===b[index].raw)
+    &&ao.length===bo.length&&ao.every((row,index)=>row.key===bo[index].key&&row.operationId===bo[index].operationId);
 }
 export async function advanceWholePart(db:IDBDatabase,value:WholeFrozen,nextPart:number):Promise<WholeFrozen>{
   if(!safe(nextPart)||nextPart!==(value.nextPart??0)+1||nextPart>value.parts.length)throw new SyncProtocolError('invalid_response','全体送信の再開位置を進められません。');
@@ -149,15 +154,28 @@ export function queueWholeReplacement(tx:IDBTransaction,rows:RemoteRecordChange[
 }
 export async function acknowledgeWholeUpload(db:IDBDatabase,frozen:WholeFrozen,revision:number):Promise<void>{
   if(!safe(revision)||revision!==frozen.expectedRevision+1)throw new SyncProtocolError('invalid_response','全体保存の確認結果が不正です。');
-  const sent=frozen.parts.flatMap(part=>JSON.parse(part.raw) as RemoteRecordChange[]);
+  function* sentRows():Generator<RemoteRecordChange>{
+    for(const part of frozen.parts)yield* JSON.parse(part.raw) as RemoteRecordChange[];
+  }
   const acknowledged:AppRecord[]=[];
   let previousCommitId:string|undefined,nextState:AppRecordState|undefined;
   const tx=db.transaction(['appRecordMeta','appOutbox','appRecords','appPullStage','appPullMedia'],'readwrite'),completion=done(tx),current=tx.objectStore('appRecordMeta').get('wholeFrozen'),progress=tx.objectStore('appRecordMeta').get('wholeFrozenProgress'),incoming=tx.objectStore('appRecordMeta').get('wholeIncoming'),state=tx.objectStore('appRecordMeta').get('state');
   state.onsuccess=()=>{try{
     if(!matchesFrozen(current.result,frozen,progress.result))throw new Error();
-    for(const row of frozen.outbox){const existing=tx.objectStore('appOutbox').get(row.key);existing.onsuccess=()=>{if(existing.result?.operationId===row.operationId)tx.objectStore('appOutbox').delete(row.key)}};
+    // Keep the transaction atomic, but only queue a small number of reads.
+    // Continue from IDB callbacks (a timer here would auto-commit the transaction).
+    const pump=<T,>(rows:Iterator<T>,store:IDBObjectStore,key:(row:T)=>string,apply:(row:T,value:any)=>void)=>{
+      const batch:T[]=[];for(let i=0;i<128;i++){const next=rows.next();if(next.done)break;batch.push(next.value)}
+      let remaining=batch.length;
+      for(const row of batch){const request=store.get(key(row));request.onsuccess=()=>{try{
+        apply(row,request.result);if(--remaining===0)pump(rows,store,key,apply);
+      }catch{tx.abort()}}}
+    };
+    const outbox=tx.objectStore('appOutbox');
+    pump(frozen.outbox.values(),outbox,row=>row.key,(row,value)=>{if(value?.operationId===row.operationId)outbox.delete(row.key)});
     queueWholeBaseline(tx,{version:1,connection:frozen.connection,serverRevision:revision,userGeneration:frozen.generation,digest:frozen.digest});
-    for(const row of sent){const existing=tx.objectStore('appRecords').get(row.key);existing.onsuccess=()=>{try{if(existing.result?.raw===row.raw&&existing.result.position===row.position){const acknowledgedRow={...existing.result,serverRevision:revision};tx.objectStore('appRecords').put(acknowledgedRow,row.key);acknowledged.push(acknowledgedRow)}}catch{tx.abort()}}}
+    const records=tx.objectStore('appRecords');
+    pump(sentRows(),records,row=>row.key,(row,value)=>{if(value?.raw===row.raw&&value.position===row.position){const acknowledgedRow={...value,serverRevision:revision};records.put(acknowledgedRow,row.key);acknowledged.push(acknowledgedRow)}});
     if(state.result){previousCommitId=state.result.commitId;nextState={...state.result,commitId:crypto.randomUUID()};tx.objectStore('appRecordMeta').put(nextState,'state');}
     if(!incoming.result||sameRecordSyncConnection(incoming.result.connection,frozen.connection)&&incoming.result.revision<=frozen.expectedRevision){
       for(const key of ['wholeIncoming','pullStage'])tx.objectStore('appRecordMeta').delete(key);
