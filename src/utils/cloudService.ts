@@ -456,13 +456,23 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
-export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_photo' | 'quiz_group_learning_place' | 'manage_quiz_group_library', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
+export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_photo' | 'quiz_group_learning_place' | 'manage_quiz_group_library' | 'quiz_manage_group_folder', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
   const access = await getCloudAccessToken();
   if (!access.ok || access.userId !== expectedUserId) throw new Error('アカウントが変更されています。開き直してください。');
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
     const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, { method: 'POST', headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${access.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(params), redirect: 'error', signal: controller.signal });
     if ((await getCloudSession())?.user.id !== expectedUserId) throw new Error('アカウントが変更されています。');
+    if (!response.ok && name === 'quiz_manage_group_folder') {
+      const failure = await response.json().catch(() => null) as { message?: string } | null;
+      const messages: Record<string, string> = {
+        'not authorized': '管理する権限がありません。グループを開き直してください。',
+        'folder changed': 'フォルダの内容が変更されています。閉じて一覧を再読み込みしてください。',
+        'other contributions': '他のメンバーの教材やフォルダが含まれています。削除は管理者に依頼してください。',
+        'invalid folder name': 'フォルダ名は1〜60文字で入力してください。',
+      };
+      throw new Error(messages[failure?.message ?? ''] ?? '変更結果を確認できません。閉じて一覧を再読み込みしてから、もう一度お試しください。');
+    }
     if (!response.ok) throw new Error(response.status === 404 ? '共有進捗はサーバーの準備待ちです。個人の回答は共有されていません。' : '共有進捗を確認できません。共有状態・会員資格・公開版を開き直して確認してください。');
     return response.json();
   } finally { clearTimeout(timeout); }

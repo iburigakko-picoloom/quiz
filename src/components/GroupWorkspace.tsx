@@ -13,11 +13,13 @@ import {LibraryPane} from './LibraryPane';
 import {LibraryContentRow} from './LibraryContentRow';
 
 export type GroupDetailTab = 'overview' | 'folders' | 'members';
-export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onSettings, onRefresh, onRemoveMember, onImportFolder,busy }: {
+export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onSettings, onRefresh, onRemoveMember, onImportFolder,onManageFolder,onRemoveSet,busy }: {
   data: AppData; group?: CloudGroup; sets: CloudProblemSet[]; members: CloudGroupMember[]; userId: string; snapshot: GroupLearningSnapshot | null;
   loading: boolean; error: string; tab: GroupDetailTab; onTab: (tab: GroupDetailTab) => void; folderTrail: string[]; onFolderTrail: (trail: string[]) => void;
   onOpenSet: (set: CloudProblemSet, location: string) => void; onAddSet: (folder: GroupFolderCardData) => void; onAddFolder: () => void; onSettings: () => void; onRefresh: () => void; onRemoveMember: (member: CloudGroupMember) => void; busy: boolean;
   onImportFolder?: (folder:GroupFolderCardData)=>void;
+  onManageFolder?: (folder:GroupFolderCardData)=>void;
+  onRemoveSet?: (set:CloudProblemSet)=>void;
 }) {
   const [scope, setScope] = useState<'all' | 'self'>('all');
   const [sort, setSort] = useState<'today' | 'week' | 'l3'>('today');
@@ -62,6 +64,8 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
   for (const key of folderTrail) { const folder = children.find(f => f.key === key); if (!folder) break; trail.push(folder); children = folder.children; }
   const current = trail[trail.length - 1];
   const canManage = group?.role === 'owner' || group?.role === 'admin';
+  const folderActions = (folder: GroupFolderCardData) => folder.key !== 'unfiled' && onManageFolder && (canManage || folder.createdBy === userId)
+    ? <button type="button" className="group-library-menu" aria-label={`${folder.name}の管理`} disabled={busy || loading || !snapshot} onClick={() => onManageFolder(folder)}>…</button> : null;
   const learningMembers: GroupLearningMember[] = snapshot?.members ?? members.map(member => ({ ...member, levels: null, todayCount: null, weekCount: null, importedSetCount: 0, sharedSetCount: 0 }));
   const sorted = sortLearningMembers(learningMembers, sort);
   const groupLevels = sumLevels(learningMembers.flatMap(member => member.levels ? [member.levels] : []));
@@ -84,7 +88,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
   const rankable = sortLearningMembers(learningMembers, 'today').filter(member => member.todayCount !== null);
   const renderFolder = (folder: GroupFolderCardData, parent = folderTrail) => {
     const contents = groupFolderSets(folder);
-    return <LibraryContentRow key={folder.key} title={folder.name} folder sets={contents.length} questions={contents.reduce((sum,set)=>sum+set.questionCount,0)} disabled={busy} onOpen={()=>{onTab('folders');onFolderTrail([...parent,folder.key]);}}/>;
+    return <LibraryContentRow key={folder.key} title={folder.name} folder sets={contents.length} questions={contents.reduce((sum,set)=>sum+set.questionCount,0)} disabled={busy} onOpen={()=>{onTab('folders');onFolderTrail([...parent,folder.key]);}} actions={folderActions(folder)}/>;
   };
   return <section ref={workspaceRef} className="group-workspace" aria-label="グループ詳細">
     <div className="group-workspace__tabs" role="tablist" aria-label="グループの表示">{([['overview', '概要'], ['folders', `フォルダ ${folderCount}`], ['members', `メンバー ${members.length}`]] as const).map(([value, label]) => <button type="button" id={`group-tab-${value}`} key={value} role="tab" aria-selected={tab === value} aria-controls={`group-panel-${value}`} tabIndex={tab === value ? 0 : -1} onKeyDown={event => {
@@ -120,11 +124,11 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         <LibraryPane viewKey={folderKey} depth={folderTrail.length}>
         {current ? <nav className="group-breadcrumb" aria-label="フォルダの位置"><button type="button" onClick={() => onFolderTrail([])}>フォルダ</button>{trail.map((folder, i) => <span key={folder.key}> / <button type="button" aria-current={i === trail.length - 1 ? 'page' : undefined} onClick={() => onFolderTrail(folderTrail.slice(0, i + 1))}>{folder.name}</button></span>)}</nav> : null}
         <div className="group-panel__heading group-list-heading"><div><h2 tabIndex={-1}>{current?.name ?? 'フォルダ'}</h2>{current?<p className="group-folder-stats">{groupFolderSets(current).length}セット · {groupFolderSets(current).reduce((sum,set)=>sum+set.questionCount,0).toLocaleString('ja-JP')}問</p>:null}</div>
-          {current ? <button type="button" className="group-secondary" disabled={busy || !snapshot} onClick={() => onAddSet(current)}><PlusIcon size={18} />問題セットを追加</button> : canManage ? <button type="button" className="group-primary" disabled={busy || !snapshot} onClick={onAddFolder}><PlusIcon size={18} />フォルダを追加</button> : null}
+          {current ? <div className="group-library-actions"><button type="button" className="group-secondary" disabled={busy || !snapshot} onClick={() => onAddSet(current)}><PlusIcon size={18} />問題セットを追加</button>{folderActions(current)}</div> : canManage ? <button type="button" className="group-primary" disabled={busy || !snapshot} onClick={onAddFolder}><PlusIcon size={18} />フォルダを追加</button> : null}
         </div>
         {current&&onImportFolder?<button type="button" className="group-primary group-folder-import" disabled={busy||loading||!groupFolderSets(current).length} onClick={()=>onImportFolder(current)}>フォルダごと取り込む</button>:null}
         <div className="group-folder-list">{(current ? current.children : folders).map(folder => renderFolder(folder))}</div>
-        {current ? <div className="group-set-list">{current.sets.map(set => <LibraryContentRow key={set.id} title={set.title} questions={set.questionCount} subtitle={set.importCount===undefined?undefined:`${set.importCount}人が取り込み`} disabled={busy} onOpen={()=>onOpenSet(set,trail.map(folder=>folder.name).join(' / '))}/>)}{!current.sets.length && !current.children.length ? <GroupEmpty>問題セットはまだありません。</GroupEmpty> : null}</div> : !folders.length && !loading ? <GroupEmpty>フォルダはまだありません。</GroupEmpty> : null}
+        {current ? <div className="group-set-list">{current.sets.map(set => <LibraryContentRow key={set.id} title={set.title} questions={set.questionCount} subtitle={set.importCount===undefined?undefined:`${set.importCount}人が取り込み`} disabled={busy} onOpen={()=>onOpenSet(set,trail.map(folder=>folder.name).join(' / '))} actions={onRemoveSet && (canManage || set.ownerId === userId) ? <button type="button" className="group-library-menu" aria-label={`${set.title}の管理`} disabled={busy || loading} onClick={()=>onRemoveSet(set)}>…</button> : null}/>)}{!current.sets.length && !current.children.length ? <GroupEmpty>問題セットはまだありません。</GroupEmpty> : null}</div> : !folders.length && !loading ? <GroupEmpty>フォルダはまだありません。</GroupEmpty> : null}
         {current?<details className="library-info"><summary>フォルダ情報</summary><p>作成者：{current.createdBy===userId?'あなた':current.creatorName}</p><p>更新：{displayGroupDate(current.updatedAt)}{current.importCount===null?'':` · ${current.importCount}人が取り込み`}</p></details>:null}
         </LibraryPane>
       </section>

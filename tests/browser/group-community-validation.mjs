@@ -25,7 +25,7 @@ try {
   const snakeSet=set=>({id:set.id,local_set_id:set.localSetId,owner_id:set.ownerId==='you'?userId:set.ownerId,author_name:set.authorName,title:set.title,description:set.description,subject:set.subject,audience:set.audience,difficulty:set.difficulty,creation_method:set.creationMethod,source:set.source,visibility:set.visibility,question_count:set.questionCount,add_count:set.addCount,import_count:set.importCount,published_at:set.publishedAt,updated_at:set.updatedAt,version_id:set.versionId,folder_path:set.folderPath??[],questions:set.questions?.map((q,i)=>({position:i,logical_id:q.logicalId,content_revision:'preview',question:q.question,choices:q.choices,answer_indexes:q.answerIndexes,answer_text:q.answerText,explanation:q.explanation,detailed_explanation:q.detailedExplanation,source_page:q.sourcePage,category:q.category,difficulty:q.difficulty}))});
   const snapshot=()=>({icon:state.icon,accent:state.accent,folders:state.folders.map(f=>({id:f.id,name:f.name,parent_folder_id:f.parentId,created_by:f.createdBy,creator_name:f.creatorName,created_at:f.createdAt,updated_at:f.updatedAt,import_count:f.importCount})),placements:state.placements.map(p=>({set_id:p.setId,group_folder_id:p.folderId})),members:state.members.map(m=>({user_id:m.userId,display_name:m.displayName,role:m.role,levels:m.levels,today_count:m.todayCount,week_count:m.weekCount,imported_set_count:m.importedSetCount,shared_set_count:m.sharedSetCount}))});
   const mutations=[];const uploads=new Map();const sourceConsents=new Map();page.on('pageerror',error=>errors.push(error.message));
-  let failPublication=true,holdRestart=true,releaseRestart;
+  let failPublication=true,holdRestart=true,releaseRestart,groupRole='owner',failManagement=false;
   const blockedRestart=new Promise(resolve=>{releaseRestart=resolve;});
   const partStarts=[];
   await page.route('https://group-preview.example.test/**',async route=>{
@@ -33,7 +33,7 @@ try {
     requests.push(name);
     const args=request.postDataJSON();let result;
     if(url.pathname==='/auth/v1/user') result=user;
-    else if(name==='list_my_groups') result=[{id:previewGroup.id,name:previewGroup.name,role:'owner',icon:state.icon,accent:state.accent,member_count:8,set_count:sets.length}];
+    else if(name==='list_my_groups') result=[{id:previewGroup.id,name:previewGroup.name,role:groupRole,icon:state.icon,accent:state.accent,member_count:8,set_count:sets.length}];
     else if(name==='list_my_published_sets'||name==='list_public_problem_sets'||name==='shared_problem_sets') result=[];
     else if(name==='list_group_problem_sets') result=sets.map(s=>({...snakeSet(s),questions:undefined}));
     else if(name==='list_quiz_group_members') result=state.members.map(m=>({user_id:m.userId,display_name:m.displayName,role:m.role}));
@@ -46,6 +46,17 @@ try {
     else if(name==='quiz_group_progress_consent'){const c={generation:'source-consent',enabled:args.p_enabled,copy_id:args.p_copy_id,version_id:args.p_version_id};sourceConsents.set(args.p_set_id,c);mutations.push({name,args});result=c;}
     else if(name==='quiz_group_learning_update'){const c=sourceConsents.get(args.p_set_id);assert.equal(c.copy_id,args.p_copy_id);assert.equal(c.generation,args.p_generation);c.levels=args.p_levels;c.answered=args.p_answered;mutations.push({name,args});result=true;}
     else if(name==='manage_quiz_group_library') {assert.equal(args.p_action,'create');state.folders.push({id:'new-folder',name:args.p_name,parentId:null,createdBy:userId,creatorName:'あなた',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),importCount:0});result='new-folder';mutations.push({name,args});}
+    else if(name==='quiz_manage_group_folder') {
+      if(failManagement){failManagement=false;await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'folder changed'})});return;}
+      mutations.push({name,args});
+      if(args.p_action==='rename'){state.folders.find(f=>f.id===args.p_folder_id).name=args.p_name;result={folder_id:args.p_folder_id};}
+      else {
+        const removed=args.p_action==='remove_set'?[args.p_set_id]:state.placements.filter(p=>p.folderId===args.p_folder_id).map(p=>p.setId);
+        if(args.p_action==='delete'){assert.deepEqual([...args.p_expected_set_ids].sort(),[...removed].sort());state.folders=state.folders.filter(f=>f.id!==args.p_folder_id);}
+        for(const id of removed){const index=sets.findIndex(s=>s.id===id);if(index>=0)sets.splice(index,1);}
+        state.placements=state.placements.filter(p=>!removed.includes(p.setId));result={removed_set_ids:removed};
+      }
+    }
     else if(name==='quiz_group_learning_icon') {state.icon=args.p_icon;state.accent=args.p_accent;result=true;mutations.push({name,args});}
     else if(name==='quiz_group_learning_place') {const placement=state.placements.find(p=>p.setId===args.p_set_id);if(placement)placement.folderId=args.p_folder_id;else state.placements.push({setId:args.p_set_id,folderId:args.p_folder_id});result=true;mutations.push({name,args});}
     else if(name==='quiz_profiles') result={display_name:'あなた'};
@@ -113,5 +124,40 @@ try {
   assert.equal(mutations.filter(m=>m.name==='quiz_publish_finish'&&m.args.local_set_id?.startsWith('publication-local-')).length,3);
   await page.waitForFunction(()=>JSON.parse(localStorage.getItem('publication-preview-applied')??'[]').filter(id=>id.startsWith('publication-local-')).length===3);
   assert.deepEqual(errors,[]);console.log('Real publication UI: folder batch, four states, per-set retry, close/reload, authoritative 250/600 cursor and exactly-once commit passed');
+  await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html');
+  await page.getByRole('tab',{name:/フォルダ/}).click();
+  await page.getByRole('button',{name:'CBT対策の管理',exact:true}).click();
+  await page.getByRole('textbox',{name:'フォルダ名'}).fill('CBT新版');failManagement=true;
+  await page.getByRole('button',{name:'名前を保存'}).click();await page.getByRole('dialog').getByRole('alert').waitFor();
+  assert.equal(await page.getByRole('textbox',{name:'フォルダ名'}).inputValue(),'CBT新版');
+  await page.getByRole('button',{name:'名前を保存'}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'CBT新版の管理',exact:true}).waitFor();
+  assert.equal(mutations.filter(m=>m.name==='quiz_manage_group_folder'&&m.args.p_action==='rename').length,1);
+  await page.locator('.group-folder-list .library-content-row__open').filter({hasText:'CBT新版'}).click();
+  for(const width of [320,390,768]){
+    await page.setViewportSize({width,height:844});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+    await mkdir('tmp',{recursive:true});await page.screenshot({path:`tmp/group-management-${width}.png`});
+  }
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'心不全の管理',exact:true}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'キャンセル'}).click();assert.ok(sets.some(s=>s.id==='set-0'));
+  await page.getByRole('button',{name:'心不全の管理',exact:true}).click();await page.getByRole('button',{name:'このグループから外す',exact:true}).click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});await page.getByRole('button',{name:'心不全の管理',exact:true}).waitFor({state:'hidden'});
+  assert.equal(sets.some(s=>s.id==='set-0'),false);
+  await page.getByRole('navigation',{name:'フォルダの位置'}).getByRole('button',{name:'フォルダ',exact:true}).click();
+  await page.getByRole('button',{name:'病理学の管理',exact:true}).click();await page.getByRole('button',{name:'フォルダを削除',exact:true}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'戻る',exact:true}).click();assert.ok(state.folders.some(f=>f.id==='new-folder'));
+  await page.getByRole('button',{name:'フォルダを削除',exact:true}).click();await page.screenshot({path:'tmp/group-management-delete.png'});
+  await page.getByRole('button',{name:'このグループから削除',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
+  assert.equal(state.folders.some(f=>f.id==='new-folder'),false);
+  groupRole='member';state.placements.find(p=>p.setId==='set-3').folderId='folder-0';await page.reload();
+  await page.getByRole('tab',{name:/フォルダ/}).click();await page.getByRole('button',{name:'CBT新版の管理',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'内分泌の管理',exact:true}).count(),0);
+  await page.getByRole('button',{name:'CBT新版の管理',exact:true}).click();assert.equal(await page.getByRole('button',{name:'フォルダを削除',exact:true}).isDisabled(),true);
+  await page.getByRole('dialog').getByRole('button',{name:'閉じる',exact:true}).click();
+  await page.locator('.group-folder-list .library-content-row__open').filter({hasText:'CBT新版'}).click();
+  await page.getByRole('button',{name:'不整脈の管理',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'心電図の管理',exact:true}).count(),0);
+  assert.deepEqual(errors,[]);console.log('Group management: rename retry, confirmations, remove/delete, member permissions and 320/390/768px layouts passed');
 } catch(error) {console.error('Mock requests:',requests);console.error('Browser errors:',errors);if(page)console.error('Rendered test screen:',await page.locator('body').innerText());throw error;}
 finally {await browser?.close();server.kill();}

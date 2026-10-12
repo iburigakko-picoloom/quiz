@@ -140,6 +140,13 @@ export function CommunityScreen({
   const [folderCreateOpen, setFolderCreateOpen] = useState(false);
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const folderCreateLock = useRef(false);
+  const [managedFolder, setManagedFolder] = useState<GroupFolderCardData | null>(null);
+  const [managedSet, setManagedSet] = useState<CloudProblemSet | null>(null);
+  const [managedName, setManagedName] = useState('');
+  const [confirmFolderDelete, setConfirmFolderDelete] = useState(false);
+  const [managementError, setManagementError] = useState('');
+  const managementLock = useRef(false);
+  useEffect(() => { setManagedFolder(null); setManagedSet(null); setConfirmFolderDelete(false); setManagementError(''); }, [selectedGroupId, session?.user.id]);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'new' | 'popular'>('new');
   const [audienceFilter, setAudienceFilter] = useState('all');
@@ -200,6 +207,33 @@ export function CommunityScreen({
     : publication.jobs.filter(job => !job.groupId);
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const canManageSelectedGroup = selectedGroup?.role === 'owner' || selectedGroup?.role === 'admin';
+  const ownsFolderContents = (folder: GroupFolderCardData): boolean => folder.createdBy === session?.user.id && folder.sets.every(set => set.ownerId === session?.user.id) && folder.children.every(ownsFolderContents);
+  const canDeleteManagedFolder = Boolean(managedFolder && (canManageSelectedGroup || ownsFolderContents(managedFolder)));
+  const manageGroupLibrary = async (action: 'rename' | 'delete' | 'remove_set') => {
+    if (!session || !selectedGroup || busy || managementLock.current || (action === 'remove_set' ? !managedSet : !managedFolder)) return;
+    if (action === 'rename' && !managedName.trim() || action === 'delete' && !canDeleteManagedFolder) return;
+    const actor = session.user.id;
+    managementLock.current = true; setBusy(true); setManagementError('');
+    try {
+      const result = await groupProgressRpc('quiz_manage_group_folder', {
+        p_group_id: selectedGroup.id, p_action: action,
+        ...(action === 'remove_set' ? { p_set_id: managedSet!.id } : {
+          p_folder_id: managedFolder!.id ?? null, p_owner_id: managedFolder!.createdBy ?? null,
+          p_path: managedFolder!.legacyPath?.map(part => part.id) ?? null,
+          p_name: managedName.trim(), p_expected_set_ids: groupFolderSets(managedFolder!).map(set => set.id),
+        }),
+      }, actor) as { removed_set_ids?: string[] };
+      if (sessionUserId.current !== actor) return;
+      const removed = new Set(result.removed_set_ids ?? []);
+      setGroupSets(sets => sets.filter(set => !removed.has(set.id)));
+      setGroups(groups => groups.map(group => group.id === selectedGroup.id ? { ...group, setCount: Math.max(0, group.setCount - removed.size) } : group));
+      if (action === 'delete' || action === 'rename' && !managedFolder?.id) setGroupFolderTrail([]);
+      setManagedFolder(null); setManagedSet(null); setConfirmFolderDelete(false);
+      groupLearning.refresh();
+      setCopyGroupNotice(action === 'rename' ? 'フォルダ名を変更しました。' : action === 'delete' ? 'このグループからフォルダを削除しました。' : 'このグループから問題セットを外しました。');
+    } catch (reason) { if (sessionUserId.current === actor) setManagementError(getErrorMessage(reason)); }
+    finally { managementLock.current = false; setBusy(false); }
+  };
   const saveGroupName = async () => {
     if (!selectedGroup || selectedGroup.role !== 'owner' || busy || renameLock.current) return;
     renameLock.current = true; setBusy(true); setError('');
@@ -828,7 +862,7 @@ export function CommunityScreen({
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
-                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
+                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onManageFolder={folder => { setManagedFolder(folder); setManagedName(folder.name); setConfirmFolderDelete(false); setManagementError(''); }} onRemoveSet={set => { setManagedSet(set); setManagementError(''); }} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
                   </>
                 )}
               </section>
@@ -979,6 +1013,27 @@ export function CommunityScreen({
             <button type="submit" disabled={busy || !groupNameDraft.trim() || groupNameDraft.trim() === selectedGroup.name}>{busy ? '保存中…' : '名前を保存'}</button>
           </form> : null}
           {selectedGroup.role === 'owner' ? <button type="button" className="community-group-danger" disabled={busy} onClick={()=>void deleteSelectedGroup()}>グループを削除</button> : <button type="button" className="community-group-danger" disabled={busy || !groupMembers.some(m=>m.userId===session?.user.id)} onClick={()=>{const member=groupMembers.find(m=>m.userId===session?.user.id);if(member)void removeGroupMember(member);}}>グループから退出</button>}
+        </CommunityModal> : null}
+        {managedFolder ? <CommunityModal ariaLabel={confirmFolderDelete ? 'グループのフォルダを削除' : 'フォルダの管理'} busy={busy} onClose={() => setManagedFolder(null)}>
+          {confirmFolderDelete ? <>
+            <h2>グループのフォルダを削除</h2><p>「{managedFolder.name}」と子フォルダ、含まれる{groupFolderSets(managedFolder).length}セットをこのグループから削除します。</p>
+            <p>元教材・取り込み済みの教材・個人の学習履歴は残ります。他のグループや「見つける」の公開も残ります。</p>
+            {managementError ? <p role="alert" className="group-error">{managementError}</p> : null}
+            <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => { setConfirmFolderDelete(false); setManagementError(''); }}>戻る</button><button type="button" className="community-group-danger" disabled={busy || !canDeleteManagedFolder} onClick={() => void manageGroupLibrary('delete')}>{busy ? '削除中…' : 'このグループから削除'}</button></div>
+          </> : <>
+            <h2>フォルダの管理</h2>
+            <form className="group-folder-form" onSubmit={event => { event.preventDefault(); void manageGroupLibrary('rename'); }}><label>フォルダ名<input data-dialog-autofocus value={managedName} maxLength={60} required disabled={busy} onChange={event => setManagedName(event.target.value)} /></label>
+              {managementError ? <p role="alert" className="group-error">{managementError}</p> : null}
+              <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setManagedFolder(null)}>閉じる</button><button type="submit" className="community-primary" disabled={busy || !managedName.trim() || managedName.trim() === managedFolder.name}>{busy ? '保存中…' : '名前を保存'}</button></div>
+            </form>
+            <button type="button" className="community-group-danger" disabled={busy || !canDeleteManagedFolder} onClick={() => { setConfirmFolderDelete(true); setManagementError(''); }}>フォルダを削除</button>
+            {!canDeleteManagedFolder ? <p className="group-muted">他のメンバーの教材やフォルダを含むため、削除は管理者が行えます。</p> : null}
+          </>}
+        </CommunityModal> : null}
+        {managedSet ? <CommunityModal ariaLabel="グループから問題セットを外す" busy={busy} onClose={() => setManagedSet(null)}>
+          <h2>グループから問題セットを外す</h2><p>「{managedSet.title}」をこのグループから外します。</p><p>元教材・取り込み済みの教材・個人の学習履歴は残ります。他のグループや「見つける」の公開も残ります。</p>
+          {managementError ? <p role="alert" className="group-error">{managementError}</p> : null}
+          <div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setManagedSet(null)}>キャンセル</button><button type="button" className="community-group-danger" disabled={busy} onClick={() => void manageGroupLibrary('remove_set')}>{busy ? '処理中…' : 'このグループから外す'}</button></div>
         </CommunityModal> : null}
         {folderCreateOpen ? <CommunityModal ariaLabel="フォルダを追加" busy={busy} onClose={() => setFolderCreateOpen(false)}>
           <h2>フォルダを追加</h2><p>このグループのメンバーで共有するフォルダです。</p>
