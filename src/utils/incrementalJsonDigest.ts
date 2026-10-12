@@ -56,6 +56,16 @@ export async function hashJsonFragments(fragments: Iterable<string>): Promise<st
 
 export const incrementalJsonDigest = (value: unknown): Promise<string> => hashJsonFragments(jsonFragments(value));
 
+/** Measure serialized UTF-8 without constructing another full backup. */
+export async function jsonByteSize(value:unknown):Promise<number>{
+  const encoder=new TextEncoder();let size=0,deadline=performance.now()+8;
+  for(const fragment of jsonFragments(value)){
+    size+=encoder.encode(fragment).length;
+    if(performance.now()>=deadline){await new Promise<void>(resolve=>setTimeout(resolve,0));deadline=performance.now()+8;}
+  }
+  return size;
+}
+
 /** A backup can exceed the JS heap even though its individual notes fit. Keep
  * the serialized copy in Blob storage, never a second full escaped JS string. */
 export async function jsonBackupBlob(value: unknown): Promise<{blob:Blob;digest:string}> {

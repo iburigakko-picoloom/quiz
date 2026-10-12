@@ -314,7 +314,20 @@ export async function saveAppRecords(
         } catch(error) { writeFailure=error;tx.abort(); }
       };
     }
-    changes.forEach((row, index) => {
+    const finish=()=>{
+      tx.objectStore('appRecordMeta').put(nextState, 'state');
+      if (!previous) tx.objectStore(LEGACY_STORE).put(1, RECORD_AUTHORITY_KEY);
+      if (previous) tx.objectStore('appRecordMeta').put(previous.state, 'previousState');
+      if (fallback?.raw) tx.objectStore('appRecordMeta').put(fallback, 'migrationFallback');
+      if(changes.length&&userEdit)queueUserEditGeneration(tx);
+      extraCommit?.(tx);
+    };
+    let next=0;
+    const pump=()=>{
+      const end=Math.min(next+128,changes.length);let remaining=end-next;
+      if(!remaining){finish();return;}
+      for(;next<end;next++){
+      const index=next,row=changes[index];
       const old = previous?.records.get(row.key);
       if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, row.key);
       tx.objectStore('appRecords').put(row, row.key);
@@ -328,16 +341,15 @@ export async function saveAppRecords(
             ? (prior.baseRevision === row.serverRevision ? prior.baseContent : undefined)
             : old && old.serverRevision > 0 ? { raw: old.raw, position: old.position } : undefined;
           tx.objectStore('appOutbox').put({ ...operations[index], ...(baseContent ? { baseContent } : {}) }, row.key);
+          if(--remaining===0)pump();
         } catch (error) { writeFailure = error; tx.abort(); }
       };
       rows.set(row.key, row);
-    });
-    tx.objectStore('appRecordMeta').put(nextState, 'state');
-    if (!previous) tx.objectStore(LEGACY_STORE).put(1, RECORD_AUTHORITY_KEY);
-    if (previous) tx.objectStore('appRecordMeta').put(previous.state, 'previousState');
-    if (fallback?.raw) tx.objectStore('appRecordMeta').put(fallback, 'migrationFallback');
-    if(changes.length&&userEdit)queueUserEditGeneration(tx);
-    extraCommit?.(tx);
+      }
+    };
+    // IDB callbacks keep one atomic transaction alive without retaining a
+    // pending request and cloned body for every question at once.
+    pump();
     } catch (error) { writeFailure = error; tx.abort(); }
   };
   try { await done; } catch (error) {

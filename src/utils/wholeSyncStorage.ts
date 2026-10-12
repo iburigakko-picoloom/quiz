@@ -125,12 +125,30 @@ export async function stageWholePage(db:IDBDatabase,connection:RecordSyncConnect
   }catch{tx.abort()}};await completion;return next;
 }
 export async function readWholeRows(db:IDBDatabase,connection:RecordSyncConnection,revision:number):Promise<RemoteRecordChange[]>{
-  const incoming=await readWholeMeta<WholeIncoming>(db,'wholeIncoming',connection);
-  if(!incoming?.complete||incoming.revision!==revision)throw new SyncProtocolError('invalid_response','全体の受信が完了していません。');
-  const tx=db.transaction('appPullStage'),completion=done(tx),request=tx.objectStore('appPullStage').getAll();await completion;
-  const rows=request.result as RemoteRecordChange[];
-  for(let i=0;i<rows.length;i+=500){validateRecordPullPage({code:'ok',cursor:1,head:1,hasMore:false,batches:[{revision:1,changes:rows.slice(i,i+500).map(row=>({...row,revision:1}))}]},0)}
-  if(rows.some(row=>row.raw===null||!safe(row.revision)||row.revision>revision))throw new SyncProtocolError('invalid_response','保存済みの全体受信を検証できません。');
+  // Metadata and every bounded read share one snapshot. Continue inside IDB
+  // callbacks so another tab cannot replace the stage between batches.
+  const tx=db.transaction(['appRecordMeta','appPullStage']),completion=done(tx),meta=tx.objectStore('appRecordMeta').get('wholeIncoming');
+  const rows:RemoteRecordChange[]=[];let failure:unknown;
+  const abort=(error:unknown)=>{failure=error;tx.abort();};
+  const read=(after?:string)=>{
+    const range=after===undefined?undefined:IDBKeyRange.lowerBound(after,true),store=tx.objectStore('appPullStage');
+    const request=store.getAll(range,256),keys=store.getAllKeys(range,256);
+    keys.onsuccess=()=>{try{
+      const batch=request.result as RemoteRecordChange[];
+      if(batch.length){
+        validateRecordPullPage({code:'ok',cursor:1,head:1,hasMore:false,batches:[{revision:1,changes:batch.map(row=>({...row,revision:1}))}]},0);
+        if(batch.some((row,i)=>row.key!==keys.result[i]||row.raw===null||!safe(row.revision)||row.revision>revision))throw new SyncProtocolError('invalid_response','保存済みの全体受信を検証できません。');
+        rows.push(...batch);if(batch.length===256)read(batch[batch.length-1].key);
+      }
+    }catch(error){abort(error);}};
+  };
+  meta.onsuccess=()=>{try{
+    const incoming=meta.result as WholeIncoming|undefined;
+    if(incoming&&(incoming.version!==1||!incoming.connection||!sameRecordSyncConnection(incoming.connection,connection)))throw new SyncProtocolError('connection_changed','受信データのアカウントが変わりました。');
+    if(!incoming||incoming.complete!==true||!safe(incoming.revision)||incoming.revision!==revision||typeof incoming.afterKey!=='string'||incoming.afterKey.length>2048)throw new SyncProtocolError('invalid_response','全体の受信が完了していません。');
+    read();
+  }catch(error){abort(error);}};
+  try{await completion;}catch(error){throw failure??error;}
   return rows;
 }
 export function queueWholeBaseline(tx:IDBTransaction,baseline:WholeSyncBaseline):void{
@@ -144,7 +162,15 @@ export function queueWholeReplacement(tx:IDBTransaction,rows:RemoteRecordChange[
   state.onsuccess=()=>{try{
     const current=state.result as AppRecordState;if(!current)throw new Error();
     tx.objectStore('appRecords').clear();tx.objectStore('appOutbox').clear();tx.objectStore('appRecordConflicts').clear();
-    for(const row of rows)tx.objectStore('appRecords').put({key:row.key,collection:row.collection,id:row.id,raw:row.raw,...(row.logicalRaw!==undefined?{logicalRaw:row.logicalRaw}:{}),position:row.position,serverRevision:row.revision,localRevision:current.revision},row.key);
+    let next=0;
+    const pump=()=>{try{
+      const end=Math.min(next+128,rows.length);let last:IDBRequest|undefined;
+      for(;next<end;next++){
+        const row=rows[next];last=tx.objectStore('appRecords').put({key:row.key,collection:row.collection,id:row.id,raw:row.raw,...(row.logicalRaw!==undefined?{logicalRaw:row.logicalRaw}:{}),position:row.position,serverRevision:row.revision,localRevision:current.revision},row.key);
+      }
+      if(next<rows.length)last!.onsuccess=pump;
+    }catch{tx.abort();}};
+    pump();
     queueWholeBaseline(tx,baseline);
     for(const key of ['pushBatch','pullStage','wholeIncoming','wholeFrozen','wholeFrozenProgress'])meta.delete(key);
     tx.objectStore('appPullStage').clear();tx.objectStore('appPullMedia').clear();

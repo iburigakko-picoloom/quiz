@@ -30,6 +30,16 @@ test('whole receive is staged without changing live data; replays, cross-account
   await assert.rejects(stageWholePage(db,connection,4,a.key,page([a],4,false)));
   assert.equal((await storage.loadAppDataAsync()).folders[0].name,'local');
 });
+
+test('staged records use bounded reads in one snapshot; mismatched persisted keys fail instead of looping',async()=>{
+  const rows=Array.from({length:1100},(_,i)=>row('read-'+String(i).padStart(4,'0'),'Folder '+i));
+  for(let i=0;i<rows.length;i+=200)await stageWholePage(db,connection,4,i?rows[i-1].key:'',page(rows.slice(i,i+200),4,i+200<rows.length));
+  const getAll=IDBObjectStore.prototype.getAll;let reads=0,transaction;
+  IDBObjectStore.prototype.getAll=function(...args){if(this.name==='appPullStage'){assert.equal(args[1],256);if(transaction)assert.equal(this.transaction,transaction);else transaction=this.transaction;reads++;}return getAll.apply(this,args)};
+  try{assert.deepEqual(await readWholeRows(db,connection,4),rows);assert.equal(reads,5);}finally{IDBObjectStore.prototype.getAll=getAll;}
+  const tx=db.transaction('appPullStage','readwrite');tx.objectStore('appPullStage').put({...rows[700],key:rows[0].key},rows[700].key);await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=j;});
+  await assert.rejects(readWholeRows(db,connection,4),e=>e.code==='invalid_response');
+});
 test('normal whole apply replaces the selected graph in one transaction without union, archive or dirty-generation increase',async()=>{
   const rows=[row('cloud','Cloud')],file=await incoming(rows,4),generation=await readUserEditGeneration(db),baseline={version:1,connection,serverRevision:4,userGeneration:generation,digest:await computeWholeRecordDigest(rows)};
   const result=await withCoordinatedDataMutation(['app','notes'],()=>applyWholeSyncFile(file,generation,tx=>queueWholeReplacement(tx,rows,baseline)),{requireCrossContext:true});assert.equal(result.ok,true,result.error);

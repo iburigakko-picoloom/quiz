@@ -58,9 +58,10 @@ export async function prepareQuestionImageOutbox(db: IDBDatabase, transport: Que
 /** Stage verified Blobs durably. A network or quota failure cannot move the Pull cursor. */
 export async function prepareStagedQuestionImages(db: IDBDatabase, transport: QuestionImageTransport, assertCurrent: () => Promise<void>,progress?:(value:SyncProgress)=>void): Promise<void> {
   const read = db.transaction('appPullStage', 'readonly'); const complete = done(read);
-  const incoming = read.objectStore('appPullStage').getAll();
+  const incoming = read.objectStore('appPullStage').openCursor();
+  const rows:RemoteRecordChange[]=[];
+  incoming.onsuccess=()=>{const cursor=incoming.result;if(!cursor)return;const row=cursor.value as RemoteRecordChange;if(row.collection==='questionImages'&&row.raw!==null)rows.push(row);cursor.continue();};
   await complete;
-  const rows=(incoming.result as RemoteRecordChange[]).filter(row=>row.collection==='questionImages'&&row.raw!==null);
   let count=0;reportProgress(progress,'画像を確認・受信中',0,rows.length,'receiving_images');
   for (const row of rows) {
     const descriptor = parseQuestionImageDescriptor(row.raw);

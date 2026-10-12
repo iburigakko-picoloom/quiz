@@ -10,6 +10,7 @@ import { SyncProtocolError } from './syncInterruption';
 import type { AppData } from '../types';
 import { assertMaterialIntegrity, SyncDataError, syncDataFailure, type SyncFailureDetails } from './syncDataIntegrity';
 import { materialFileEntry } from './materialModel';
+import { verifyQuestionImageBlob } from './questionImageCloud';
 
 export function wholeRowsPayload(rows:RemoteRecordChange[]):SyncPayload{
   const live=rows.filter(row=>row.raw!==null),counts=Object.fromEntries(APP_COLLECTIONS.map(name=>[name,live.filter(row=>row.collection===name).length])) as Record<typeof APP_COLLECTIONS[number],number>;
@@ -34,9 +35,21 @@ export async function buildWholeIncomingFile(db:IDBDatabase,rows:RemoteRecordCha
   const metadata=new Set(rows.filter(row=>row.collection==='questionImages'&&row.raw!==null).map(row=>row.id));
   const missing=new Set(data.questions.flatMap(question=>[...(question.questionImageIds??[]),...(question.detailedAnswer?.imageIds??[])]).filter(id=>!metadata.has(id)));
   if(missing.size&&!allowMissingImages)throw new SyncDataError('image_reference','一部の画像の紐づけ情報を確認できません。',{function:'buildWholeIncomingFile',stage:'material_references',cause:'missing',total:missing.size,completed:0});
-  const tx=db.transaction('appPullMedia'),completed=new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error)}),request=tx.objectStore('appPullMedia').getAll();await completed;
-  const staged=request.result as Array<{image?:StoredQuestionImage}>;
-  const images=staged.filter((row):row is {image:StoredQuestionImage}=>Boolean(row.image)).map(row=>row.image);
+  // Read only this snapshot's images, one at a time. Staged PDFs and stale
+  // images need not enter the JS heap while constructing the backup.
+  async function* images():AsyncGenerator<StoredQuestionImage>{
+    for(const row of rows){
+      if(row.collection!=='questionImages'||row.raw===null)continue;
+      await assertCurrent();
+      const tx=db.transaction('appPullMedia'),request=tx.objectStore('appPullMedia').get(row.key);
+      await new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error);});
+      const staged=request.result;
+      if(!staged?.image)continue; // Complete-file validation reports missing bytes.
+      const descriptor=JSON.parse(row.raw);
+      if(staged.revision!==row.revision||JSON.stringify(staged.descriptor)!==JSON.stringify(descriptor)||staged.image.id!==row.id||staged.image.questionId!==descriptor.questionId||!await verifyQuestionImageBlob(staged.image.blob,descriptor))throw new SyncDataError('image_reference','画像の受信内容が変わりました。',{function:'buildWholeIncomingFile',stage:'backup_build',cause:'reference'});
+      await assertCurrent();yield staged.image;
+    }
+  }
   await assertCurrent();
   let pdfDiagnostic:SyncFailureDetails|undefined;
   const payload=await hydrateMaterialDownload(source,transport,undefined,(completed,total)=>{try{progress?.({label:'資料を確認・受信中',completed,total,stage:'receiving_materials'});}catch{/* Informational only. */}},{assertCurrent,diagnostic:value=>{pdfDiagnostic=value;},localFile:async key=>{
@@ -45,7 +58,7 @@ export async function buildWholeIncomingFile(db:IDBDatabase,rows:RemoteRecordCha
   await assertCurrent();
   try{progress?.({label:'バックアップを生成・検証中',completed:0,total:1,stage:'building_backup'});}catch{}
   try{
-    const file=await (allowMissingImages?createImageOptionalSyncFile(payload,images):createCompleteFileBackup(payload,images));await assertCurrent();
+    const file=await (allowMissingImages?createImageOptionalSyncFile(payload,images()):createCompleteFileBackup(payload,images()));await assertCurrent();
     try{progress?.({label:'バックアップの検証完了',completed:1,total:1,stage:'building_backup'});}catch{}return file;
   }catch(error){if(error instanceof SyncProtocolError&&!(error instanceof SyncDataError))throw error;const failure=syncDataFailure(error,'createFileBackup','backup_build');if(pdfDiagnostic)Object.assign(failure.diagnostic,{pdfTotal:pdfDiagnostic.total,pdfCompleted:pdfDiagnostic.completed,downloaded:pdfDiagnostic.downloaded,cacheReused:pdfDiagnostic.cacheReused,localReused:pdfDiagnostic.localReused});throw failure;}
 }

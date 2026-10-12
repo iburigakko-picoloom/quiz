@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
-import { IDBFactory, forceCloseDatabase } from 'fake-indexeddb';
+import { IDBFactory, IDBObjectStore, forceCloseDatabase } from 'fake-indexeddb';
 
 const hook = registerHooks({
   resolve(specifier, context, next) {
@@ -88,6 +88,23 @@ test('deletions retain tombstones, coalesce pending edits and restore the exact 
   assert.deepEqual((await records.readPreviousAppRecords(db)).data, next);
   assert.equal((await records.readAppOutbox(db)).filter(op => op.key === records.appRecordKey('questions', 'q0')).length, 1);
   db.close();
+});
+
+test('large saves bound outstanding requests and roll back earlier batches on a late failure',async()=>{
+  const db=await database(),initial=data();await records.saveAppRecords(db,initial,timestamp);
+  const before=await get(db,'appRecordMeta','state'),beforeOps=await records.readAppOutbox(db);
+  const read=IDBObjectStore.prototype.get;let pending=0,peak=0,reads=0,fail=true;
+  IDBObjectStore.prototype.get=function(...args){
+    if(this.name!=='appOutbox')return read.apply(this,args);
+    if(++reads===700&&fail)throw new DOMException('late quota failure','QuotaExceededError');
+    const request=read.apply(this,args);peak=Math.max(peak,++pending);request.addEventListener('success',()=>pending--);request.addEventListener('error',()=>pending--);return request;
+  };
+  try{
+    await assert.rejects(records.saveAppRecords(db,data(1100),timestamp),/late quota/);
+    assert.deepEqual(await get(db,'appRecordMeta','state'),before);assert.deepEqual(await records.readAppOutbox(db),beforeOps);assert.deepEqual((await records.readAppRecords(db)).data,initial);
+    fail=false;reads=0;pending=0;peak=0;await records.saveAppRecords(db,data(1100),timestamp);
+    assert.ok(peak<=128,`pending requests ${peak}`);assert.equal((await records.readAppRecords(db)).data.questions.length,1100);
+  }finally{IDBObjectStore.prototype.get=read;db.close();}
 });
 
 test('aborted migration/save cannot commit a manifest or partial outbox and can be retried', async () => {

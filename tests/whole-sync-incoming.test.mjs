@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test,after} from 'node:test';
 import {execFileSync} from 'node:child_process';
-import {IDBFactory,IDBKeyRange} from 'fake-indexeddb';
+import {IDBFactory,IDBKeyRange,IDBObjectStore} from 'fake-indexeddb';
 import {incomingFixture,pdfOwner,stamp} from './helpers/whole-incoming-fixture.mjs';
 import {historicalMediaReason} from './fixtures/whole-sync-historical-reason.mjs';
 globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
@@ -103,4 +103,18 @@ test('post-PDF validation is a real stage, stops below 100%, and only a verified
 test('multiple large PDFs remain sequential within a restricted mobile-like JS heap',()=>{
   const output=execFileSync(process.execPath,['--max-old-space-size=192','--import','./tests/helpers/typescript-imports.mjs','tests/helpers/whole-incoming-mobile.mjs'],{encoding:'utf8',timeout:30000,windowsHide:true});
   const metrics=JSON.parse(output.trim());assert.equal(metrics.pdfs,4);assert.equal(metrics.maxConcurrentDownloads,1);
+});
+
+test('incoming images are read individually, ignore unrelated staged media, and reject a changed revision',async()=>{
+  const {describeQuestionImage}=await import('../src/utils/questionImageRecords.ts');
+  const fixture=await incomingFixture({count:0,image:true});
+  const image={id:'image',questionId:'q',name:'q.png',type:'image/png',addedAt:stamp,blob:new Blob([new Uint8Array(256*1024)],{type:'image/png'})};
+  const descriptor=await describeQuestionImage(image),key=JSON.stringify(['questionImages',image.id]);
+  fixture.rows.push({key,collection:'questionImages',id:image.id,raw:JSON.stringify(descriptor),revision:1,position:0});
+  const put=async revision=>{const tx=db.transaction('appPullMedia','readwrite'),done=complete(tx);tx.objectStore('appPullMedia').put({revision,descriptor,image},key);tx.objectStore('appPullMedia').put({image:{...image,id:'unrelated'}},'unrelated');await done;};
+  const getAll=IDBObjectStore.prototype.getAll;IDBObjectStore.prototype.getAll=function(...args){if(this.name==='appPullMedia')assert.fail('all staged media was read');return getAll.apply(this,args)};
+  try{
+    await put(1);const file=await build(fixture);assert.equal(file.questionImageFiles.length,1);assert.equal(file.backupManifest.completeness,'complete');
+    await put(2);await assert.rejects(build(fixture),e=>e.code==='image_reference');
+  }finally{IDBObjectStore.prototype.getAll=getAll;const tx=db.transaction('appPullMedia','readwrite'),done=complete(tx);tx.objectStore('appPullMedia').clear();await done;}
 });

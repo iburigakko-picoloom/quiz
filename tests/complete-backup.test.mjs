@@ -39,6 +39,28 @@ test('complete export includes actual image bytes, verified descriptors, all not
   assert.equal((await validateFileBackup({...original,backupManifest:{...original.backupManifest,imageCount:2}})).ok,false);
 });
 
+test('recovery archives stream into Blobs, verify duplicates without full reads, and support legacy strings',async()=>{
+  const {prepareWholeRecovery}=await import('../src/utils/wholeRecovery.ts');
+  const {jsonByteSize}=await import('../src/utils/incrementalJsonDigest.ts');
+  assert.equal(await jsonByteSize(original),Buffer.byteLength(JSON.stringify(original)));
+  const text=Blob.prototype.text;Blob.prototype.text=async()=>assert.fail('whole recovery verification must stream');
+  let summary;
+  try{
+    const queue=await prepareWholeRecovery(db,original,'before-restore');
+    const tx=db.transaction(['appDataBackups','appRecordMeta'],'readwrite');queue(tx);await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=j;});
+    summary=(await listWholeRecovery())[0];assert.match(summary.storageDigest,/^[0-9a-f]{64}$/);
+    const read=db.transaction('appDataBackups'),request=read.objectStore('appDataBackups').get(summary.id);await new Promise((r,j)=>{read.oncomplete=r;read.onabort=j;});assert.ok(request.result instanceof Blob);
+    await prepareWholeRecovery(db,original,'before-restore');
+    const corrupt=db.transaction('appDataBackups','readwrite');corrupt.objectStore('appDataBackups').put(new Blob([new Uint8Array(summary.byteSize)]),summary.id);await new Promise((r,j)=>{corrupt.oncomplete=r;corrupt.onabort=j;});
+    await assert.rejects(prepareWholeRecovery(db,original,'before-restore'),/既存/);
+    // Old installations stored string bodies without storageDigest.
+    const legacy=db.transaction('appDataBackups','readwrite');legacy.objectStore('appDataBackups').put(JSON.stringify(original),summary.id);await new Promise((r,j)=>{legacy.oncomplete=r;legacy.onabort=j;});
+    await prepareWholeRecovery(db,original,'before-restore');
+  }finally{Blob.prototype.text=text;}
+  assert.deepEqual(JSON.parse(await getWholeRecovery(summary.id)),original);
+  await deleteWholeRecovery(summary.id);
+});
+
 test('one shared transaction replaces app/notes/images/settings and stores a fully restorable pre-restore copy',async()=>{
   assert.equal(await storage.saveAppDataAsync({...data,questions:[{...question,question:'new Q'}]}),true);
   await notes.saveCategoryNoteRaw(noteKey,JSON.stringify({dataUrl:'ink-new',updatedAt:'2026-10-05T01:00:00Z'}));

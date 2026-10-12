@@ -2,11 +2,13 @@ import { openAppDb } from '../storage';
 import { withCoordinatedDataMutation } from './dataCoordination';
 import type { FileBackup } from './backupPayload';
 import { getAccountStorageSession } from './accountStorage';
+import { hashBackupBlob, jsonBackupBlob } from './incrementalJsonDigest';
 
 const INDEX = 'wholeRecoveryIndexV1';
 const PREFIX = 'quizMake:wholeRecovery:';
 export interface WholeRecoverySummary {
   id: string; createdAt: string; kind: 'before-restore' | 'conflict'; byteSize: number; digest: string;
+  storageDigest?: string;
 }
 interface RecoveryIndex { version: 1; budgetBytes: number; items: WholeRecoverySummary[] }
 function done(tx: IDBTransaction): Promise<void> {
@@ -25,12 +27,24 @@ async function index(db: IDBDatabase): Promise<RecoveryIndex | undefined> {
 export async function listWholeRecovery(): Promise<WholeRecoverySummary[]> {
   return [...(await index(await openAppDb()))?.items ?? []].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
-export async function getWholeRecovery(id: string): Promise<string | undefined> {
+async function readRecoveryBody(db:IDBDatabase,id:string):Promise<string|Blob|undefined>{
   if (!id.startsWith(PREFIX)) throw new Error('復旧コピーのIDが不正です。');
-  const db = await openAppDb(), tx = db.transaction('appDataBackups'), completed = done(tx), request = tx.objectStore('appDataBackups').get(id);
+  const tx = db.transaction('appDataBackups'), completed = done(tx), request = tx.objectStore('appDataBackups').get(id);
   await completed;
-  if (request.result !== undefined && typeof request.result !== 'string') throw new Error('復旧コピーを読み込めません。');
+  if (request.result !== undefined && typeof request.result !== 'string' && !(request.result instanceof Blob)) throw new Error('復旧コピーを読み込めません。');
   return request.result;
+}
+export async function getWholeRecovery(id: string): Promise<string | undefined> {
+  const body=await readRecoveryBody(await openAppDb(),id);
+  return body instanceof Blob?body.text():body;
+}
+async function verifyRecovery(db:IDBDatabase,summary:WholeRecoverySummary):Promise<boolean>{
+  const body=await readRecoveryBody(db,summary.id);
+  if(body instanceof Blob)return Boolean(summary.storageDigest&&body.size===summary.byteSize&&await hashBackupBlob(body)===summary.storageDigest);
+  if(typeof body!=='string')return false;
+  const {validateFileBackup}=await import('./backupPayload');
+  const checked=await validateFileBackup(JSON.parse(body),{retainImages:false});
+  return checked.ok&&checked.value.payload.backupManifest.completeness==='complete'&&checked.value.payload.backupManifest.contentDigest===summary.digest;
 }
 /** The first actual complete exchange determines this device's archive budget.
  * Four copies of the larger measured side, limited to half the free space,
@@ -42,16 +56,16 @@ export async function prepareWholeRecovery(db: IDBDatabase, payload: FileBackup,
   const currentOwner = () => { if(owner !== getAccountStorageSession() || native !== globalThis.localStorage) throw new Error('復旧コピーのアカウントが変わりました。'); owner?.assertCurrent(); };
   currentOwner();
   const { validateFileBackup } = await import('./backupPayload');
-  const checked = await validateFileBackup(payload);
+  const checked = await validateFileBackup(payload,{retainImages:false});
   if (!checked.ok || payload.backupManifest.completeness !== 'complete') throw new Error('完全な復旧コピーを検証できないため、データの入れ替えを中止しました。');
-  const previous = await index(db), raw = JSON.stringify(payload), byteSize = new Blob([raw]).size;
+  const previous = await index(db);
   const duplicate = previous?.items.find(item => item.digest === payload.backupManifest.contentDigest);
   if (duplicate) {
-    const stored = await getWholeRecovery(duplicate.id);
-    const verified = stored ? await validateFileBackup(JSON.parse(stored)) : undefined;
-    if (!verified?.ok || verified.value.payload.backupManifest.contentDigest !== duplicate.digest) throw new Error('既存の復旧コピーを確認できないため、データの入れ替えを中止しました。');
-    return () => {};
+    if (!await verifyRecovery(db,duplicate)) throw new Error('既存の復旧コピーを確認できないため、データの入れ替えを中止しました。');
+    currentOwner();return () => {currentOwner();};
   }
+  const stored=await jsonBackupBlob(payload),byteSize=stored.blob.size;
+  currentOwner();
   const estimate = await globalThis.navigator?.storage?.estimate?.();
   if (!estimate?.quota || estimate.usage === undefined || !Number.isFinite(estimate.quota - estimate.usage)) {
     throw new Error('端末の空き容量を確認できないため、復旧コピーを作成できません。');
@@ -61,18 +75,22 @@ export async function prepareWholeRecovery(db: IDBDatabase, payload: FileBackup,
   const budgetBytes = previous?.budgetBytes ?? Math.floor(Math.min(Math.max(byteSize,replacementBytes) * 4, free / 2));
   const used = previous?.items.reduce((sum, item) => sum + item.byteSize, 0) ?? 0;
   if (used + byteSize > budgetBytes || byteSize * 2 > free) throw new Error(`復旧コピーの容量が不足しています（使用 ${Math.ceil(used / 1048576)} MB／上限 ${Math.ceil(budgetBytes / 1048576)} MB）。必要なコピーを書き出してから、一覧で不要なコピーを削除してください。`);
-  const summary: WholeRecoverySummary = { id: PREFIX + crypto.randomUUID(), createdAt: new Date().toISOString(), kind, byteSize, digest: payload.backupManifest.contentDigest };
+  const summary: WholeRecoverySummary = { id: PREFIX + crypto.randomUUID(), createdAt: new Date().toISOString(), kind, byteSize, digest: payload.backupManifest.contentDigest,storageDigest:stored.digest };
   const next: RecoveryIndex = { version: 1, budgetBytes, items: [...previous?.items ?? [], summary] };
   return tx => {
     currentOwner();
     tx.addEventListener('complete', () => {
-      void import('./backupHistory').then(({pruneBackupHistoryAfterSave}) => pruneBackupHistoryAfterSave(summary.id, raw, currentOwner)).catch(() => { /* A failed cleanup retains the new copy and all remaining originals. */ });
+      void (async()=>{
+        currentOwner();if(!await verifyRecovery(db,summary))return;currentOwner();
+        const {pruneVerifiedBackupHistory}=await import('./backupHistory');
+        await pruneVerifiedBackupHistory(summary.id,currentOwner);
+      })().catch(() => { /* A failed cleanup retains the new copy and all remaining originals. */ });
     }, {once:true});
     const current = tx.objectStore('appRecordMeta').get(INDEX);
     current.onsuccess = () => {
       try {
         if (JSON.stringify(current.result) !== JSON.stringify(previous)) throw new Error('復旧コピーの一覧が別の画面で更新されました。');
-        tx.objectStore('appDataBackups').add(raw, summary.id);
+        tx.objectStore('appDataBackups').add(stored.blob, summary.id);
         tx.objectStore('appRecordMeta').put(next, INDEX);
       } catch { tx.abort(); }
     };

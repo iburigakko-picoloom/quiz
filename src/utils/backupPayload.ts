@@ -1,4 +1,4 @@
-import { incrementalJsonDigest } from './incrementalJsonDigest';
+import { incrementalJsonDigest, jsonByteSize } from './incrementalJsonDigest';
 import { accountLocalStorage as localStorage } from './accountStorage';
 import { exportQuizMakeData, exportQuizMakeRecoveryData, validateHydratedSyncPayload, isQuizMakeStorageKey, waitForLocalPersistence, type SyncPayload, type SyncResult } from './syncService';
 import { loadAppDataAsync, establishCurrentAppDataAuthority } from '../storage';
@@ -7,7 +7,7 @@ import { getNoteBackupIssues, exportCategoryNotesRaw, CATEGORY_NOTES_MANIFEST_KE
 import { openCoLocatedNoteDb } from './noteRecordMigration';
 import { openQuestionImageRecordDb, readQuestionImages, describeQuestionImage, validQuestionImageDescriptor, questionImageMetadataKey, type StoredQuestionImage, type QuestionImageDescriptor } from './questionImageRecords';
 import { verifyQuestionImageBlob } from './questionImageCloud';
-import { saveAppRecords, readAppRecordSnapshot, appRecordKey } from './appRecordStorage';
+import { saveAppRecords, readCurrentAppRecordSnapshot, appRecordKey } from './appRecordStorage';
 import { queueAuxiliaryRecordWrite } from './auxiliaryRecordStorage';
 import { prepareLearningValue, queueLearningValue, queueLearningFence, readLearningValues } from './learningValueStorage';
 import { isLearningStorageKey } from './learningStorageKeys';
@@ -29,13 +29,14 @@ export type FileBackup = SyncPayload & {
   backupManifest: { schema:1; completeness:'complete'|'partial'; issues:string[]; questionCount:number; noteCount:number; imageCount:number; contentDigest:string };
   questionImageFiles: Array<{descriptor:QuestionImageDescriptor;dataUrl:string}>;
 };
-export function createCompleteFileBackup(payload:SyncPayload,images:readonly StoredQuestionImage[]):Promise<FileBackup>{return createFileBackup(payload,images,false);}
+type BackupImages = Iterable<StoredQuestionImage> | AsyncIterable<StoredQuestionImage>;
+export function createCompleteFileBackup(payload:SyncPayload,images:BackupImages):Promise<FileBackup>{return createFileBackup(payload,images,false);}
 /** Legacy local-only image IDs remain in the data; missing bytes are explicit. */
-export function createImageOptionalSyncFile(payload:SyncPayload,images:readonly StoredQuestionImage[]):Promise<FileBackup>{return createFileBackup(payload,images,true);}
-async function createFileBackup(payload:SyncPayload,images:readonly StoredQuestionImage[],allowMissingImages:boolean):Promise<FileBackup>{
+export function createImageOptionalSyncFile(payload:SyncPayload,images:BackupImages):Promise<FileBackup>{return createFileBackup(payload,images,true);}
+async function createFileBackup(payload:SyncPayload,images:BackupImages,allowMissingImages:boolean):Promise<FileBackup>{
   const data=JSON.parse(payload.localStorage['quiz-make-app-data-v1']) as AppData;
   const files:FileBackup['questionImageFiles']=[];
-  for(const image of images)files.push({descriptor:await describeQuestionImage(image),dataUrl:await encode(image.blob)});
+  for await(const image of images)files.push({descriptor:await describeQuestionImage(image),dataUrl:await encode(image.blob)});
   const included=new Set(files.map(file=>file.descriptor.id)),issues=allowMissingImages?[...imageOwners(data).keys()].filter(id=>!included.has(id)).map(id=>`画像本体未確認: ${id}`):[];
   // This is a pure incoming snapshot. The current device's note manifest belongs
   // to the other side; exportQuizMakeData still checks it for local exports.
@@ -98,10 +99,12 @@ export async function exportFileBackup(options:{recovery?:boolean}={}):Promise<F
       }
     }
     issues.push(...noteIssues,...(options.recovery?materialIssues(payload,data):[]));
-    const db=await openQuestionImageRecordDb(),snapshot=await readAppRecordSnapshot(db);
+    const db=await openQuestionImageRecordDb();
     for(const [id,owner] of imageOwners(data)){
       const image=(await readQuestionImages(owner,[id]))[0];
-      const raw=snapshot?.records.get(appRecordKey('questionImages',id))?.raw;
+      const tx=db.transaction('appRecords'),request=tx.objectStore('appRecords').get(appRecordKey('questionImages',id));
+      await new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error);});
+      const raw=request.result?.raw;
       const descriptor=raw?JSON.parse(raw) as QuestionImageDescriptor:undefined;
       if(!image||!descriptor||!validQuestionImageDescriptor(descriptor)||descriptor.questionId!==owner||!await verifyQuestionImageBlob(image.blob,descriptor)){issues.push(`画像本体未確認: ${id}`);continue;}
       files.push({descriptor:await describeQuestionImage(image),dataUrl:await encode(image.blob)});
@@ -155,7 +158,7 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     // A verified current copy is mandatory; it remains on this device. Reading
     // under the already-held lock avoids a nested export lock.
     const previous=await loadAppDataAsync({coordinationLockHeld:true});
-    const snapshot=await readAppRecordSnapshot(db);if(!snapshot)throw new Error('現在の保存状態を確認できません。');
+    const snapshot=await readCurrentAppRecordSnapshot(db);if(!snapshot)throw new Error('現在の保存状態を確認できません。');
     const legacy=sync?.legacyImages?await readLegacyImageSync(db,sync.legacyImages.connection):undefined;
     if(sync?.legacyImages&&(JSON.stringify(legacy)!==JSON.stringify(sync.legacyImages)||!acceptsLegacyImages(missingSyncImages(payload),legacy)))throw new Error('許可された旧画像の範囲が変わりました。');
     const proof=sync?.preservedOriginals;
@@ -197,7 +200,7 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     if(!proof&&(!sync||sync.archiveConflict)){
       const archivePayload:SyncPayload={version:1,updatedAt:new Date().toISOString(),localStorage:{...previousSettings,'quiz-make-app-data-v1':JSON.stringify(previous)},indexedDbNotes:previousNotes};
       const archive=await createCompleteFileBackup(archivePayload,previousImages.filter(image=>previousOwners.has(image.id)));
-      queueArchive=await prepareWholeRecovery(db,archive,sync?'conflict':'before-restore',new Blob([JSON.stringify(payload)]).size);
+      queueArchive=await prepareWholeRecovery(db,archive,sync?'conflict':'before-restore',await jsonByteSize(payload));
     }
     const targetOwners=imageOwners(target),includedImages=new Set(checked.value.images.map(image=>image.id));
     const retainedImages=imageOnly?previousImages.filter(image=>!includedImages.has(image.id)&&targetOwners.get(image.id)===image.questionId&&snapshot.records.get(appRecordKey('questionImages',image.id))?.raw!==null):[];
