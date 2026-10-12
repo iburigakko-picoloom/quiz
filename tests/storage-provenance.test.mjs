@@ -49,6 +49,7 @@ class MemoryStorage {
 
 function createIndexedDbHarness() {
   const databases = new Map();
+  const versions = new Map();
 
   function ensureDatabase(name) {
     if (!databases.has(name)) {
@@ -129,6 +130,7 @@ function createIndexedDbHarness() {
 
   function createObjectStore(values, transaction, beginRequest, maybeComplete) {
     return {
+      createIndex() {},
       add(value, key = value.id) {
         return beginRequest(() => { if (values.has(String(key))) throw new Error('ConstraintError'); values.set(String(key), structuredClone(value)); return key; });
       },
@@ -185,7 +187,7 @@ function createIndexedDbHarness() {
 
   return {
     indexedDB: {
-      open(name) {
+      open(name, version = 1) {
         const request = {
           result: createDatabase(String(name)),
           error: null,
@@ -195,7 +197,7 @@ function createIndexedDbHarness() {
           onblocked: null,
         };
         queueMicrotask(() => {
-          request.onupgradeneeded?.();
+          if ((versions.get(name) ?? 0) < version) { request.transaction = request.result.transaction([...ensureDatabase(name).keys()]); request.onupgradeneeded?.(); versions.set(name, version); }
           queueMicrotask(() => request.onsuccess?.());
         });
         return request;

@@ -9,7 +9,7 @@ import type { StoredQuestionImage } from './questionImageRecords';
 import { parseQuestionImageDescriptor } from './recordQuestionImageSync';
 import { hydrateMaterialDownload, type MaterialTransport } from './materialCloud';
 import { materialFileEntry } from './materialModel';
-import { wholeHash } from './wholeSyncDigest';
+import { incrementalJsonDigest } from './incrementalJsonDigest';
 import { saveBackupOriginals, type SavedBackup } from './backupRepository';
 import { withCoordinatedDataRead } from './dataCoordination';
 import { isQuizMakeStorageKey } from './syncService';
@@ -23,7 +23,7 @@ export async function validateSyncOriginalsFile(value:unknown):Promise<boolean>{
   const file=value as SyncOriginalsFile;
   if(!file||file.format!==SYNC_ORIGINALS_FORMAT||file.schema!==1||!file.connection||!['local','remote'].includes(file.side)||!Array.isArray(file.records)||!Array.isArray(file.images)||!Array.isArray(file.notes)||!Array.isArray(file.issues)||typeof file.originalsDigest!=='string')return false;
   const {originalsDigest,...body}=file;
-  return originalsDigest===await wholeHash(JSON.stringify(body));
+  return originalsDigest===await incrementalJsonDigest(body);
 }
 async function imageOriginal(image:StoredQuestionImage):Promise<ImageOriginal>{
   const bytes=new Uint8Array(await image.blob.arrayBuffer());let encoded='';
@@ -39,7 +39,7 @@ export async function archiveSyncOriginals(db:IDBDatabase,connection:RecordSyncC
   const owner=getAccountStorageSession();
   const current=async()=>{if(owner!==getAccountStorageSession())throw new Error('原本のアカウントが変わりました。');owner?.assertCurrent();await assertCurrent();};
   await current();
-  const body:OriginalBody={format:SYNC_ORIGINALS_FORMAT,schema:1,connection:{...connection},side,revision:rows.reduce((max,row)=>Math.max(max,row.revision),0),createdAt:new Date().toISOString(),records:structuredClone(rows),notes:[],nativeValues:{},images:[],pdfFiles:{},issues:[]};
+  const body:OriginalBody={format:SYNC_ORIGINALS_FORMAT,schema:1,connection:{...connection},side,revision:rows.reduce((max,row)=>Math.max(max,row.revision),0),createdAt:new Date().toISOString(),records:side==='local'?[]:rows.map(row=>({...row})),notes:[],nativeValues:{},images:[],pdfFiles:{},issues:[]};
   if(side==='local'){
     await withCoordinatedDataRead(['app','notes'],async()=>{
       await current();
@@ -74,7 +74,8 @@ export async function archiveSyncOriginals(db:IDBDatabase,connection:RecordSyncC
     }
     body.issues.push('教材の参照関係を含む受信原本です。通常の一括復元には修復が必要な場合があります。');
   }
-  await current();const file:SyncOriginalsFile={...body,originalsDigest:await wholeHash(JSON.stringify(body))};
-  const raw=JSON.stringify(file);if(!await validateSyncOriginalsFile(JSON.parse(raw)))throw new Error('救出原本の内容を検証できません。');
+  await current();const file:SyncOriginalsFile={...body,originalsDigest:await incrementalJsonDigest(body)};
+  if(!await validateSyncOriginalsFile(file))throw new Error('救出原本の内容を検証できません。');
+  const raw=JSON.stringify(file);
   const saved=await saveBackupOriginals(raw);await current();return saved;
 }

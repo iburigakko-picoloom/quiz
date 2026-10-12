@@ -19,7 +19,7 @@ import { prepareWholeRecovery } from './wholeRecovery';
 import { NOTES_EVENT } from './weaknessNotes';
 import { PLAN_EVENT } from './studyPlanStorage';
 import { readUserEditGeneration } from './userEditGeneration';
-import { getSavedBackup } from './backupRepository';
+import { getSavedBackup, verifySavedBackupReference, type SavedBackupReference } from './backupRepository';
 import { validateSyncOriginalsFile } from './syncOriginalBackup';
 import { sameRecordSyncConnection, type RecordSyncConnection } from './recordSyncOutbox';
 import { acceptsLegacyImages, readLegacyImageSync, type LegacyImageSync } from './legacyImageSync';
@@ -41,7 +41,7 @@ async function createFileBackup(payload:SyncPayload,images:readonly StoredQuesti
   // to the other side; exportQuizMakeData still checks it for local exports.
   assertMaterialIntegrity(payload,data,true);
   const result:FileBackup={...payload,questionImageFiles:files,backupManifest:{schema:1,completeness:issues.length?'partial':'complete',issues,questionCount:data.questions.length,noteCount:Object.keys(payload.indexedDbNotes??{}).length,imageCount:files.length,contentDigest:await digest(payload,files)}};
-  const checked=await validateFileBackup(result);if(!checked.ok)throw new SyncDataError(checked.code&&['image_missing','image_reference','pdf_missing','pdf_integrity','material_reference','note_integrity'].includes(checked.code)?checked.code as SyncDataCode:'backup_integrity',checked.error,checked.diagnostic??{function:'validateFileBackup',stage:'backup_validate',cause:'manifest'});return result;
+  const checked=await validateFileBackup(result,{retainImages:false});if(!checked.ok)throw new SyncDataError(checked.code&&['image_missing','image_reference','pdf_missing','pdf_integrity','material_reference','note_integrity'].includes(checked.code)?checked.code as SyncDataCode:'backup_integrity',checked.error,checked.diagnostic??{function:'validateFileBackup',stage:'backup_validate',cause:'manifest'});return result;
 }
 const sorted=(value:Record<string,string>)=>Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));
 const digest=(payload:SyncPayload,images:FileBackup['questionImageFiles'])=>incrementalJsonDigest({localStorage:sorted(payload.localStorage),indexedDbNotes:sorted(payload.indexedDbNotes??{}),images:[...images].sort((a,b)=>a.descriptor.id.localeCompare(b.descriptor.id)).map(image=>image.descriptor)});
@@ -111,7 +111,7 @@ export async function exportFileBackup(options:{recovery?:boolean}={}):Promise<F
     assertDataEpochSnapshotCurrent(payload,['app','notes']);return result;
   },{requireCrossContext:true});
 }
-export async function validateFileBackup(value:unknown):Promise<SyncResult<{payload:FileBackup;images:StoredQuestionImage[]}>>{
+export async function validateFileBackup(value:unknown,options:{retainImages?:boolean}={}):Promise<SyncResult<{payload:FileBackup;images:StoredQuestionImage[]}>>{
   try{
     const input=value as FileBackup;
     if(!input?.backupManifest||input.backupManifest.schema!==1||!['complete','partial'].includes(input.backupManifest.completeness)||!Array.isArray(input.backupManifest.issues)||input.backupManifest.issues.some(issue=>typeof issue!=='string')||!Array.isArray(input.questionImageFiles))throw new Error('復元コピーの収録一覧を確認できません。');
@@ -120,8 +120,8 @@ export async function validateFileBackup(value:unknown):Promise<SyncResult<{payl
     const payload={version:input.version,updatedAt:input.updatedAt,localStorage:input.localStorage,indexedDbNotes:input.indexedDbNotes};
     const validation=await validateHydratedSyncPayload(payload,{recordRecovery:true});if(!validation.ok){if(validation.error.startsWith('ノートデータ')||validation.error.startsWith('同期データのindexedDbNotes')||validation.error.startsWith('ノート以外'))throw new SyncDataError('note_integrity','ノートの保存状態を確認できません。',{function:'validateFileBackup',stage:'backup_validate',cause:'format'});return validation;}
     const data=JSON.parse(validation.value.localStorage['quiz-make-app-data-v1']) as AppData,owners=imageOwners(data),images:StoredQuestionImage[]=[],seen=new Set<string>();
-    for(const file of input.questionImageFiles){let image:StoredQuestionImage;try{image=await decode(file);}catch{throw new SyncDataError('image_reference','画像の内容または紐づけ情報を確認できません。',{function:'validateFileBackup',stage:'backup_validate',cause:'format'});}if(seen.has(image.id)||owners.get(image.id)!==image.questionId)throw new SyncDataError('image_reference','画像の紐づけ情報に不備があります。',{function:'validateFileBackup',stage:'backup_validate',cause:'reference'});seen.add(image.id);images.push(image);}
-    if(input.backupManifest.questionCount!==data.questions.length||input.backupManifest.noteCount!==Object.keys(validation.value.indexedDbNotes??{}).length||input.backupManifest.imageCount!==images.length||input.backupManifest.contentDigest!==await digest(validation.value,input.questionImageFiles))throw new Error('復元コピーの収録数またはハッシュが一致しません。');
+    for(const file of input.questionImageFiles){let image:StoredQuestionImage;try{image=await decode(file);}catch{throw new SyncDataError('image_reference','画像の内容または紐づけ情報を確認できません。',{function:'validateFileBackup',stage:'backup_validate',cause:'format'});}if(seen.has(image.id)||owners.get(image.id)!==image.questionId)throw new SyncDataError('image_reference','画像の紐づけ情報に不備があります。',{function:'validateFileBackup',stage:'backup_validate',cause:'reference'});seen.add(image.id);if(options.retainImages!==false)images.push(image);}
+    if(input.backupManifest.questionCount!==data.questions.length||input.backupManifest.noteCount!==Object.keys(validation.value.indexedDbNotes??{}).length||input.backupManifest.imageCount!==seen.size||input.backupManifest.contentDigest!==await digest(validation.value,input.questionImageFiles))throw new Error('復元コピーの収録数またはハッシュが一致しません。');
     if(input.backupManifest.completeness==='complete'){
       if(seen.size!==owners.size)throw new SyncDataError('image_missing','一部の画像を確認できません。',{function:'validateFileBackup',stage:'backup_validate',cause:'missing',total:owners.size,completed:seen.size});
       assertMaterialIntegrity(validation.value,data,true);
@@ -138,7 +138,7 @@ export function restoreFileBackup(payload:FileBackup):Promise<SyncResult<number>
 }
 /** The existing sync UI owns the origin lock and protected-work guard. This
  * route replaces the chosen whole snapshot without creating ordinary history. */
-export type PreservedSyncOriginals={backupId:string;raw:string;commitId:string;connection:RecordSyncConnection;selectedImages?:{backupId:string;raw:string;originalId:string;originalRaw:string}};
+export type PreservedSyncOriginals={backupId:string;raw?:string;reference?:SavedBackupReference;commitId:string;connection:RecordSyncConnection;selectedImages?:{backupId:string;raw?:string;reference?:SavedBackupReference;originalId:string;originalRaw:string}};
 export function applyWholeSyncFile(payload:FileBackup,expectedGeneration:number,finalize:(tx:IDBTransaction)=>void,archiveConflict=false,preservedOriginals?:PreservedSyncOriginals,legacyImages?:LegacyImageSync):Promise<SyncResult<number>&{committed?:boolean}>{
   return replaceCompleteFile(payload,{expectedGeneration,finalize,archiveConflict,preservedOriginals,legacyImages});
 }
@@ -160,16 +160,19 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     if(sync?.legacyImages&&(JSON.stringify(legacy)!==JSON.stringify(sync.legacyImages)||!acceptsLegacyImages(missingSyncImages(payload),legacy)))throw new Error('許可された旧画像の範囲が変わりました。');
     const proof=sync?.preservedOriginals;
     if(proof){
-      const stored=await getSavedBackup(proof.backupId),file=JSON.parse(proof.raw);
+      const stored=proof.reference?undefined:await getSavedBackup(proof.backupId),file=proof.reference?undefined:JSON.parse(proof.raw!);
       const bindingTx=db.transaction('appRecordMeta'),binding=bindingTx.objectStore('appRecordMeta').get('recordSyncConnection'),choice=bindingTx.objectStore('appRecordMeta').get('wholeConflict');
       await new Promise<void>((r,j)=>{bindingTx.oncomplete=()=>r();bindingTx.onabort=()=>j(bindingTx.error);});
-      if(snapshot.state.commitId!==proof.commitId||stored?.raw!==proof.raw||!binding.result||!sameRecordSyncConnection(binding.result,proof.connection))throw new Error('退避済み原本と現在の端末データが一致しません。再試行してください。');
-      if(stored.format==='originals'){
+      const durable=proof.reference?proof.reference.id===proof.backupId&&proof.reference.complete&&await verifySavedBackupReference(proof.reference):typeof proof.raw==='string'&&stored?.raw===proof.raw;
+      if(snapshot.state.commitId!==proof.commitId||!durable||!binding.result||!sameRecordSyncConnection(binding.result,proof.connection))throw new Error('退避済み原本と現在の端末データが一致しません。再試行してください。');
+      if(proof.reference){/* This immutable file was fully validated before streaming storage and its exact bytes were rechecked above. */}
+      else if(stored!.format==='originals'){
         if(!await validateSyncOriginalsFile(file)||file.side!=='local'||file.localCommitId!==proof.commitId||!sameRecordSyncConnection(file.connection,proof.connection))throw new Error('端末の救出原本を確認できません。');
-      }else{const verified=await validateFileBackup(file);if(!verified.ok||verified.value.payload.backupManifest.completeness!=='complete')throw new Error('退避済みバックアップを確認できません。');}
+      }else{const verified=await validateFileBackup(file,{retainImages:false});if(!verified.ok||verified.value.payload.backupManifest.completeness!=='complete')throw new Error('退避済みバックアップを確認できません。');}
       if(proof.selectedImages){
-        const selected=proof.selectedImages,copy=await getSavedBackup(selected.backupId),original=await getSavedBackup(selected.originalId),originalFile=JSON.parse(selected.originalRaw);
-        if(copy?.raw!==selected.raw||selected.raw!==JSON.stringify(payload)||original?.raw!==selected.originalRaw||!await validateSyncOriginalsFile(originalFile)||originalFile.side!=='remote'||!sameRecordSyncConnection(originalFile.connection,proof.connection)||choice.result?.choice!=='remote'||choice.result?.preferSelected!==true||!sameRecordSyncConnection(choice.result.connection,proof.connection))throw new Error('選択と両側の退避原本を確認できません。');
+        const selected=proof.selectedImages,original=await getSavedBackup(selected.originalId),originalFile=JSON.parse(selected.originalRaw);
+        const selectedMatches=selected.reference?selected.reference.id===selected.backupId&&await verifySavedBackupReference(selected.reference)&&await incrementalJsonDigest(payload)===selected.reference.digest:(await getSavedBackup(selected.backupId))?.raw===selected.raw&&selected.raw===JSON.stringify(payload);
+        if(!selectedMatches||original?.raw!==selected.originalRaw||!await validateSyncOriginalsFile(originalFile)||originalFile.side!=='remote'||!sameRecordSyncConnection(originalFile.connection,proof.connection)||choice.result?.choice!=='remote'||choice.result?.preferSelected!==true||!sameRecordSyncConnection(choice.result.connection,proof.connection))throw new Error('選択と両側の退避原本を確認できません。');
       }
     }
     const target=JSON.parse(checked.value.payload.localStorage['quiz-make-app-data-v1']) as AppData;

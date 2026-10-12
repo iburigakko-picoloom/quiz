@@ -4,12 +4,12 @@ import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ChevronRightIcon, HistoryIcon } from '../components/UiIcons';
 import { validateSyncPayload } from '../utils/syncService';
-import { deleteSavedBackup, saveBackupPayload } from '../utils/backupRepository';
+import { deleteSavedBackup, saveBackupPayloadReference } from '../utils/backupRepository';
 import { saveJsonBackup } from '../utils/nativePlatform';
 import { RecordConflictRecovery } from '../components/RecordConflictRecovery';
 import { exportFileBackup, validateFileBackup } from '../utils/backupPayload';
 import { deleteWholeRecovery } from '../utils/wholeRecovery';
-import { BACKUP_HISTORY_LIMIT, listBackupHistory, readBackupHistoryFile, type BackupHistoryRow } from '../utils/backupHistory';
+import { BACKUP_HISTORY_LIMIT, enforceBackupHistoryLimit, listBackupHistory, readBackupHistoryFile, type BackupHistoryRow } from '../utils/backupHistory';
 import './BackupScreen.css';
 import { SYNC_ORIGINALS_FORMAT, validateSyncOriginalsFile } from '../utils/syncOriginalBackup';
 
@@ -40,7 +40,7 @@ export function BackupScreen({ onBack, onRestore, onOpenSyncRecovery, onExitGuar
   useEffect(() => {
     if(page!=='list')return;
     let stopped=false; setLoading(true);setError('');
-    void listBackupHistory().then(rows=>{if(!stopped)setItems(rows.slice(0,BACKUP_HISTORY_LIMIT));}).catch(()=>{if(!stopped)setError('バックアップを読み込めませんでした。');}).finally(()=>{if(!stopped)setLoading(false);});
+    void enforceBackupHistoryLimit().then(()=>listBackupHistory()).then(rows=>{if(!stopped)setItems(rows.slice(0,BACKUP_HISTORY_LIMIT));}).catch(()=>{if(!stopped)setError('バックアップを読み込めませんでした。');}).finally(()=>{if(!stopped)setLoading(false);});
     return()=>{stopped=true;};
   },[page]);
   const run = async (action: () => Promise<void>) => {
@@ -58,7 +58,7 @@ export function BackupScreen({ onBack, onRestore, onOpenSyncRecovery, onExitGuar
         {row('ファイルから復元',<BackupIcon kind="folder"/>,()=>fileInput.current?.click())}
       </section>
       <section className="backup-actions backup-actions--device" aria-label="この端末"><h2>この端末</h2>
-        {row('バックアップを取る',<BackupIcon kind="database"/>,()=>void run(async()=>{const saved=await saveBackupPayload(await exportFileBackup(),'manual');setMessage('バックアップを保存しました。');if(saved.cleanupWarning)setError(saved.cleanupWarning);}))}
+        {row('バックアップを取る',<BackupIcon kind="database"/>,()=>void run(async()=>{await enforceBackupHistoryLimit();await saveBackupPayloadReference(await exportFileBackup(),'manual');setMessage('バックアップを保存しました。');}))}
         {row('バックアップから復元',<HistoryIcon size={30}/>,()=>{setMessage('');setPage('list');})}
         <p className="backup-retention-note">直近{BACKUP_HISTORY_LIMIT}件を保存</p>
       </section>

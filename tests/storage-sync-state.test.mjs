@@ -77,36 +77,18 @@ test('backup listing contains only summaries; legacy and current backups remain 
   assert.equal((await backups.listSavedBackups()).length, 1);
 });
 
-test('IndexedDB backup listing reads one record at a time and closes its read-only transaction', async () => {
-  const previous = globalThis.indexedDB;
-  localStorage.clear();
-  const rows = [0, 1, 2].map(index => ({ id: String(index), createdAt: `2026-09-${20+index}`, kind: 'manual', raw: 'x'.repeat(1000), byteSize: 1000 }));
-  let closed = false; let reads = 0;
-  globalThis.indexedDB = { open() {
-    const opening = {};
-    opening.result = { close() { closed = true; }, transaction(_name, mode) {
-      assert.equal(mode, 'readonly');
-      const transaction = { objectStore() { return { openCursor() {
-        const request = {}; let index = 0;
-        const next = () => queueMicrotask(() => {
-          request.result = index < rows.length ? { value: rows[index++], continue: next } : null;
-          if (request.result) reads++;
-          request.onsuccess();
-          if (!request.result) transaction.oncomplete();
-        });
-        next(); return request;
-      } }; } };
-      return transaction;
-    } };
-    queueMicrotask(() => opening.onsuccess()); return opening;
-  } };
-  try {
-    const summaries = await backups.listSavedBackups();
-    assert.equal(reads, 3);
-    assert.equal(closed, true);
-    assert.deepEqual(summaries.map(row => row.id), ['2','1','0']);
-    assert.ok(summaries.every(row => !('raw' in row) && row.byteSize === 1000));
-  } finally { if (previous === undefined) delete globalThis.indexedDB; else globalThis.indexedDB = previous; }
+test('IndexedDB backup listing reads metadata without any backup bodies', async () => {
+  const {IDBFactory,IDBObjectStore}=await import('fake-indexeddb');
+  const previous=globalThis.indexedDB;globalThis.indexedDB=new IDBFactory();localStorage.clear();
+  const rows=[0,1,2].map(i=>({id:String(i),createdAt:`2026-09-${20+i}`,kind:'manual',raw:'x'.repeat(1000),byteSize:1000}));
+  const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('quiz-make-backups',1);r.onupgradeneeded=()=>r.result.createObjectStore('backups',{keyPath:'id'});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
+  const tx=db.transaction('backups','readwrite');rows.forEach(row=>tx.objectStore('backups').put(row));await new Promise(resolve=>tx.oncomplete=resolve);db.close();
+  const get=IDBObjectStore.prototype.get,all=IDBObjectStore.prototype.getAll,cursor=IDBObjectStore.prototype.openCursor;
+  IDBObjectStore.prototype.get=IDBObjectStore.prototype.getAll=IDBObjectStore.prototype.openCursor=function(){assert.fail('No backup body should be read for the history list')};
+  try{
+    const summaries=await backups.listSavedBackups();
+    assert.deepEqual(summaries.map(row=>row.id),['2','1','0']);assert.ok(summaries.every(row=>!('raw' in row)&&row.byteSize===1000));
+  }finally{IDBObjectStore.prototype.get=get;IDBObjectStore.prototype.getAll=all;IDBObjectStore.prototype.openCursor=cursor;if(previous===undefined)delete globalThis.indexedDB;else globalThis.indexedDB=previous}
 });
 
 function resetStorage() {

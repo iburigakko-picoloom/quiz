@@ -34,6 +34,7 @@ import { materialFileEntry } from './materialModel';
 import { recoverLegacyImageMetadata } from './legacyImageRecovery';
 import { repairMissingMaterialReferences } from './materialReferenceRepair';
 import { readWholeBaseline } from './wholeSyncStorage';
+import { enforceBackupHistoryLimit } from './backupHistory';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -64,6 +65,8 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
     const saved = await waitForLocalPersistence();
     if (!saved.ok) { step('local_persistence'); throw new SyncLocalPersistenceError(saved.error); }
   };
+  await assertCurrent();
+  await enforceBackupHistoryLimit();
   await assertCurrent();
   const rpc = createRecordSyncRpc({ url: config.url, anonKey: config.anonKey, connection, onRequest: step,
     async access() {

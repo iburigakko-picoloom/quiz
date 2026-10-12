@@ -6,7 +6,7 @@ import { hydrateChunkChanges } from './recordChunks';
 import { readUserEditGeneration } from './userEditGeneration';
 import { withCoordinatedDataRead } from './dataCoordination';
 import { SyncProtocolError, SyncInterruptedError } from './syncInterruption';
-import { saveBackupPayload, getSavedBackup, type SavedBackup } from './backupRepository';
+import { saveBackupPayloadReference, verifySavedBackupReference, getSavedBackup, type SavedBackup, type SavedBackupReference } from './backupRepository';
 import { decideWholeSync } from './wholeSyncDecision';
 import { computeWholeRecordDigest, wholeHash } from './wholeSyncDigest';
 import { acknowledgeIdenticalWhole, acknowledgeWholeUpload, advanceWholePart, freezeWholeUpload, putWholeMeta, queueWholeReplacement, readWholeBaseline, readWholeMeta, readWholeRows, readVerifiedWholeAncestorCursor, releaseWholeUpload, stageWholePage, summarizeWholeRows, validateWholeFrozen, type WholeConflict, type WholeFrozen, type WholeIncoming } from './wholeSyncStorage';
@@ -245,17 +245,16 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
       if(error instanceof SyncDataError)throw new SyncDataError(error.code as SyncDataCode,error.message,{...error.diagnostic,function:'exportFileBackup',stage:'local_backup_validate',side:'local'});
       throw error;
     }
-    const validation=await validateFileBackup(selectedFile);
+    const valid=(await validateFileBackup(selectedFile,{retainImages:false})).ok;
     const imageOnly=isImageOptionalSyncFile(selectedFile);
-    if(!validation.ok||selectedFile.backupManifest.completeness!=='complete'&&!imageOnly)throw new SyncProtocolError('invalid_response',selected==='remote'?'クラウドの参照関係を確認できません。端末と受信原本を保持しています。':'この端末の画像・教材を完全に退避できません。別の側を選び直してください。');
+    if(!valid||selectedFile.backupManifest.completeness!=='complete'&&!imageOnly)throw new SyncProtocolError('invalid_response',selected==='remote'?'クラウドの参照関係を確認できません。端末と受信原本を保持しています。':'この端末の画像・教材を完全に退避できません。別の側を選び直してください。');
     await guards.assertCurrent();
-    let otherCopy:SavedBackup;
+    let otherCopy:SavedBackup|SavedBackupReference;
     try{
       const otherFile=selected==='remote'?await exportFileBackup():await incomingFile();
-      const otherValidation=await validateFileBackup(otherFile);if(!otherValidation.ok||otherFile.backupManifest.completeness!=='complete')throw new Error('もう一方の完全コピーを作成できません。');
-      if(selected==='remote')verifiedLocal=otherFile;else verifiedCloud=otherFile;
+      const otherValid=(await validateFileBackup(otherFile,{retainImages:false})).ok;if(!otherValid||otherFile.backupManifest.completeness!=='complete')throw new Error('もう一方の完全コピーを作成できません。');
       progress(guards,'backup','同期前のバックアップを保存中',0,2);
-      otherCopy=await saveBackupPayload(otherFile,'before-sync');
+      otherCopy=await saveBackupPayloadReference(otherFile,'before-sync');
     }catch(error){
       if(!mayRescue(error))throw error;
       await guards.assertCurrent();otherCopy=await guards.archiveOriginals!(selected==='remote'?'local':'remote',selected==='remote'?localRows:incoming!);
@@ -264,13 +263,13 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     await guards.assertCurrent();progress(guards,'backup','同期前のバックアップを保存中',1,2);
     const selectedOriginal=imageOnly?await guards.archiveOriginals!(selected!,selected==='remote'?incoming!:localRows):undefined;
     await guards.assertCurrent();
-    const selectedCopy=await saveBackupPayload(selectedFile,'before-sync');await guards.assertCurrent();
-    const otherRead=await getSavedBackup(otherCopy.id),selectedRead=await getSavedBackup(selectedCopy.id);
+    const selectedCopy=await saveBackupPayloadReference(selectedFile,'before-sync');await guards.assertCurrent();
+    const otherMatches='digest' in otherCopy?await verifySavedBackupReference(otherCopy):(await getSavedBackup(otherCopy.id))?.raw===otherCopy.raw;
     await guards.assertCurrent();
-    if(otherRead?.raw!==otherCopy.raw||selectedRead?.raw!==selectedCopy.raw)throw new SyncProtocolError('local_persistence_failed','同期前の原本バックアップを保存できませんでした。');
+    if(!otherMatches||!await verifySavedBackupReference(selectedCopy))throw new SyncProtocolError('local_persistence_failed','同期前の原本バックアップを保存できませんでした。');
     if(selectedOriginal&&(await getSavedBackup(selectedOriginal.id))?.raw!==selectedOriginal.raw)throw new SyncProtocolError('local_persistence_failed','選択した原本を保存できませんでした。');
     await assertSource();progress(guards,'backup','同期前のバックアップを保存中',2,2);
-    if(selected==='remote')preservedOriginals={backupId:otherCopy.id,raw:otherCopy.raw,commitId:source.snapshot.state.commitId,connection,...(selectedOriginal?{selectedImages:{backupId:selectedCopy.id,raw:selectedCopy.raw,originalId:selectedOriginal.id,originalRaw:selectedOriginal.raw}}:{})};
+    if(selected==='remote')preservedOriginals={backupId:otherCopy.id,...('digest' in otherCopy?{reference:otherCopy}:{raw:otherCopy.raw}),commitId:source.snapshot.state.commitId,connection,...(selectedOriginal?{selectedImages:{backupId:selectedCopy.id,reference:selectedCopy,originalId:selectedOriginal.id,originalRaw:selectedOriginal.raw}}:{})};
     if(imageOnly)try{guards.notice?.(`画像${missingSyncImages(selectedFile).length}件は未取得ですが、教材・履歴は同期しました。`);}catch{/* Informational only. */}
   }
   if(!remote.enabled){
@@ -286,11 +285,11 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
       await guards.assertCurrent();
       try {
         progress(guards,'backup','同期前のバックアップを保存中',0,2);
-        const localCopy=await saveBackupPayload(verifiedLocal,'before-sync');await guards.assertCurrent();progress(guards,'backup','同期前のバックアップを保存中',1,2);
-        const cloudCopy=await saveBackupPayload(verifiedCloud,'before-sync');await guards.assertCurrent();
-        const localRead=await getSavedBackup(localCopy.id);await guards.assertCurrent();
-        const cloudRead=await getSavedBackup(cloudCopy.id);await guards.assertCurrent();
-        if(localRead?.raw!==localCopy.raw||cloudRead?.raw!==cloudCopy.raw)throw new Error('自動バックアップの読み戻しが一致しません。');
+        const localCopy=await saveBackupPayloadReference(verifiedLocal,'before-sync');await guards.assertCurrent();progress(guards,'backup','同期前のバックアップを保存中',1,2);
+        const cloudCopy=await saveBackupPayloadReference(verifiedCloud,'before-sync');await guards.assertCurrent();
+        const localMatches=await verifySavedBackupReference(localCopy);await guards.assertCurrent();
+        const cloudMatches=await verifySavedBackupReference(cloudCopy);await guards.assertCurrent();
+        if(!localMatches||!cloudMatches)throw new Error('自動バックアップの読み戻しが一致しません。');
       }catch(error){if(error instanceof SyncInterruptedError)throw error;throw new SyncProtocolError('local_persistence_failed','同期前の自動バックアップを保存できませんでした。同期先と両方の原本を保持しています。');}
       await assertSource();progress(guards,'backup','同期前のバックアップを保存中',2,2);
     }

@@ -1,8 +1,12 @@
 import { accountLocalStorage as localStorage, accountDatabaseName, getAccountStorageSession } from './accountStorage';
 import type { SyncPayload } from './syncService';
+import type { FileBackup } from './backupPayload';
+import { hashBackupBlob, jsonBackupBlob } from './incrementalJsonDigest';
 
 export interface SavedBackup { id: string; createdAt: string; kind: 'manual' | 'before-import' | 'before-sync' | 'before-logout'; raw: string; byteSize?: number; legacyOriginalRaw?: string; format?: 'originals'|'partial'; }
 export type SavedBackupSummary = Omit<SavedBackup, 'raw' | 'byteSize' | 'legacyOriginalRaw'> & { byteSize: number };
+type StoredBackup=Omit<SavedBackup,'raw'>&{raw:string|Blob;verification?:{digest:string;complete:boolean}};
+export interface SavedBackupReference { id:string; digest:string; byteSize:number; complete:boolean }
 export function summarizeSavedBackup(record: SavedBackup): SavedBackupSummary {
   return { id: record.id, createdAt: record.createdAt, kind: record.kind,
     ...(record.format ? {format:record.format} : {}),
@@ -14,8 +18,13 @@ const PREFIX = 'quizMake:sync:saved-backup:';
 async function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const owner = getAccountStorageSession(); let blocked = false;
-    const request = indexedDB.open(accountDatabaseName(DB), 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('backups', { keyPath: 'id' });
+    const request = indexedDB.open(accountDatabaseName(DB), 2);
+    request.onupgradeneeded = () => {
+      const store=request.result.objectStoreNames.contains('backups')?request.transaction!.objectStore('backups'):request.result.createObjectStore('backups', { keyPath: 'id' });
+      // IndexedDB builds these indexes without cloning old backup bodies into JS.
+      store.createIndex('summary',['createdAt','id','kind','byteSize']);
+      store.createIndex('format',['id','format']);
+    };
     request.onsuccess = () => { try { if (blocked) { request.result.close(); return; } if (owner !== getAccountStorageSession()) throw new Error('バックアップの保存先が変わりました。'); owner?.assertCurrent(); request.result.onversionchange = () => request.result.close(); resolve(request.result); } catch (error) { request.result.close(); reject(error); } };
     request.onerror = () => reject(request.error);
     request.onblocked = () => { blocked = true; reject(new Error('バックアップ保存領域を開けません。別のタブを閉じて再試行してください。')); };
@@ -97,11 +106,44 @@ export async function saveBackupOriginals(raw: string): Promise<SavedBackup> {
   if(saved?.raw!==raw)throw new Error('救出原本の読み戻しを確認できません。');
   return record;
 }
+/** Sync needs a durable witness, not another in-memory copy of all PDFs/images. */
+export async function saveBackupPayloadReference(payload:FileBackup,kind:SavedBackup['kind']):Promise<SavedBackupReference>{
+  const owner=getAccountStorageSession(),native=globalThis.localStorage;
+  const current=()=>{if(owner!==getAccountStorageSession()||native!==globalThis.localStorage)throw new Error('バックアップの保存先が変わりました。');owner?.assertCurrent();};
+  current();
+  const snapshot:FileBackup={...payload,localStorage:{...payload.localStorage},indexedDbNotes:{...payload.indexedDbNotes},backupManifest:{...payload.backupManifest,issues:[...payload.backupManifest.issues]},questionImageFiles:payload.questionImageFiles.map(file=>({descriptor:{...file.descriptor},dataUrl:file.dataUrl}))};
+  const {validateFileBackup}=await import('./backupPayload');
+  const checked=await validateFileBackup(snapshot,{retainImages:false});
+  if(!checked.ok)throw new Error(checked.error);
+  const {blob,digest}=await jsonBackupBlob(snapshot);current();
+  const record:StoredBackup={id:`backup-${crypto.randomUUID()}`,createdAt:new Date().toISOString(),kind,raw:blob,byteSize:blob.size,verification:{digest,complete:snapshot.backupManifest.completeness==='complete'},...(snapshot.backupManifest.completeness==='partial'?{format:'partial' as const}:{})};
+  await operation('readwrite',store=>store.add(record));current();
+  const reference:SavedBackupReference={id:record.id,digest,byteSize:blob.size,complete:snapshot.backupManifest.completeness==='complete'};
+  if(!await verifySavedBackupReference(reference))throw new Error('バックアップの読み戻しを確認できませんでした。');current();
+  if(reference.complete){
+    const {pruneVerifiedBackupHistory}=await import('./backupHistory');
+    await pruneVerifiedBackupHistory(reference.id,current).catch(()=>{/* Retain all copies if cleanup fails. */});
+  }
+  return reference;
+}
+export async function verifySavedBackupReference(reference:SavedBackupReference):Promise<boolean>{
+  const owner=getAccountStorageSession(),native=globalThis.localStorage;
+  const record=await operation<StoredBackup|undefined>('readonly',store=>store.get(reference.id));
+  const blob=typeof record?.raw==='string'?new Blob([record.raw]):record?.raw;
+  const matches=Boolean(record?.verification?.digest===reference.digest&&record.verification.complete===reference.complete&&blob&&blob.size===reference.byteSize&&await hashBackupBlob(blob)===reference.digest);
+  if(owner!==getAccountStorageSession()||native!==globalThis.localStorage)throw new Error('バックアップの保存先が変わりました。');owner?.assertCurrent();
+  return matches;
+}
 export async function getSavedBackup(id: string): Promise<SavedBackup | undefined> {
   if (typeof indexedDB !== 'undefined') {
     await migrateSavedBackups().catch(() => undefined);
-    const stored = await operation<SavedBackup | undefined>('readonly', (store) => store.get(id));
-    if (stored) return stored;
+    const owner=getAccountStorageSession(),native=globalThis.localStorage;
+    const stored = await operation<StoredBackup | undefined>('readonly', (store) => store.get(id));
+    if (stored) {
+      const raw=typeof stored.raw==='string'?stored.raw:await stored.raw.text();
+      if(owner!==getAccountStorageSession()||native!==globalThis.localStorage)throw new Error('バックアップの保存先が変わりました。');owner?.assertCurrent();
+      return {...stored,raw};
+    }
   }
   const raw = localStorage.getItem(PREFIX + id);
   return raw ? JSON.parse(raw) as SavedBackup : undefined;
@@ -113,17 +155,26 @@ export async function listSavedBackups(): Promise<SavedBackupSummary[]> {
     const db = await database();
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction('backups', 'readonly');
-      const request = transaction.objectStore('backups').openCursor();
+      const store=transaction.objectStore('backups'),seen=new Set<string>(),formats=new Map<string,SavedBackup['format']>();
+      const format=store.index('format').openKeyCursor();
+      format.onsuccess=()=>{const cursor=format.result;if(!cursor)return;const [id,value]=cursor.key as string[];formats.set(id,value as SavedBackup['format']);cursor.continue();};
+      const request = store.index('summary').openKeyCursor();
       request.onsuccess = () => {
         const cursor = request.result;
-        if (!cursor) return;
-        // Keep only the small list row. Never retain every backup body in memory.
+        if (!cursor) {
+          // Only records predating the byte-size metadata require a body read.
+          const keys=store.openKeyCursor();
+          keys.onsuccess=()=>{const cursor=keys.result;if(!cursor)return;const id=String(cursor.primaryKey);if(seen.has(id)){cursor.continue();return;}const old=store.get(id);old.onsuccess=()=>{try{records.push(summarizeSavedBackup(old.result));cursor.continue();}catch{transaction.abort();}};};
+          return;
+        }
+        // Key cursors read metadata only, even with gigabytes of retained files.
         try {
-          records.push(summarizeSavedBackup(cursor.value as SavedBackup));
+          const [createdAt,id,kind,byteSize]=cursor.key as [string,string,SavedBackup['kind'],number];
+          records.push({id,createdAt,kind,byteSize});seen.add(id);
           cursor.continue();
         } catch { transaction.abort(); }
       };
-      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.oncomplete = () => {for(const record of records){const format=formats.get(record.id);if(format)record.format=format;}db.close(); resolve(); };
       transaction.onerror = transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('バックアップを読み込めませんでした。')); };
     });
   }

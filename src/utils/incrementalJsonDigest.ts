@@ -55,3 +55,25 @@ export async function hashJsonFragments(fragments: Iterable<string>): Promise<st
 }
 
 export const incrementalJsonDigest = (value: unknown): Promise<string> => hashJsonFragments(jsonFragments(value));
+
+/** A backup can exceed the JS heap even though its individual notes fit. Keep
+ * the serialized copy in Blob storage, never a second full escaped JS string. */
+export async function jsonBackupBlob(value: unknown): Promise<{blob:Blob;digest:string}> {
+  const hash=sha256.create(),encoder=new TextEncoder(),parts:Blob[]=[];
+  let pending:Uint8Array<ArrayBuffer>[]=[],size=0,deadline=performance.now()+8;
+  for(const fragment of jsonFragments(value)){
+    const bytes=encoder.encode(fragment);hash.update(bytes);pending.push(bytes);size+=bytes.length;
+    if(size>=256*1024){parts.push(new Blob(pending));pending=[];size=0;}
+    if(performance.now()>=deadline){await new Promise<void>(resolve=>setTimeout(resolve,0));deadline=performance.now()+8;}
+  }
+  if(pending.length)parts.push(new Blob(pending));
+  return {blob:new Blob(parts,{type:'application/json'}),digest:bytesToHex(hash.digest())};
+}
+
+export async function hashBackupBlob(blob:Blob):Promise<string>{
+  const hash=sha256.create();
+  for(let offset=0;offset<blob.size;offset+=256*1024){
+    hash.update(new Uint8Array(await blob.slice(offset,offset+256*1024).arrayBuffer()));
+  }
+  return bytesToHex(hash.digest());
+}
