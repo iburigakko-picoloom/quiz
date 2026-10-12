@@ -20,6 +20,7 @@ import { PlansScreen } from './screens/PlansScreen';
 import { PlanEditorScreen } from './screens/PlanEditorScreen';
 import { questionRevision } from './utils/studyPlans';
 import {planPublicImport} from './utils/publicImport';
+import {planGroupImport} from './utils/groupImport';
 import {hydratePublishedMaterials} from './utils/publicationMaterialService';
 import {applyPublishedSource} from './utils/groupStudySource';
 import type {PublicSet} from './utils/publicLibrary';
@@ -1026,7 +1027,11 @@ export default function App() {
     if(!await persistThenCommitData(plan.data,[],undefined,undefined,plan.materialRecords))throw new Error('取り込みを端末に保存できませんでした。元のデータは保持しています。');
     return plan;
   };
-
+  const handleImportGroupFolder=async(folder:import('./utils/groupLibrary').GroupFolderCardData,sets:CloudProblemSet[],groupId:string)=>{
+    const hydrated=await hydratePublishedMaterials(sets),plan=planGroupImport(dataRef.current,folder,hydrated,groupId);
+    if(!await persistThenCommitData(plan.data,[],undefined,undefined,plan.materialRecords))throw new Error('取り込みを端末に保存できませんでした。元のデータは保持しています。');
+    return plan;
+  };
 
   const handlePracticeSharedProblemSet = (sharedSet: CloudProblemSet): void => {
     const timestamp = nowIso();
@@ -1607,6 +1612,7 @@ export default function App() {
           }}
           onOpenLocalSet={(setId) => navigate({ name: 'problemSetDetail', setId, backScreen: communityScreen })}
           onCopySharedSet={handleCopySharedProblemSet}
+          onImportGroupFolder={handleImportGroupFolder}
           onPracticeSharedSet={handlePracticeSharedProblemSet}
           onPublished={handlePublishedProblemSet}
           onUnpublished={handleUnpublishedProblemSet}

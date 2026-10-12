@@ -15,6 +15,8 @@ import {PublicationJobs} from '../components/PublicationJobs';
 import {usePublicationQueue} from '../hooks/usePublicationQueue';
 import {prepareLocalPublication} from '../utils/publicationPayload';
 import {groupStudyCandidates} from '../utils/groupStudySource';
+import {buildGroupLibrary,groupFolderSets,type GroupFolderCardData} from '../utils/groupLibrary';
+import {readGroupLearning} from '../utils/groupLearningService';
 import { GroupAvatar } from '../components/GroupLearningUi';
 import { useGroupLearning } from '../hooks/useGroupLearning';
 import { groupAccents, groupIcons, type GroupAccent, type GroupIconName } from '../utils/groupLearning';
@@ -33,6 +35,7 @@ import {
   deleteCloudGroup,
   createGroupInvite,
   getCloudDisplayName,
+  getCloudSession,
   onCloudSessionSnapshot,
   getSharedProblemSet,
   joinCloudGroup,
@@ -71,6 +74,7 @@ interface CommunityScreenProps {
   onOpenGroup: (groupId: string) => void;
   onOpenLocalSet: (setId: string) => void;
   onCopySharedSet: (set: CloudProblemSet, folderId: string,token?:string) => Promise<string | null>;
+  onImportGroupFolder?: (folder:GroupFolderCardData,sets:CloudProblemSet[],groupId:string)=>Promise<{imported:{cloudId:string;localId:string}[]}>;
   onPracticeSharedSet: (set: CloudProblemSet) => void;
   onPublished: (localSetId: string, result: CloudPublishResult) => Promise<void>;
   onUnpublished: (localSetId: string) => Promise<void>;
@@ -90,6 +94,7 @@ export function CommunityScreen({
   onOpenGroup,
   onOpenLocalSet,
   onCopySharedSet,
+  onImportGroupFolder,
   onPracticeSharedSet,
   onPublished,
   onUnpublished,
@@ -161,6 +166,9 @@ export function CommunityScreen({
   const [copyFolderId, setCopyFolderId] = useState('');
   const [copyError, setCopyError] = useState('');
   const copyBusyRef = useRef(false);
+  const [copyGroupFolder,setCopyGroupFolder]=useState<GroupFolderCardData|null>(null);
+  const [copyGroupNotice,setCopyGroupNotice]=useState('');
+  useEffect(()=>{setCopyGroupFolder(null);setCopyGroupNotice('');},[selectedGroupId,session?.user.id]);
   const [publicationInfo, setPublicationInfo] = useState<Record<string, PublicationInfo>>({});
   const detailsFor = (id: string): PublicationInfo => publicationInfo[id] ?? {
     audience: data.problemSets.find((set) => set.id === id)?.audience ?? '',
@@ -488,6 +496,39 @@ export function CommunityScreen({
     }
   };
 
+  const confirmGroupFolderCopy=async()=>{
+    if(!copyGroupFolder||!session||!onImportGroupFolder||copyBusyRef.current)return;
+    copyBusyRef.current=true;
+    setBusy(true);setCopyError('');
+    const viewer=session.user.id,groupId=selectedGroupId,key=copyGroupFolder.key;
+    const readFolder=async()=>{
+      const [sets,snapshot]=await Promise.all([listGroupProblemSets(groupId),readGroupLearning(groupId,viewer)]);
+      const find=(rows:GroupFolderCardData[]):GroupFolderCardData|undefined=>{
+        for(const row of rows){if(row.key===key)return row;const child=find(row.children);if(child)return child;}
+      };
+      const folder=find(buildGroupLibrary(sets,snapshot));
+      if(!folder)throw new Error('フォルダが変更・削除されています。一覧を再読み込みしてください。');
+      return folder;
+    };
+    const signature=(folder:GroupFolderCardData):string=>JSON.stringify([
+      folder.key,folder.name,folder.updatedAt,
+      folder.sets.map(s=>[s.id,s.ownerId,s.versionId,s.updatedAt]).sort(),
+      folder.children.map(signature).sort(),
+    ]);
+    try{
+      const folder=await readFolder(),sets:CloudProblemSet[]=[];
+      for(const summary of groupFolderSets(folder)){
+        const detail=await getSharedProblemSet(summary.id);
+        if(detail.id!==summary.id||detail.ownerId!==summary.ownerId||detail.versionId!==summary.versionId||detail.updatedAt!==summary.updatedAt)throw new Error('共有内容が更新されました。もう一度取り込んでください。');
+        sets.push(detail);
+      }
+      const latest=await readFolder();
+      if(signature(latest)!==signature(folder)||sessionUserId.current!==viewer||(await getCloudSession())?.user.id!==viewer)throw new Error('フォルダまたはアカウントが変更されています。もう一度取り込んでください。');
+      const plan=await onImportGroupFolder(folder,sets,groupId);
+      for(const imported of plan.imported)await recordCloudCopy(imported.cloudId,imported.localId).catch(()=>undefined);
+      setCopyGroupFolder(null);setCopyGroupNotice(`「${folder.name}」を${plan.imported.length}セット、ホームに取り込みました。`);
+    }catch(reason){setCopyError(getErrorMessage(reason));}finally{copyBusyRef.current=false;setBusy(false);}
+  };
   const practiceSharedSet = async (summary: CloudProblemSet, token = '') => {
     setBusy(true);
     setError('');
@@ -787,7 +828,7 @@ export function CommunityScreen({
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
-                    <GroupWorkspace data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} busy={busy} />
+                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
                   </>
                 )}
               </section>
@@ -942,6 +983,10 @@ export function CommunityScreen({
         {folderCreateOpen ? <CommunityModal ariaLabel="フォルダを追加" busy={busy} onClose={() => setFolderCreateOpen(false)}>
           <h2>フォルダを追加</h2><p>このグループのメンバーで共有するフォルダです。</p>
           <form className="group-folder-form" onSubmit={event => { event.preventDefault(); void createGroupFolder(); }}><label>フォルダ名<input data-dialog-autofocus value={folderNameDraft} maxLength={60} required disabled={busy} onChange={event => setFolderNameDraft(event.target.value)} placeholder="例：CBT対策" /></label>{error ? <p role="alert" className="group-error">{error}</p> : null}<div className="community-sheet__actions"><button type="button" disabled={busy} onClick={() => setFolderCreateOpen(false)}>キャンセル</button><button type="submit" className="community-primary" disabled={busy || !folderNameDraft.trim()}>{busy ? '追加中…' : '追加する'}</button></div></form>
+        </CommunityModal> : null}
+        {copyGroupFolder ? <CommunityModal ariaLabel="フォルダごと取り込む" busy={busy} onClose={()=>setCopyGroupFolder(null)}>
+          <h2>フォルダごと取り込む</h2><p>「{copyGroupFolder.name}」の{groupFolderSets(copyGroupFolder).length}セットを、子フォルダ・添付PDFと一緒にホームへ取り込みます。</p><p>取り込み済みの教材や学習履歴は上書きしません。</p>
+          {copyError?<p role="alert">{copyError}</p>:null}<div className="community-sheet__actions"><button type="button" disabled={busy} onClick={()=>setCopyGroupFolder(null)}>キャンセル</button><button type="button" className="community-primary" disabled={busy} onClick={()=>void confirmGroupFolderCopy()}>{busy?'取り込み中…':'フォルダごと取り込む'}</button></div>
         </CommunityModal> : null}
         {copyTarget ? <CommunityModal ariaLabel="取り込み先を選択" busy={busy} onClose={() => setCopyTarget(null)}>
           <h2>取り込み先を選択</h2>

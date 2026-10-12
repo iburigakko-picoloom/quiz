@@ -20,7 +20,13 @@ export function planPublicImport(data:AppData,sets:PublicSet[],options:{folder?:
   for(const set of sets){
     let destination=root;
     const child=set.memberPath?.[0];if(options.folder&&child)destination=folders.find(f=>f.parentFolderId===root!.id&&f.sourcePublicChildId===child.id)??addFolder(child.name,root.id,{sourcePublicChildId:child.id,sourcePublicFolderId:options.folder.id,sourcePublicFolderOwnerId:options.folder.ownerId});
-    if(options.groupFolder&&child){const key=JSON.stringify([options.groupFolder.key,child.id]);destination=folders.find(f=>f.parentFolderId===root!.id&&f.sourceGroupId===options.groupFolder!.groupId&&f.sourceGroupFolderKey===key)??addFolder(child.name,root.id,{sourceGroupId:options.groupFolder.groupId,sourceGroupFolderKey:key});}
+    if(options.groupFolder){
+      const path=[options.groupFolder.key];
+      for(const part of set.memberPath??[]){
+        path.push(part.id);const key=JSON.stringify(path),parentId=destination.id;
+        destination=folders.find(f=>f.parentFolderId===parentId&&f.sourceGroupId===options.groupFolder!.groupId&&f.sourceGroupFolderKey===key)??addFolder(part.name,parentId,{sourceGroupId:options.groupFolder.groupId,sourceGroupFolderKey:key});
+      }
+    }
     const existing=set.versionId?problemSets.find(s=>s.folderId===destination.id&&s.sourceSetId===set.id&&s.sourceVersionId===set.versionId):undefined;
     const old=existing?questions.filter(q=>q.setId===existing.id):[];
     if(existing&&old.length===set.questions!.length&&old.every(q=>q.origin&&questionRevision(q)===q.origin.importedContent)){imported.push({cloudId:set.id,localId:existing.id});continue;}

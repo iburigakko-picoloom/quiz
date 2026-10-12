@@ -5,6 +5,7 @@ import { PrimaryBottomNav } from '../../src/components/PrimaryBottomNav';
 import { previewData } from '../fixtures/group-learning';
 import type {AppData,PublicationSource} from '../../src/types';
 import {applyPublishedSource} from '../../src/utils/groupStudySource';
+import {planGroupImport} from '../../src/utils/groupImport';
 import '../../src/index.css';
 import '../../src/ui-spec.css';
 import '../../src/final-reference.css';
@@ -24,6 +25,9 @@ function Preview(){
   return <><CommunityScreen data={current} initialTab="groups" initialGroupId="preview-group" onGroupPage={()=>{}} onBack={()=>{}} onManageShares={()=>{}} onCreateProblemSet={()=>{}} onOpenGroup={()=>{}} onOpenLocalSet={id=>{document.body.dataset.openedSet=id;}} onCopySharedSet={async()=>null} onPracticeSharedSet={()=>{}} onPublished={async(id,result,source?:PublicationSource)=>{
     const next=applyPublishedSource(current,id,result,pointerScenario&&source?{...source,manifest:undefined}:source,new Date().toISOString());localStorage.setItem(key,JSON.stringify(next));setCurrent(next);
     const applied=JSON.parse(localStorage.getItem('publication-preview-applied')??'[]');localStorage.setItem('publication-preview-applied',JSON.stringify([...applied,id]));
+  }} onImportGroupFolder={async(folder,sets,groupId)=>{
+    const plan=planGroupImport(current,folder,sets,groupId);localStorage.setItem('group-folder-preview-copy',JSON.stringify(plan.data));
+    document.body.dataset.importedGroupFolder=JSON.stringify({folderId:plan.folderId,count:plan.imported.length});return plan;
   }} onUnpublished={async()=>{}}/><PrimaryBottomNav active="groups" onSelect={()=>{}}/></>;
 }
 createRoot(document.getElementById('root')!).render(enabled?<Preview/>:<p>この画面は隔離したブラウザテスト専用です。</p>);
