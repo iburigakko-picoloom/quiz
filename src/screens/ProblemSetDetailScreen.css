@@ -574,7 +574,7 @@
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__list-entry strong{font-size:12px;flex:1}.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__list-entry svg{flex-shrink:0;box-sizing:content-box;padding:10px;background:#edf6ff;border-radius:12px;color:#4682b6}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__list-entry:nth-child(2) svg{background:#f6edff;color:#9164ca}.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__list-entry:nth-child(3) svg{background:#e6f8ef;color:#35a77e}.quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__list-entry:nth-child(4) svg{background:#fff3e5;color:#cf944c}
 
-.quiz-detail.quiz-detail--reference{background:#fff}.quiz-detail.quiz-detail--reference .quiz-detail__content-grid{padding:16px}.quiz-detail.quiz-detail--reference .quiz-detail__main-column{padding:0;gap:16px}
+.quiz-detail.quiz-detail--reference{background:#fff}.quiz-detail.quiz-detail--reference .quiz-detail__content-grid{padding:16px 0}.quiz-detail.quiz-detail--reference .quiz-detail__main-column{padding:0;gap:16px}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__summary{padding:12px;margin-top:0}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric{gap:4px;border-left:0;min-height:80px}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .quiz-detail__metric strong{margin:0;font-size:28px;line-height:1.15}
