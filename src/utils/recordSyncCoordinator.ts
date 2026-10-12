@@ -32,6 +32,7 @@ import { archiveSyncOriginals } from './syncOriginalBackup';
 import { readAppOutbox } from './appRecordStorage';
 import { materialFileEntry } from './materialModel';
 import { recoverLegacyImageMetadata } from './legacyImageRecovery';
+import { repairMissingMaterialReferences } from './materialReferenceRepair';
 import { readWholeBaseline } from './wholeSyncStorage';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
@@ -102,6 +103,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
       progress,
       notice:notice=>publishSyncAttempt(connection,{notice}),
       archiveOriginals:(side,rows)=>archiveSyncOriginals(db,connection,side,rows,imageTransport,materialTransport,assertCurrent,progress),
+      repairMaterials:(local,remote,assertSource,assertRemote)=>repairMissingMaterialReferences(db,local,remote,materialTransport,{assertCurrent:assertSource,assertRemoteCurrent:assertRemote,archive:()=>archiveSyncOriginals(db,connection,'local',local,imageTransport,materialTransport,assertSource,progress)}),
       prepareMedia:()=>prepareStagedQuestionImages(db,imageTransport,assertCurrent,progress),
       incoming:(rows,options)=>buildWholeIncomingFile(db,rows,materialTransport,assertCurrent,progress,options?.allowMissingImages),
       prepareOutgoing:async()=>{

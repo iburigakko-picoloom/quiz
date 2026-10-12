@@ -223,3 +223,28 @@ for(const scenario of ['missing_pdf','orphan_material','initial_missing_pdf','in
   }
   assert.equal((await receive()).status,'done');assert.equal(await readWholeMeta(db,'wholeConflict',connection),undefined);
 });
+
+
+test('missing material repair bypasses same-head fast paths, restarts comparison, and never changes questions or cloud originals',async()=>{
+  const {repairMissingMaterialReferences}=await import('../src/utils/materialReferenceRepair.ts');
+  const {hydrateMaterialDownload}=await import('../src/utils/materialCloud.ts');
+  const {archiveSyncOriginals}=await import('../src/utils/syncOriginalBackup.ts');
+  const notes=await import('../src/utils/noteStorage.ts');
+  const f=await incomingFixture({count:1});f.data.questions[0].materialReferences=[{materialId:'pdf-0',pageId:'page-0'}];
+  f.payload.localStorage['quiz-make-app-data-v1']=JSON.stringify(f.data);f.rows.find(r=>r.collection==='questions').raw=JSON.stringify(f.data.questions[0]);
+  await notes.replaceCategoryNotesRaw({});assert.equal(await storage.saveAppDataAsync(f.data),true);
+  await remoteReplace('Fixture',f.rows.filter(r=>r.collection!=='folders'));
+  const source=await records.readAppRecordSnapshot(db),rows=[...source.records.values()].filter(r=>r.raw!==null).map(r=>({...r,revision:r.serverRevision})),revision=(await transport.whole('status')).revision;
+  const {computeWholeRecordDigest}=await import('../src/utils/wholeSyncDigest.ts');
+  await acknowledgeIdenticalWhole(db,{version:1,connection,serverRevision:revision,userGeneration:await readUserEditGeneration(db),digest:await computeWholeRecordDigest(rows)});
+  const before=await storage.loadAppDataAsync(),cloud=JSON.stringify(await readCloudRows());let attempts=0;
+  const media={userId:f.transport.userId,download:async()=>assert.fail('no image')};
+  const exact={...guards,incoming:async rows=>createCompleteFileBackup(await hydrateMaterialDownload(wholeRowsPayload(rows),f.transport),[]),repairMaterials:async(local,remote,assertSource,assertRemote)=>{attempts++;return repairMissingMaterialReferences(db,local,remote,f.transport,{assertCurrent:assertSource,assertRemoteCurrent:assertRemote,archive:()=>archiveSyncOriginals(db,connection,'local',local,media,f.transport,assertSource)})}};
+  assert.equal((await runWholeRecordSync(db,connection,transport,exact)).status,'more');assert.equal(attempts,1);
+  assert.deepEqual(await storage.loadAppDataAsync(),before);assert.equal(JSON.stringify(await readCloudRows()),cloud);
+  // Repaired PDF bytes are cached locally, but only the exact cloud descriptor
+  // is queued. The next pass follows normal comparison/maintenance; no second
+  // repair or automatic whole-data choice is introduced.
+  assert.ok(['done','more','conflict'].includes((await runWholeRecordSync(db,connection,transport,exact)).status));assert.equal(attempts,1);
+  assert.deepEqual(await storage.loadAppDataAsync(),before);assert.equal(await readWholeMeta(db,'wholeConflict',connection),undefined);
+});

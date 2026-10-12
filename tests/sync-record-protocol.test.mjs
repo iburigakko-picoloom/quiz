@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { createRecordProtocolDatabase } from './helpers/record-protocol-db.mjs';
 
 const pg = await createRecordProtocolDatabase();
@@ -135,4 +136,26 @@ test('question image metadata survives Snapshot compatibility reads and opaque l
   const read=await pg.query('select data from public.quiz_sync_read($1)',[id]);
   assert.equal(read.rows[0].data.localStorage['quizMake:image:img'],payload.localStorage['quizMake:image:img']);
   assert.equal(read.rows[0].data.localStorage['quizMake:image:legacy'],'opaque old value');
+});
+
+
+test('linear snapshot assembly preserves 10000 questions, Unicode, notes, image metadata, order and ownership',async()=>{
+  const id='a'.repeat(36),legacy='b'.repeat(36);
+  await pg.query('insert into public.quiz_sync_data(sync_id,updated_at,creator_hash,data) values($1,$3,private.quiz_sync_actor_hash(),$4),($2,$3,private.quiz_sync_actor_hash(),$4)',[id,legacy,timestamp,JSON.stringify({...snapshot(emptyApp),extra:'retained'})]);
+  await pg.query('insert into private.quiz_sync_heads(sync_id,revision,snapshot_updated_at,payload_bytes) values($1,1,$2,0)',[id,timestamp]);
+  await pg.query(`insert into private.quiz_sync_records(sync_id,record_key,collection,record_id,raw,position,revision)
+    select $1,jsonb_build_array('questions','q'||i)::text,'questions','q'||i,
+      jsonb_build_object('id','q'||i,'question','引用\"・改行'||chr(10)||repeat('学習',100),'setId','s')::text,10001-i,1
+      from generate_series(1,10000) i`,[id]);
+  const rows=[['indexedDbNotes','quizMake:notes:s:__materials_v1','{"kept":"資料"}'],['questionImages','i','{"id":"i","questionId":"q1"}'],['localStorage','quizMake:opaque','unchanged']];
+  for(const [domain,key,raw] of rows)await pg.query('insert into private.quiz_sync_records values($1,$2,$3,$4,$5,0,1)',[id,JSON.stringify([domain,key]),domain,key,raw]);
+  const before=(await pg.query('select data from public.quiz_sync_read($1)',[id])).rows[0].data;
+  await pg.exec(await readFile(new URL('../supabase/migrations/20261012000305_sync_snapshot_linear_assembly.sql',import.meta.url),'utf8'));
+  const after=(await pg.query('select data from public.quiz_sync_read($1)',[id])).rows[0].data;
+  const app=JSON.parse(after.localStorage['quiz-make-app-data-v1']);
+  assert.deepEqual(app,JSON.parse(before.localStorage['quiz-make-app-data-v1']));assert.equal(app.questions.length,10000);assert.equal(app.questions[0].id,'q10000');
+  delete before.localStorage['quiz-make-app-data-v1'];delete after.localStorage['quiz-make-app-data-v1'];assert.deepEqual(after,before);
+  assert.deepEqual((await pg.query('select data from public.quiz_sync_read($1)',[legacy])).rows[0].data,{...snapshot(emptyApp),extra:'retained'});
+  await pg.query("select set_config('test.actor','intruder',false)");assert.deepEqual((await pg.query('select * from public.quiz_sync_read($1)',[id])).rows,[]);
+  await pg.query("select set_config('test.actor','owner',false)");await pg.exec('set role authenticated');await assert.rejects(pg.query('select private.quiz_sync_materialize_snapshot($1)',[id]));await pg.exec('reset role');
 });

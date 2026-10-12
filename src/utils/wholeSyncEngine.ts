@@ -23,7 +23,7 @@ import { wholeRowsPayload } from './wholeSyncIncoming';
 
 type Reply={code:string;[key:string]:unknown};
 export type WholeTransport=RecordSyncTransport&{whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<Reply>;commitSmallWhole?(body:Record<string,unknown>):Promise<Reply>};
-type WholeGuards=Omit<RecordSyncGuards,'prepareOutgoing'>&{prepareOutgoing():Promise<void|{more:boolean}>;incoming(rows:RemoteRecordChange[],options?:{allowMissingImages:boolean}):Promise<FileBackup>;device:string;progress?:(value:SyncProgress)=>void;notice?:(message:string)=>void;archiveOriginals?:(side:'local'|'remote',rows:RemoteRecordChange[])=>Promise<SavedBackup>};
+type WholeGuards=Omit<RecordSyncGuards,'prepareOutgoing'>&{prepareOutgoing():Promise<void|{more:boolean}>;incoming(rows:RemoteRecordChange[],options?:{allowMissingImages:boolean}):Promise<FileBackup>;device:string;progress?:(value:SyncProgress)=>void;notice?:(message:string)=>void;archiveOriginals?:(side:'local'|'remote',rows:RemoteRecordChange[])=>Promise<SavedBackup>;repairMaterials?:(local:RemoteRecordChange[],remote:RemoteRecordChange[],assertSource:()=>Promise<void>,assertRemote:()=>Promise<void>)=>Promise<boolean>};
 function progress(guards:Pick<WholeGuards,'progress'>,stage:SyncProgressStage,label:string,completed=0,total:number|null=null){try{guards.progress?.({label,completed,total,stage});}catch{/* Informational only. */}}
 function mayRescue(error:unknown):boolean{
   if(error instanceof SyncInterruptedError)return false;
@@ -143,11 +143,17 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     return {snapshot,generation:await readUserEditGeneration(db),outbox:await readAppOutbox(db)};
   },{requireCrossContext:true});
   const baseline=await readWholeBaseline(db,connection);
-  if(!priority&&!preparationError&&remote.enabled&&baseline?.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&!source.outbox.length)return result('done');
   const localRows=[...source.snapshot.records.values()].filter(row=>row.raw!==null).map(row=>({...row,revision:row.serverRevision}));
+  let needsMaterialRepair=false;
+  if(guards.repairMaterials&&priority!=='remote'){
+    const payload=wholeRowsPayload(localRows);
+    try{assertMaterialIntegrity(payload,JSON.parse(payload.localStorage['quiz-make-app-data-v1']),false);}
+    catch(error){needsMaterialRepair=error instanceof SyncDataError&&error.code==='material_reference'&&Boolean(error.diagnostic.referenceIssues?.length)&&error.diagnostic.referenceIssues!.every(issue=>issue.reason==='missing_material');}
+  }
+  if(!needsMaterialRepair&&!priority&&!preparationError&&remote.enabled&&baseline?.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&!source.outbox.length)return result('done');
   const localDigest=await computeWholeRecordDigest(localRows);
   let decision:'same'|'upload'|'download'|'conflict',incoming:RemoteRecordChange[]|undefined,remoteDigest=baseline?.digest??'',downloaded=0;
-  if(!priority&&remote.enabled&&baseline?.serverRevision===remote.revision&&(localDigest===baseline.digest||source.generation!==baseline.userGeneration)){
+  if(!needsMaterialRepair&&!priority&&remote.enabled&&baseline?.serverRevision===remote.revision&&(localDigest===baseline.digest||source.generation!==baseline.userGeneration)){
     decision=decideWholeSync({baseline,serverRevision:remote.revision,userGeneration:source.generation,localDigest,remoteDigest});
   }else{
     let stage=await readWholeMeta<WholeIncoming>(db,'wholeIncoming',connection);
@@ -162,6 +168,23 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     remoteDigest=await computeWholeRecordDigest(incoming);
     progress(guards,'comparing','クラウドの読み込み完了',incoming.length,incoming.length);
     decision=decideWholeSync({baseline,serverRevision:remote.revision,userGeneration:source.generation,localDigest,remoteDigest,verifiedRecordCursor:await readVerifiedWholeAncestorCursor(db,connection)});
+  }
+  // An exact, additive attachment repair is separate from choosing a whole
+  // dataset. Restart comparison after its durable commit; never reuse witnesses.
+  if(needsMaterialRepair&&incoming&&priority!=='remote'&&guards.repairMaterials){
+    const assertRepairSource=async()=>{
+      await guards.assertCurrent();
+      const current=await readAppRecordSnapshot(db);
+      if(current?.state.commitId!==source.snapshot.state.commitId||await readUserEditGeneration(db)!==source.generation)throw new SyncProtocolError('local_changed','資料の復旧中に端末が変更されました。');
+    };
+    const assertRepairRemote=async()=>{
+      await guards.assertCurrent();
+      if(head(await transport.whole('status')).revision!==remote.revision)throw new SyncProtocolError('remote_changed','資料の復旧中にクラウドが変更されました。');
+    };
+    if(await guards.repairMaterials(localRows,incoming,assertRepairSource,assertRepairRemote)){
+      try{guards.notice?.('不足していた資料を復旧しました。教材と学習履歴は保持しています。');}catch{}
+      return result('more',0,downloaded);
+    }
   }
   // Logical equality deliberately ignores wire chunks. Their guard/garbage
   // still needs an acknowledged transfer, without creating a user edit.

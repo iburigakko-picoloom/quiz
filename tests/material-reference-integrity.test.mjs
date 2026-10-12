@@ -73,3 +73,69 @@ test('copy save checks durable notes under the deletion lock; a stale draft writ
   assert.deepEqual(await storage.loadAppDataAsync(),before);assert.deepEqual(draft.questions[1].materialReferences,[ref]);
   assert.deepEqual(await storage.saveAppDataResult({...before,questions:[draft.questions[1]]},{materialReferenceQuestionIds:['draft']}),stale);
 });
+
+
+const {planMissingMaterialRepair,repairMissingMaterialReferences}=await import('../src/utils/materialReferenceRepair.ts');
+const {archiveSyncOriginals,validateSyncOriginalsFile}=await import('../src/utils/syncOriginalBackup.ts');
+const {getSavedBackup}=await import('../src/utils/backupRepository.ts');
+const {exportCategoryNotesRaw,replaceCategoryNotesRaw,loadCategoryNoteRaw}=await import('../src/utils/noteStorage.ts');
+const recordStorage=await import('../src/utils/appRecordStorage.ts');
+async function repairFixture(){
+  const f=await incomingFixture({count:16});
+  f.data.questions=Array.from({length:460},(_,i)=>({...f.data.questions[0],id:`repair-q${i}`,materialReferences:[ref]}));
+  f.data.progress=[{questionId:f.data.questions[0].id,level:2,correctCount:5,incorrectCount:1,lastAnsweredAt:stamp}];
+  f.payload.localStorage['quiz-make-app-data-v1']=JSON.stringify(f.data);
+  f.rows=f.rows.filter(r=>r.collection!=='questions'&&r.collection!=='progress');
+  for(const collection of ['questions','progress'])for(const [position,row] of f.data[collection].entries())f.rows.push({key:JSON.stringify([collection,row.id??row.questionId]),collection,id:row.id??row.questionId,raw:JSON.stringify(row),position,revision:1});
+  const hydrated=await hydrateMaterialDownload(f.payload,f.transport);
+  const notes={...hydrated.indexedDbNotes},idx=JSON.parse(notes['quizMake:notes:s:__materials_v1']);idx.materials.shift();notes['quizMake:notes:s:__materials_v1']=JSON.stringify(idx);delete notes['quizMake:notes:s:__material_pdf_pdf-0'];
+  return {f,notes,local:{...f.payload,indexedDbNotes:notes}};
+}
+test('460 missing references are repaired by adding the exact cloud PDF; existing 15 PDFs and every learning row survive',async()=>{
+  const {f,notes,local}=await repairFixture(),original=JSON.stringify(local);
+  const plan=planMissingMaterialRepair(local,f.payload);assert.equal(Object.keys(plan).length,2);assert.equal(JSON.stringify(local),original);
+  await replaceCategoryNotesRaw(notes);assert.equal(await storage.saveAppDataAsync(f.data),true);
+  const snapshot=await recordStorage.readCurrentAppRecordSnapshot(db),rows=[...snapshot.records.values()].filter(r=>r.raw!==null).map(r=>({...r,revision:r.serverRevision}));
+  const before=await storage.loadAppDataAsync(),connection={url:'https://synthetic.test',userId:f.transport.userId,syncId:'a'.repeat(36)};
+  let saved;const media={download:async()=>assert.fail('no image read'),userId:f.transport.userId};
+  const guards={assertCurrent:async()=>{},assertRemoteCurrent:async()=>{},archive:async()=>saved=await archiveSyncOriginals(db,connection,'local',rows,media,f.transport,async()=>{})};
+  const count=f.downloaded;assert.equal(await repairMissingMaterialReferences(db,rows,f.rows,f.transport,guards),true);assert.equal(f.downloaded,count,'verified cached PDF reused');
+  assert.deepEqual(await storage.loadAppDataAsync(),before);
+  const after=await exportCategoryNotesRaw();for(const [key,raw] of Object.entries(notes))if(!key.endsWith(':__materials_v1'))assert.equal(after[key],raw);
+  assert.doesNotThrow(()=>assertMaterialIntegrity({...local,indexedDbNotes:after},before,true));
+  const archived=JSON.parse((await getSavedBackup(saved.id)).raw);assert.equal(await validateSyncOriginalsFile(archived),true);assert.deepEqual(Object.fromEntries(archived.notes.map(r=>[r.key,r.raw])),notes);
+  const next=await recordStorage.readCurrentAppRecordSnapshot(db);assert.equal((await recordStorage.readAppOutbox(db)).filter(r=>r.id==='quizMake:notes:s:__material_pdf_pdf-0').length,1);
+  assert.equal(await repairMissingMaterialReferences(db,[...next.records.values()].filter(r=>r.raw!==null).map(r=>({...r,revision:r.serverRevision})),f.rows,f.transport,guards),false);
+});
+test('unproven question, wrong page, live file collision and account owner mismatch cannot repair or overwrite data',async()=>{
+  const {f,local}=await repairFixture();
+  for(const change of [cloud=>{const app=JSON.parse(cloud.localStorage['quiz-make-app-data-v1']);app.questions[0].id='different';cloud.localStorage['quiz-make-app-data-v1']=JSON.stringify(app)},cloud=>{const idx=JSON.parse(cloud.indexedDbNotes['quizMake:notes:s:__materials_v1']);idx.materials[0].pages[0].id='wrong';cloud.indexedDbNotes['quizMake:notes:s:__materials_v1']=JSON.stringify(idx)}]){
+    const cloud=structuredClone(f.payload);change(cloud);try{assert.equal(planMissingMaterialRepair(local,cloud),null)}catch(error){assert.equal(error.code,'material_reference')}
+  }
+  const collision=structuredClone(local);collision.indexedDbNotes['quizMake:notes:s:__material_pdf_pdf-0']=f.payload.indexedDbNotes['quizMake:notes:s:__material_pdf_pdf-0'];assert.equal(planMissingMaterialRepair(collision,f.payload),null);
+  const additions=planMissingMaterialRepair(local,f.payload);await assert.rejects(hydrateMaterialDownload({version:1,updatedAt:stamp,localStorage:{},indexedDbNotes:additions},{...f.transport,userId:'22222222-2222-4222-8222-222222222222'}),e=>e.code==='permission_denied');
+});
+test('revision changes or failed original backup stop additive repair before any live record is written',async()=>{
+  const {f,notes}=await repairFixture();await replaceCategoryNotesRaw(notes);assert.equal(await storage.saveAppDataAsync(f.data),true);
+  const snapshot=await recordStorage.readCurrentAppRecordSnapshot(db),rows=[...snapshot.records.values()].filter(r=>r.raw!==null).map(r=>({...r,revision:r.serverRevision}));
+  const before=JSON.stringify(await recordStorage.readAppOutbox(db));
+  await assert.rejects(repairMissingMaterialReferences(db,rows,f.rows,f.transport,{assertCurrent:async()=>{},assertRemoteCurrent:async()=>{throw Error('remote_changed')},archive:async()=>assert.fail('no backup')}),/remote_changed/);
+  await assert.rejects(repairMissingMaterialReferences(db,rows,f.rows,f.transport,{assertCurrent:async()=>{},assertRemoteCurrent:async()=>{},archive:async()=>{throw Error('backup failed')}}),/backup failed/);
+  assert.deepEqual(await exportCategoryNotesRaw(),notes);assert.equal(JSON.stringify(await recordStorage.readAppOutbox(db)),before);
+});
+
+
+test('corrupt PDF and quota failure preserve the incomplete originals and atomic outbox on retry',async()=>{
+  const {f,notes}=await repairFixture();await replaceCategoryNotesRaw(notes);assert.equal(await storage.saveAppDataAsync(f.data),true);
+  const snapshot=await recordStorage.readCurrentAppRecordSnapshot(db),rows=[...snapshot.records.values()].filter(r=>r.raw!==null).map(r=>({...r,revision:r.serverRevision}));
+  const before=JSON.stringify(await recordStorage.readAppOutbox(db)),app=await storage.loadAppDataAsync();
+  const connection={project:'https://synthetic.test',userId:f.transport.userId,syncId:'a'.repeat(36)};
+  const media={download:async()=>assert.fail('no image read'),userId:f.transport.userId};
+  const guards={assertCurrent:async()=>{},assertRemoteCurrent:async()=>{},archive:()=>archiveSyncOriginals(db,connection,'local',rows,media,f.transport,async()=>{})};
+  await assert.rejects(repairMissingMaterialReferences(db,rows,f.rows,{...f.transport,cacheScope:crypto.randomUUID(),download:async()=>new Uint8Array(40).fill(99)},guards),e=>e.code==='pdf_integrity');
+  const {IDBObjectStore}=await import('fake-indexeddb'),put=IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put=function(value,key){if(this.name==='categoryNotes'&&key==='quizMake:notes:s:__material_pdf_pdf-0')throw new DOMException('synthetic quota','QuotaExceededError');return put.call(this,value,key)};
+  try{await assert.rejects(repairMissingMaterialReferences(db,rows,f.rows,f.transport,guards),e=>e.name==='QuotaExceededError')}finally{IDBObjectStore.prototype.put=put}
+  assert.deepEqual(await exportCategoryNotesRaw(),notes);assert.deepEqual(await storage.loadAppDataAsync(),app);assert.equal(JSON.stringify(await recordStorage.readAppOutbox(db)),before);
+  assert.equal(await repairMissingMaterialReferences(db,rows,f.rows,f.transport,guards),true);
+});
