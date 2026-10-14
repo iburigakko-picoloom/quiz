@@ -20,7 +20,7 @@
 
 ホームのキャラをタップすると、名前・なかよし度と「ごはん／なでる／芸」を表示します。外見の成長・進化や家具集めは行いません。全身を描いた連続コマで、まばたき・しっぽの揺れ、座る・耳をかく・立つ・伏せる・寝る動作を再生します。頭・耳・胴体・足を分割して変形する方式は廃止しました。なかよし度による自然な反応と、くるりん・タッチ・おじぎ・ごろん・おやすみも全身のコマで表現します。
 
-コマ順と時間は [companionAnimation.ts](src/utils/companionAnimation.ts)、描画は [companionFrames.ts](src/components/companionFrames.ts) にまとめています。毎回、完成した全身1枚だけを描画し、コマ同士の半透明合成や部位の伸縮・回転を行いません。練習中は間を置いてゆっくり再生し、習得後は通常のテンポになります。芸のご褒美のタイミングも動作の長さに合わせています。育成画面の操作欄をスクロールしても、キャラの全身は表示したままです。
+コマ順と時間は [companionAnimation.ts](src/utils/companionAnimation.ts)、描画は [companionFrames.ts](src/components/companionFrames.ts) にまとめています。完成した全身コマを前足の接地中心で揃え、座った位置がしっぽや耳の動きでずれないようにしています。位置の基準は [companionFrameLayout.ts](src/utils/companionFrameLayout.ts) に保存しています。座り姿の小さな変化は最大60fpsでなじませて切り替え、体の不透明度を保ちます。姿勢が大きく変わる芸はコマを重ねず、再生間隔を短くして二重の顔や足を防ぎます。部位の伸縮・回転は行いません。練習中は間を置いてゆっくり再生し、習得後は通常のテンポになります。芸のご褒美のタイミングも動作の長さに合わせています。育成画面の操作欄をスクロールしても、キャラの全身は表示したままです。キャラ下の常設の動作説明は表示せず、操作後の結果だけ操作欄に表示します。
 
 動作素材はImageGenの組み込みツールで元のキャラを参照して作成しました。[frames-v3](src/assets/companion/frames-v3) に8種類のシート、生成プロンプト（`.prompt.txt`）、透過PNG原本（`.source.png`）と全身コマの切り出し情報（`manifest.json`）を保存しています。実行用WebPは全身単位で切り出し、シートごとに一定の縦横比で縮小し、足元を揃えて圧縮したものです。生成時に左右の足が入れ替わったコマなどは再生から除いています。画面外・非表示タブでは描画を休止し、同じコマは再描画しません。OSの動きを減らす設定では、各動作の代表となる全身1枚を表示します。
 
@@ -44,7 +44,7 @@
 育成データはアカウント別のIndexedDBに保存し、既存のバックアップ・同期対象に含めます。ごはんの消費・芸の習得度・なかよし度は一括保存し、保存失敗時にはすべて保持します。複数端末で競合した場合は既存の同期の確認手順で育成データを選びます。
 
 専用テストは `npm run test:companion`。ブラウザの合成データによる操作テストは、開発サーバー起動後に `QUIZMAKE_PLAYWRIGHT_MODULE` をPlaywrightのディレクトリに設定して `node tests/browser/companion-care-validation.mjs` を実行します。
-連続動作と全身表示の確認は、追加で `QUIZMAKE_SHARP_MODULE` をSharpのディレクトリに設定し、`node tests/browser/companion-animation-validation.mjs` を実行します。確認用GIF・全身コマの一覧・スマホ幅のスクリーンショットを `tmp/companion-frames-v3` に保存します。
+連続動作と全身表示の確認は、追加で `QUIZMAKE_SHARP_MODULE` をSharpのディレクトリに設定し、`node tests/browser/companion-animation-validation.mjs` を実行します。確認用GIF・全身コマの一覧・足元の位置の計測結果・スマホ幅のスクリーンショットを `tmp/companion-smooth` に保存します。
 
 ## グループへの公開と進捗
 

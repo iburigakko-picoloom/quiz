@@ -46,3 +46,30 @@ test('reduced motion shows a stable complete drawing throughout an action', () =
     assert.deepEqual(companionFrame(activity, 100, 4000, false, true), companionFrame(activity, 3600, 4000, false, true));
   }
 });
+
+test('seated contributions remain continuous across every cut and stay opaque', () => {
+  const weights = frame => {
+    const result = new Map();
+    for (const [index, weight] of [[frame.index, 1 - frame.mix], [frame.nextIndex, frame.mix]]) result.set(index, (result.get(index) ?? 0) + weight);
+    return result;
+  };
+  for (const activity of ['sit', 'happy']) {
+    let previous = weights(companionFrame(activity, 0, 4000));
+    for (let elapsed = 1; elapsed <= 4000; elapsed++) {
+      const frame = companionFrame(activity, elapsed, 4000);
+      const current = weights(frame);
+      assert.ok(frame.mix >= 0 && frame.mix <= 1);
+      assert.ok(Math.abs([...current.values()].reduce((a, b) => a + b, 0) - 1) < 1e-9);
+      for (const index of new Set([...previous.keys(), ...current.keys()])) {
+        assert.ok(Math.abs((current.get(index) ?? 0) - (previous.get(index) ?? 0)) < .035, `${activity}: abrupt cel cut at ${elapsed}ms`);
+      }
+      previous = current;
+    }
+  }
+});
+
+test('different action silhouettes never overlay two faces or extra paws', () => {
+  for (const activity of Object.keys(COMPANION_MOTION_MS)) for (let elapsed = 0; elapsed < 5000; elapsed += 20) {
+    assert.equal(companionFrame(activity, elapsed, 5000).mix, 0);
+  }
+});

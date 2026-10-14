@@ -19,7 +19,7 @@
 .companion-care__recovery { margin: 9px 0 0; font-size: 12px; line-height: 1.6; color: #6782a6; }
 .companion-care__stage { flex-shrink: 0; padding: 8px 12px 9px; }
 .companion-care__stage .companion-character--large { height: clamp(140px, 27dvh, 270px); }
-.companion-care__reaction { min-height: 24px; margin: 6px 0 0; text-align: center; color: #738198; font-size: 12px; line-height: 1.6; }
+.companion-care__panel .companion-care__notice { margin: 0 0 12px; padding: 9px 12px; border-radius: 9px; background: #f5f8ff; color: #536f97; font-size: 12px; line-height: 1.6; }
 .companion-care__controls { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .companion-care__tabs { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 5px; border-radius: 15px; background: #f1f5fa; }
 .companion-care__tabs button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border: 0; border-radius: 11px; background: none; color: #7b899b; font-size: 14px; font-weight: 600; }

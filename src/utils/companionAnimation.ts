@@ -5,7 +5,7 @@ export type CompanionActivity = 'sit' | 'stand' | 'scratch' | 'lie' | 'sleep' | 
 export type CompanionMotion = { id: number; kind: CompanionAction; awkward?: boolean };
 export type CompanionSheet = 'idle' | 'scratch' | 'sleep' | 'spin' | 'touch' | 'bow' | 'roll' | 'care';
 export const COMPANION_MOTION_MS: Record<CompanionAction, number> = {
-  spin: 3_200, touch: 3_000, bow: 3_200, roll: 4_400, sleep: 4_600, feed: 2_400, pet: 2_600,
+  spin: 1_600, touch: 1_800, bow: 1_800, roll: 1_800, sleep: 4_600, feed: 2_000, pet: 2_400,
 };
 export function companionMotionDuration(kind: CompanionAction, awkward = false): number {
   return COMPANION_MOTION_MS[kind] * (awkward ? 1.25 : 1);
@@ -13,29 +13,29 @@ export function companionMotionDuration(kind: CompanionAction, awkward = false):
 
 export const COMPANION_IDLE_CLIPS: readonly { activity: CompanionActivity; duration: number }[] = [
   { activity: 'sit', duration: 6_000 },
-  { activity: 'scratch', duration: 3_800 },
+  { activity: 'scratch', duration: 2_400 },
   { activity: 'sit', duration: 4_000 },
   { activity: 'stand', duration: 3_000 },
-  { activity: 'lie', duration: 5_000 },
-  { activity: 'sleep', duration: 8_000 },
-  { activity: 'stretch', duration: 4_000 },
+  { activity: 'lie', duration: 4_000 },
+  { activity: 'sleep', duration: 6_000 },
+  { activity: 'stretch', duration: 2_500 },
   { activity: 'sit', duration: 4_000 },
 ];
 
-// Every index is ONE complete full-body drawing. No bones, interpolated poses,
-// body-part transforms, blending, or geometry deformation.
+// Every index is ONE complete full-body drawing. Transitions mix whole cels;
+// there are no bones, body-part transforms, or geometry deformation.
 type Cel = readonly [frame: number, weight: number];
 type Clip = { sheet: CompanionSheet; cels: readonly Cel[] };
 const sequence = (frames: readonly number[], weight = 1): Cel[] => frames.map(frame => [frame, weight]);
 const idle: Clip = { sheet: 'idle', cels: [[0, 3], [1, 3], [2, 3], [3, 3], [4, 2], [5, .7], [6, .6], [7, .7], ...sequence([8, 9, 10, 11, 12, 13, 14, 15], 2)] };
-const sleep: Clip = { sheet: 'sleep', cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 2], [8, 3], [9, 3], ...sequence([10, 11, 12, 13, 14, 15])] };
+const sleep: Clip = { sheet: 'sleep', cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 4], [8, 18], [9, 18], ...sequence([10, 11, 12, 13, 14, 15])] };
 const bow: Clip = { sheet: 'bow', cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 2], [8, 2], ...sequence([9, 10, 11, 12, 13, 14, 15])] };
 const clips: Record<CompanionActivity, Clip> = {
   sit: idle, happy: idle,
   watch: { sheet: 'care', cels: [[0, 3], [1, 2], [2, 2], [1, 2], [0, 3]] },
   scratch: { sheet: 'scratch', cels: sequence([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) },
-  stand: { sheet: 'spin', cels: [[0, 2], [1, 3], [2, 2], [1, 3], [14, 1], [15, 2]] },
-  lie: { sheet: 'sleep', cels: [...sequence([0, 1, 2, 3]), [4, 5], [3, 1], [2, 1], [1, 1], [0, 2]] },
+  stand: { sheet: 'spin', cels: [[0, 4], [1, 10], [2, 4], [1, 10], [14, 1], [15, 4]] },
+  lie: { sheet: 'sleep', cels: [...sequence([0, 1, 2, 3]), [4, 28], [3, 1], [2, 1], [1, 1], [0, 2]] },
   sleep, relax: sleep, stretch: bow, bow,
   spin: { sheet: 'spin', cels: sequence(Array.from({ length: 16 }, (_, i) => i)) },
   // Later generated cels swap the offered paw. Use only the six consistent
@@ -58,11 +58,25 @@ export function companionFrame(activity: CompanionActivity, elapsed: number, dur
   const total = clip.cels.reduce((sum, [, weight]) => sum + weight, 0);
   let remaining = t * total;
   let index = clip.cels[clip.cels.length - 1][0];
-  for (const [frame, weight] of clip.cels) {
-    if (remaining < weight) { index = frame; break; }
+  let nextIndex = index, mix = 0;
+  for (let i = 0; i < clip.cels.length; i++) {
+    const [frame, weight] = clip.cels[i];
+    if (remaining < weight) {
+      index = frame;
+      nextIndex = clip.cels[Math.min(i + 1, clip.cels.length - 1)][0];
+      if (!reduced && (activity === 'sit' || activity === 'happy')) {
+        const segmentMs = weight / total * duration;
+        // Only near-identical seated cels blend. Different poses play faster
+        // as intact drawings, avoiding double faces or extra limb silhouettes.
+        const fadeMs = segmentMs;
+        const progress = clamp((remaining / weight * segmentMs - (segmentMs - fadeMs)) / fadeMs);
+        mix = Math.round(progress * progress * (3 - 2 * progress) * 1000) / 1000;
+      }
+      break;
+    }
     remaining -= weight;
   }
-  return { sheet: clip.sheet, index };
+  return { sheet: clip.sheet, index, nextIndex, mix };
 }
 
 export function nextCompanionIdle(index: number, friendship: number, variant: number) {

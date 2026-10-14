@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
-import { CompanionCharacter, companionActivityMessage, type CompanionMotion, type CompanionActivity } from '../components/CompanionCharacter';
+import { CompanionCharacter, type CompanionMotion } from '../components/CompanionCharacter';
 import { companionMotionDuration } from '../utils/companionAnimation';
 import { COMPANION_BALANCE, COMPANION_TRICKS, canTeachCompanionTrick, companionFriendshipLabel, isCompanionTrickLearned,
   type CompanionCare, type CompanionCareAction, type CompanionTrickId } from '../utils/companionCare';
@@ -15,7 +15,6 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
   const [selectedTrick, setSelectedTrick] = useState<CompanionTrickId>('spin');
   const [motion, setMotion] = useState<CompanionMotion | null>(null);
   const [message, setMessage] = useState('');
-  const [activity, setActivity] = useState<CompanionActivity>('sit');
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
   const timers = useRef<number[]>([]);
@@ -71,8 +70,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
       {care && care.friendship < care.peakFriendship && <p className="companion-care__recovery">また一緒に過ごそう。以前のなかよし度 {care.peakFriendship}までは、いつもより早く回復するよ。</p>}
     </section>
     <section className="companion-care__stage" aria-label="キャラクター">
-      <CompanionCharacter friendship={care?.friendship} motion={motion} large onActivity={setActivity} />
-      <p className="companion-care__reaction" role={message ? 'status' : undefined} aria-live={message ? 'polite' : 'off'}>{message || companionActivityMessage(activity)}</p>
+      <CompanionCharacter friendship={care?.friendship} motion={motion} large />
     </section>
     {error && <div className="companion-care__error" role="alert"><p>{error}</p><button type="button" onClick={() => void onRetry()} disabled={busy}>もう一度読み込む</button></div>}
     {!care && !error && <p className="companion-care__loading" role="status">お世話の記録を読み込み中…</p>}
@@ -81,6 +79,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
         {([{ id: 'feed', icon: '◡', label: 'ごはん' }, { id: 'pet', icon: '♡', label: 'なでる' }, { id: 'tricks', icon: '☆', label: '芸' }] as const).map(item => <button key={item.id} id={`care-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`care-panel-${item.id}`} onClick={() => setTab(item.id)}><span aria-hidden="true">{item.icon}</span>{item.label}</button>)}
       </div>
       <section className="companion-care__panel" id={`care-panel-${tab}`} role="tabpanel" aria-labelledby={`care-tab-${tab}`}>
+        {message && <p className="companion-care__notice" role="status">{message}</p>}
         {tab === 'feed' && <>
           <div className="companion-care__panel-heading"><h2>ごはん</h2><span className="companion-care__food-count">のこり <strong>{care?.food ?? 0}</strong> 個</span></div>
           <p>勉強のご褒美を、一緒に楽しもう。</p>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CompanionReaction } from '../utils/companionCare';
 import { COMPANION_IDLE_CLIPS, companionFrame, companionMotionDuration,
   companionActivityMessage, nextCompanionIdle, type CompanionSheet, type CompanionActivity, type CompanionMotion } from '../utils/companionAnimation';
-import { drawCompanionFrame, loadCompanionSheet } from './companionFrames';
+import { drawCompanionFrame, loadCompanionSheet, type CompanionFrameDrawing } from './companionFrames';
 import helloImage from '../assets/companion/hello.webp';
 import './CompanionCharacter.css';
 
@@ -24,7 +24,8 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
     const canvas = canvasRef.current, ctx = canvas?.getContext('2d', { alpha: true });
     if (!canvas || !ctx) { setFailed(true); return; }
     let stopped = false, inView = true, frame = 0, lastTick = 0, lastDraw = '';
-    let displayed: { image: HTMLImageElement; index: number } | null = null;
+    let displayed: { image: HTMLImageElement; index: number; options: CompanionFrameDrawing } | null = null;
+    let entranceFrom: CompanionFrameDrawing['from'];
     const sheets = new Map<CompanionSheet, HTMLImageElement>();
     const pending = new Set<CompanionSheet>();
     const failedSheets = new Set<CompanionSheet>();
@@ -38,7 +39,7 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
       const width = Math.max(1, Math.round(canvas.clientWidth * dpr)), height = Math.max(1, Math.round(canvas.clientHeight * dpr));
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width; canvas.height = height; lastDraw = '';
-        if (displayed) drawCompanionFrame(ctx, displayed.image, displayed.index, width, height);
+        if (displayed) drawCompanionFrame(ctx, displayed.image, displayed.index, width, height, displayed.options);
       }
     };
     const announce = (activity: CompanionActivity) => {
@@ -48,6 +49,8 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
       latest.current.onReaction?.(reaction); latest.current.onActivity?.(activity);
     };
     const beginClip = (next: typeof clip) => {
+      const seated = displayed && (displayed.options.sheet === 'idle' || displayed.index === 0 || displayed.index === 15);
+      entranceFrom = seated && displayed ? { image: displayed.image, index: displayed.index, sheet: displayed.options.sheet } : undefined;
       clip = next; elapsed = 0; announce(next.activity);
       requestSheet(companionFrame(next.activity, 0, next.duration).sheet);
     };
@@ -63,7 +66,7 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
       frame = 0;
       if (stopped || !sheets.has('idle') || !inView || document.visibilityState === 'hidden') return;
       frame = window.requestAnimationFrame(render);
-      if (lastTick && now - lastTick < 1000 / 20) return;
+      if (lastTick && now - lastTick < 1000 / 60 - 1) return;
       const dt = lastTick ? Math.min(100, now - lastTick) : 0; lastTick = now;
       elapsed += dt;
       const action = latest.current.motion;
@@ -80,11 +83,15 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
       const image = sheets.get(cel.sheet);
       // Keep the last complete dog while a new sheet loads; never draw pieces.
       if (image) {
-        const key = `${cel.sheet}:${cel.index}`;
+        const phase = Math.min(1, elapsed / 120);
+        const entrance = reduced ? 1 : Math.round(phase * phase * (3 - 2 * phase) * 1000) / 1000;
+        const options: CompanionFrameDrawing = { ...cel, from: entrance < 1 ? entranceFrom : undefined, entrance };
+        const key = `${cel.sheet}:${cel.index}:${cel.nextIndex}:${cel.mix}:${entrance}`;
         if (key !== lastDraw) {
-          drawCompanionFrame(ctx, image, cel.index, canvas.width, canvas.height);
-          displayed = { image, index: cel.index };
-          lastDraw = key; canvas.dataset.cel = key;
+          drawCompanionFrame(ctx, image, cel.index, canvas.width, canvas.height, options);
+          displayed = { image, index: cel.index, options };
+          lastDraw = key; canvas.dataset.cel = `${cel.sheet}:${cel.index}`;
+          canvas.dataset.frameBlend = String(cel.mix);
         }
       }
     };
@@ -99,7 +106,7 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
         if (stopped) return;
         sheets.set(sheet, image); pending.delete(sheet); lastDraw = '';
         if (sheet === 'idle') {
-          displayed = { image, index: 0 };
+          displayed = { image, index: 0, options: { sheet: 'idle' } };
           drawCompanionFrame(ctx, image, 0, canvas.width, canvas.height);
           canvas.dataset.renderer = 'full-body-frames'; setLoaded(true); announce('sit');
           // Prepare the small set of whole-body clips before the first action.
