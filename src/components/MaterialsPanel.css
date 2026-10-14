@@ -111,7 +111,7 @@
   .materials-controls { gap:2px; }
 }
 
-.materials-panel .materials-memo-tab { position:absolute; left:0; top:45%; z-index:4; writing-mode:vertical-rl; padding:12px 7px; min-height:64px; border-radius:0 10px 10px 0; background:#eaf0f8; border-left:0; }
+.materials-controls .materials-memo-button { flex:0 0 auto; padding:6px 8px; white-space:nowrap; font-size:13px; background:#eaf0f8; }
 .materials-panel > .category-note-panel--memo { flex:1; min-height:0; }
 .category-note-panel.category-note-panel--memo .category-note-toolbar--compact { grid-template-columns:40px minmax(102px,120px) repeat(3,28px) 44px; gap:3px; }
 .category-note-panel--memo .memo-controls { min-height:52px; }
