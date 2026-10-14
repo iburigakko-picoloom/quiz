@@ -7,30 +7,76 @@ import { COMPANION_BALANCE, COMPANION_TRICKS, createCompanionCare, parseCompanio
 const day = '2026-10-14';
 const logs = (count, prefix = 'answer') => Array.from({ length: count }, (_, i) => ({ id: `${prefix}-${i}`, isCorrect: i % 2 === 0 }));
 const funded = (food = 60) => creditCompanionAnswers(createCompanionCare(day), logs(food * COMPANION_BALANCE.answersPerFood));
+const legacy = (count = 338) => {
+  const { rewardBaseline, ...base } = createCompanionCare(day);
+  return { ...base, version: 1, name: 'ぽん', creditedAnswerIds: logs(count).map(log => log.id),
+    foodAwardAnswerIds: logs(count).filter((_, i) => (i + 1) % 20 === 0).map(log => log.id),
+    food: Math.floor(count / 20) - 7, answerRemainder: count % 20, friendship: 30.5, peakFriendship: 30.5,
+    tricks: { ...base.tricks, spin: 3 } };
+};
 
-test('correct, incorrect and repeated-question review answers earn every 20 unique saved IDs; remainder survives a new day', () => {
-  const first = creditCompanionAnswers(createCompanionCare(day), logs(19));
-  assert.equal(first.food, 0); assert.equal(first.answerRemainder, 19);
+test('the 20-answer save migrates without spending food or losing bond, mastery, witnesses or remainder', () => {
+  const old = legacy(), next = parseCompanionCare(JSON.stringify(old));
+  assert.equal(next.version, 2); assert.equal(next.food, 9); assert.equal(next.answerRemainder, 18);
+  assert.equal(next.name, old.name); assert.equal(next.friendship, old.friendship);
+  assert.deepEqual(next.tricks, old.tricks); assert.deepEqual(next.creditedAnswerIds, old.creditedAnswerIds);
+  assert.deepEqual(next.foodAwardAnswerIds, old.foodAwardAnswerIds);
+  assert.deepEqual(parseCompanionCare(JSON.stringify(next)), next);
+  const pending = creditCompanionAnswers(next, [...logs(338), ...logs(31, 'new')]);
+  assert.equal(pending.food, 9); assert.equal(pending.answerRemainder, 49);
+  const earned = creditCompanionAnswers(pending, logs(32, 'new'));
+  assert.equal(earned.food, 10); assert.equal(earned.answerRemainder, 0);
+  assert.deepEqual(parseCompanionCare(JSON.stringify(earned)), earned);
+});
+
+test('invalid legacy balances are rejected before migration', () => {
+  const old = legacy();
+  for (const value of [{ ...old, answerRemainder: 49 }, { ...old, food: 17 }, { ...old, foodAwardAnswerIds: [] }]) {
+    assert.throws(() => parseCompanionCare(JSON.stringify(value)));
+  }
+});
+
+test('explicit reset clears care only, preserves the name and old answer witnesses, and starts a new 50-answer cycle', () => {
+  const old = parseCompanionCare(JSON.stringify(legacy()));
+  const reset = applyCompanionCareAction(old, { kind: 'reset' }, day);
+  assert.equal(reset.name, 'ぽん'); assert.equal(reset.food, 0); assert.equal(reset.friendship, 0);
+  assert.equal(reset.peakFriendship, 0); assert.equal(reset.answerRemainder, 0);
+  assert.deepEqual(reset.tricks, createCompanionCare(day).tricks);
+  assert.deepEqual(reset.creditedAnswerIds, old.creditedAnswerIds);
+  assert.deepEqual(parseCompanionCare(JSON.stringify(reset)), reset);
+  assert.equal(creditCompanionAnswers(reset, logs(338)), reset);
+  assert.equal(companionSessionFood(reset, old.foodAwardAnswerIds), 0);
+  const next = creditCompanionAnswers(reset, [...logs(338), ...logs(49, 'new')]);
+  assert.equal(next.food, 0); assert.equal(next.answerRemainder, 49);
+  const earned = creditCompanionAnswers(next, logs(50, 'new'));
+  assert.equal(earned.food, 1); assert.equal(earned.answerRemainder, 0);
+  assert.deepEqual(parseCompanionCare(JSON.stringify(earned)), earned);
+  assert.equal(old.food, 9, 'the source snapshot is unchanged');
+});
+
+test('correct, incorrect and repeated-question review answers earn every 50 unique saved IDs; remainder survives a new day', () => {
+  const first = creditCompanionAnswers(createCompanionCare(day), logs(49));
+  assert.equal(first.food, 0); assert.equal(first.answerRemainder, 49);
   const restored = parseCompanionCare(JSON.stringify(refreshCompanionDay(first, '2026-10-15', true)));
-  const next = creditCompanionAnswers(restored, [...logs(19), ...logs(2, 'review')]);
-  assert.equal(next.food, 1); assert.equal(next.answerRemainder, 1); assert.equal(next.creditedAnswerIds.length, 21);
-  assert.equal(creditCompanionAnswers(next, [...logs(19), ...logs(2, 'review')]), next);
+  const next = creditCompanionAnswers(restored, [...logs(49), ...logs(2, 'review')]);
+  assert.equal(next.food, 1); assert.equal(next.answerRemainder, 1); assert.equal(next.creditedAnswerIds.length, 51);
+  assert.equal(creditCompanionAnswers(next, [...logs(49), ...logs(2, 'review')]), next);
   assert.equal(companionSessionFood(next, ['review-0', 'review-0', 'review-1']), 1);
 });
 
 test('duplicate history, result reopen, deletion and restoring previously rewarded IDs cannot produce extra food', () => {
-  let care = creditCompanionAnswers(createCompanionCare(day), [...logs(40), ...logs(40)]);
+  let care = creditCompanionAnswers(createCompanionCare(day), [...logs(100), ...logs(100)]);
   assert.equal(care.food, 2);
   care = applyCompanionCareAction(care, { kind: 'feed' }, day);
   assert.equal(care.food, 1);
   assert.equal(creditCompanionAnswers(care, []), care);
-  assert.equal(creditCompanionAnswers(parseCompanionCare(JSON.stringify(care)), logs(40)).food, 1);
-  assert.equal(companionSessionFood(care, ['answer-19', 'answer-39']), 2);
+  assert.equal(creditCompanionAnswers(parseCompanionCare(JSON.stringify(care)), logs(100)).food, 1);
+  assert.equal(companionSessionFood(care, ['answer-49', 'answer-99']), 2);
   assert.equal(companionSessionFood(care, ['preview-19']), 0);
 });
 
 test('batch completion pays all earned food, and stored food never expires', () => {
-  let care = creditCompanionAnswers(createCompanionCare(day), logs(105));
+  let care = creditCompanionAnswers(createCompanionCare(day), logs(255));
   assert.equal(care.food, 5); assert.equal(care.answerRemainder, 5);
   care = refreshCompanionDay(care, '2030-10-14');
   assert.equal(care.food, 5); assert.equal(care.answerRemainder, 5);
@@ -102,7 +148,7 @@ test('paid practice always advances one step and bonds; learned tricks cannot co
   assert.throws(() => applyCompanionCareAction(createCompanionCare(day), { kind: 'train', trickId: 'spin' }, day), /ごはんがありません/);
 });
 
-test('all five tricks require 51 food/1020 answers, yet the first study session produces progress', () => {
+test('all five tricks require 51 food/2550 answers, yet the first study session produces progress', () => {
   let care = funded();
   let count = 0;
   for (const trick of COMPANION_TRICKS) {
@@ -110,7 +156,7 @@ test('all five tricks require 51 food/1020 answers, yet the first study session 
     for (let i = 0; i < trick.practices; i++) { care = applyCompanionCareAction(care, { kind: 'train', trickId: trick.id }, day); count++; }
     assert.equal(isCompanionTrickLearned(care, trick.id), true);
   }
-  assert.equal(count, 51); assert.equal(count * COMPANION_BALANCE.answersPerFood, 1020);
+  assert.equal(count, 51); assert.equal(count * COMPANION_BALANCE.answersPerFood, 2550);
   const first = applyCompanionCareAction(funded(1), { kind: 'train', trickId: 'spin' }, day);
   assert.equal(first.tricks.spin, 1); assert.equal(first.friendship, 3);
 });

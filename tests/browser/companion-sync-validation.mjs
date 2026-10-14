@@ -39,7 +39,7 @@ try {
       const db = await openAppDb();
       const connection = { project: 'https://sync-fixture.invalid', userId: '11111111-1111-4111-8111-111111111111', syncId: '1'.repeat(36) };
       await bindRecordSyncConnection(db, connection);
-      const logs = Array.from({ length: 41 }, (_, i) => ({ id: `browser-answer-${i}` }));
+      const logs = Array.from({ length: 101 }, (_, i) => ({ id: `browser-answer-${i}` }));
       await saveCompanionCare(logs.slice(0, 19), { visit: true, now: new Date('2026-10-13T00:00:00Z') });
       const summary = { sets: 1, questions: 1, answers: 19, plans: 0, images: 0, pdfs: 0 };
       const shown = { version: 1, connection, revision: 4, generation: await readUserEditGeneration(db), localDigest: 'a'.repeat(64), remoteDigest: 'b'.repeat(64), device: 'Mac', localDevice: 'Android', savedAt: '2026-10-14T00:05:00Z', localSavedAt: '2026-10-14T11:39:00Z', local: summary, remote: { ...summary, answers: 26 } };

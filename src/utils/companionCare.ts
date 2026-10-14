@@ -3,7 +3,7 @@ import type { AnswerLog } from '../types';
 export const COMPANION_CARE_KEY = 'quizMake:companion:care:v1';
 export const COMPANION_CARE_EVENT = 'quiz-make-companion-care-change';
 export const COMPANION_BALANCE = {
-  answersPerFood: 20,
+  answersPerFood: 50,
   maxFriendship: 100,
   feedingGain: 4,
   trainingGain: 3,
@@ -25,7 +25,9 @@ export const COMPANION_TRICKS: readonly { id: CompanionTrickId; name: string; de
 
 export type CompanionReaction = 'watch' | 'happy' | 'approach' | 'cuddle' | 'relax';
 export interface CompanionCare {
-  version: 1;
+  version: 2;
+  /** Counts before the current reward rule; old rewards and unspent answers survive upgrades. */
+  rewardBaseline: { answers: number; awards: number };
   name: string;
   food: number;
   answerRemainder: number;
@@ -41,10 +43,10 @@ export interface CompanionCare {
   tricks: Record<CompanionTrickId, number>;
 }
 
-export type CompanionCareAction = { kind: 'feed' } | { kind: 'pet' } | { kind: 'train'; trickId: CompanionTrickId } | { kind: 'rename'; name: string };
+export type CompanionCareAction = { kind: 'feed' } | { kind: 'pet' } | { kind: 'train'; trickId: CompanionTrickId } | { kind: 'rename'; name: string } | { kind: 'reset' };
 
 export function createCompanionCare(day: string): CompanionCare {
-  return { version: 1, name: 'パピィ', food: 0, answerRemainder: 0, creditedAnswerIds: [], foodAwardAnswerIds: [],
+  return { version: 2, rewardBaseline: { answers: 0, awards: 0 }, name: 'パピィ', food: 0, answerRemainder: 0, creditedAnswerIds: [], foodAwardAnswerIds: [],
     friendship: 0, peakFriendship: 0, lastSeenDay: day, decayThroughDay: day, pettingDay: day, rewardedPets: 0,
     tricks: { spin: 0, touch: 0, bow: 0, roll: 0, sleep: 0 } };
 }
@@ -57,9 +59,9 @@ const ids = (value: unknown): value is string[] => Array.isArray(value) && value
 
 /** Invalid saves are surfaced and preserved; never silently reset earned progress. */
 export function parseCompanionCare(raw: string): CompanionCare {
-  const value = JSON.parse(raw) as CompanionCare;
-  if (!value || value.version !== 1 || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 20
-    || !natural(value.food) || !natural(value.answerRemainder) || value.answerRemainder >= COMPANION_BALANCE.answersPerFood
+  const value = JSON.parse(raw) as Omit<CompanionCare, 'version'> & { version: 1 | 2 };
+  if (!value || (value.version !== 1 && value.version !== 2) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 20
+    || !natural(value.food) || !natural(value.answerRemainder) || value.answerRemainder >= (value.version === 1 ? 20 : COMPANION_BALANCE.answersPerFood)
     || !ids(value.creditedAnswerIds) || !ids(value.foodAwardAnswerIds)
     || typeof value.friendship !== 'number' || !Number.isFinite(value.friendship) || value.friendship < 0
     || typeof value.peakFriendship !== 'number' || !Number.isFinite(value.peakFriendship)
@@ -70,12 +72,20 @@ export function parseCompanionCare(raw: string): CompanionCare {
     throw new Error('育成データを読み取れませんでした。保存済みのごはんや芸は上書きしていません。');
   }
   const credited = new Set(value.creditedAnswerIds);
-  const earned = Math.floor(credited.size / COMPANION_BALANCE.answersPerFood);
-  if (value.foodAwardAnswerIds.some(id => !credited.has(id)) || value.foodAwardAnswerIds.length !== earned
-    || value.answerRemainder !== credited.size % COMPANION_BALANCE.answersPerFood || value.food > earned) {
+  const baseline = value.version === 1 ? { answers: 0, awards: 0 } : value.rewardBaseline;
+  if (!baseline || !natural(baseline.answers) || baseline.answers > credited.size
+    || !natural(baseline.awards) || baseline.awards > baseline.answers) {
     throw new Error('ごはんの獲得記録を確認できませんでした。保存済みのデータは保持しています。');
   }
-  return value;
+  const threshold = value.version === 1 ? 20 : COMPANION_BALANCE.answersPerFood;
+  const earned = baseline.awards + Math.floor((credited.size - baseline.answers) / threshold);
+  if (value.foodAwardAnswerIds.some(id => !credited.has(id)) || value.foodAwardAnswerIds.length !== earned
+    || value.answerRemainder !== (credited.size - baseline.answers) % threshold || value.food > earned) {
+    throw new Error('ごはんの獲得記録を確認できませんでした。保存済みのデータは保持しています。');
+  }
+  return value.version === 1
+    ? { ...value, version: 2, rewardBaseline: { answers: credited.size - value.answerRemainder, awards: value.foodAwardAnswerIds.length } }
+    : value as CompanionCare;
 }
 
 /** Only durable AnswerLogs are passed here; correctness and quiz/review mode do not affect credit. */
@@ -126,6 +136,10 @@ export function canTeachCompanionTrick(care: CompanionCare, id: CompanionTrickId
 
 export function applyCompanionCareAction(care: CompanionCare, action: CompanionCareAction, day: string): CompanionCare {
   const current = refreshCompanionDay(care, day, true);
+  if (action.kind === 'reset') {
+    return { ...createCompanionCare(day), name: current.name, creditedAnswerIds: current.creditedAnswerIds,
+      rewardBaseline: { answers: current.creditedAnswerIds.length, awards: 0 } };
+  }
   if (action.kind === 'rename') {
     const name = action.name.trim();
     if (!name || name.length > 20) throw new Error('名前は1〜20文字で入力してください。');

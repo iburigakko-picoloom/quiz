@@ -3,12 +3,12 @@ import test, { after } from 'node:test';
 import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import { COMPANION_CARE_KEY, COMPANION_CARE_EVENT } from '../src/utils/companionCare.ts';
 import { saveCompanionCare, readCompanionCare } from '../src/utils/companionCareStorage.ts';
-import { createEmptyAppData, saveAppData, openAppDb } from '../src/storage.ts';
+import { createEmptyAppData, saveAppData, openAppDb, loadAppDataAsync } from '../src/storage.ts';
 import { appRecordKey } from '../src/utils/appRecordStorage.ts';
 import { readLearningValues } from '../src/utils/learningValueStorage.ts';
 import { readUserEditGeneration } from '../src/utils/userEditGeneration.ts';
 import { accountLocalStorage, publishLearningStorage } from '../src/utils/accountStorage.ts';
-import { replayLocalStorageProjections } from '../src/utils/localStorageRecords.ts';
+import { replayLocalStorageProjections, saveSyncedLocalStorage } from '../src/utils/localStorageRecords.ts';
 import { createCompleteFileBackup } from '../src/utils/backupPayload.ts';
 import { exportQuizMakeData } from '../src/utils/syncService.ts';
 import { getLocalDataRevision } from '../src/utils/localDataRevision.ts';
@@ -27,9 +27,9 @@ const now = new Date('2026-10-14T05:00:00Z');
 const row = async (store, key) => { const tx = db.transaction(store), r = tx.objectStore(store).get(key); await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error); }); return r.result; };
 
 test('food, remainder, duplicate witnesses and mastery persist in IDB and synchronized record with backup support', async () => {
-  const care = await saveCompanionCare(logs(61), { visit: true, now });
+  const care = await saveCompanionCare(logs(151), { visit: true, now });
   assert.equal(care.food, 3); assert.equal(care.answerRemainder, 1);
-  const trained = await saveCompanionCare(logs(61), { action: { kind: 'train', trickId: 'spin' }, now });
+  const trained = await saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'spin' }, now });
   assert.equal(trained.food, 2); assert.equal(trained.tricks.spin, 1); assert.equal(trained.friendship, 3);
   assert.deepEqual(readCompanionCare(), trained);
   const raw = JSON.stringify(trained);
@@ -45,7 +45,7 @@ test('food, remainder, duplicate witnesses and mastery persist in IDB and synchr
 test('reopening/deleted logs retain balances; unchanged reconciliation does not make new dirty edits', async () => {
   const before = readCompanionCare(), generation = await readUserEditGeneration(db), revision = getLocalDataRevision();
   assert.deepEqual(await saveCompanionCare([], { visit: true, now }), before);
-  assert.deepEqual(await saveCompanionCare(logs(61), { visit: true, now }), before);
+  assert.deepEqual(await saveCompanionCare(logs(151), { visit: true, now }), before);
   assert.equal(await readUserEditGeneration(db), generation); assert.equal(getLocalDataRevision(), revision);
   // Rehydrate the synchronous cache after a simulated restart.
   publishLearningStorage(new Map());
@@ -60,17 +60,17 @@ test('aborted training rolls back the food, bond, mastery and outbox together; r
     if (this.name === 'appData' && value?.key === COMPANION_CARE_KEY) throw new DOMException('fixture quota', 'QuotaExceededError');
     return original.call(this, value, ...args);
   };
-  try { await assert.rejects(saveCompanionCare(logs(61), { action: { kind: 'train', trickId: 'spin' }, now }), /fixture quota/); }
+  try { await assert.rejects(saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'spin' }, now }), /fixture quota/); }
   finally { IDBObjectStore.prototype.put = original; }
   assert.deepEqual(readCompanionCare(), before);
   assert.deepEqual(await row('appOutbox', appRecordKey('localStorage', COMPANION_CARE_KEY)), beforeOutbox);
-  const next = await saveCompanionCare(logs(61), { action: { kind: 'train', trickId: 'spin' }, now });
+  const next = await saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'spin' }, now });
   assert.equal(next.food, before.food - 1); assert.equal(next.tricks.spin, before.tricks.spin + 1);
 });
 
 test('concurrent actions are serialized and cannot spend one food twice', async () => {
   const before = readCompanionCare(); assert.equal(before.food, 1);
-  const results = await Promise.allSettled([saveCompanionCare(logs(61), { action: { kind: 'feed' }, now }), saveCompanionCare(logs(61), { action: { kind: 'feed' }, now })]);
+  const results = await Promise.allSettled([saveCompanionCare(logs(151), { action: { kind: 'feed' }, now }), saveCompanionCare(logs(151), { action: { kind: 'feed' }, now })]);
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
   assert.equal(readCompanionCare().food, 0);
   assert.equal(readCompanionCare().friendship, before.friendship + 4);
@@ -85,18 +85,62 @@ test('automatic care waits for conflict selection, frozen uploads and navigation
     await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error); }); };
   for (const key of ['wholeConflict', 'wholeFrozen']) {
     await meta(key, { pending: true });
-    assert.deepEqual(await saveCompanionCare(logs(81), { automatic: true, visit: true, now: later }), before);
+    assert.deepEqual(await saveCompanionCare(logs(201), { automatic: true, visit: true, now: later }), before);
     assert.equal(await readUserEditGeneration(db), generation); assert.equal(getLocalDataRevision(), revision);
     await meta(key, null);
   }
   setSyncInteractionProtected(true);
-  try { assert.deepEqual(await saveCompanionCare(logs(81), { automatic: true, visit: true, now: later }), before); }
+  try { assert.deepEqual(await saveCompanionCare(logs(201), { automatic: true, visit: true, now: later }), before); }
   finally { setSyncInteractionProtected(false); }
-  assert.deepEqual(await saveCompanionCare(logs(81), { automatic: true, isCurrent: () => false, visit: true, now: later }), before);
+  assert.deepEqual(await saveCompanionCare(logs(201), { automatic: true, isCurrent: () => false, visit: true, now: later }), before);
   assert.equal(await readUserEditGeneration(db), generation);
-  const resumed = await saveCompanionCare(logs(81), { automatic: true, isCurrent: () => true, visit: true, now: later });
+  const resumed = await saveCompanionCare(logs(201), { automatic: true, isCurrent: () => true, visit: true, now: later });
   assert.equal(resumed.food, before.food + 1); assert.equal(resumed.lastSeenDay, '2026-10-15');
   assert.equal(await readUserEditGeneration(db), generation + 1);
-  await saveCompanionCare(logs(81), { automatic: true, visit: true, now: later });
+  await saveCompanionCare(logs(201), { automatic: true, visit: true, now: later });
   assert.equal(await readUserEditGeneration(db), generation + 1); assert.deepEqual(readCompanionCare(), resumed);
+});
+
+test('reset is atomic, keeps study data, and survives reload without rewarding pre-reset answers again', async () => {
+  const before = readCompanionCare(), studyBefore = await loadAppDataAsync();
+  const outboxBefore = await row('appOutbox', appRecordKey('localStorage', COMPANION_CARE_KEY));
+  const put = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function(value, ...args) {
+    if (this.name === 'appData' && value?.key === COMPANION_CARE_KEY) throw new DOMException('fixture quota', 'QuotaExceededError');
+    return put.call(this, value, ...args);
+  };
+  try { await assert.rejects(saveCompanionCare(logs(201), { action: { kind: 'reset' }, now }), /fixture quota/); }
+  finally { IDBObjectStore.prototype.put = put; }
+  assert.deepEqual(readCompanionCare(), before);
+  assert.deepEqual(await row('appOutbox', appRecordKey('localStorage', COMPANION_CARE_KEY)), outboxBefore);
+  const reset = await saveCompanionCare(logs(201), { action: { kind: 'reset' }, now });
+  assert.equal(reset.food, 0); assert.equal(reset.friendship, 0); assert.equal(reset.tricks.spin, 0);
+  assert.equal(reset.creditedAnswerIds.length, 201);
+  assert.deepEqual(await loadAppDataAsync(), studyBefore);
+  publishLearningStorage(new Map()); await replayLocalStorageProjections(db);
+  assert.deepEqual(readCompanionCare(), reset);
+  assert.deepEqual(await saveCompanionCare(logs(201), { now }), reset);
+  assert.equal((await saveCompanionCare(logs(251), { now })).food, 1);
+});
+
+test('legacy migration is saved once through the normal sync path and defers while a source choice is pending', async () => {
+  const { rewardBaseline, ...current } = readCompanionCare();
+  const legacy = { ...current, version: 1, creditedAnswerIds: logs(41).map(log => log.id), foodAwardAnswerIds: ['saved-19', 'saved-39'], food: 2, answerRemainder: 1 };
+  const raw = JSON.stringify(legacy);
+  await saveSyncedLocalStorage({ [COMPANION_CARE_KEY]: raw });
+  const generation = await readUserEditGeneration(db);
+  const pending = db.transaction('appRecordMeta', 'readwrite'); pending.objectStore('appRecordMeta').put({ pending: true }, 'wholeConflict');
+  await new Promise((resolve, reject) => { pending.oncomplete = resolve; pending.onabort = () => reject(pending.error); });
+  await saveCompanionCare(logs(41), { automatic: true, now });
+  assert.equal((await readLearningValues(db)).get(COMPANION_CARE_KEY).raw, raw);
+  assert.equal(await readUserEditGeneration(db), generation);
+  const clear = db.transaction('appRecordMeta', 'readwrite'); clear.objectStore('appRecordMeta').delete('wholeConflict');
+  await new Promise((resolve, reject) => { clear.oncomplete = resolve; clear.onabort = () => reject(clear.error); });
+  const migrated = await saveCompanionCare(logs(41), { automatic: true, now });
+  assert.equal(migrated.version, 2); assert.equal(migrated.food, 2); assert.equal(migrated.answerRemainder, 1);
+  assert.deepEqual(migrated.rewardBaseline, { answers: 40, awards: 2 });
+  assert.equal((await row('appRecords', appRecordKey('localStorage', COMPANION_CARE_KEY))).raw, JSON.stringify(migrated));
+  assert.equal(await readUserEditGeneration(db), generation + 1);
+  await saveCompanionCare(logs(41), { automatic: true, now });
+  assert.equal(await readUserEditGeneration(db), generation + 1);
 });

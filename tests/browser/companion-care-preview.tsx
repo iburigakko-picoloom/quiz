@@ -15,7 +15,7 @@ async function preview() {
   if (!import.meta.env.DEV) return;
   activateAccountStorage(new AccountStorageSession(globalThis.localStorage, { identity: null, namespace: 'guest', legacyUnclaimed: false }));
   accountLocalStorage.setItem('quiz-make-welcome-v1', 'done');
-  const count = Number(new URLSearchParams(location.search).get('answers') ?? 19);
+  const count = Number(new URLSearchParams(location.search).get('answers') ?? 49);
   const timestamp = new Date().toISOString();
   if (!(await loadAppDataAsync()).questions.length) {
     const data: AppData = { version: 1,

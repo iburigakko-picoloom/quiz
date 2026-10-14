@@ -30,7 +30,8 @@ export async function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], 
     await replayLocalStorageProjections(undefined, [COMPANION_CARE_KEY]);
     assertOwner();
     const day = studyDay(options.now ?? new Date(), getStudyTimeZone());
-    const previous = readCompanionCare();
+    const previousRaw = accountLocalStorage.getItem(COMPANION_CARE_KEY);
+    const previous = previousRaw === null ? null : parseCompanionCare(previousRaw);
     if (options.automatic) {
       // Daily visits and answer reconciliation can wait while the user chooses
       // a source or a frozen upload is pending. Check after acquiring the lock:
@@ -47,11 +48,12 @@ export async function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], 
     }
     let next = refreshCompanionDay(creditCompanionAnswers(previous ?? createCompanionCare(day), logs), day, options.visit);
     if (options.action) next = applyCompanionCareAction(next, options.action, day);
-    if (previous !== next) {
+    const nextRaw = JSON.stringify(next);
+    if (previousRaw !== nextRaw) {
       assertOwner();
       let committed = false;
       try {
-        await saveSyncedLocalStorage({ [COMPANION_CARE_KEY]: JSON.stringify(next) }, () => { committed = true; advanceLocalDataRevision(); });
+        await saveSyncedLocalStorage({ [COMPANION_CARE_KEY]: nextRaw }, () => { committed = true; advanceLocalDataRevision(); });
       } catch (error) {
         // A failed UI-cache refresh after the atomic IDB commit must not invite
         // a second food spend. The next operation replays that durable value.

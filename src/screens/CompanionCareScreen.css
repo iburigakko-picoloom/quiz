@@ -1,6 +1,11 @@
 .companion-care { display: flex; flex-direction: column; width: min(100%, 540px); height: 100%; min-height: 0; overflow: hidden; margin-inline: auto; padding: calc(10px + var(--safe-top, 0px)) 20px calc(12px + var(--safe-bottom, 0px)); color: var(--ui-text, #172033); }
 .companion-care__header { display: grid; flex-shrink: 0; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 8px; margin-bottom: 10px; }
 .companion-care__header h1 { margin: 0; font-size: 17px; font-weight: 650; text-align: center; }
+.companion-care__menu { position: relative; }
+.companion-care__menu > summary { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; color: #7c8b9f; cursor: pointer; list-style: none; }
+.companion-care__menu > summary::-webkit-details-marker { display: none; }
+.companion-care__menu > div { position: absolute; top: 44px; right: 0; z-index: 10; min-width: 165px; padding: 5px; border: 1px solid #e4eaf3; border-radius: 12px; background: #fff; box-shadow: 0 8px 24px #25375718; }
+.companion-care__menu button { width: 100%; min-height: 44px; padding: 9px 12px; border: 0; border-radius: 8px; background: none; color: #7c6370; text-align: left; font-size: 13px; }
 .companion-care__bond { width: 100%; max-width: 400px; flex-shrink: 0; margin: 0 auto; }
 .companion-care__name { display: flex; align-items: center; gap: 9px; border: 0; background: none; margin: 0 auto 7px; min-height: 32px; color: inherit; font-size: 23px; font-weight: 700; }
 .companion-care__name span { color: #9ba7b9; font-size: 16px; font-weight: 400; }
@@ -16,10 +21,8 @@
 .companion-care progress::-webkit-progress-value { background: #5f88c4; border-radius: 6px; transition: width .35s; }
 .companion-care progress::-moz-progress-bar { background: #5f88c4; border-radius: 6px; }
 .companion-care__bond > progress { margin-top: 8px; height: 7px; }
-.companion-care__recovery { margin: 9px 0 0; font-size: 12px; line-height: 1.6; color: #6782a6; }
 .companion-care__stage { flex-shrink: 0; padding: 8px 12px 9px; }
 .companion-care__stage .companion-character--large { height: clamp(140px, 27dvh, 270px); }
-.companion-care__panel .companion-care__notice { margin: 0 0 12px; padding: 9px 12px; border-radius: 9px; background: #f5f8ff; color: #536f97; font-size: 12px; line-height: 1.6; }
 .companion-care__controls { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .companion-care__tabs { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 5px; border-radius: 15px; background: #f1f5fa; }
 .companion-care__tabs button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border: 0; border-radius: 11px; background: none; color: #7b899b; font-size: 14px; font-weight: 600; }
@@ -31,13 +34,12 @@
 .companion-care__food-count { padding: 5px 10px; border: 1px solid #e4eaf3; border-radius: 20px; color: #7c8b9f; font-size: 12px; white-space: nowrap; }
 .companion-care__food-count strong { color: #426597; font-size: 15px; }
 .companion-care__panel > p { margin: 12px 0 16px; color: #77859b; font-size: 13px; line-height: 1.7; }
-.companion-care .companion-care__primary { display: block; width: 100%; min-height: 48px; padding: 12px; border: 0; border-radius: 13px; background: #426fc1; color: #fff; font-size: 14px; font-weight: 600; }
+.companion-care .companion-care__primary { display: block; width: 100%; min-height: 48px; margin-top: 16px; padding: 12px; border: 0; border-radius: 13px; background: #426fc1; color: #fff; font-size: 14px; font-weight: 600; }
 .companion-care .companion-care__primary:active:not(:disabled) { transform: scale(.985); }
 .companion-care .companion-care__primary:disabled { opacity: .45; cursor: default; }
 .companion-care__food-progress { padding-top: 17px; color: #75859b; font-size: 12px; }
 .companion-care__food-progress progress { margin: 10px 0; height: 4px; }
 .companion-care__food-progress strong { color: #456797; font-weight: 600; }
-.companion-care__food-progress small { display: block; font-size: 11px; line-height: 1.7; }
 .companion-care__tricks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
 .companion-care__tricks button { padding: 12px; min-width: 0; border: 1px solid #e3e9f2; border-radius: 11px; background: #fff; color: #5c6e86; text-align: left; }
 .companion-care__tricks button[aria-pressed=true] { border-color: #7394c7; background: #f5f8ff; }
@@ -45,11 +47,6 @@
 .companion-care__tricks strong { font-size: 13px; font-weight: 600; }
 .companion-care__tricks small { font-size: 10px; color: #8897ab; }
 .companion-care__tricks progress { margin-top: 9px; height: 3px; }
-.companion-care__trick-description { min-height: 22px; }
-.companion-care__trick-description strong { color: #566d8e; }
-.companion-care__about { max-height: 120px; flex-shrink: 0; overflow-y: auto; margin-top: 10px; border-top: 1px solid #edf1f6; padding-top: 9px; color: #8290a3; font-size: 11px; line-height: 1.8; }
-.companion-care__about summary { cursor: pointer; }
-.companion-care__about p { margin: 10px 0; }
 .companion-care__error { padding: 12px; margin-bottom: 15px; border-radius: 10px; background: #fff4f4; color: #a34552; font-size: 12px; line-height: 1.6; }
 .companion-care__error p { margin: 0 0 8px; }
 .companion-care__error button { border: 1px solid #e7bcc3; background: #fff; padding: 8px 12px; border-radius: 8px; }

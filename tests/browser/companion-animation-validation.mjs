@@ -135,8 +135,8 @@ try {
   await app.locator('canvas[data-activity="spin"]').waitFor();
   await app.waitForTimeout(1100);
   await app.screenshot({ path: `${output}/practice-spin.png` });
-  await app.getByText(/ご褒美のごはん！/).waitFor();
   await app.locator('canvas[data-activity="feed"]').waitFor();
+  assert.equal(await app.locator('.companion-care__notice').count(), 0);
   assert.equal(await app.locator('canvas').getAttribute('data-activity'), 'feed');
   assert.deepEqual(errors, []);
   console.log('Smooth whole-body animation passed: intermediate renders, stable seated paw anchor/ground, opaque blends, no idle narration, uncropped full body, 320/390/768px stage and reward timing. Output: ' + output);
