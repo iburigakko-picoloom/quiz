@@ -50,7 +50,8 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
     };
     const beginClip = (next: typeof clip) => {
       const seated = displayed && (displayed.options.sheet === 'idle' || displayed.index === 0 || displayed.index === 15);
-      entranceFrom = seated && displayed ? { image: displayed.image, index: displayed.index, sheet: displayed.options.sheet } : undefined;
+      entranceFrom = seated && displayed ? { image: displayed.image, index: displayed.index, sheet: displayed.options.sheet,
+        nextIndex: displayed.options.nextIndex, mix: displayed.options.mix } : undefined;
       clip = next; elapsed = 0; announce(next.activity);
       requestSheet(companionFrame(next.activity, 0, next.duration).sheet);
     };
@@ -66,7 +67,8 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
       frame = 0;
       if (stopped || !sheets.has('idle') || !inView || document.visibilityState === 'hidden') return;
       frame = window.requestAnimationFrame(render);
-      if (lastTick && now - lastTick < 1000 / 60 - 1) return;
+      // Follow the display clock: a 60 Hz cutoff skips every other tick on
+      // 90 Hz screens. Unchanged cels still skip the expensive canvas draw.
       const dt = lastTick ? Math.min(100, now - lastTick) : 0; lastTick = now;
       elapsed += dt;
       const action = latest.current.motion;

@@ -26,7 +26,7 @@ export function loadCompanionSheet(sheet: CompanionSheet): Promise<HTMLImageElem
 
 export type CompanionFrameDrawing = {
   sheet: CompanionSheet; nextIndex?: number; mix?: number;
-  from?: { image: HTMLImageElement; index: number; sheet: CompanionSheet };
+  from?: { image: HTMLImageElement; index: number; sheet: CompanionSheet; nextIndex?: number; mix?: number };
   entrance?: number;
 };
 
@@ -50,7 +50,11 @@ export function drawCompanionFrame(ctx: CanvasRenderingContext2D, image: HTMLIma
   };
   const entrance = options.from ? Math.max(0, Math.min(1, options.entrance ?? 1)) : 1;
   const mix = Math.max(0, Math.min(1, options.mix ?? 0));
-  if (options.from) cel(options.from.image, options.from.sheet, options.from.index, 1 - entrance);
+  if (options.from) {
+    const previousMix = Math.max(0, Math.min(1, options.from.mix ?? 0));
+    cel(options.from.image, options.from.sheet, options.from.index, (1 - entrance) * (1 - previousMix));
+    cel(options.from.image, options.from.sheet, options.from.nextIndex ?? options.from.index, (1 - entrance) * previousMix);
+  }
   cel(image, options.sheet, index, entrance * (1 - mix));
   cel(image, options.sheet, options.nextIndex ?? index, entrance * mix);
   ctx.restore();

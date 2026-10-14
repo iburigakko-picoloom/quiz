@@ -70,7 +70,9 @@ export function companionFrame(activity: CompanionActivity, elapsed: number, dur
         // as intact drawings, avoiding double faces or extra limb silhouettes.
         const fadeMs = segmentMs;
         const progress = clamp((remaining / weight * segmentMs - (segmentMs - fadeMs)) / fadeMs);
-        mix = Math.round(progress * progress * (3 - 2 * progress) * 1000) / 1000;
+        // Keep moving across cel boundaries instead of braking to a stop at
+        // every drawing. The aligned seated silhouettes stay fully intact.
+        mix = Math.round(progress * 1000) / 1000;
       }
       break;
     }
