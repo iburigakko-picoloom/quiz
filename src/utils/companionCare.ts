@@ -14,12 +14,12 @@ export const COMPANION_BALANCE = {
 } as const;
 
 export type CompanionTrickId = 'spin' | 'touch' | 'bow' | 'roll' | 'sleep';
-export const COMPANION_TRICKS: readonly { id: CompanionTrickId; name: string; description: string; practices: number }[] = [
-  { id: 'spin', name: 'くるりん', description: 'その場でくるっとひと回り。', practices: 5 },
-  { id: 'touch', name: 'タッチ', description: '前足をあげて、ハイタッチ。', practices: 8 },
-  { id: 'bow', name: 'おじぎ', description: '頭を下げて、ぺこりとごあいさつ。', practices: 10 },
-  { id: 'roll', name: 'ごろん', description: '横になって、ごろんとひと転がり。', practices: 12 },
-  { id: 'sleep', name: 'おやすみ', description: '伏せて目を閉じ、おやすみのポーズ。', practices: 16 },
+export const COMPANION_TRICKS: readonly { id: CompanionTrickId; name: string; description: string; practices: number; minFriendship: number }[] = [
+  { id: 'spin', name: 'くるりん', description: 'その場でくるっとひと回り。', practices: 5, minFriendship: 8 },
+  { id: 'touch', name: 'タッチ', description: '前足をあげて、ハイタッチ。', practices: 8, minFriendship: 20 },
+  { id: 'bow', name: 'おじぎ', description: '頭を下げて、ぺこりとごあいさつ。', practices: 10, minFriendship: 38 },
+  { id: 'roll', name: 'ごろん', description: '横になって、ごろんとひと転がり。', practices: 12, minFriendship: 58 },
+  { id: 'sleep', name: 'おやすみ', description: '伏せて目を閉じ、おやすみのポーズ。', practices: 16, minFriendship: 80 },
 ];
 
 export type CompanionReaction = 'watch' | 'happy' | 'approach' | 'cuddle' | 'relax';
@@ -140,8 +140,9 @@ export function isCompanionTrickLearned(care: CompanionCare, id: CompanionTrickI
   const trick = COMPANION_TRICKS.find(trick => trick.id === id);
   return Boolean(trick && care.tricks[id] >= trick.practices);
 }
-export function canTeachCompanionTrick(_care: CompanionCare, id: CompanionTrickId): boolean {
-  return COMPANION_TRICKS.some(trick => trick.id === id);
+export function canTeachCompanionTrick(care: CompanionCare, id: CompanionTrickId): boolean {
+  const trick = COMPANION_TRICKS.find(trick => trick.id === id);
+  return Boolean(trick && care.friendship >= trick.minFriendship);
 }
 
 export function applyCompanionCareAction(care: CompanionCare, action: CompanionCareAction, day: string): CompanionCare {
@@ -166,6 +167,7 @@ export function applyCompanionCareAction(care: CompanionCare, action: CompanionC
   const trick = COMPANION_TRICKS.find(trick => trick.id === action.trickId);
   if (!trick) throw new Error('教える芸を選んでください。');
   if (isCompanionTrickLearned(current, trick.id)) throw new Error('この芸は習得済みです。おやつを使わずお願いできます。');
+  if (!canTeachCompanionTrick(current, trick.id)) throw new Error(`この芸の練習には、なかよし度${trick.minFriendship}以上が必要です。`);
   if (current.treats < 1) throw new Error('おやつがありません。問題を解いておやつを集めよう。');
   return { ...current, treats: current.treats - 1, tricks: { ...current.tricks, [trick.id]: current.tricks[trick.id] + 1 } };
 }

@@ -29,8 +29,9 @@ const row = async (store, key) => { const tx = db.transaction(store), r = tx.obj
 test('food, remainder, duplicate witnesses and mastery persist in IDB and synchronized record with backup support', async () => {
   const care = await saveCompanionCare(logs(151), { visit: true, now });
   assert.equal(care.food, 3); assert.equal(care.answerRemainder, 1);
+  await saveSyncedLocalStorage({[COMPANION_CARE_KEY]: JSON.stringify({...care,friendship:40,peakFriendship:40})});
   const trained = await saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'spin' }, now });
-  assert.equal(trained.food, 3); assert.equal(trained.treats, 2); assert.equal(trained.tricks.spin, 1); assert.equal(trained.friendship, 0);
+  assert.equal(trained.food, 3); assert.equal(trained.treats, 2); assert.equal(trained.tricks.spin, 1); assert.equal(trained.friendship, 40);
   assert.deepEqual(readCompanionCare(), trained);
   const raw = JSON.stringify(trained);
   assert.equal((await readLearningValues(db)).get(COMPANION_CARE_KEY).raw, raw);

@@ -3,7 +3,7 @@ import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
 import { CompanionCharacter, type CompanionMotion } from '../components/CompanionCharacter';
 import { companionMotionDuration } from '../utils/companionAnimation';
-import { COMPANION_BALANCE, COMPANION_TRICKS, companionFriendshipLabel, isCompanionTrickLearned,
+import { COMPANION_BALANCE, COMPANION_TRICKS, companionFriendshipLabel, isCompanionTrickLearned, canTeachCompanionTrick,
   type CompanionCare, type CompanionCareAction, type CompanionTrickId } from '../utils/companionCare';
 import './CompanionCareScreen.css';
 
@@ -49,6 +49,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
 
   const trick = COMPANION_TRICKS.find(trick => trick.id === selectedTrick)!;
   const learned = care ? isCompanionTrickLearned(care, selectedTrick) : false;
+  const canTrain = care ? canTeachCompanionTrick(care, selectedTrick) : false;
   const disabled = busy || Boolean(motion) || !care || Boolean(error);
 
   return <Layout><main className="companion-care">
@@ -86,12 +87,13 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
           <div className="companion-care__tricks" aria-label="芸を選ぶ">{COMPANION_TRICKS.map(item => {
             const done = care ? isCompanionTrickLearned(care, item.id) : false;
             return <button type="button" key={item.id} aria-pressed={item.id === selectedTrick} onClick={() => setSelectedTrick(item.id)}>
-              <span><strong>{item.name}</strong><small>{done ? '習得済み' : `${care?.tricks[item.id] ?? 0} / ${item.practices}回`}</small></span>
+              <span><strong>{item.name}</strong><small>{done ? '習得済み' : (care?.friendship ?? 0) < item.minFriendship ? `なかよし度${item.minFriendship}から` : `${care?.tricks[item.id] ?? 0} / ${item.practices}回`}</small></span>
               <progress value={care?.tricks[item.id] ?? 0} max={item.practices} aria-label={`${item.name}の習得度`} />
             </button>;
           })}</div>
           {learned ? <button type="button" className="companion-care__primary" disabled={disabled} onClick={() => { if (!performing.current) play(selectedTrick); }}>{trick.name}をお願い</button>
-            : <button type="button" className="companion-care__primary" disabled={disabled || !care?.treats} onClick={() => void handleAction({ kind: 'train', trickId: selectedTrick })}>{trick.name}を教える（おやつ1個）</button>}
+            : <button type="button" className="companion-care__primary" disabled={disabled || !care?.treats || !canTrain} onClick={() => void handleAction({ kind: 'train', trickId: selectedTrick })}>{trick.name}を教える（おやつ1個）</button>}
+          <p className="companion-care__hint">{learned ? 'おやつ不要・何度でも' : `なかよし度${trick.minFriendship}から練習できます`}</p>
           <div className="companion-care__food-progress"><span>次のおやつまで あと <strong>{COMPANION_BALANCE.answersPerFood - (care?.answerRemainder ?? 0)}問</strong></span><progress value={care?.answerRemainder ?? 0} max={COMPANION_BALANCE.answersPerFood} aria-label="次のおやつまでの回答数" /></div>
         </>}
       </section>

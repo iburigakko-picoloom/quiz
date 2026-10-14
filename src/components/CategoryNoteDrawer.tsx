@@ -1368,8 +1368,9 @@ function PenIcon() {
 
 function MarkerIcon() {
   return <svg className="category-note-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-    <path d="m14 3 7 7-8 8-7-7ZM6 11l-2 5 4 4 5-2M4 16l-2 5h6" />
-    <path d="M13 22h8" />
+    <path d="M8 2h8v12l-2 3h-4l-2-3Z" fill="#fde68a" />
+    <path d="M8 6h8M10 17v3l4-2v-1" />
+    <path d="M4 22h16" stroke="#eab308" strokeWidth="3" strokeLinecap="round" />
   </svg>;
 }
 

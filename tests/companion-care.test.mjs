@@ -133,44 +133,48 @@ test('spontaneous affectionate reactions become less frequent as friendship fall
   assert.equal(stranger.watch, 10_000);
 });
 
-test('paid practice advances mastery independently of bond and food; learned tricks cannot consume treats again', () => {
-  let care = funded();
-  for (const trick of COMPANION_TRICKS) assert.equal(canTeachCompanionTrick(care, trick.id), true);
-  for (let i = 0; i < 5; i++) {
-    care = applyCompanionCareAction(care, { kind: 'train', trickId: 'spin' }, day);
-    assert.equal(care.tricks.spin, i + 1); assert.equal(care.friendship, 0);
-  }
-  assert.equal(isCompanionTrickLearned(care, 'spin'), true);
-  assert.equal(canTeachCompanionTrick(care, 'touch'), true);
-  assert.throws(() => applyCompanionCareAction(care, { kind: 'train', trickId: 'spin' }, day), /習得済み/);
-  assert.equal(care.food, 60); assert.equal(care.treats, 55); assert.equal(care.peakFriendship, 0);
-  assert.throws(() => applyCompanionCareAction(createCompanionCare(day), { kind: 'train', trickId: 'spin' }, day), /おやつがありません/);
-});
-
-test('all five tricks require 51 treats/2550 answers, yet the first study session produces progress', () => {
-  let care = funded();
-  let count = 0;
+test('each trick enforces its friendship threshold without spending treats or erasing prior practice', () => {
   for (const trick of COMPANION_TRICKS) {
-    assert.equal(canTeachCompanionTrick(care, trick.id), true);
-    for (let i = 0; i < trick.practices; i++) { care = applyCompanionCareAction(care, { kind: 'train', trickId: trick.id }, day); count++; }
-    assert.equal(isCompanionTrickLearned(care, trick.id), true);
+    const low = {...funded(), friendship: trick.minFriendship - .5, peakFriendship: 100, tricks: {...funded().tricks, [trick.id]: 1}};
+    const before = structuredClone(low);
+    assert.equal(canTeachCompanionTrick(low, trick.id), false);
+    assert.throws(() => applyCompanionCareAction(low, {kind:'train', trickId:trick.id}, day), /なかよし度/);
+    assert.deepEqual(low, before);
+    const ready = {...low, friendship: trick.minFriendship};
+    assert.equal(canTeachCompanionTrick(ready, trick.id), true);
+    const next = applyCompanionCareAction(ready, {kind:'train', trickId:trick.id}, day);
+    assert.equal(next.tricks[trick.id], 2);assert.equal(next.treats, ready.treats - 1);
+    assert.equal(next.friendship, ready.friendship);assert.equal(next.food, ready.food);
+    const decayed = refreshCompanionDay(ready, '2027-10-14');
+    assert.equal(canTeachCompanionTrick(decayed, trick.id), false);
+    assert.equal(decayed.tricks[trick.id], 1);
   }
-  assert.equal(count, 51); assert.equal(count * COMPANION_BALANCE.answersPerFood, 2550);
-  const first = applyCompanionCareAction(funded(1), { kind: 'train', trickId: 'spin' }, day);
-  assert.equal(first.tricks.spin, 1); assert.equal(first.friendship, 0);
 });
 
-test('food and treats can be spent independently with no cross-effects', () => {
-  const original = funded(1);
-  const fed = applyCompanionCareAction(original, { kind: 'feed' }, day);
-  assert.equal(fed.food, 0); assert.equal(fed.treats, 1); assert.equal(fed.friendship, 4);
-  const trained = applyCompanionCareAction(fed, { kind: 'train', trickId: 'sleep' }, day);
-  assert.equal(trained.treats, 0); assert.equal(trained.friendship, 4); assert.equal(trained.peakFriendship, 4);
-  assert.equal(trained.tricks.sleep, 1);
-  const firstTrain = applyCompanionCareAction(original, { kind: 'train', trickId: 'roll' }, day);
-  const thenFeed = applyCompanionCareAction(firstTrain, { kind: 'feed' }, day);
-  assert.deepEqual(thenFeed.tricks, firstTrain.tricks); assert.equal(thenFeed.treats, 0);
-  assert.equal(thenFeed.friendship, 4);
+test('learned tricks survive low friendship and zero treats and cannot consume another training reward', () => {
+  let care = {...funded(),friendship:100,peakFriendship:100};
+  let count=0;
+  for (const trick of COMPANION_TRICKS) {
+    for(let i=0;i<trick.practices;i++){care=applyCompanionCareAction(care,{kind:'train',trickId:trick.id},day);count++;}
+    assert.equal(isCompanionTrickLearned(care,trick.id),true);
+  }
+  assert.equal(count,51);assert.equal(care.treats,9);assert.equal(care.food,60);assert.equal(care.friendship,100);
+  const restored=parseCompanionCare(JSON.stringify({...refreshCompanionDay(care,'2027-10-14'),treats:0}));
+  for(const trick of COMPANION_TRICKS){
+    assert.equal(isCompanionTrickLearned(restored,trick.id),true);
+    assert.throws(()=>applyCompanionCareAction(restored,{kind:'train',trickId:trick.id},'2027-10-14'),/習得済み/);
+  }
+  assert.throws(()=>applyCompanionCareAction({...createCompanionCare(day),friendship:8,peakFriendship:8},{kind:'train',trickId:'spin'},day),/おやつがありません/);
+});
+
+test('food and treats remain independent after reaching a training threshold', () => {
+  const original={...funded(1),friendship:80,peakFriendship:80};
+  const fed=applyCompanionCareAction(original,{kind:'feed'},day);
+  const trained=applyCompanionCareAction(fed,{kind:'train',trickId:'sleep'},day);
+  assert.equal(trained.food,0);assert.equal(trained.treats,0);assert.equal(trained.friendship,84);assert.equal(trained.tricks.sleep,1);
+  const firstTrain=applyCompanionCareAction(original,{kind:'train',trickId:'roll'},day);
+  const thenFeed=applyCompanionCareAction(firstTrain,{kind:'feed'},day);
+  assert.deepEqual(thenFeed.tricks,firstTrain.tricks);assert.equal(thenFeed.treats,0);assert.equal(thenFeed.friendship,84);
 });
 
 test('v2 grants initial treats once and reports only new answer rewards', () => {
@@ -178,7 +182,7 @@ test('v2 grants initial treats once and reports only new answer rewards', () => 
   const migrated = parseCompanionCare(JSON.stringify({ ...old, version: 2, food: 1, friendship: 12, peakFriendship: 12 }));
   assert.equal(migrated.food, 1); assert.equal(migrated.treats, 1); assert.equal(migrated.friendship, 12);
   assert.equal(companionSessionTreats(migrated, migrated.foodAwardAnswerIds), 0);
-  const spent = applyCompanionCareAction(migrated, { kind: 'train', trickId: 'sleep' }, day);
+  const spent = applyCompanionCareAction(migrated, { kind: 'train', trickId: 'spin' }, day);
   const restored = parseCompanionCare(JSON.stringify(spent));
   assert.equal(restored.treats, 0);
   assert.equal(creditCompanionAnswers(restored, logs(100)), restored);
