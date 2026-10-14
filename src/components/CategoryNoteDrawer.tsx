@@ -90,6 +90,7 @@ type CategoryNote = {
 };
 
 interface CategoryNoteProps {
+  scratchMemo?: boolean;
   initialScale?: number;
   onScaleChange?: (scale: number) => void;
   initialTools?: NoteToolSettings;
@@ -258,7 +259,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
+  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, scratchMemo = false, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -488,6 +489,9 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       .then((raw) => {
         if (noteLoadRequestIdRef.current !== requestId) return;
         const loaded = parseNote(raw, problemSetId, normalizedCategory);
+        if (scratchMemo) {
+          while (loaded.pages.length < 3) loaded.pages.push(createBlankPage());
+        }
         setNote(loaded);
         setPageIndex(Math.min(loaded.currentPageIndex, Math.max(loaded.pages.length - 1, 0)));
         clearHistory();
@@ -728,6 +732,15 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     updateCurrentPage(previous);
   };
 
+  const clearMemoPage = () => {
+    if (!scratchMemo || drawingRef.current || flushingRef.current || noteLoadStateRef.current !== 'ready' || notePaintStateRef.current !== 'ready') return;
+    const canvas = canvasRef.current, context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+    pushHistory();
+    context.save(); context.resetTransform(); context.clearRect(0, 0, canvas.width, canvas.height); context.restore();
+    updateCurrentPage();
+  };
+
   const addPage = (position: 'before' | 'after') => {
     if (flushingRef.current || noteLoadStateRef.current !== 'ready' || notePaintStateRef.current !== 'ready') return;
     const saved = updateCurrentPage();
@@ -746,7 +759,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     markCanvasPaintPending();
     setNote(nextNote);
     setPageIndex(nextIndex);
-    resetPageView();
+    resetPageView(pageScaleRef.current);
     clearHistory();
     persistNote(nextNote);
   };
@@ -775,7 +788,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     markCanvasPaintPending();
     setNote(nextNote);
     setPageIndex(nextIndex);
-    resetPageView();
+    resetPageView(pageScaleRef.current);
     clearHistory();
     persistNote(nextNote);
   };
@@ -789,7 +802,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     markCanvasPaintPending();
     setNote(nextNote);
     setPageIndex(nextIndex);
-    resetPageView();
+    resetPageView(pageScaleRef.current);
     clearHistory();
     persistNote(nextNote);
   };
@@ -1027,7 +1040,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       rail.removeEventListener('transitionend', finishCommit);
       pageDataUrlRef.current = nextPages[targetIndex]?.dataUrl ?? '';
       resetTouchGesture();
-      resetPageView(canTurnNotePage(pageScaleRef.current) ? pageScaleRef.current : 1);
+      resetPageView(pageScaleRef.current);
       rail.style.transition = 'none';
       rail.style.transform = 'translate3d(-33.333333%, 0, 0)';
       markCanvasPaintPending();
@@ -1214,10 +1227,19 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 
   return (
     <section
-      className={`category-note-panel${singlePage ? ' category-note-panel--material' : ''}${isFlushing ? ' category-note-panel--flushing' : ''} ${className}`.trim()}
+      className={`category-note-panel${singlePage ? ' category-note-panel--material' : ''}${isFlushing ? ' category-note-panel--flushing' : ''}${scratchMemo ? ' category-note-panel--memo' : ''} ${className}`.trim()}
       aria-busy={isFlushing}
     >
-      <header className="category-note-drawer__header">
+      {scratchMemo ? <div className="materials-controls memo-controls">
+        <button type="button" disabled={noteInteractionDisabled} onClick={onClose}>資料</button>
+        <strong className="materials-title">メモ</strong>
+        <div className="materials-pagination">
+          <button type="button" aria-label="前のメモ" disabled={noteInteractionDisabled || currentPageIndex === 0} onClick={() => goToPage(currentPageIndex - 1)}>‹</button>
+          <select aria-label="メモのページ" disabled={noteInteractionDisabled} value={currentPageIndex} onChange={event => goToPage(Number(event.target.value))}>{[0, 1, 2].map(i => <option key={i} value={i}>{i + 1} / 3</option>)}</select>
+          <button type="button" aria-label="次のメモ" disabled={noteInteractionDisabled || currentPageIndex === 2} onClick={() => goToPage(currentPageIndex + 1)}>›</button>
+        </div>
+      </div> : null}
+      {!scratchMemo ? <header className="category-note-drawer__header">
         <div className="category-note-drawer__title-block">
           <p>{'\u30ce\u30fc\u30c8'}</p>
           <div className="category-note-drawer__title-row">
@@ -1243,7 +1265,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
             </button>
           ) : null}
         </div>
-      </header>
+      </header> : null}
 
       {noteLoadError || saveError ? (
         <div className="category-note-save-error" role="alert">
@@ -1267,7 +1289,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
               <div
                 ref={prevPageRef}
                 className={`category-note-page category-note-page--preview${!(pageNavigation?.hasPrevious ?? currentPageIndex > 0) ? ' category-note-page--missing' : ''}`}
-                style={pageNavigation ? materialPreviewStyle(pageNavigation.previous, pageAspect) : { backgroundImage: pages[currentPageIndex - 1]?.dataUrl ? `url(${pages[currentPageIndex - 1].dataUrl})` : undefined }}
+                style={{ ...(pageNavigation ? materialPreviewStyle(pageNavigation.previous, pageAspect) : { backgroundImage: pages[currentPageIndex - 1]?.dataUrl ? `url(${pages[currentPageIndex - 1].dataUrl})` : undefined }), transform: pageScale === 1 ? undefined : `scale(${pageScale})` }}
               />
             </div>
             <div className="category-note-page-slot">
@@ -1292,7 +1314,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
               <div
                 ref={nextPageRef}
                 className={`category-note-page category-note-page--preview${!(pageNavigation?.hasNext ?? currentPageIndex < pages.length - 1) ? ' category-note-page--missing' : ''}`}
-                style={pageNavigation ? materialPreviewStyle(pageNavigation.next, pageAspect) : { backgroundImage: pages[currentPageIndex + 1]?.dataUrl ? `url(${pages[currentPageIndex + 1].dataUrl})` : undefined }}
+                style={{ ...(pageNavigation ? materialPreviewStyle(pageNavigation.next, pageAspect) : { backgroundImage: pages[currentPageIndex + 1]?.dataUrl ? `url(${pages[currentPageIndex + 1].dataUrl})` : undefined }), transform: pageScale === 1 ? undefined : `scale(${pageScale})` }}
               />
             </div>
           </div>
@@ -1302,13 +1324,14 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       <div ref={toolbarRef} className="category-note-toolbar category-note-toolbar--compact" aria-label="note tools">
         <button type="button" className="note-zoom-label" aria-label="倍率をリセット" title="タップで100%に戻す" onClick={() => resetPageView()}>{Math.round(pageScale * 100)}%</button>
         <div className="note-tool-switch" role="group" aria-label="筆記用具">
-          <button type="button" disabled={noteInteractionDisabled} aria-pressed={tool === 'pen'} onClick={() => { setTool('pen'); setToolOptions(null); }}>ペン</button>
-          <button type="button" disabled={noteInteractionDisabled} aria-pressed={tool === 'marker'} onClick={() => { setTool('marker'); setToolOptions(null); }}>マーカー</button>
+          <button type="button" disabled={noteInteractionDisabled} aria-label="ペン" title="ペン" aria-pressed={tool === 'pen'} onClick={() => { setTool('pen'); setToolOptions(null); }}><PenIcon /></button>
+          <button type="button" disabled={noteInteractionDisabled} aria-label="マーカー" title="マーカー" aria-pressed={tool === 'marker'} onClick={() => { setTool('marker'); setToolOptions(null); }}><MarkerIcon /></button>
+        <button type="button" className="category-note-icon-button" disabled={noteInteractionDisabled} aria-label="消しゴム" title="消しゴム" aria-pressed={tool === 'eraser'} onClick={() => { setTool('eraser'); setToolOptions(null); }}><EraserIcon /></button>
         </div>
         <button type="button" className="note-color-trigger" disabled={noteInteractionDisabled || tool === 'eraser'} aria-label="色を選ぶ" aria-expanded={toolOptions === 'color'} onClick={() => setToolOptions(toolOptions === 'color' ? null : 'color')}><span style={{ background: tool === 'marker' ? MARKER_COLORS[markerColor] : NOTE_COLORS[colorKey] }} /></button>
         <button type="button" className="note-width-trigger" disabled={noteInteractionDisabled} aria-label="太さを選ぶ" aria-expanded={toolOptions === 'width'} onClick={() => setToolOptions(toolOptions === 'width' ? null : 'width')}>{activeWidth}</button>
-        <button type="button" className="category-note-icon-button" disabled={noteInteractionDisabled} aria-label="消しゴム" title="消しゴム" aria-pressed={tool === 'eraser'} onClick={() => { setTool('eraser'); setToolOptions(null); }}><EraserIcon /></button>
         <button type="button" className="category-note-icon-button" aria-label="戻す" title="戻す" disabled={noteInteractionDisabled || !canUndo} onClick={undo}><UndoIcon /></button>
+        {scratchMemo ? <button type="button" className="note-memo-clear" disabled={noteInteractionDisabled} onClick={clearMemoPage}>クリア</button> : null}
         {toolOptions ? <div className="note-tool-options" role="group" aria-label={toolOptions === 'color' ? '色' : '太さ'}>
           <span>{toolOptions === 'color' ? '色' : '太さ'}</span>
           {toolOptions === 'width' ? activeWidths.map(item => <button key={item} type="button" aria-pressed={activeWidth === item} onClick={() => { if (tool === 'eraser') setEraserSize(item as EraserSize); else if (tool === 'marker') setMarkerSize(item); else setPenSize(item as PenSize); setToolOptions(null); }}>{item}</button>) : tool === 'marker'
@@ -1333,6 +1356,21 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 function materialPreviewStyle(preview: MaterialPagePreview | undefined, fallbackAspect: number) {
   const aspect = preview?.aspect ?? fallbackAspect;
   return { aspectRatio: aspect, width: `min(100%, ${aspect * 100}cqh)`, backgroundImage: [preview?.inkUrl, preview?.url].filter(Boolean).map(url => `url(${url})`).join(',') || undefined };
+}
+
+function PenIcon() {
+  return <svg className="category-note-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="m14 3 7 7-8 10-10 1 1-10Z" />
+    <path d="m3 21 7-7M14 3l7 7" />
+    <circle cx="11" cy="13" r="2" />
+  </svg>;
+}
+
+function MarkerIcon() {
+  return <svg className="category-note-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="m14 3 7 7-8 8-7-7ZM6 11l-2 5 4 4 5-2M4 16l-2 5h6" />
+    <path d="M13 22h8" />
+  </svg>;
 }
 
 function EraserIcon() {
