@@ -18,11 +18,11 @@
 
 ## キャラのお世話
 
-ホームのキャラをタップすると、名前・なかよし度と「ごはん／なでる／芸」を表示します。外見の成長・進化や家具集めは行いません。同じ犬のパーツをCanvasで動かし、呼吸・まばたき・しっぽの揺れを続けながら、座る・耳をかく・立つ・伏せる・寝る姿勢をつなげます。なかよし度による自然な反応と、くるりん・タッチ・おじぎ・ごろん・おやすみも全身で表現します。
+ホームのキャラをタップすると、名前・なかよし度と「ごはん／なでる／芸」を表示します。外見の成長・進化や家具集めは行いません。全身を描いた連続コマで、まばたき・しっぽの揺れ、座る・耳をかく・立つ・伏せる・寝る動作を再生します。頭・耳・胴体・足を分割して変形する方式は廃止しました。なかよし度による自然な反応と、くるりん・タッチ・おじぎ・ごろん・おやすみも全身のコマで表現します。
 
-動作は [companionAnimation.ts](src/utils/companionAnimation.ts)、描画は [companionRig.ts](src/components/companionRig.ts) にまとめています。回転には正面・横・背面の素材を使い、足は関節を曲げて動かします。練習中は動作が少し控えめでゆっくりになり、習得後は迷わず動きます。芸のご褒美のタイミングも動作の長さに合わせています。育成画面の操作欄をスクロールしても、キャラの全身は表示したままです。
+コマ順と時間は [companionAnimation.ts](src/utils/companionAnimation.ts)、描画は [companionFrames.ts](src/components/companionFrames.ts) にまとめています。毎回、完成した全身1枚だけを描画し、コマ同士の半透明合成や部位の伸縮・回転を行いません。練習中は間を置いてゆっくり再生し、習得後は通常のテンポになります。芸のご褒美のタイミングも動作の長さに合わせています。育成画面の操作欄をスクロールしても、キャラの全身は表示したままです。
 
-動作素材はImageGenの組み込みツールで既存キャラを参照して作成しました。原本は [全身パーツ](src/assets/companion/papillon-rig-v2.png) と [寝顔](src/assets/companion/papillon-sleep-head-v2.png)、生成プロンプトは [全身パーツ](src/assets/companion/papillon-rig-v2.prompt.txt) と [寝顔](src/assets/companion/papillon-sleep-head-v2.prompt.txt) に保存しています。同名の `.webp` は可視ピクセルを保ったロスレスの実行用画像です。画面外・非表示タブでは描画を休止し、OSの動きを減らす設定では呼吸・まばたきを中心に控えめに動きます。
+動作素材はImageGenの組み込みツールで元のキャラを参照して作成しました。[frames-v3](src/assets/companion/frames-v3) に8種類のシート、生成プロンプト（`.prompt.txt`）、透過PNG原本（`.source.png`）と全身コマの切り出し情報（`manifest.json`）を保存しています。実行用WebPは全身単位で切り出し、シートごとに一定の縦横比で縮小し、足元を揃えて圧縮したものです。生成時に左右の足が入れ替わったコマなどは再生から除いています。画面外・非表示タブでは描画を休止し、同じコマは再描画しません。OSの動きを減らす設定では、各動作の代表となる全身1枚を表示します。
 
 保存済みの回答20件につきごはん1個を自動獲得します。不正解・復習も対象とし、回答IDを保持して再集計・再表示・削除後の復元による重複獲得を防ぎます。既存の回答履歴も初回に集計します。端数は翌日へ持ち越し、ごはんは期限なく保管します。演習結果では今回獲得した個数をまとめて表示します。履歴を保存しない公開教材のお試しは対象外です。
 
@@ -44,7 +44,7 @@
 育成データはアカウント別のIndexedDBに保存し、既存のバックアップ・同期対象に含めます。ごはんの消費・芸の習得度・なかよし度は一括保存し、保存失敗時にはすべて保持します。複数端末で競合した場合は既存の同期の確認手順で育成データを選びます。
 
 専用テストは `npm run test:companion`。ブラウザの合成データによる操作テストは、開発サーバー起動後に `QUIZMAKE_PLAYWRIGHT_MODULE` をPlaywrightのディレクトリに設定して `node tests/browser/companion-care-validation.mjs` を実行します。
-連続動作と全身表示の確認は、追加で `QUIZMAKE_SHARP_MODULE` をSharpのディレクトリに設定し、`node tests/browser/companion-animation-validation.mjs` を実行します。確認用GIF・各姿勢の一覧・スマホ幅のスクリーンショットを `tmp/companion-motion-v2` に保存します。
+連続動作と全身表示の確認は、追加で `QUIZMAKE_SHARP_MODULE` をSharpのディレクトリに設定し、`node tests/browser/companion-animation-validation.mjs` を実行します。確認用GIF・全身コマの一覧・スマホ幅のスクリーンショットを `tmp/companion-frames-v3` に保存します。
 
 ## グループへの公開と進捗
 

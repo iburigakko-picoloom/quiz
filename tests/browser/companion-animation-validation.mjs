@@ -8,7 +8,7 @@ const { chromium } = await import(pathToFileURL(resolve(process.env.QUIZMAKE_PLA
 const require = createRequire(resolve(process.env.QUIZMAKE_SHARP_MODULE, 'package.json'));
 const sharp = require('sharp');
 const origin = process.env.QUIZMAKE_PREVIEW_ORIGIN ?? 'http://127.0.0.1:5191/quiz';
-const output = `tmp/companion-motion-v2/${Date.now()}`;
+const output = `tmp/companion-frames-v3/${Date.now()}`;
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const errors = [];
@@ -17,33 +17,35 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.route('https://**/*', route => route.abort());
   await page.goto(`${origin}/tests/browser/companion-animation-preview.html`);
-  const canvas = page.locator('canvas[data-renderer="rig"]');
+  const canvas = page.locator('canvas[data-renderer="full-body-frames"]');
   await canvas.waitFor();
   await page.waitForTimeout(600);
   const sample = () => canvas.evaluate(canvas => canvas.toDataURL());
-  const first = await sample(); await page.waitForTimeout(450); assert.notEqual(await sample(), first, 'an untouched character keeps breathing/moving');
+  const visibleDog = target => target.locator('canvas').evaluate(canvas => {
+    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 180) count++;
+    return count > 500 && getComputedStyle(canvas).opacity === '1';
+  });
+  const first = await sample(); await page.waitForTimeout(900); assert.notEqual(await sample(), first, 'an untouched character keeps breathing/moving');
 
-  // Render deterministic samples of the same rig to inspect every pose and
-  // encode a replay. Runtime animation is separately checked above/in the app.
+  // Render complete cels deterministically; never assemble body parts.
   const samples = await page.evaluate(async () => {
-    const { companionActivityPose, blendCompanionPose, companionEase, restingCompanionPose } = await import('/quiz/src/utils/companionAnimation.ts');
-    const { loadCompanionRig, drawCompanionRig } = await import('/quiz/src/components/companionRig.ts');
-    const image = await loadCompanionRig(), canvas = document.createElement('canvas');
+    const { companionFrame } = await import('/quiz/src/utils/companionAnimation.ts');
+    const { loadCompanionSheet, drawCompanionFrame } = await import('/quiz/src/components/companionFrames.ts');
+    const canvas = document.createElement('canvas');
     canvas.width = 320; canvas.height = 290;
     const ctx = canvas.getContext('2d');
     const clips = [
-      ['sit', 3_000], ['scratch', 4_800], ['stand', 3_000], ['lie', 3_000], ['sleep', 4_600],
+      ['sit', 3_000], ['scratch', 3_800], ['stand', 3_000], ['lie', 5_000], ['sleep', 4_600],
       ['spin', 3_200], ['touch', 3_000], ['bow', 3_200], ['roll', 4_400],
     ];
     const result = [];
-    let clock = 0;
-    let pose = restingCompanionPose();
     for (const [activity, duration] of clips) {
-      const previous = pose;
       for (let i = 0; i < 20; i++) {
-        const time = duration * i / 19;
-        pose = blendCompanionPose(previous, companionActivityPose(activity, time, duration, clock + time), companionEase(time / 1_100));
-        drawCompanionRig(ctx, image, pose, clock + time, canvas.width, canvas.height);
+        const frame = companionFrame(activity, duration * i / 19, duration);
+        const image = await loadCompanionSheet(frame.sheet);
+        drawCompanionFrame(ctx, image, frame.index, canvas.width, canvas.height);
         const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
         let count = 0, left = 320, top = 290, right = 0, bottom = 0;
         for (let y = 0; y < 290; y++) for (let x = 0; x < 320; x++) {
@@ -52,9 +54,8 @@ try {
             count++; left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
           }
         }
-        result.push({ activity, frame: i, image: canvas.toDataURL(), bounds: [left, top, right, bottom], pixels: count });
+        result.push({ activity, frame: i, cel: frame, image: canvas.toDataURL(), bounds: [left, top, right, bottom], pixels: count });
       }
-      clock += duration;
     }
     return result;
   });
@@ -74,11 +75,11 @@ try {
   app.on('pageerror', error => errors.push(error.message));
   await app.route('https://**/*', route => route.abort());
   await app.goto(`${origin}/tests/browser/companion-care-preview.html?answers=160`);
-  await app.locator('canvas[data-renderer="rig"]').waitFor();
+  await app.locator('canvas[data-renderer="full-body-frames"]').waitFor();
   await app.waitForTimeout(400);
   await app.screenshot({ path: `${output}/home-390.png` });
   await app.getByRole('button', { name: 'パピィのお世話をする' }).click();
-  await app.locator('canvas[data-renderer="rig"]').waitFor();
+  await app.locator('canvas[data-renderer="full-body-frames"]').waitFor();
   await app.getByRole('tab', { name: '芸' }).click();
   for (const [width, height] of [[320, 568], [390, 844], [768, 1024]]) {
     await app.setViewportSize({ width, height });
@@ -86,6 +87,7 @@ try {
     const bounds = await app.locator('canvas').boundingBox();
     assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= height, `${width}px: the whole character stays visible when controls scroll`);
     assert.equal(await app.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    assert.equal(await visibleDog(app), true, `${width}px: resizing keeps a visible painted character`);
     await app.screenshot({ path: `${output}/tricks-${width}.png` });
   }
   await app.setViewportSize({ width: 390, height: 844 });
@@ -96,5 +98,5 @@ try {
   await app.getByText(/ご褒美のごはん！/).waitFor();
   assert.equal(await app.locator('canvas').getAttribute('data-activity'), 'feed');
   assert.deepEqual(errors, []);
-  console.log('Continuous companion animation passed: live frame changes, all idle/trick poses, uncropped full body, joint geometry, 320/390/768px fixed character stage and practice/reward timing. Output: ' + output);
+  console.log('Whole-body cel animation passed: live frame changes, all idle/trick drawings, uncropped full body, 320/390/768px fixed character stage and practice/reward timing. Output: ' + output);
 } finally { await browser.close(); }
