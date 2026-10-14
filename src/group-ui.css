@@ -39,10 +39,10 @@
 .group-segment button { min-width: 46px; min-height: 32px; padding: 5px 10px; border: 0; border-radius: 8px; background: transparent; color: #2d5eaa; font-size: 12px; font-weight: 650; }
 .group-segment button[aria-pressed=true] { background: #2d5eaa; color: #fff; box-shadow: 0 2px 5px #2d5eaa22; }
 .level-progress__bar { display: flex; height: 16px; overflow: hidden; border-radius: 99px; background: #edf1f6; }
-.level-color-0 { background: #f37f95; }
-.level-color-1 { background: #ffd576; }
-.level-color-2 { background: #59c883; }
-.level-color-3 { background: #80cdf3; }
+.level-color-0 { background: #909bad; }
+.level-color-1 { background: #e9b367; }
+.level-color-2 { background: #68aed1; }
+.level-color-3 { background: #57b59c; }
 .level-progress__segment { flex: 0 0 auto; }
 .level-progress__legend { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .level-progress__label { display: flex; align-items: center; gap: 5px; font-size: 11px; white-space: nowrap; }
@@ -249,3 +249,12 @@
   .community-screen .group-folder-card__open { padding: 13px 12px; gap: 10px; }
   .group-folder-card__body > strong, .group-set-row strong { font-size: 17px; }
 }
+
+.group-sharing-toggle { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:20px; padding-top:16px; border-top:1px solid #e9edf3; }
+.group-sharing-toggle button { display:flex; align-items:center; gap:8px; min-height:44px; border:0; background:transparent; color:inherit; cursor:pointer; }
+.group-sharing-toggle button:disabled { opacity:.55; cursor:default; }
+.group-sharing-toggle__track { display:block; width:44px; height:26px; padding:3px; border-radius:20px; background:#8994a5; }
+.group-sharing-toggle__track > span { display:block; width:20px; height:20px; border-radius:50%; background:white; }
+.group-sharing-toggle [aria-checked="true"] .group-sharing-toggle__track { background:#3478d4; }
+.group-sharing-toggle [aria-checked="true"] .group-sharing-toggle__track > span { transform:translateX(18px); }
+.group-sharing-toggle button:focus-visible { outline:2px solid #3478d4; outline-offset:3px; border-radius:8px; }

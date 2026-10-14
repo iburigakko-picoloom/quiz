@@ -101,7 +101,6 @@ export function CommunityScreen({
   onOpenLocalSet,
   onCopySharedSet,
   onImportGroupFolder,
-  onPracticeSharedSet,
   onPublished,
   onUnpublished,
 }: CommunityScreenProps) {
@@ -588,19 +587,6 @@ export function CommunityScreen({
       setCopyGroupFolder(null);setCopyGroupNotice(`「${folder.name}」を${plan.imported.length}セット、ホームに取り込みました。`);
     }catch(reason){setCopyError(getErrorMessage(reason));}finally{copyBusyRef.current=false;setBusy(false);}
   };
-  const practiceSharedSet = async (summary: CloudProblemSet, token = '') => {
-    setBusy(true);
-    setError('');
-    try {
-      const detail = summary.questions ? summary : await getSharedProblemSet(summary.id, token);
-      onPracticeSharedSet(detail);
-    } catch (reason) {
-      setError(getErrorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const openSharedDetail = async (summary: CloudProblemSet, backTab: 'discover' | 'groups', location = '') => {
     const viewer = session?.user.id ?? '';
     setBusy(true);
@@ -880,7 +866,7 @@ export function CommunityScreen({
           {isGroupDetail ? (
             <LibraryPane viewKey={isGroupSetDetail&&directSet?directSet.id:'workspace'} depth={isGroupSetDetail?2:1}>
             {isGroupSetDetail && directSet ? (
-              <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onOpenSource={ownedSource?()=>onOpenLocalSet(ownedSource.id):undefined} onPractice={() => void practiceSharedSet(directSet)} onReport={() => setReportTarget(directSet)} progress={session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onChanged={() => setGroupLearningRevision(n => n + 1)} /> : undefined} />
+              <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onOpenSource={ownedSource?()=>onOpenLocalSet(ownedSource.id):undefined} onReport={() => setReportTarget(directSet)} progress={session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onChanged={() => setGroupLearningRevision(n => n + 1)} /> : undefined} />
             ) : (
               <section className="community-section community-group-detail">
                 {!authReady ? <LibrarySkeleton label="グループを読み込み中"/> : !session ? (
@@ -977,7 +963,7 @@ export function CommunityScreen({
 
           {tab === 'discover' ? (
             <section className="community-section">
-              {directSet ? <SharedSetDetail key={directSet.id} set={directSet} location={directSet.folderPath?.map(part => part.name).join(' / ') ?? ''} busy={busy} onCopy={() => copySharedSet(directSet, shareToken)} onPractice={() => void practiceSharedSet(directSet, shareToken)} onReport={() => setReportTarget(directSet)} /> : (
+              {directSet ? <SharedSetDetail key={directSet.id} set={directSet} location={directSet.folderPath?.map(part => part.name).join(' / ') ?? ''} busy={busy} onCopy={() => copySharedSet(directSet, shareToken)} onReport={() => setReportTarget(directSet)} /> : (
                 <>
                   <div className="community-search">
                     <div className="community-search__input"><SearchIcon size={19} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="公開問題セットを検索" /></div>

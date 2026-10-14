@@ -3,9 +3,9 @@ import type { CloudProblemSet,CloudQuestion } from '../utils/cloudService';
 import { displayGroupDate, GroupEmpty } from './GroupLearningUi';
 import { FolderOutlineIcon, GroupIcon, HistoryIcon, ProblemSetIcon } from './UiIcons';
 
-export function SharedSetDetail({ set, location, busy, onCopy, onOpenSource, onPractice, onReport, progress }: {
+export function SharedSetDetail({ set, location, busy, onCopy, onOpenSource, onReport, progress }: {
   set: CloudProblemSet; location: string; busy: boolean; progress?: ReactNode;
-  onCopy: () => void; onOpenSource?: () => void; onPractice: () => void; onReport: () => void;
+  onCopy: () => void; onOpenSource?: () => void; onReport: () => void;
 }) {
   return <section className="group-set-detail" aria-label="問題セット詳細">
     {location ? <p className="group-breadcrumb"><FolderOutlineIcon size={17} />{location}</p> : null}
@@ -16,7 +16,7 @@ export function SharedSetDetail({ set, location, busy, onCopy, onOpenSource, onP
     </article>
     <SharedQuestionPreview questions={set.questions??[]} showTags={false}/>
     {progress}
-    <div className="group-detail-minor-actions"><button type="button" className="group-secondary" disabled={busy} onClick={onPractice}>このまま解く</button><button type="button" className="group-text-link" disabled={busy} onClick={onReport}>誤りを報告</button></div>
+    <div className="group-detail-minor-actions"><button type="button" className="group-text-link" disabled={busy} onClick={onReport}>誤りを報告</button></div>
   </section>;
 }
 

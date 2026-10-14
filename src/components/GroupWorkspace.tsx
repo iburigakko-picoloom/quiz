@@ -7,7 +7,7 @@ import { importedLearning, levelPercentages, sortLearningMembers, sumLevels, typ
 import {groupStudyCandidates} from '../utils/groupStudySource';
 import { buildGroupLibrary, groupFolderSets, type GroupFolderCardData } from '../utils/groupLibrary';
 import type { GroupLearningSnapshot } from '../utils/groupLearningService';
-import { ChevronRightIcon, FolderOutlineIcon, PlusIcon, SettingsIcon } from './UiIcons';
+import { ChevronRightIcon, PlusIcon, SettingsIcon } from './UiIcons';
 import { GroupAvatar, GroupEmpty, LevelProgress, MemberAvatar, displayGroupDate } from './GroupLearningUi';
 import {LibraryPane} from './LibraryPane';
 import {LibraryContentRow} from './LibraryContentRow';
@@ -115,10 +115,6 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         {rankable.length?<article className="group-panel"><div className="group-panel__heading"><h2>今日の解答数</h2><button type="button" className="group-text-link" onClick={() => { setSort('today'); onTab('members'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
           {rankable.slice(0, 3).map((member, i) => <div className="group-ranking" key={member.userId}><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} /><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong><b>{member.todayCount}問</b></div>)}
         </article>:null}
-        <article className="group-panel"><div className="group-panel__heading"><h2>フォルダ</h2><button type="button" className="group-text-link" onClick={() => { onFolderTrail([]); onTab('folders'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
-          {folders.slice(0, 3).map(folder => <button type="button" className="group-folder-shortcut library-tappable" key={folder.key} onClick={() => { onFolderTrail([folder.key]); onTab('folders'); }}><FolderOutlineIcon size={36} /><span><strong>{folder.name}</strong><small>{groupFolderSets(folder).length}セット · {groupFolderSets(folder).reduce((sum, set) => sum + set.questionCount, 0)}問</small></span><ChevronRightIcon size={18} /></button>)}
-          {!folders.length ? <div className="group-overview-empty"><FolderOutlineIcon size={38}/><p>共有する教材はまだありません。</p>{canManage?<button type="button" className="group-primary" disabled={busy||!snapshot} onClick={onAddFolder}><PlusIcon size={18}/>フォルダを追加</button>:null}</div> : null}
-        </article>
       </section>
       <section id="group-panel-folders" role="tabpanel" aria-labelledby="group-tab-folders" hidden={tab !== 'folders'}>
         <LibraryPane viewKey={folderKey} depth={folderTrail.length}>

@@ -12,18 +12,27 @@ export function GroupProgress({ data, groupId, set, userId, onClose, onChanged }
   const [copyId, setCopyId] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const alive = useRef(true); const action = useRef(false);
   const copies = groupStudyCandidates(data,set,userId).filter(s=>Boolean(commonVersionProgress(data,s,set.id,set.versionId??'')));
-  const sourceIds=new Set(copies.filter(s=>s.publicationSource?.setId===set.id).map(s=>s.id));
+  const candidatesKey = copies.map(s => s.id).join('|');
   const read = async () => {
     const result = parseLearningSet(await groupProgressRpc('quiz_group_learning_set_read', { p_group_id: groupId, p_set_id: set.id }, userId));
     if (!alive.current) return null;
-    setSnapshot(result); setCopyId(result.own.copy_id ?? (copies.length===1||sourceIds.size?copies[0]?.id??'':'')); return result;
+    setSnapshot(result); setCopyId(result.own.copy_id ?? (copies[0]?.id??'')); return result;
   };
   useEffect(() => {
     alive.current = true;
-    void read().catch(reason => { if (alive.current) setError(reason instanceof Error ? reason.message : '共有進捗を読み込めません。'); });
+    void run(async () => {
+      let current = await read();
+      const chosen = current?.own.copy_id ?? copies[0]?.id;
+      if (!current || !chosen || !set.versionId || !copies.some(s => s.id === chosen)) return;
+      if (!current.own.enabled && current.own.generation === null) {
+        await groupProgressRpc('quiz_group_progress_consent', { p_group_id: groupId, p_set_id: set.id, p_enabled: true, p_copy_id: chosen, p_version_id: set.versionId, p_expected_generation: null }, userId);
+        current = await read();
+      }
+      if (current?.own.enabled && current.own.version_id === set.versionId) await reflect(current, chosen);
+    });
     const stop = onCloudAuthStateChange((_event, session) => { if (session?.user.id !== userId) { alive.current = false; setSnapshot(null); setError('アカウントが変更されています。画面を閉じてください。'); } });
     return () => { alive.current = false; stop(); };
-  }, [groupId, set.id, userId]);
+  }, [groupId, set.id, set.versionId, userId, candidatesKey]);
   const run = async (operation: () => Promise<void>) => {
     if (action.current) return; action.current = true; setBusy(true); setError('');
     try { await operation(); } catch (reason) { if (alive.current) setError(reason instanceof Error ? reason.message : '反映できません。'); }
@@ -51,9 +60,13 @@ export function GroupProgress({ data, groupId, set, userId, onClose, onChanged }
     {error ? <p role="alert" className="group-error">{error}</p> : null}
     <ImportedMemberProgress members={visibleMembers.map(member => ({ userId: member.user_id, name: member.user_id === userId ? 'あなた' : member.display_name, levels: member.state === 'shared' ? member.levels : null, reflectedAt: member.reflected_at, status: member.state === 'shared' ? '反映待ち' : { not_shared: '未共有', update_pending: '更新待ち', reflection_pending: '反映待ち' }[member.state] }))} />
     {snapshot && !visibleMembers.length ? <GroupEmpty>共有できる進捗はまだありません。</GroupEmpty> : !snapshot && !error ? <p role="status" className="group-muted">進捗を読み込み中…</p> : null}
-    <details className="group-sharing-controls"><summary>自分の進捗を共有 · {snapshot?.own.enabled ? 'ON' : 'OFF'}</summary><p className="group-muted">同じ公開版の共有元・取り込み済み教材で学習した進捗を集計します。共有するのはレベル別の問数と解答数です。回答内容は送信しません。</p>
-      {!copies.length ? <p>{data.problemSets.some(s => s.sourceSetId === set.id) ? '現在の公開版を取り込み直すと共有できます。' : '共有元または取り込み済みの教材がこの端末にありません。'}</p> : <label>集計する教材（1つ）<select aria-label="集計する教材" disabled={busy || snapshot?.own.enabled} value={copyId} onChange={e => setCopyId(e.target.value)}><option value="">選択してください</option>{copies.map(s => <option key={s.id} value={s.id}>{sourceIds.has(s.id)?'共有元 · ':''}{s.title} / {data.folders.find(f => f.id === s.folderId)?.name}</option>)}</select></label>}
-      <div className="group-sharing-controls__actions">{snapshot?.own.enabled ? <><button type="button" disabled={busy} onClick={() => void run(() => consent(false))}>共有をOFFにする</button><button type="button" disabled={busy || !copies.some(s => s.id === copyId)} onClick={() => void run(async () => { const fresh = await read(); if (fresh) await reflect(fresh, fresh.own.copy_id ?? ''); })}>自分の進捗を反映</button></> : <button type="button" disabled={busy || !snapshot || !copies.some(s => s.id === copyId) || !set.versionId} onClick={() => void run(() => consent(true))}>この教材の集計を共有する</button>}</div>
-    </details><button type="button" className="group-text-link group-progress-reload" disabled={busy} onClick={() => void run(async () => { await read(); })}>再読み込み</button>
+    <div className="group-sharing-toggle">
+      <span>進捗を共有</span>
+      <button type="button" role="switch" aria-label="進捗を共有" aria-checked={snapshot ? snapshot.own.enabled || snapshot.own.generation === null : true} disabled={busy || !snapshot || (!snapshot.own.enabled && snapshot.own.generation !== null && (!copyId || !set.versionId))} onClick={() => void run(() => consent(!(snapshot?.own.enabled || snapshot?.own.generation === null)))}>
+        <span className="group-sharing-toggle__track" aria-hidden="true"><span /></span>
+        <span>{snapshot && !snapshot.own.enabled && snapshot.own.generation !== null ? 'OFF' : 'ON'}</span>
+      </button>
+    </div>
+    {error ? <button type="button" className="group-text-link" disabled={busy} onClick={() => void run(async () => { const fresh = await read(); if (fresh?.own.enabled && fresh.own.copy_id) await reflect(fresh, fresh.own.copy_id); })}>再試行</button> : null}
   </section>;
 }
