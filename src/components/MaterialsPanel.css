@@ -111,11 +111,10 @@
   .materials-controls { gap:2px; }
 }
 
-.materials-controls .materials-memo-button { flex:0 0 auto; padding:6px 8px; white-space:nowrap; font-size:13px; background:#eaf0f8; }
-.materials-panel > .category-note-panel--memo { flex:1; min-height:0; }
+.materials-controls .materials-memo-button { flex:0 0 auto; padding:6px 8px; white-space:nowrap; font-size:13px; background:white; }
 .category-note-panel.category-note-panel--memo .category-note-toolbar--compact { grid-template-columns:40px minmax(102px,120px) repeat(3,28px) 44px; gap:3px; }
-.category-note-panel--memo .memo-controls { min-height:52px; }
-.category-note-panel--memo .memo-controls .materials-pagination select { width:64px; }
 @media(max-width:380px) { .category-note-panel.category-note-panel--memo .category-note-toolbar--compact { grid-template-columns:34px minmax(96px,1fr) repeat(3,25px) 40px; gap:2px; padding-inline:3px; } }
 
 .category-note-panel--memo .category-note-page-slot { padding:8px 12px; container-type:size; }
+
+.materials-controls .materials-memo-button[aria-pressed="true"] { background:#305894; border-color:#305894; color:white; }

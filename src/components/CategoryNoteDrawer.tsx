@@ -91,6 +91,7 @@ type CategoryNote = {
 
 interface CategoryNoteProps {
   scratchMemo?: boolean;
+  onPageStateChange?: (page: { index: number; ready: boolean }) => void;
   initialScale?: number;
   onScaleChange?: (scale: number) => void;
   initialTools?: NoteToolSettings;
@@ -110,6 +111,7 @@ interface CategoryNoteProps {
 export interface CategoryNotePanelHandle {
   flush: () => Promise<void>;
   resetPageSlide?: (animate?: boolean) => void;
+  goToPage?: (index: number) => void;
 }
 
 export interface CategoryNoteDrawerHandle {
@@ -259,7 +261,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, scratchMemo = false, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
+  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, scratchMemo = false, onPageStateChange, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -444,6 +446,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const activeWidth = tool === 'eraser' ? eraserSize : tool === 'marker' ? markerSize : penSize;
   const activeWidths = tool === 'eraser' ? ERASER_WIDTHS : tool === 'marker' ? MARKER_WIDTHS : PEN_WIDTHS;
   const noteInteractionDisabled = isFlushing || noteLoadState !== 'ready' || notePaintState !== 'ready';
+  useEffect(() => { onPageStateChange?.({ index: currentPageIndex, ready: !noteInteractionDisabled }); }, [currentPageIndex, noteInteractionDisabled, onPageStateChange]);
   const saveStatusText = noteLoadState === 'loading' || notePaintState === 'loading'
     ? '読み込み中'
     : noteLoadState === 'error' || notePaintState === 'error'
@@ -693,7 +696,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     return pendingFlush;
   };
 
-  useImperativeHandle(ref, () => ({ flush: flushPendingNote, resetPageSlide: (animate = true) => resetPageRail(animate) }));
+  useImperativeHandle(ref, () => ({ flush: flushPendingNote, resetPageSlide: (animate = true) => resetPageRail(animate), goToPage: index => goToPage(index) }));
   useAccountWork(`category-note:${noteKey}`, () => ({ pageIndex }), flushPendingNote);
 
   function clearHistory() {
@@ -1230,15 +1233,6 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       className={`category-note-panel${singlePage ? ' category-note-panel--material' : ''}${isFlushing ? ' category-note-panel--flushing' : ''}${scratchMemo ? ' category-note-panel--memo' : ''} ${className}`.trim()}
       aria-busy={isFlushing}
     >
-      {scratchMemo ? <div className="materials-controls memo-controls">
-        <button type="button" disabled={noteInteractionDisabled} onClick={onClose}>資料</button>
-        <strong className="materials-title">メモ</strong>
-        <div className="materials-pagination">
-          <button type="button" aria-label="前のメモ" disabled={noteInteractionDisabled || currentPageIndex === 0} onClick={() => goToPage(currentPageIndex - 1)}>‹</button>
-          <select aria-label="メモのページ" disabled={noteInteractionDisabled} value={currentPageIndex} onChange={event => goToPage(Number(event.target.value))}>{[0, 1, 2].map(i => <option key={i} value={i}>{i + 1} / 3</option>)}</select>
-          <button type="button" aria-label="次のメモ" disabled={noteInteractionDisabled || currentPageIndex === 2} onClick={() => goToPage(currentPageIndex + 1)}>›</button>
-        </div>
-      </div> : null}
       {!scratchMemo ? <header className="category-note-drawer__header">
         <div className="category-note-drawer__title-block">
           <p>{'\u30ce\u30fc\u30c8'}</p>
