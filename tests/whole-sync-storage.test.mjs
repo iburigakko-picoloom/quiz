@@ -7,7 +7,7 @@ Object.defineProperty(navigator,'locks',{value:{request:async(_name,_options,run
 const storage=await import('../src/storage.ts');
 const {readUserEditGeneration}=await import('../src/utils/userEditGeneration.ts');
 const {createCompleteFileBackup,applyWholeSyncFile}=await import('../src/utils/backupPayload.ts');
-const {stageWholePage,readWholeRows,queueWholeReplacement,readWholeBaseline,putWholeMeta,acknowledgeWholeUpload,acknowledgeIdenticalWhole,freezeWholeUpload,advanceWholePart,readWholeMeta,releaseWholeUpload}=await import('../src/utils/wholeSyncStorage.ts');
+const {stageWholePage,readWholeRows,queueWholeReplacement,readWholeBaseline,putWholeMeta,chooseWholeConflict,acknowledgeWholeUpload,acknowledgeIdenticalWhole,freezeWholeUpload,advanceWholePart,readWholeMeta,releaseWholeUpload}=await import('../src/utils/wholeSyncStorage.ts');
 const {readAppOutbox,readAppRecordSnapshot}=await import('../src/utils/appRecordStorage.ts');
 const {bindRecordSyncConnection}=await import('../src/utils/recordSyncOutbox.ts');
 const {computeWholeRecordDigest,wholeHash}=await import('../src/utils/wholeSyncDigest.ts');
@@ -67,6 +67,22 @@ test('a lost whole upload acknowledgement retains concurrent local edits and onl
 });
 
 async function rawMeta(key){const tx=db.transaction('appRecordMeta'),request=tx.objectStore('appRecordMeta').get(key);await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)});return request.result}
+test('source choices still reject replaced comparisons, changed accounts and failed saves without losing either original',async()=>{
+  await bindRecordSyncConnection(db,connection);
+  const summary={sets:0,questions:0,answers:0,plans:0,images:0,pdfs:0};
+  const shown={version:1,connection,revision:6,generation:await readUserEditGeneration(db),localDigest:'a'.repeat(64),remoteDigest:'b'.repeat(64),device:'Mac',savedAt:stamp,local:summary,remote:summary};
+  await putWholeMeta(db,'wholeConflict',shown);
+  const newer={...shown,revision:7};await putWholeMeta(db,'wholeConflict',newer);
+  await assert.rejects(chooseWholeConflict(db,connection,shown,'remote',{preferSelected:true}),e=>e.code==='local_changed');
+  await assert.rejects(chooseWholeConflict(db,{...connection,userId:'another-account'},newer,'remote',{preferSelected:true}),e=>e.code==='connection_changed');
+  assert.deepEqual(await rawMeta('wholeConflict'),newer);
+  const put=IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put=function(value,key){if(this.name==='appRecordMeta'&&key==='wholeConflict')throw new DOMException('fixture full','QuotaExceededError');return put.call(this,value,key)};
+  try{await assert.rejects(chooseWholeConflict(db,connection,newer,'remote',{preferSelected:true}),e=>e.code==='local_persistence_failed')}finally{IDBObjectStore.prototype.put=put}
+  assert.deepEqual(await rawMeta('wholeConflict'),newer);
+  await chooseWholeConflict(db,connection,newer,'remote',{preferSelected:true});
+  assert.equal((await rawMeta('wholeConflict')).choice,'remote');
+});
 async function progressFixture(){await bindRecordSyncConnection(db,connection);const state=await readAppRecordSnapshot(db),hash=await wholeHash('[]');const frozen={version:1,connection,id:crypto.randomUUID(),expectedRevision:6,generation:await readUserEditGeneration(db),digest:hash,wireDigest:await wholeHash(hash.repeat(3)),parts:Array.from({length:3},()=>({id:crypto.randomUUID(),raw:'[]'})),records:0,device:'QA',replace:true,outbox:[]};await freezeWholeUpload(db,frozen,state.state.commitId);return frozen}
 test('part progress changes only the small cursor; stale cursor, skipped part and changed request identity cannot advance it',async()=>{
   const frozen=await progressFixture(),original=await rawMeta('wholeFrozen');let next=await advanceWholePart(db,frozen,1);

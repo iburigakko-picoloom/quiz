@@ -12,6 +12,7 @@ import { replayLocalStorageProjections } from '../src/utils/localStorageRecords.
 import { createCompleteFileBackup } from '../src/utils/backupPayload.ts';
 import { exportQuizMakeData } from '../src/utils/syncService.ts';
 import { getLocalDataRevision } from '../src/utils/localDataRevision.ts';
+import { setSyncInteractionProtected } from '../src/utils/syncInteraction.ts';
 
 const values = new Map(), events = [];
 globalThis.indexedDB = new IDBFactory(); globalThis.IDBKeyRange = IDBKeyRange;
@@ -74,4 +75,28 @@ test('concurrent actions are serialized and cannot spend one food twice', async 
   assert.equal(readCompanionCare().food, 0);
   assert.equal(readCompanionCare().friendship, before.friendship + 4);
   assert.equal(accountLocalStorage.getItem(COMPANION_CARE_KEY), JSON.stringify(readCompanionCare()));
+});
+
+test('automatic care waits for conflict selection, frozen uploads and navigation, then credits each answer once', async () => {
+  const before = readCompanionCare(), generation = await readUserEditGeneration(db), revision = getLocalDataRevision();
+  const later = new Date('2026-10-15T05:00:00Z');
+  const meta = async (key, value) => { const tx = db.transaction('appRecordMeta', 'readwrite');
+    if (value) tx.objectStore('appRecordMeta').put(value, key); else tx.objectStore('appRecordMeta').delete(key);
+    await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error); }); };
+  for (const key of ['wholeConflict', 'wholeFrozen']) {
+    await meta(key, { pending: true });
+    assert.deepEqual(await saveCompanionCare(logs(81), { automatic: true, visit: true, now: later }), before);
+    assert.equal(await readUserEditGeneration(db), generation); assert.equal(getLocalDataRevision(), revision);
+    await meta(key, null);
+  }
+  setSyncInteractionProtected(true);
+  try { assert.deepEqual(await saveCompanionCare(logs(81), { automatic: true, visit: true, now: later }), before); }
+  finally { setSyncInteractionProtected(false); }
+  assert.deepEqual(await saveCompanionCare(logs(81), { automatic: true, isCurrent: () => false, visit: true, now: later }), before);
+  assert.equal(await readUserEditGeneration(db), generation);
+  const resumed = await saveCompanionCare(logs(81), { automatic: true, isCurrent: () => true, visit: true, now: later });
+  assert.equal(resumed.food, before.food + 1); assert.equal(resumed.lastSeenDay, '2026-10-15');
+  assert.equal(await readUserEditGeneration(db), generation + 1);
+  await saveCompanionCare(logs(81), { automatic: true, visit: true, now: later });
+  assert.equal(await readUserEditGeneration(db), generation + 1); assert.deepEqual(readCompanionCare(), resumed);
 });

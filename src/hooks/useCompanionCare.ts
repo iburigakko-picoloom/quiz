@@ -4,6 +4,7 @@ import { COMPANION_CARE_EVENT, type CompanionCare, type CompanionCareAction } fr
 import { readCompanionCare, saveCompanionCare } from '../utils/companionCareStorage';
 import { isStudyCompanionEnabled, STUDY_COMPANION_EVENT } from '../utils/studyCompanion';
 import { useLocalDay } from './useLocalDay';
+import { WHOLE_EVENT } from '../utils/wholeSyncStorage';
 
 export function useCompanionCare(logs: readonly AnswerLog[], ready: boolean, visiting: boolean) {
   const [care, setCare] = useState<CompanionCare | null>(null);
@@ -13,6 +14,8 @@ export function useCompanionCare(logs: readonly AnswerLog[], ready: boolean, vis
   const day = useLocalDay();
   const logsRef = useRef(logs);
   logsRef.current = logs;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
   const mounted = useRef(true);
   const actionBusy = useRef(false);
   const refresh = useCallback(() => {
@@ -38,7 +41,7 @@ export function useCompanionCare(logs: readonly AnswerLog[], ready: boolean, vis
   const reconcile = useCallback(async () => {
     if (!ready) return;
     try {
-      const next = await saveCompanionCare(logsRef.current, { visit: visiting && enabled });
+      const next = await saveCompanionCare(logsRef.current, { visit: visiting && enabled, automatic: true, isCurrent: () => mounted.current && readyRef.current });
       if (mounted.current) { setCare(next); setError(''); }
     } catch (error) {
       if (mounted.current) setError(error instanceof Error ? error.message : 'ごはんの獲得を保存できませんでした。もう一度お試しください。');
@@ -46,6 +49,11 @@ export function useCompanionCare(logs: readonly AnswerLog[], ready: boolean, vis
   }, [ready, visiting, enabled]);
 
   useEffect(() => { void reconcile(); }, [logs, day, reconcile]);
+  useEffect(() => {
+    const synchronized = () => { refresh(); void reconcile(); };
+    window.addEventListener(WHOLE_EVENT, synchronized);
+    return () => window.removeEventListener(WHOLE_EVENT, synchronized);
+  }, [reconcile, refresh]);
 
   const act = useCallback(async (action: CompanionCareAction) => {
     if (!ready || actionBusy.current) return null;

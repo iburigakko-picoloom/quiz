@@ -96,12 +96,21 @@ export async function putWholeMeta(db:IDBDatabase,key:'wholeConflict'|'wholeFroz
   await completion;window.dispatchEvent(new Event(WHOLE_EVENT));
 }
 export async function chooseWholeConflict(db:IDBDatabase,connection:RecordSyncConnection,shown:WholeConflict,choice:'local'|'remote',options?:{preferSelected:boolean}):Promise<void>{
-  const tx=db.transaction('appRecordMeta','readwrite'),completion=done(tx),current=tx.objectStore('appRecordMeta').get('wholeConflict'),generation=tx.objectStore('appRecordMeta').get('userEditGenerationV1');
-  generation.onsuccess=()=>{try{
-    if((generation.result??0)!==shown.generation||JSON.stringify(current.result)!==JSON.stringify(shown)||!sameRecordSyncConnection(shown.connection,connection))throw new Error();
+  const tx=db.transaction('appRecordMeta','readwrite'),completion=done(tx),meta=tx.objectStore('appRecordMeta'),current=meta.get('wholeConflict'),generation=meta.get('userEditGenerationV1'),binding=meta.get('recordSyncConnection');
+  let failure:SyncProtocolError|undefined;
+  binding.onsuccess=()=>{try{
+    if(!sameRecordSyncConnection(shown.connection,connection)||!binding.result||!sameRecordSyncConnection(binding.result,connection))throw new SyncProtocolError('connection_changed','同期先が変わりました。同期画面を開き直してください。');
+    if(JSON.stringify(current.result)!==JSON.stringify(shown))throw new SyncProtocolError('local_changed','比較する内容が更新されました。「最新の内容を確認」から選び直してください。');
+    const latest=generation.result??0;
+    // preferSelected selects a source, not this old snapshot. The engine reads
+    // both sides again and verifies durable backups of the latest originals
+    // before applying anything. Automatic companion saves must not deadlock a
+    // source choice against a cached generation. Snapshot choices stay strict.
+    if(!safe(latest)||latest<shown.generation||!options?.preferSelected&&latest!==shown.generation)throw new SyncProtocolError('local_changed','端末の内容が更新されました。「最新の内容を確認」から選び直してください。');
     tx.objectStore('appRecordMeta').put({...shown,choice,...(options?.preferSelected?{preferSelected:true}:{})},'wholeConflict');
-  }catch{tx.abort()}};
-  await completion;window.dispatchEvent(new Event(WHOLE_EVENT));
+  }catch(error){if(error instanceof SyncProtocolError)failure=error;tx.abort()}};
+  try{await completion}catch{throw failure??new SyncProtocolError('local_persistence_failed','同期の選択を端末へ保存できませんでした。空き容量を確認して再試行してください。両方のデータは保持しています。')}
+  window.dispatchEvent(new Event(WHOLE_EVENT));
 }
 export async function stageWholePage(db:IDBDatabase,connection:RecordSyncConnection,revision:number,afterKey:string,value:unknown):Promise<WholeIncoming>{
   if(new TextEncoder().encode(JSON.stringify(value)).byteLength>4*1024*1024)throw new SyncProtocolError('payload_too_large','全体受信のページが大きすぎます。');

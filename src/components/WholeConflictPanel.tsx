@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { openAppDb } from '../storage';
 import { getRemoteSyncConfig } from '../utils/syncService';
 import { chooseWholeConflict, readWholeMeta, WHOLE_EVENT, type WholeConflict, type WholeSummary } from '../utils/wholeSyncStorage';
-import { withCoordinatedDataRead } from '../utils/dataCoordination';
+import { withCoordinatedDataRead, ExternalDataChangeError, DataLockTimeoutError, CrossContextLockUnavailableError } from '../utils/dataCoordination';
+import { SyncProtocolError } from '../utils/syncInterruption';
 import { requestSyncRetry } from '../utils/syncRequest';
 import { readSyncDevice } from '../utils/syncDevice';
 import { readSyncAttemptStatus, SYNC_ATTEMPT_EVENT, type SyncAttemptStatus } from '../utils/syncAttemptStatus';
@@ -29,7 +30,7 @@ export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onBusyCha
         const connection = {project:new URL(config.url).origin,userId:accountId,syncId};
         if(!stopped)setAttempt(readSyncAttemptStatus(connection));
         const value = await readWholeMeta<WholeConflict>(await openAppDb(),'wholeConflict',connection);
-        if(!stopped){setConflict(value);setError('');}
+        if(!stopped)setConflict(value);
       }catch{if(!stopped)setError('同期する内容を読み込めません。両方のデータを保持しています。');}
       finally{reading=false;}
     };
@@ -38,6 +39,7 @@ export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onBusyCha
     return()=>{stopped=true;window.clearInterval(timer);window.removeEventListener(WHOLE_EVENT,refresh);window.removeEventListener(SYNC_ATTEMPT_EVENT,refresh);};
   },[syncId,accountId]);
   useEffect(()=>{
+    setError('');
     setSelection(conflict?.choice);
     if(conflict&&!conflict.choice)openChange.current(true);
     else if(!conflict)openChange.current(false);
@@ -52,7 +54,8 @@ export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onBusyCha
       if(new URL(config.url).origin!==conflict.connection.project||conflict.connection.userId!==accountId||conflict.connection.syncId!==syncId)throw new Error();
       await withCoordinatedDataRead(['app','notes'],()=>chooseWholeConflict(db,conflict.connection,conflict,selection,{preferSelected:true}),{requireCrossContext:true});
       onOpenChange(false);requestSyncRetry(syncId);
-    }catch{setError('確認中にデータが変わったか、選択を保存できませんでした。両方を保持しています。最新の内容を選び直してください。');}
+    }catch(error){setError(error instanceof SyncProtocolError||error instanceof ExternalDataChangeError||error instanceof DataLockTimeoutError||error instanceof CrossContextLockUnavailableError
+      ?error.message:'同期の選択を保存できませんでした。両方のデータは保持しています。「最新の内容を確認」から再試行してください。');}
     finally{setBusy(false);onBusyChange?.(false);}
   };
   if(!conflict)return error?<p role="alert">{error}</p>:null;
@@ -63,6 +66,7 @@ export function WholeConflictPanel({syncId,accountId,open,onOpenChange,onBusyCha
   return <section className="sync-section whole-conflict" aria-labelledby="whole-conflict-title">
     <h2 id="whole-conflict-title">どちらで同期しますか？</h2>
     {open&&failureMessage?<p role="alert">{failureMessage}</p>:null}
+    {open&&error?<button type="button" className="sync-button" disabled={busy} onClick={retry}>最新の内容を確認</button>:null}
     {conflict.choice&&!open ? <>
       <p role="status">{failureMessage ? '同期を完了できませんでした。両方の原本を保持しています。' : '選んだデータで同期しています。バックアップは自動で保存します。'}</p>
       {failureMessage ? <><p role="alert">{failureMessage}</p><button type="button" className="sync-button sync-button--primary" disabled={busy} onClick={retry}>再試行</button></> : null}

@@ -70,6 +70,38 @@ test('a cloud change after a shown choice invalidates it; low recovery capacity 
 test('preference commits are part of the whole dirty witness; failed or no-op saves do not inflate it',async()=>{
   const before=await readUserEditGeneration(db);await setStudyCompanionEnabled(false);assert.equal(await readUserEditGeneration(db),before+1);await setStudyCompanionEnabled(false);assert.equal(await readUserEditGeneration(db),before+1);assert.equal((await run()).status,'more');assert.equal((await run()).status,'done');const cloud=await transport.whole('read',{p_expected_revision:(await transport.whole('status')).revision,p_after_key:'',p_limit:200});assert.ok(cloud.rows.some(row=>row.id==='quiz-make-study-companion'&&row.raw==='off'));
 });
+test('cloud source choice survives companion saves after comparison and archives the latest local care before replacing',async()=>{
+  const {saveCompanionCare}=await import('../src/utils/companionCareStorage.ts');
+  const {COMPANION_CARE_KEY}=await import('../src/utils/companionCare.ts');
+  const {listSavedBackups,getSavedBackup}=await import('../src/utils/backupRepository.ts');
+  const {archiveSyncOriginals}=await import('../src/utils/syncOriginalBackup.ts');
+  await edit('Device before companion');await remoteReplace('Latest Mac study');
+  assert.equal((await run()).status,'conflict');
+  const shown=await readWholeMeta(db,'wholeConflict',connection);
+  const care=await saveCompanionCare(Array.from({length:41},(_,i)=>({id:`care-race-${i}`})),{visit:true,now:new Date('2026-10-14T00:00:00Z')});
+  assert.ok(await readUserEditGeneration(db)>shown.generation);
+  // Reopening the dialog reads this same stale comparison, so retrying the old
+  // generation guard cannot recover. An explicit source choice must recapture it.
+  assert.deepEqual(await readWholeMeta(db,'wholeConflict',connection),shown);
+  await assert.rejects(chooseWholeConflict(db,connection,shown,'remote'));
+  await chooseWholeConflict(db,connection,shown,'remote',{preferSelected:true});
+  const cloudBefore=await readCloudRows();
+  const unusedTransport={userId:connection.userId,download:async()=>assert.fail('fixture has no attachments')};
+  const receive=()=>run({archiveOriginals:(side,rows)=>archiveSyncOriginals(db,connection,side,rows,unusedTransport,unusedTransport,async()=>{})});
+  const add=IDBObjectStore.prototype.add;
+  IDBObjectStore.prototype.add=function(...args){if(this.name==='backups')throw new DOMException('fixture backup disk full','QuotaExceededError');return add.apply(this,args)};
+  try{await assert.rejects(receive(),/fixture backup disk full/);}finally{IDBObjectStore.prototype.add=add;}
+  assert.deepEqual(await names(),['Device before companion'],'failed backup cannot replace the live data');
+  assert.deepEqual(await readCloudRows(),cloudBefore);
+  assert.equal((await receive()).status,'done');
+  assert.deepEqual(await names(),['Latest Mac study']);
+  assert.deepEqual(await readCloudRows(),cloudBefore,'choosing Mac never overwrites cloud');
+  const backups=await Promise.all((await listSavedBackups()).map(async item=>JSON.parse((await getSavedBackup(item.id)).raw)));
+  assert.ok(backups.some(file=>file.localStorage?.[COMPANION_CARE_KEY]===JSON.stringify(care)
+    &&JSON.parse(file.localStorage['quiz-make-app-data-v1']).folders[0].name==='Device before companion'));
+  assert.equal(await readWholeMeta(db,'wholeConflict',connection),undefined);
+});
+
 test('a pre-upgrade lost old receipt is resolved behind the writer fence without merging or replaying an old write',async()=>{
   await edit('Old receipt recovered');const batch=await freezeRecordPushBatch(db,connection);
   // Simulate the old request committing immediately before a different updated

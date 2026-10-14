@@ -7,6 +7,8 @@ import { COMPANION_CARE_KEY, COMPANION_CARE_EVENT, applyCompanionCareAction, cre
 import { getStudyTimeZone } from './studyPlanStorage';
 import { studyDay } from './studyPlans';
 import { advanceLocalDataRevision } from './localDataRevision';
+import { openAppDb } from '../storage';
+import { isSyncInteractionProtected } from './syncInteraction';
 
 export function readCompanionCare(): CompanionCare | null {
   const raw = accountLocalStorage.getItem(COMPANION_CARE_KEY);
@@ -14,7 +16,10 @@ export function readCompanionCare(): CompanionCare | null {
 }
 
 /** Read/modify/write under the existing account/origin lock. Food and mastery commit together. */
-export async function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], options: { visit?: boolean; action?: CompanionCareAction; now?: Date } = {}): Promise<CompanionCare> {
+type CareSaveOptions = { visit?: boolean; action?: CompanionCareAction; now?: Date; automatic?: boolean; isCurrent?: () => boolean };
+export function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], options: CareSaveOptions & { automatic: true }): Promise<CompanionCare | null>;
+export function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], options?: CareSaveOptions & { automatic?: false }): Promise<CompanionCare>;
+export async function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], options: CareSaveOptions = {}): Promise<CompanionCare | null> {
   const owner = getAccountStorageSession(), native = globalThis.localStorage;
   const assertOwner = () => {
     if (owner !== getAccountStorageSession() || native !== globalThis.localStorage) throw new Error('アカウントが変わりました。育成画面を開き直してください。');
@@ -26,6 +31,20 @@ export async function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], 
     assertOwner();
     const day = studyDay(options.now ?? new Date(), getStudyTimeZone());
     const previous = readCompanionCare();
+    if (options.automatic) {
+      // Daily visits and answer reconciliation can wait while the user chooses
+      // a source or a frozen upload is pending. Check after acquiring the lock:
+      // a home-screen effect may have queued before navigation to sync.
+      let pending = false;
+      if (typeof indexedDB !== 'undefined') {
+        const db = await openAppDb(), tx = db.transaction('appRecordMeta'), meta = tx.objectStore('appRecordMeta');
+        const conflict = meta.get('wholeConflict'), frozen = meta.get('wholeFrozen');
+        await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); });
+        pending = Boolean(conflict.result || frozen.result);
+      }
+      assertOwner();
+      if (pending || isSyncInteractionProtected() || options.isCurrent?.() === false) return previous;
+    }
     let next = refreshCompanionDay(creditCompanionAnswers(previous ?? createCompanionCare(day), logs), day, options.visit);
     if (options.action) next = applyCompanionCareAction(next, options.action, day);
     if (previous !== next) {
