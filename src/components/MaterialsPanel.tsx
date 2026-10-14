@@ -167,7 +167,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     if (!material || !page) { if (index) { setDisplayed(null); clearTransition(); } return; }
     let disposed = false;
     void (async () => {
-      const preview = await previews.current.load(ownerId, material.id, page);
+      const preview = await previews.current.loadBackground(ownerId, material.id, page);
       if (!disposed) setDisplayed({ ownerId, materialId: material.id, page, url: preview.url, aspect: preview.aspect });
     })().catch(err => { if (!disposed) { clearTransition(); if (displayed) { setMaterialId(displayed.materialId); setPageId(displayed.page.id); } setError(`資料を表示できません: ${err.message ?? err}`); } });
     return () => { disposed = true; };

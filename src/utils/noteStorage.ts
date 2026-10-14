@@ -61,30 +61,16 @@ async function loadCategoryNoteRawUnlocked(key: string): Promise<string | null> 
   let indexedCurrentError: unknown = null;
   let indexedBackupError: unknown = null;
   if (isIndexedDbAvailable()) {
-    const [currentRead, backupRead] = await Promise.allSettled([
-      waitForCategoryNoteStorage(getRawFromIndexedDb(key)),
-      waitForCategoryNoteStorage(getBackupRawFromIndexedDb(key)),
-    ]);
-    if (currentRead.status === 'fulfilled') indexedCurrent = currentRead.value;
-    else {
-      indexedCurrentError = currentRead.reason;
-      console.warn('Failed to read the current category note from IndexedDB.', currentRead.reason);
-    }
-    if (backupRead.status === 'fulfilled') indexedBackup = backupRead.value;
-    else {
-      indexedBackupError = backupRead.reason;
-      console.warn('Failed to read the category note backup from IndexedDB.', backupRead.reason);
-    }
-    if (indexedCurrentError instanceof CategoryNoteStorageTimeoutError
-      || indexedBackupError instanceof CategoryNoteStorageTimeoutError) {
-      abandonNoteDbConnection();
+    try { indexedCurrent = await waitForCategoryNoteStorage(getRawFromIndexedDb(key)); }
+    catch (error) {
+      indexedCurrentError = error;
+      console.warn('Failed to read the current category note from IndexedDB.', error);
+      if (error instanceof CategoryNoteStorageTimeoutError) abandonNoteDbConnection();
     }
   }
 
   const legacyRead = readLocalStorageValue(key);
   const legacy = legacyRead.value;
-  const authoritativePreferred = pickNewestNoteRaw([indexedCurrent, legacy]);
-  const preferred = authoritativePreferred ?? pickNewestNoteRaw([indexedBackup]);
   const hasValidCurrent = indexedCurrent !== null && isUsableNoteRaw(indexedCurrent);
   const hasValidLegacy = legacy !== null && isUsableNoteRaw(legacy);
 
@@ -99,6 +85,22 @@ async function loadCategoryNoteRawUnlocked(key: string): Promise<string | null> 
   if (legacyRead.error && !hasValidCurrent) {
     throw createCategoryNoteReadError(legacyRead.error);
   }
+  // Healthy current/legacy originals already determine the result. Avoid
+  // cloning a second full PNG/PDF and waiting for its recovery-store read on
+  // every page turn. Recovery still runs when neither original is usable.
+  // The usual single-original case also needs only one validation/JSON parse.
+  if (hasValidCurrent && hasValidLegacy) return pickNewestNoteRaw([indexedCurrent, legacy]);
+  if (hasValidCurrent) return indexedCurrent;
+  if (hasValidLegacy) return legacy;
+  if (isIndexedDbAvailable()) {
+    try { indexedBackup = await waitForCategoryNoteStorage(getBackupRawFromIndexedDb(key)); }
+    catch (error) {
+      indexedBackupError = error;
+      console.warn('Failed to read the category note backup from IndexedDB.', error);
+      if (error instanceof CategoryNoteStorageTimeoutError) abandonNoteDbConnection();
+    }
+  }
+  const preferred = pickNewestNoteRaw([indexedBackup]);
   if (indexedBackupError && preferred === null) {
     throw createCategoryNoteReadError(indexedBackupError);
   }

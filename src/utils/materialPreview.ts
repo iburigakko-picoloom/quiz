@@ -76,9 +76,15 @@ export class MaterialPreviewCache {
     try { return await pending; } finally { if (this.pending.get(key) === pending) this.pending.delete(key); }
   }
 
+  /** The live handwriting panel reads and validates its own ink exactly once. */
+  async loadBackground(ownerId: string, materialId: string, page: MaterialPage): Promise<MaterialPagePreview> {
+    const { url, aspect } = await this.background(ownerId, materialId, page);
+    return { url, aspect };
+  }
+
   async load(ownerId: string, materialId: string, page: MaterialPage): Promise<MaterialPagePreview> {
     const [background, raw] = await Promise.all([
-      this.background(ownerId, materialId, page),
+      this.loadBackground(ownerId, materialId, page),
       loadCategoryNoteRaw(`quizMake:notes:${ownerId}:${annotationCategory(materialId, page.id)}`),
     ]);
     const note = raw ? JSON.parse(raw) : null;
