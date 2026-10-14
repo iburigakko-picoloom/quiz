@@ -49,14 +49,14 @@ const fieldLabels: Record<string, string> = {
   isGraduated: '復習を卒業', isAmbiguous: 'あやふや', lastAnswerCorrect: '最後の回答の正解', lastAnsweredAt: '最後の回答日時',
   isCorrect: '正解', answeredAt: '回答日時', timeZone: '学習日のタイムゾーン', setTitle: '対象の問題集',
   goal: '今日の問題数', day: '学習日', collapsed: '折りたたみ', todayCollapsed: '今日の実績を折りたたみ',
-  food: 'ごはん', answerRemainder: '次のごはんへの回答数', friendship: 'なかよし度', peakFriendship: '最高なかよし度', tricks: '芸の習得度',
+  food: 'ごはん', treats: 'おやつ', answerRemainder: '次のごほうびへの回答数', friendship: 'なかよし度', peakFriendship: '最高なかよし度', tricks: '芸の習得度',
 };
 const fieldsFor = (collection: string, id: string): string[] => {
   if (collection === 'localStorage') {
     if (id.startsWith('quizMake:planDay:')) return ['day', 'goal'];
     if (id.startsWith('quizMake:plan:')) return ['title', 'setTitle', 'timeZone'];
     if (id === 'quizMake:homePreferences') return ['collapsed', 'todayCollapsed'];
-    if (id === 'quizMake:companion:care:v1') return ['name', 'food', 'answerRemainder', 'friendship', 'peakFriendship', 'tricks'];
+    if (id === 'quizMake:companion:care:v1') return ['name', 'food', 'treats', 'answerRemainder', 'friendship', 'peakFriendship', 'tricks'];
     return [];
   }
   return ({ questions: ['question', 'choices', 'answerText', 'answerIndex', 'answerIndexes', 'explanation'],

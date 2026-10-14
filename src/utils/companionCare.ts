@@ -6,7 +6,6 @@ export const COMPANION_BALANCE = {
   answersPerFood: 50,
   maxFriendship: 100,
   feedingGain: 4,
-  trainingGain: 3,
   pettingGain: 0.5,
   rewardedPetsPerDay: 3,
   absenceGraceDays: 2,
@@ -15,21 +14,24 @@ export const COMPANION_BALANCE = {
 } as const;
 
 export type CompanionTrickId = 'spin' | 'touch' | 'bow' | 'roll' | 'sleep';
-export const COMPANION_TRICKS: readonly { id: CompanionTrickId; name: string; description: string; friendship: number; practices: number }[] = [
-  { id: 'spin', name: 'くるりん', description: 'その場でくるっとひと回り。', friendship: 0, practices: 5 },
-  { id: 'touch', name: 'タッチ', description: '前足をあげて、ハイタッチ。', friendship: 8, practices: 8 },
-  { id: 'bow', name: 'おじぎ', description: '頭を下げて、ぺこりとごあいさつ。', friendship: 20, practices: 10 },
-  { id: 'roll', name: 'ごろん', description: '横になって、ごろんとひと転がり。', friendship: 38, practices: 12 },
-  { id: 'sleep', name: 'おやすみ', description: '伏せて目を閉じ、おやすみのポーズ。', friendship: 58, practices: 16 },
+export const COMPANION_TRICKS: readonly { id: CompanionTrickId; name: string; description: string; practices: number }[] = [
+  { id: 'spin', name: 'くるりん', description: 'その場でくるっとひと回り。', practices: 5 },
+  { id: 'touch', name: 'タッチ', description: '前足をあげて、ハイタッチ。', practices: 8 },
+  { id: 'bow', name: 'おじぎ', description: '頭を下げて、ぺこりとごあいさつ。', practices: 10 },
+  { id: 'roll', name: 'ごろん', description: '横になって、ごろんとひと転がり。', practices: 12 },
+  { id: 'sleep', name: 'おやすみ', description: '伏せて目を閉じ、おやすみのポーズ。', practices: 16 },
 ];
 
 export type CompanionReaction = 'watch' | 'happy' | 'approach' | 'cuddle' | 'relax';
 export interface CompanionCare {
-  version: 2;
+  version: 3;
   /** Counts before the current reward rule; old rewards and unspent answers survive upgrades. */
   rewardBaseline: { answers: number; awards: number };
   name: string;
   food: number;
+  treats: number;
+  /** The initial grant is separate from newly earned rewards, so old result screens cannot claim treats. */
+  treatRewardBaseline: { awards: number; treats: number };
   answerRemainder: number;
   creditedAnswerIds: string[];
   /** Retained even when a question/history is deleted, so restored IDs cannot pay twice. */
@@ -46,7 +48,8 @@ export interface CompanionCare {
 export type CompanionCareAction = { kind: 'feed' } | { kind: 'pet' } | { kind: 'train'; trickId: CompanionTrickId } | { kind: 'rename'; name: string } | { kind: 'reset' };
 
 export function createCompanionCare(day: string): CompanionCare {
-  return { version: 2, rewardBaseline: { answers: 0, awards: 0 }, name: 'パピィ', food: 0, answerRemainder: 0, creditedAnswerIds: [], foodAwardAnswerIds: [],
+  return { version: 3, rewardBaseline: { answers: 0, awards: 0 }, name: 'パピィ', food: 0, treats: 0,
+    treatRewardBaseline: { awards: 0, treats: 0 }, answerRemainder: 0, creditedAnswerIds: [], foodAwardAnswerIds: [],
     friendship: 0, peakFriendship: 0, lastSeenDay: day, decayThroughDay: day, pettingDay: day, rewardedPets: 0,
     tricks: { spin: 0, touch: 0, bow: 0, roll: 0, sleep: 0 } };
 }
@@ -59,8 +62,8 @@ const ids = (value: unknown): value is string[] => Array.isArray(value) && value
 
 /** Invalid saves are surfaced and preserved; never silently reset earned progress. */
 export function parseCompanionCare(raw: string): CompanionCare {
-  const value = JSON.parse(raw) as Omit<CompanionCare, 'version'> & { version: 1 | 2 };
-  if (!value || (value.version !== 1 && value.version !== 2) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 20
+  const value = JSON.parse(raw) as Omit<CompanionCare, 'version'> & { version: 1 | 2 | 3 };
+  if (!value || ![1, 2, 3].includes(value.version) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 20
     || !natural(value.food) || !natural(value.answerRemainder) || value.answerRemainder >= (value.version === 1 ? 20 : COMPANION_BALANCE.answersPerFood)
     || !ids(value.creditedAnswerIds) || !ids(value.foodAwardAnswerIds)
     || typeof value.friendship !== 'number' || !Number.isFinite(value.friendship) || value.friendship < 0
@@ -83,9 +86,18 @@ export function parseCompanionCare(raw: string): CompanionCare {
     || value.answerRemainder !== (credited.size - baseline.answers) % threshold || value.food > earned) {
     throw new Error('ごはんの獲得記録を確認できませんでした。保存済みのデータは保持しています。');
   }
-  return value.version === 1
-    ? { ...value, version: 2, rewardBaseline: { answers: credited.size - value.answerRemainder, awards: value.foodAwardAnswerIds.length } }
-    : value as CompanionCare;
+  if (value.version === 3) {
+    const treats = value.treatRewardBaseline;
+    if (!natural(value.treats) || !treats || !natural(treats.awards) || treats.awards > earned
+      || !natural(treats.treats) || treats.treats > treats.awards || value.treats > treats.treats + earned - treats.awards) {
+      throw new Error('おやつの獲得記録を確認できませんでした。保存済みのデータは保持しています。');
+    }
+    return value as CompanionCare;
+  }
+  // Split existing unspent rewards once, preserving food, bond and mastery.
+  return { ...value, version: 3, treats: value.food,
+    treatRewardBaseline: { awards: earned, treats: value.food },
+    rewardBaseline: value.version === 1 ? { answers: credited.size - value.answerRemainder, awards: earned } : baseline };
 }
 
 /** Only durable AnswerLogs are passed here; correctness and quiz/review mode do not affect credit. */
@@ -100,7 +112,7 @@ export function creditCompanionAnswers(care: CompanionCare, logs: readonly Pick<
     if (++remainder === COMPANION_BALANCE.answersPerFood) { awards.push(log.id); remainder = 0; }
   }
   if (!newIds.length) return care;
-  return { ...care, food: care.food + awards.length, answerRemainder: remainder,
+  return { ...care, food: care.food + awards.length, treats: care.treats + awards.length, answerRemainder: remainder,
     creditedAnswerIds: [...care.creditedAnswerIds, ...newIds], foodAwardAnswerIds: [...care.foodAwardAnswerIds, ...awards] };
 }
 
@@ -128,10 +140,8 @@ export function isCompanionTrickLearned(care: CompanionCare, id: CompanionTrickI
   const trick = COMPANION_TRICKS.find(trick => trick.id === id);
   return Boolean(trick && care.tricks[id] >= trick.practices);
 }
-export function canTeachCompanionTrick(care: CompanionCare, id: CompanionTrickId): boolean {
-  const trick = COMPANION_TRICKS.find(trick => trick.id === id);
-  // A once-unlocked trick stays teachable while the bond recovers.
-  return Boolean(trick && care.peakFriendship >= trick.friendship);
+export function canTeachCompanionTrick(_care: CompanionCare, id: CompanionTrickId): boolean {
+  return COMPANION_TRICKS.some(trick => trick.id === id);
 }
 
 export function applyCompanionCareAction(care: CompanionCare, action: CompanionCareAction, day: string): CompanionCare {
@@ -149,12 +159,15 @@ export function applyCompanionCareAction(care: CompanionCare, action: CompanionC
     if (current.rewardedPets >= COMPANION_BALANCE.rewardedPetsPerDay) return current;
     return gainFriendship({ ...current, rewardedPets: current.rewardedPets + 1 }, COMPANION_BALANCE.pettingGain);
   }
-  if (current.food < 1) throw new Error('ごはんがありません。問題を解いてごはんを集めよう。');
-  if (action.kind === 'feed') return gainFriendship({ ...current, food: current.food - 1 }, COMPANION_BALANCE.feedingGain);
+  if (action.kind === 'feed') {
+    if (current.food < 1) throw new Error('ごはんがありません。問題を解いてごはんを集めよう。');
+    return gainFriendship({ ...current, food: current.food - 1 }, COMPANION_BALANCE.feedingGain);
+  }
   const trick = COMPANION_TRICKS.find(trick => trick.id === action.trickId);
-  if (!trick || !canTeachCompanionTrick(current, trick.id)) throw new Error('もう少しなかよくなると、この芸を教えられます。');
-  if (isCompanionTrickLearned(current, trick.id)) throw new Error('この芸は習得済みです。ごはんを使わずお願いできます。');
-  return gainFriendship({ ...current, food: current.food - 1, tricks: { ...current.tricks, [trick.id]: current.tricks[trick.id] + 1 } }, COMPANION_BALANCE.trainingGain);
+  if (!trick) throw new Error('教える芸を選んでください。');
+  if (isCompanionTrickLearned(current, trick.id)) throw new Error('この芸は習得済みです。おやつを使わずお願いできます。');
+  if (current.treats < 1) throw new Error('おやつがありません。問題を解いておやつを集めよう。');
+  return { ...current, treats: current.treats - 1, tricks: { ...current.tricks, [trick.id]: current.tricks[trick.id] + 1 } };
 }
 
 export function companionReactions(friendship: number): CompanionReaction[] {
@@ -194,4 +207,9 @@ export function companionFriendshipLabel(friendship: number): string {
 export function companionSessionFood(care: CompanionCare, answerIds: readonly string[]): number {
   const session = new Set(answerIds);
   return care.foodAwardAnswerIds.reduce((total, id) => total + Number(session.has(id)), 0);
+}
+
+export function companionSessionTreats(care: CompanionCare, answerIds: readonly string[]): number {
+  const session = new Set(answerIds);
+  return care.foodAwardAnswerIds.slice(care.treatRewardBaseline.awards).reduce((total, id) => total + Number(session.has(id)), 0);
 }

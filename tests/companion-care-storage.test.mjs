@@ -30,7 +30,7 @@ test('food, remainder, duplicate witnesses and mastery persist in IDB and synchr
   const care = await saveCompanionCare(logs(151), { visit: true, now });
   assert.equal(care.food, 3); assert.equal(care.answerRemainder, 1);
   const trained = await saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'spin' }, now });
-  assert.equal(trained.food, 2); assert.equal(trained.tricks.spin, 1); assert.equal(trained.friendship, 3);
+  assert.equal(trained.food, 3); assert.equal(trained.treats, 2); assert.equal(trained.tricks.spin, 1); assert.equal(trained.friendship, 0);
   assert.deepEqual(readCompanionCare(), trained);
   const raw = JSON.stringify(trained);
   assert.equal((await readLearningValues(db)).get(COMPANION_CARE_KEY).raw, raw);
@@ -53,7 +53,7 @@ test('reopening/deleted logs retain balances; unchanged reconciliation does not 
   assert.deepEqual(readCompanionCare(), before);
 });
 
-test('aborted training rolls back the food, bond, mastery and outbox together; retry spends exactly one food', async () => {
+test('aborted training retains food, treats, bond, mastery and outbox; retry spends one treat', async () => {
   const before = readCompanionCare(), beforeOutbox = await row('appOutbox', appRecordKey('localStorage', COMPANION_CARE_KEY));
   const original = IDBObjectStore.prototype.put;
   IDBObjectStore.prototype.put = function(value, ...args) {
@@ -65,15 +65,15 @@ test('aborted training rolls back the food, bond, mastery and outbox together; r
   assert.deepEqual(readCompanionCare(), before);
   assert.deepEqual(await row('appOutbox', appRecordKey('localStorage', COMPANION_CARE_KEY)), beforeOutbox);
   const next = await saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'spin' }, now });
-  assert.equal(next.food, before.food - 1); assert.equal(next.tricks.spin, before.tricks.spin + 1);
+  assert.equal(next.food, before.food); assert.equal(next.treats, before.treats - 1); assert.equal(next.tricks.spin, before.tricks.spin + 1);
 });
 
-test('concurrent actions are serialized and cannot spend one food twice', async () => {
-  const before = readCompanionCare(); assert.equal(before.food, 1);
-  const results = await Promise.allSettled([saveCompanionCare(logs(151), { action: { kind: 'feed' }, now }), saveCompanionCare(logs(151), { action: { kind: 'feed' }, now })]);
+test('concurrent training is serialized and cannot spend one treat twice', async () => {
+  const before = readCompanionCare(); assert.equal(before.treats, 1);
+  const results = await Promise.allSettled([saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'bow' }, now }), saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'bow' }, now })]);
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
-  assert.equal(readCompanionCare().food, 0);
-  assert.equal(readCompanionCare().friendship, before.friendship + 4);
+  assert.equal(readCompanionCare().food, before.food); assert.equal(readCompanionCare().treats, 0);
+  assert.equal(readCompanionCare().friendship, before.friendship);
   assert.equal(accountLocalStorage.getItem(COMPANION_CARE_KEY), JSON.stringify(readCompanionCare()));
 });
 
@@ -137,7 +137,7 @@ test('legacy migration is saved once through the normal sync path and defers whi
   const clear = db.transaction('appRecordMeta', 'readwrite'); clear.objectStore('appRecordMeta').delete('wholeConflict');
   await new Promise((resolve, reject) => { clear.oncomplete = resolve; clear.onabort = () => reject(clear.error); });
   const migrated = await saveCompanionCare(logs(41), { automatic: true, now });
-  assert.equal(migrated.version, 2); assert.equal(migrated.food, 2); assert.equal(migrated.answerRemainder, 1);
+  assert.equal(migrated.version, 3); assert.equal(migrated.food, 2); assert.equal(migrated.answerRemainder, 1);
   assert.deepEqual(migrated.rewardBaseline, { answers: 40, awards: 2 });
   assert.equal((await row('appRecords', appRecordKey('localStorage', COMPANION_CARE_KEY))).raw, JSON.stringify(migrated));
   assert.equal(await readUserEditGeneration(db), generation + 1);
