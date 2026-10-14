@@ -25,11 +25,11 @@ export const COMPANION_IDLE_CLIPS: readonly { activity: CompanionActivity; durat
 // Every index is ONE complete full-body drawing. Transitions mix whole cels;
 // there are no bones, body-part transforms, or geometry deformation.
 type Cel = readonly [frame: number, weight: number];
-type Clip = { sheet: CompanionSheet; cels: readonly Cel[] };
+type Clip = { sheet: CompanionSheet; cels: readonly Cel[]; transitionMs?: number };
 const sequence = (frames: readonly number[], weight = 1): Cel[] => frames.map(frame => [frame, weight]);
 const idle: Clip = { sheet: 'idle', cels: [[0, 3], [1, 3], [2, 3], [3, 3], [4, 2], [5, .7], [6, .6], [7, .7], ...sequence([8, 9, 10, 11, 12, 13, 14, 15], 2)] };
-const sleep: Clip = { sheet: 'sleep', cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 4], [8, 18], [9, 18], ...sequence([10, 11, 12, 13, 14, 15])] };
-const bow: Clip = { sheet: 'bow', cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 2], [8, 2], ...sequence([9, 10, 11, 12, 13, 14, 15])] };
+const sleep: Clip = { sheet: 'sleep', transitionMs: 80, cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 4], [8, 18], [9, 18], ...sequence([10, 11, 12, 13, 14, 15])] };
+const bow: Clip = { sheet: 'bow', transitionMs: 70, cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 2], [8, 2], ...sequence([9, 10, 11, 12, 13, 14, 15])] };
 const clips: Record<CompanionActivity, Clip> = {
   sit: idle, happy: idle,
   watch: { sheet: 'care', cels: [[0, 3], [1, 2], [2, 2], [1, 2], [0, 3]] },
@@ -37,11 +37,11 @@ const clips: Record<CompanionActivity, Clip> = {
   stand: { sheet: 'spin', cels: [[0, 4], [1, 10], [2, 4], [1, 10], [14, 1], [15, 4]] },
   lie: { sheet: 'sleep', cels: [...sequence([0, 1, 2, 3]), [4, 28], [3, 1], [2, 1], [1, 1], [0, 2]] },
   sleep, relax: sleep, stretch: bow, bow,
-  spin: { sheet: 'spin', cels: sequence(Array.from({ length: 16 }, (_, i) => i)) },
+  spin: { sheet: 'spin', transitionMs: 42, cels: sequence(Array.from({ length: 16 }, (_, i) => i)) },
   // Later generated cels swap the offered paw. Use only the six consistent
   // drawings, then retrace them so the SAME paw returns to the floor.
-  touch: { sheet: 'touch', cels: [[0, 2], ...sequence([1, 2, 3, 4]), [5, 4], ...sequence([4, 3, 2, 1]), [0, 2]] },
-  roll: { sheet: 'roll', cels: sequence([0, 1, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]) },
+  touch: { sheet: 'touch', transitionMs: 80, cels: [[0, 2], ...sequence([1, 2, 3, 4]), [5, 4], ...sequence([4, 3, 2, 1]), [0, 2]] },
+  roll: { sheet: 'roll', transitionMs: 36, cels: sequence([0, 1, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]) },
   pet: { sheet: 'care', cels: [[0, 1], [1, 1], [2, 1], [3, 2], [4, 2], [5, 1], [6, 1], [7, 1]] },
   cuddle: { sheet: 'care', cels: [[0, 1], [1, 1], [2, 1], [3, 2], [4, 2], [5, 1], [6, 1], [7, 1]] },
   feed: { sheet: 'care', cels: [[8, 1], [9, 1], [10, 1], [11, 1], [10, 1], [11, 1], [12, 1], [13, 1], [14, 1], [15, 1]] },
@@ -49,11 +49,11 @@ const clips: Record<CompanionActivity, Clip> = {
 };
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
-export function companionFrame(activity: CompanionActivity, elapsed: number, duration: number, awkward = false, reduced = false) {
+export function companionFrame(activity: CompanionActivity, elapsed: number, duration: number, _awkward = false, reduced = false) {
   const clip = clips[activity];
-  // Hesitation changes timing, never anatomy.
+  // Practice already has a longer duration. Keep its timeline continuous;
+  // the old mid-action freeze made every learning attempt visibly stutter.
   let t = clamp(Number.isFinite(elapsed / duration) ? elapsed / duration : 0);
-  if (awkward) t = t < .3 ? t * .6 : t < .42 ? .18 : .18 + (t - .42) / .58 * .82;
   if (reduced) t = .5;
   const total = clip.cels.reduce((sum, [, weight]) => sum + weight, 0);
   let remaining = t * total;
@@ -64,15 +64,16 @@ export function companionFrame(activity: CompanionActivity, elapsed: number, dur
     if (remaining < weight) {
       index = frame;
       nextIndex = clip.cels[Math.min(i + 1, clip.cels.length - 1)][0];
-      if (!reduced && (activity === 'sit' || activity === 'happy')) {
+      const seated = activity === 'sit' || activity === 'happy';
+      if (!reduced && (seated || clip.transitionMs)) {
         const segmentMs = weight / total * duration;
-        // Only near-identical seated cels blend. Different poses play faster
-        // as intact drawings, avoiding double faces or extra limb silhouettes.
-        const fadeMs = segmentMs;
+        // Blend intact, registered drawings only at the end of an action cel.
+        // Large rotations use a very brief transition rather than leaving
+        // different faces or paws superimposed for the whole cel duration.
+        const fadeMs = seated ? segmentMs : Math.min(segmentMs, clip.transitionMs!);
         const progress = clamp((remaining / weight * segmentMs - (segmentMs - fadeMs)) / fadeMs);
-        // Keep moving across cel boundaries instead of braking to a stop at
-        // every drawing. The aligned seated silhouettes stay fully intact.
-        mix = Math.round(progress * 1000) / 1000;
+        const blend = seated ? progress : progress * progress * (3 - 2 * progress);
+        mix = Math.round(blend * 1000) / 1000;
       }
       break;
     }

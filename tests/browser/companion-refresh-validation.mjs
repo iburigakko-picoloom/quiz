@@ -32,6 +32,33 @@ try {
     }, hz);
     assert.ok(result.distinctFrames >= hz * .95, `${hz} Hz should not lose every other frame`);
     assert.equal(result.interruptionPreserved, true, 'an action starts from the last visible blended pose');
+    result.tricks = [];
+    for (const practice of [false, true]) {
+      await page.getByRole('checkbox').setChecked(practice);
+      for (const [activity, label] of [['spin', 'くるりん'], ['touch', 'タッチ'], ['bow', 'おじぎ'], ['roll', 'ごろん'], ['sleep', 'おやすみ']]) {
+        await page.getByRole('button', { name: label, exact: true }).click();
+        const motion = await page.evaluate(async ({ activity, practice, hz, start }) => {
+          const { companionMotionDuration } = await import('/quiz/src/utils/companionAnimation.ts');
+          const canvas = document.querySelector('canvas');
+          const sample = document.createElement('canvas'); sample.width = sample.height = 48;
+          const ctx = sample.getContext('2d', { willReadFrequently: true });
+          const frames = new Set(), cels = new Set();
+          const duration = companionMotionDuration(activity, practice);
+          for (let i = 0; i <= Math.ceil(duration * hz / 1000) + 1; i++) {
+            window.animationTick(start + i * 1000 / hz);
+            ctx.clearRect(0, 0, 48, 48); ctx.drawImage(canvas, 0, 0, 48, 48);
+            const pixels = ctx.getImageData(0, 0, 48, 48).data;
+            let hash = 2166136261;
+            for (let j = 0; j < pixels.length; j++) hash = Math.imul(hash ^ pixels[j], 16777619);
+            frames.add(hash); cels.add(canvas.dataset.cel);
+          }
+          return { activity, practice, paintedFrames: frames.size, cels: cels.size, lastCel: canvas.dataset.cel };
+        }, { activity, practice, hz, start: 3000 + result.tricks.length * 12000 });
+        assert.ok(motion.paintedFrames >= motion.cels * 2, `${hz}Hz ${activity} needs painted intermediate frames`);
+        assert.equal(motion.lastCel, `${activity}:${activity === 'touch' ? 0 : 15}`, 'the trick finishes in its seated pose');
+        result.tricks.push(motion);
+      }
+    }
     results.push(result); await page.close();
   }
   console.log(JSON.stringify(results));

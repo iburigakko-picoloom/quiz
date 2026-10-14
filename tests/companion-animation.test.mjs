@@ -35,10 +35,16 @@ test('idle draws different complete cels including a blink; tricks progress and 
   assert.ok(touch.every(index => index <= 5), 'reject drawings that switch the offered paw');
 });
 
-test('practice hesitates using the same drawings and lasts longer, without deforming anatomy', () => {
+test('practice takes longer without freezing in the middle of a trick', () => {
   assert.ok(companionMotionDuration('spin', true) > companionMotionDuration('spin'));
-  assert.deepEqual(companionFrame('spin', 1250, 4000, true), companionFrame('spin', 1600, 4000, true));
-  assert.notDeepEqual(companionFrame('spin', 1600, 4000, true), companionFrame('spin', 1600, 4000));
+  for (const activity of ['spin', 'touch', 'bow', 'roll', 'sleep']) {
+    const duration = companionMotionDuration(activity, true);
+    // Sleep intentionally rests after lying down; inspect its entry instead.
+    const start = activity === 'sleep' ? .02 : .3;
+    const frames = Array.from({ length: 13 }, (_, i) => companionFrame(activity, duration * (start + i / 100), duration, true));
+    assert.ok(new Set(frames.map(frame => `${frame.index}:${frame.mix}`)).size > 1, activity + ' no hard practice pause');
+    assert.equal(companionFrame(activity, duration, duration, true).index, companionFrame(activity, 1, 1).index);
+  }
 });
 
 test('reduced motion shows a stable complete drawing throughout an action', () => {
@@ -68,8 +74,24 @@ test('seated contributions remain continuous across every cut and stay opaque', 
   }
 });
 
-test('different action silhouettes never overlay two faces or extra paws', () => {
-  for (const activity of Object.keys(COMPANION_MOTION_MS)) for (let elapsed = 0; elapsed < 5000; elapsed += 20) {
-    assert.equal(companionFrame(activity, elapsed, 5000).mix, 0);
+test('all five tricks soften cuts while large pose changes remain brief and fully opaque', () => {
+  for (const activity of ['spin', 'touch', 'bow', 'roll', 'sleep']) {
+    const duration = companionMotionDuration(activity);
+    let transitionRun = 0, longestTransition = 0, transitions = 0, previous = new Map();
+    for (let elapsed = 0; elapsed <= duration; elapsed++) {
+      const frame = companionFrame(activity, elapsed, duration);
+      const current = new Map();
+      for (const [index, weight] of [[frame.index, 1 - frame.mix], [frame.nextIndex, frame.mix]]) current.set(index, (current.get(index) ?? 0) + weight);
+      assert.ok(Math.abs([...current.values()].reduce((a, b) => a + b, 0) - 1) < 1e-9);
+      if (elapsed) for (const index of new Set([...previous.keys(), ...current.keys()])) {
+        assert.ok(Math.abs((current.get(index) ?? 0) - (previous.get(index) ?? 0)) < .05, `${activity} has a hard cut at ${elapsed}ms`);
+      }
+      if (frame.index !== frame.nextIndex && frame.mix > 0 && frame.mix < 1) {
+        transitions++; longestTransition = Math.max(longestTransition, ++transitionRun);
+      } else transitionRun = 0;
+      previous = current;
+    }
+    assert.ok(transitions > 100, activity + ' has intermediate drawings');
+    assert.ok(longestTransition <= (['spin', 'roll'].includes(activity) ? 45 : 85), activity + ' avoids sustained double silhouettes');
   }
 });
