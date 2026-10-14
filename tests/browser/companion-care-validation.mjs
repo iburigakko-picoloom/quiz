@@ -95,21 +95,8 @@ try {
   await care.reload();
   await care.getByRole('button', { name: 'ぽんのお世話をする' }).click();
   assert.equal((await readCare(care)).tricks.spin, 5); assert.equal((await readCare(care)).food, 3);
-  const studyBeforeReset = await care.evaluate(async () => (await import('/quiz/src/storage.ts')).loadAppDataAsync());
-  await care.getByLabel('お世話の設定', { exact: true }).click();
-  await care.getByRole('button', { name: '育成をリセット', exact: true }).click();
-  await care.getByRole('button', { name: 'キャンセル', exact: true }).click();
-  assert.equal((await readCare(care)).food, 3, 'cancelling reset retains care');
-  await care.getByLabel('お世話の設定', { exact: true }).click();
-  await care.getByRole('button', { name: '育成をリセット', exact: true }).click();
-  await care.getByRole('button', { name: 'リセットする', exact: true }).click();
-  await care.getByRole('dialog').waitFor({ state: 'hidden' });
-  const reset = await readCare(care);
-  assert.equal(reset.food, 0); assert.equal(reset.friendship, 0); assert.equal(reset.tricks.spin, 0); assert.equal(reset.name, 'ぽん');
-  assert.deepEqual(await care.evaluate(async () => (await import('/quiz/src/storage.ts')).loadAppDataAsync()), studyBeforeReset);
-  await care.reload(); await care.getByRole('button', { name: 'ぽんのお世話をする' }).click();
-  assert.equal((await readCare(care)).food, 0); assert.equal((await readCare(care)).answerRemainder, 0);
-  await care.screenshot({ path: `${screenshotDirectory}/care-reset-390.png` });
+  assert.equal(await care.getByLabel('お世話の設定', { exact: true }).count(), 0);
+  assert.equal(await care.getByRole('button', { name: '育成をリセット', exact: true }).count(), 0);
   assert.deepEqual(errors, []);
   console.log('Companion browser passed: full App navigation, incorrect/repeated answers, automatic reward/reopen, feed, daily pet cap, trick unlock/practice/free requests, reload, character display preference, 320/390/768px layout. Screenshots: ' + screenshotDirectory);
 } finally { await browser.close(); }

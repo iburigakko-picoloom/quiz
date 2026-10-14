@@ -43,8 +43,6 @@
 
 育成データはアカウント別のIndexedDBに保存し、既存のバックアップ・同期対象に含めます。ごはんの消費・芸の習得度・なかよし度は一括保存し、保存失敗時にはすべて保持します。複数端末で競合した場合は既存の同期の確認手順で育成データを選びます。
 
-右上のお世話の設定から、ごはん・なかよし度・芸をリセットできます。名前と問題・学習履歴は保持し、リセット前の回答IDも保持して再獲得を防ぎます。リセットはそのアカウントへの明示操作のみで、更新時に自動では行いません。
-
 専用テストは `npm run test:companion`。ブラウザの合成データによる操作テストは、開発サーバー起動後に `QUIZMAKE_PLAYWRIGHT_MODULE` をPlaywrightのディレクトリに設定して `node tests/browser/companion-care-validation.mjs` を実行します。
 連続動作と全身表示の確認は、追加で `QUIZMAKE_SHARP_MODULE` をSharpのディレクトリに設定し、`node tests/browser/companion-animation-validation.mjs` を実行します。確認用GIF・全身コマの一覧・足元の位置の計測結果・スマホ幅のスクリーンショットを `tmp/companion-smooth` に保存します。
 

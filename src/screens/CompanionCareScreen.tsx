@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
-import { ActionMenu } from '../components/ActionMenu';
-import { ConfirmDialog } from '../components/ConfirmDialog';
 import { CompanionCharacter, type CompanionMotion } from '../components/CompanionCharacter';
 import { companionMotionDuration } from '../utils/companionAnimation';
 import { COMPANION_BALANCE, COMPANION_TRICKS, canTeachCompanionTrick, companionFriendshipLabel, isCompanionTrickLearned,
@@ -18,7 +16,6 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
   const [motion, setMotion] = useState<CompanionMotion | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
-  const [resetOpen, setResetOpen] = useState(false);
   const timers = useRef<number[]>([]);
   const mounted = useRef(true);
   const performing = useRef(false);
@@ -41,7 +38,6 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
     const next = await onAction(action);
     if (!next || !mounted.current) return;
     if (action.kind === 'rename') { setRenaming(false); return; }
-    if (action.kind === 'reset') { setResetOpen(false); return; }
     if (action.kind === 'feed') play('feed');
     if (action.kind === 'pet') play('pet');
     if (action.kind === 'train') {
@@ -57,7 +53,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
   const disabled = busy || Boolean(motion) || !care || Boolean(error);
 
   return <Layout><main className="companion-care">
-    <header className="companion-care__header"><BackButton onClick={onBack} /><h1>お世話</h1><ActionMenu className="companion-care__menu"><summary aria-label="お世話の設定">•••</summary><div><button type="button" disabled={disabled} onClick={() => setResetOpen(true)}>育成をリセット</button></div></ActionMenu></header>
+    <header className="companion-care__header"><BackButton onClick={onBack} /><h1>お世話</h1><span /></header>
     <section className="companion-care__bond" aria-label="名前となかよし度">
       {renaming ? <form className="companion-care__name-form" onSubmit={event => { event.preventDefault(); void handleAction({ kind: 'rename', name }); }}>
         <input aria-label="キャラの名前" value={name} onChange={event => setName(event.target.value)} maxLength={20} autoFocus />
@@ -101,6 +97,5 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
         </>}
       </section>
     </div>
-    <ConfirmDialog open={resetOpen} title="育成をリセットしますか？" message="ごはん・なかよし度・芸をゼロに戻します。名前と学習履歴は残ります。" note={error || undefined} confirmLabel="リセットする" busy={busy} onCancel={() => setResetOpen(false)} onConfirm={() => void handleAction({ kind: 'reset' })} />
   </main></Layout>;
 }

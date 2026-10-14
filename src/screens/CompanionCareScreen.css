@@ -1,11 +1,6 @@
 .companion-care { display: flex; flex-direction: column; width: min(100%, 540px); height: 100%; min-height: 0; overflow: hidden; margin-inline: auto; padding: calc(10px + var(--safe-top, 0px)) 20px calc(12px + var(--safe-bottom, 0px)); color: var(--ui-text, #172033); }
 .companion-care__header { display: grid; flex-shrink: 0; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 8px; margin-bottom: 10px; }
 .companion-care__header h1 { margin: 0; font-size: 17px; font-weight: 650; text-align: center; }
-.companion-care__menu { position: relative; }
-.companion-care__menu > summary { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; color: #7c8b9f; cursor: pointer; list-style: none; }
-.companion-care__menu > summary::-webkit-details-marker { display: none; }
-.companion-care__menu > div { position: absolute; top: 44px; right: 0; z-index: 10; min-width: 165px; padding: 5px; border: 1px solid #e4eaf3; border-radius: 12px; background: #fff; box-shadow: 0 8px 24px #25375718; }
-.companion-care__menu button { width: 100%; min-height: 44px; padding: 9px 12px; border: 0; border-radius: 8px; background: none; color: #7c6370; text-align: left; font-size: 13px; }
 .companion-care__bond { width: 100%; max-width: 400px; flex-shrink: 0; margin: 0 auto; }
 .companion-care__name { display: flex; align-items: center; gap: 9px; border: 0; background: none; margin: 0 auto 7px; min-height: 32px; color: inherit; font-size: 23px; font-weight: 700; }
 .companion-care__name span { color: #9ba7b9; font-size: 16px; font-weight: 400; }
