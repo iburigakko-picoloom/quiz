@@ -16,6 +16,7 @@ import './HomeScreen.css';
 import { StudyCompanion } from '../components/StudyCompanion';
 import { StudyActivity } from '../components/StudyActivity';
 import { useStudyRecord } from '../hooks/useStudyRecord';
+import type { CompanionCare } from '../utils/companionCare';
 
 interface HomeScreenProps {
   data: AppData;
@@ -26,6 +27,8 @@ interface HomeScreenProps {
   onOpenStudyRecord: () => void;
   onOpenPlans: () => void;
   onOpenSearch: () => void;
+  onOpenCompanion: () => void;
+  companionCare: CompanionCare | null;
   onSave: (data: AppData) => Promise<boolean>;
 }
 
@@ -38,6 +41,8 @@ export function HomeScreen({
   onOpenStudyRecord,
   onOpenPlans,
   onOpenSearch,
+  onOpenCompanion,
+  companionCare,
   onSave,
 }: HomeScreenProps) {
   const [folderName, setFolderName] = useState('');
@@ -105,7 +110,7 @@ export function HomeScreen({
 
         <section className="quiz-home__today" aria-label="今日のがんばり">
           <h2 className="sr-only">今日のがんばり</h2>
-          <StudyCompanion scene="home">
+          <StudyCompanion scene="home" care={companionCare} onOpenCare={onOpenCompanion}>
             <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
               <span className="quiz-home__study-title">今日のがんばり <ChevronRightIcon size={14} /></span>
               <StudyActivity summary={summary} compact />

@@ -1,15 +1,17 @@
 import {useEffect,useRef,useState} from 'react';
 import {publicationIdentity,publicationRpc,groupProgressRpc,publicLibraryRpc,getSharedProblemSet,type CloudPublishResult} from '../utils/cloudService';
-import type {PublicationSource} from '../types';
-import {publicationSourceFromSnapshot} from '../utils/groupStudySource';
+import type {AppData,PublicationSource} from '../types';
+import {applyPublishedSource,publicationSourceFromSnapshot} from '../utils/groupStudySource';
+import {reflectGroupSourceLearning} from '../utils/groupLearningReflection';
 import {publicationRepository,publicationScope,type PublicationJob} from '../utils/publicationStorage';
 import {PublicationQueue} from '../utils/publicationQueue';
 import type {PublicationPayload} from '../utils/publicationPayload';
 import {assertAccountNetworkCurrent} from '../utils/accountStorage';
 import {attachPublicationMaterials,uploadPublicationMaterials} from '../utils/publicationMaterialService';
 const queues=new Map<string,PublicationQueue>();
-export function usePublicationQueue(userId:string,onPublished:(id:string,result:CloudPublishResult,source?:PublicationSource)=>Promise<void>) {
+export function usePublicationQueue(userId:string,onPublished:(id:string,result:CloudPublishResult,source?:PublicationSource)=>Promise<void>,data:AppData) {
   const callback=useRef(onPublished);callback.current=onPublished;
+  const currentData=useRef(data);currentData.current=data;
   const [state,setState]=useState<{scope:string;jobs:PublicationJob[];running:boolean;revision:number;error:string}>({scope:'',jobs:[],running:false,revision:0,error:''});
   const queueRef=useRef<PublicationQueue|null>(null);
   const scope=userId?publicationScope(publicationIdentity(userId)):'';
@@ -27,6 +29,15 @@ export function usePublicationQueue(userId:string,onPublished:(id:string,result:
       await callback.current(job.localSetId,{...result,visibility:shared.visibility,versionId:shared.versionId},source);
       if(job.groupFolderId&&job.groupId)await groupProgressRpc('quiz_group_learning_place',{p_group_id:job.groupId,p_set_id:result.id,p_folder_id:job.groupFolderId},userId);
       if(job.publicFolderId){await publicLibraryRpc('quiz_public_folder_manage',{p_action:'add',p_id:job.publicFolderId,p_set_id:result.id,p_path:job.publicFolderPath??[]},userId);await publicLibraryRpc('quiz_public_folder_manage',{p_action:'ready',p_id:job.publicFolderId},userId);}
+      if(groupIds.length&&shared.versionId===result.versionId){
+        assertAccountNetworkCurrent(publicationIdentity(userId));
+        // Large manifests are derived only in memory; neither local questions
+        // nor the persisted, bounded publication pointer need to be changed.
+        const fullSource=publicationSourceFromSnapshot(shared,userId,job.localSetId,groupIds,true);
+        const learningData=applyPublishedSource(currentData.current,job.localSetId,{...result,visibility:shared.visibility},fullSource,new Date().toISOString());
+        const original=learningData.problemSets.find(set=>set.id===job.localSetId)!;
+        await reflectGroupSourceLearning(learningData,original,userId,groupIds,(name,args)=>groupProgressRpc(name,args,userId),{initialize:true});
+      }
     };
     queueRef.current=queue;const update=()=>setState({scope,jobs:queue!.jobs,running:queue!.running,revision:queue!.revision,error:queue!.error});const stop=queue.subscribe(update);update();
     void queue.restore().catch(()=>setState(old=>({...old,error:'公開状態を端末に保存できません。空き容量とブラウザの保存設定を確認してください。'})));

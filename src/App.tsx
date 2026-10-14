@@ -13,6 +13,8 @@ import {
 } from './storage';
 import { appSaveFailureMessage } from './utils/appSaveFailure';
 import { HomeScreen } from './screens/HomeScreen';
+import { CompanionCareScreen } from './screens/CompanionCareScreen';
+import { useCompanionCare } from './hooks/useCompanionCare';
 import { SearchScreen } from './screens/SearchScreen';
 import { tryCloseTransientDialog } from './utils/transientDialog';
 import { hasPendingImportSession } from './utils/importDraftSessions';
@@ -23,6 +25,7 @@ import {planPublicImport} from './utils/publicImport';
 import {planGroupImport} from './utils/groupImport';
 import {hydratePublishedMaterials} from './utils/publicationMaterialService';
 import {applyPublishedSource} from './utils/groupStudySource';
+import {reflectOwnedStudyLearning} from './utils/groupLearningReflection';
 import type {PublicSet} from './utils/publicLibrary';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
 import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
@@ -93,6 +96,9 @@ import { SYNC_ORIGINALS_FORMAT } from './utils/syncOriginalBackup';
 import { SyncProtocolError } from './utils/syncInterruption';
 import {
   initializeCloudNativeAuth,
+  getCloudSession,
+  getSharedProblemSet,
+  groupProgressRpc,
   onNativeAuthResult,
   type CloudProblemSet,
   type CloudPublishResult,
@@ -133,11 +139,17 @@ export default function App() {
   const [backupImportError, setBackupImportError] = useState('');
   const [backupExportNotice, setBackupExportNotice] = useState('');
   const [authNotice, setAuthNotice] = useState('');
+  const [groupReflectionError, setGroupReflectionError] = useState('');
+  const groupReflectionAttempt = useRef(0);
   const [storageRecoverySyncOpen, setStorageRecoverySyncOpen] = useState(false);
   const [libraryMutationBusy, setLibraryMutationBusy] = useState(false);
   const [autoImportBusy, setAutoImportBusy] = useState(false);
   const autoImportBusyRef = useRef(false);
   const [storageError, setStorageError] = useState('');
+  const companion = useCompanionCare(data.answerLogs,
+    storageReady && !storageLoadError && !storageError && !autoImportBusy && !libraryMutationBusy
+      && !pendingBackupImport && !backupImportBusy && ['home', 'result', 'companionCare'].includes(screen.name),
+    screen.name === 'home' || screen.name === 'companionCare');
   const navigationStackRef = useRef<AppScreen[]>(initialScreen.current.name === 'home' ? [{ name: 'home' }] : [{ name: 'home' }, initialScreen.current]);
   const noteExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
   const importExitGuardRef = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
@@ -785,6 +797,7 @@ export default function App() {
     const savePromise = persistThenCommitData(answerResult.data, [], { previous, questionId: question.id, answerLogId });
     const levelLabel = answerResult.progress.isGraduated ? '卒業' : `Level ${answerResult.progress.reviewLevel ?? 1}`;
     return {
+      answerLogId,
       isCorrect: answerResult.isCorrect,
       addedToReview: answerResult.addedToReview,
       levelLabel,
@@ -1393,6 +1406,25 @@ export default function App() {
     navigate({ name: 'quizSession', session });
   };
 
+  const reflectResultGroupLearning = async (result: QuizResult) => {
+    const attempt = ++groupReflectionAttempt.current;
+    setGroupReflectionError('');
+    const current = durableDataRef.current;
+    const answers = result.sessionAnswers ?? [];
+    if (!answers.length) return;
+    const setIds = [...new Set(answers.map(answer => answer.question.setId))];
+    if (!current.problemSets.some(set => setIds.includes(set.id) && set.publicationSource?.groupIds.length)) return;
+    const savedIds = new Set(current.answerLogs.map(log => log.id));
+    if (answers.some(answer => !answer.answerLogId || !savedIds.has(answer.answerLogId))) return;
+    try {
+      const userId = (await getCloudSession())?.user.id;
+      if (!userId) return;
+      await reflectOwnedStudyLearning(current, setIds, userId, (name, args) => groupProgressRpc(name, args, userId), getSharedProblemSet);
+    } catch {
+      if (attempt === groupReflectionAttempt.current) setGroupReflectionError('学習記録は保存済みですが、グループの進捗を反映できませんでした。通信を確認して再試行できます。');
+    }
+  };
+
   const handleFinish = (result: QuizResult) => {
     const current = screenRef.current;
     let backScreen: AppScreen | undefined;
@@ -1421,6 +1453,7 @@ export default function App() {
       };
     }
     navigate({ name: 'result', result: nextResult });
+    void reflectResultGroupLearning(nextResult);
   };
 
   const handleRetry = (result: QuizResult) => {
@@ -1506,7 +1539,10 @@ export default function App() {
 
   let content;
 
-  if (screen.name === 'plans' || screen.name === 'planDetail') {
+  if (screen.name === 'companionCare') {
+    content = <CompanionCareScreen care={companion.care} busy={companion.busy} error={companion.error}
+      onAction={companion.act} onRetry={companion.retry} onBack={() => goBackTo(screen.backScreen ?? { name: 'home' })} />;
+  } else if (screen.name === 'plans' || screen.name === 'planDetail') {
     content = <PlansScreen data={data} planId={screen.name === 'planDetail' ? screen.planId : undefined}
       onBack={() => goBackTo(screen.name === 'plans' ? { name: 'home' } : { name: 'plans' })}
       onCreate={setId => navigate({ name: 'planEditor', setId, backScreen: screen })}
@@ -1781,6 +1817,13 @@ export default function App() {
     content = (
       <ResultScreen
         result={screen.result}
+        groupReflectionError={groupReflectionError}
+        onRetryGroupReflection={() => reflectResultGroupLearning(screen.result)}
+        companionCare={companion.care}
+        companionEnabled={companion.enabled}
+        companionError={companion.error}
+        onRetryReward={companion.retry}
+        onOpenCompanion={() => navigate({ name: 'companionCare', backScreen: screen })}
         returnLabel={getResultReturnLabel(returnScreen)}
         onReturn={returnScreen.name === 'home' ? goHome : () => goBackTo(returnScreen)}
         onRetry={() => handleRetry(screen.result)}
@@ -1830,6 +1873,8 @@ export default function App() {
       onOpenStudyRecord={() => navigate({ name: 'studyRecord' })}
       onOpenPlans={() => navigate({ name: 'plans' })}
       onOpenSearch={() => navigate({ name: 'search' })}
+      companionCare={companion.care}
+      onOpenCompanion={() => navigate({ name: 'companionCare' })}
       onSave={commitData}
     />
   );

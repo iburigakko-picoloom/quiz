@@ -3,6 +3,7 @@ import type {PublicationPayload} from './publicationPayload';
 import {publicationDigest,publicationFailure,publicationId,publicationResult,parsePublicationStatus,PublicationError,uploadPublication,type PublicationTransport} from './publicationProtocol';
 import type {PublicationJob,PublicationRepository} from './publicationStorage';
 export interface PublicationQueueDependencies {repository:PublicationRepository;scope:string;rpc:PublicationTransport;prepare?:(payload:PublicationPayload)=>Promise<void>;apply:(job:PublicationJob,result:CloudPublishResult)=>Promise<void>}
+export const needsPublicationAttention=(job:PublicationJob)=>job.errorCode!=='cancelled'&&(job.state!=='completed'||job.applied===false||Boolean(job.warning)||Boolean(job.error));
 export class PublicationQueue {
   jobs:PublicationJob[]=[];running=false;revision=0;error='';private listeners=new Set<()=>void>();private task:Promise<void>|null=null;private cancelled=new Set<string>();private creationClock=0;private rerun=false;
   readonly dependencies:PublicationQueueDependencies;
@@ -35,7 +36,7 @@ export class PublicationQueue {
         job={...job,result:publicationResult(authoritative)};
         if(this.cancelled.has(job.id))throw new PublicationError('公開を中止しました。','cancelled',false);
         try {await this.dependencies.apply(job,job.result!);await this.save({...job,applied:true,warning:undefined});await this.dependencies.repository.retirePayload(job.id);}
-        catch(error){await this.save({...job,warning:'公開は完了しましたが、端末への反映・フォルダへの配置を確認できません。',applied:false});console.warn('[QuizMake publication apply]',{operationId:job.id,code:error instanceof PublicationError?error.code:'apply'});}
+        catch(error){await this.save({...job,warning:'公開は済んでいますが、端末・フォルダ・グループの進捗への反映を確認できません。',applied:false});console.warn('[QuizMake publication apply]',{operationId:job.id,code:error instanceof PublicationError?error.code:'apply'});}
         }catch(reason){const error=reason instanceof PublicationError?reason:publicationFailure('network',reason instanceof Error?reason.message:'');if(!error.retryable&&error.code!=='withdrawn')await this.dependencies.rpc('quiz_publish_cancel',{p_job_id:job.id}).catch(()=>{});await this.save({...job,state:'failed',error:error.message,errorCode:error.code,retryable:error.retryable});console.warn('[QuizMake publication]',{operationId:job.id,phase:job.phase,code:error.code,technical:error.technical});}
       }
     }finally{this.running=false;await this.refresh();}};

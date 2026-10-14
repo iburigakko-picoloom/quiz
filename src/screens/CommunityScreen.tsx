@@ -24,6 +24,7 @@ import { useGroupLearning } from '../hooks/useGroupLearning';
 import { groupAccents, groupIcons, type GroupAccent, type GroupIconName } from '../utils/groupLearning';
 import { PublishPicker } from '../components/PublishPicker';
 import { PublicationDetails, publicationPurposes, type PublicationInfo } from '../components/PublicationDetails';
+import { needsPublicationAttention } from '../utils/publicationQueue';
 import { SharedLibrary } from '../components/SharedLibrary';
 import type { SharedFolderPart } from '../utils/sharedFolders';
 import { movePublishedSetFolder } from '../utils/cloudService';
@@ -108,7 +109,7 @@ export function CommunityScreen({
   const [session, setSession] = useState<Session | null>(null);
   const sessionUserId = useRef('');
   sessionUserId.current = session?.user.id ?? '';
-  const publication = usePublicationQueue(session?.user.id ?? '',onPublished);
+  const publication = usePublicationQueue(session?.user.id ?? '',onPublished,data);
   const [addPublicationIds,setAddPublicationIds]=useState<string[]>([]);
   const [sharePublicationIds,setSharePublicationIds]=useState<string[]>([]);
   const publicationWasRunning=useRef(false);
@@ -210,8 +211,8 @@ export function CommunityScreen({
   const isGroupSetDetail = isGroupDetail && Boolean(directSet);
   const isPrimaryRoot = !groupPage && !initialSetId && !initialGroupId && !shareToken && (initialTab === 'discover' || initialTab === 'groups');
   const visiblePublicationJobs = tab === 'groups'
-    ? isGroupDetail ? publication.jobs.filter(job => job.groupId === initialGroupId) : []
-    : publication.jobs.filter(job => !job.groupId);
+    ? isGroupDetail ? publication.jobs.filter(job => job.groupId === initialGroupId && needsPublicationAttention(job)) : []
+    : publication.jobs.filter(job => !job.groupId && needsPublicationAttention(job));
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const canManageSelectedGroup = selectedGroup?.role === 'owner' || selectedGroup?.role === 'admin';
   const ownsFolderContents = (folder: GroupFolderCardData): boolean => folder.createdBy === session?.user.id && folder.sets.every(set => set.ownerId === session?.user.id) && folder.children.every(ownsFolderContents);
@@ -316,6 +317,13 @@ export function CommunityScreen({
     const job=publication.jobs.find(job=>sharePublicationIds.includes(job.id)&&job.state==='completed'&&job.result);
     if(job?.result)setShareResult({url:buildShareUrl(job.result.id,job.result.shareToken),visibility:job.result.visibility});
   },[publication.revision,sharePublicationIds]);
+  useEffect(()=>{
+    if(!addPublicationIds.length||publication.running)return;
+    const completed=addPublicationIds.every(id=>publication.jobs.some(job=>job.id===id&&job.state==='completed'&&job.applied&&!job.warning&&!job.error));
+    if(!completed)return;
+    setAddTarget(null);setAddPublicationIds([]);setAddResults({});setAddReview(false);
+    setAuthMessage('共有先に追加しました');
+  },[publication.revision,publication.running,addPublicationIds]);
 
   useEffect(() => {
     if (!cloudConfigured || tab !== 'discover' || shareToken) return;
@@ -1111,7 +1119,7 @@ export function CommunityScreen({
           <CommunityModal ariaLabel="問題セットを共有" busy={busy} onClose={closeShare} publishing>
               <h2>問題セットを共有</h2>
               <div className="community-share-title"><ProblemSetIcon size={30} /><strong>{data.problemSets.find((set) => set.id === shareLocalSetId)?.title}</strong></div>
-              {sharePublicationIds.length?<><PublicationJobs jobs={publication.jobs.filter(job=>sharePublicationIds.includes(job.id))} onRetry={id=>void publication.retry(id)}/>{shareResult?<button type="button" className="community-primary" onClick={()=>void writeClipboardText(shareResult.url).then(()=>setAuthMessage('共有リンクをコピーしました。'))}>共有リンクをコピー</button>:null}<p>画面を閉じても公開処理は続きます。</p><button type="button" onClick={closeShare}>閉じる</button></>:!shareResult ? (
+              {sharePublicationIds.length?<><PublicationJobs jobs={publication.jobs.filter(job=>sharePublicationIds.includes(job.id))} onRetry={id=>void publication.retry(id)}/>{shareResult?<button type="button" className="community-primary" onClick={()=>void writeClipboardText(shareResult.url).then(()=>setAuthMessage('共有リンクをコピーしました。'))}>共有リンクをコピー</button>:null}{publication.jobs.some(job=>sharePublicationIds.includes(job.id)&&needsPublicationAttention(job))?<p>画面を閉じても公開処理は続きます。</p>:null}<button type="button" onClick={closeShare}>閉じる</button></>:!shareResult ? (
                 <>
                   <fieldset disabled={busy} className="community-share-scope"><legend>共有先</legend>
                     <div className="community-share-options">{([{ value: 'link', label: 'リンク' }, { value: 'public', label: '全体公開' }, { value: 'group', label: 'グループ共有' }] as const).map((option) => <label key={option.value}>

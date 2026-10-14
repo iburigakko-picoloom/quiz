@@ -1,20 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { companionGreeting, companionPraise, isStudyCompanionEnabled, STUDY_COMPANION_EVENT } from '../utils/studyCompanion';
 import './StudyCompanion.css';
-import helloImage from '../assets/companion/hello.webp';
-import praiseImage from '../assets/companion/praise.webp';
-import tiltImage from '../assets/companion/tilt.webp';
-import sitImage from '../assets/companion/sit.webp';
-import lookImage from '../assets/companion/look.webp';
-import standImage from '../assets/companion/stand.webp';
-import turnImage from '../assets/companion/turn.webp';
-import restImage from '../assets/companion/rest.webp';
+import { CompanionCharacter } from './CompanionCharacter';
+import type { CompanionCare } from '../utils/companionCare';
 
-const poses = [helloImage, praiseImage, tiltImage, sitImage, lookImage, standImage, turnImage, restImage];
-
-export function StudyCompanion({ scene, answered = 0, correct = 0, children, compact = false }: { scene: 'home' | 'result'; answered?: number; correct?: number; children?: ReactNode; compact?: boolean }) {
+export function StudyCompanion({ scene, answered = 0, correct = 0, children, compact = false, care, onOpenCare }: { scene: 'home' | 'result'; answered?: number; correct?: number; children?: ReactNode; compact?: boolean; care?: CompanionCare | null; onOpenCare?: () => void }) {
   const [enabled, setEnabled] = useState(isStudyCompanionEnabled);
-  const [pose] = useState(() => poses[Math.floor(Math.random() * poses.length)]);
   const [messageVariant] = useState(() => Math.random());
   useEffect(() => {
     const refresh = () => setEnabled(isStudyCompanionEnabled());
@@ -27,7 +18,8 @@ export function StudyCompanion({ scene, answered = 0, correct = 0, children, com
     {children ?? <p className="study-companion__bubble">{scene === 'home' ? companionGreeting(messageVariant) : companionPraise(answered, correct, messageVariant)}</p>}
     {enabled && (children ? <div className="study-companion__dog">
       {!compact ? <p className="study-companion__bubble">{companionGreeting(messageVariant)}</p> : null}
-      <img src={pose} alt="" draggable={false} />
-    </div> : <img src={pose} alt="" draggable={false} />)}
+      {onOpenCare ? <button className="study-companion__open-care" type="button" aria-label={`${care?.name ?? 'パピィ'}のお世話をする`} onClick={onOpenCare}><CompanionCharacter friendship={care?.friendship} /></button>
+        : <CompanionCharacter friendship={care?.friendship} />}
+    </div> : <CompanionCharacter friendship={care?.friendship} />)}
   </aside>;
 }

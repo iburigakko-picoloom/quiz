@@ -155,7 +155,7 @@ export interface ImportedProblemSet {
 }
 
 export interface QuizResult {
-  sessionAnswers?: { question: Question; selectedIndexes: number[]; correct: boolean; relearned: boolean }[];
+  sessionAnswers?: { question: Question; selectedIndexes: number[]; correct: boolean; relearned: boolean; answerLogId?: string }[];
   mode: 'quiz' | 'review';
   title: string;
   setId?: string;
@@ -200,6 +200,7 @@ export type SyncScreenPage = 'settings' | 'recovery' | 'connect' | 'diagnostics'
 
 export type AppScreen =
   | { name: 'home' }
+  | { name: 'companionCare'; backScreen?: AppScreen }
   | { name: 'plans' }
   | { name: 'planDetail'; planId: string }
   | { name: 'planEditor'; planId?: string; setId?: string; backScreen: AppScreen }

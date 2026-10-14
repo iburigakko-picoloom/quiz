@@ -1,0 +1,30 @@
+Use case: identity-preserve / illustration-story. Asset type: transparent 2D animation rig atlas for an existing educational app companion.
+Input images 1-4 are visual identity and style references for the SAME small black-and-white Papillon dog; preserve exactly its face markings, white forehead blaze, round warm dark eyes, small black nose, huge feathery butterfly ears, long soft white chest fur, black saddle patch, fluffy curled white tail and delicate white paws. This is NOT a new character or an evolution.
+Primary request: produce a production-ready DISASSEMBLED puppet-parts atlas, soft realistic painterly fur matching the references, for fluid whole-body skeletal animation (breathing, blinking, scratching its ear, sitting, lying, sleeping, turning around, raising a paw, bowing and rolling).
+Composition: one square PNG, preferably 2048 x 2048. EXACTLY a 4-column by 4-row invisible uniform grid. Each of the 16 cells contains ONE isolated sprite part, centered and fully inside its cell with at least 12% transparent padding. Rows ordered left to right. No grid lines, no labels, no text, no shadows, no extra parts.
+Row 1:
+cell 1: front-facing dog's head with eyes OPEN, face smiling softly, mouth gently open. ONLY head and a little neck fringe; EXCLUDE BOTH LARGE EARS.
+cell 2: EXACT SAME head, SAME SIZE AND REGISTRATION, both eyes gently CLOSED for blinking and sleeping. EXCLUDE BOTH EARS.
+cell 3: dog's LEFT large black feathery ear alone, including its small fuzzy base, drawn at the original front-facing angle. Ear base at its inner lower edge.
+cell 4: dog's RIGHT large black feathery ear alone, symmetric matching style.
+Row 2:
+cell 1: front-facing SITTING white furry torso from neck to rump, NO head, NO ears, NO legs, NO paws. Soft shaggy chest at top; sufficient hidden fur overlap for joints.
+cell 2: right-facing side-view STANDING white furry torso with same black saddle patch, NO head, NO tail, NO legs or paws. Natural short horizontal dog back and white chest.
+cell 3: rear-facing furry white torso with matching black saddle patch, NO head, NO tail, NO legs.
+cell 4: right-facing PROFILE HEAD with open eyes and same identity, NO large ears; muzzle points right. Full head, no neck/body.
+Row 3:
+cell 1: long LEFT FRONT LEG alone, soft white furry shoulder through foreleg to complete white paw. Straight vertical neutral leg, shoulder at top, foot at bottom; slightly soft edges at shoulder for layering.
+cell 2: matching RIGHT FRONT LEG alone, shoulder at top, foot at bottom.
+cell 3: LEFT HIND LEG alone, from furry haunch through naturally bent hock to complete white paw, neutral sitting bend.
+cell 4: matching RIGHT HIND LEG alone.
+Row 4:
+cell 1: complete fluffy curled white TAIL alone, slight black near its root, root at lower left and plume arching up and right.
+cell 2: white furry raised FOREPAW alone viewed from underneath, natural pink toe pads and pink/black central pad, no arm or face.
+cell 3: back-view of the HEAD, identical black/white fur, NO ears, NO face, no body.
+cell 4: relaxed LYING furry BODY only, side/front three-quarter orientation, head and ears EXCLUDED. Low horizontal torso with same black patch and tucked hind feet; NO foreground front paws so separate legs can attach.
+Critical constraints: true transparent alpha background throughout. No opaque white rectangle behind any sprite. Every part fully visible, clean fine fur alpha edges. Disassembled illustrated puppet pieces only, no anatomical cut surfaces or red material. Preserve the same Papillon dog, age, proportions, coat palette and painterly softness. Head open/closed images must be extremely consistent. Do not draw whole dogs in cells meant for individual parts. This atlas will be assembled into a single adorable fully visible living dog by code.
+
+Mode: built-in image_gen; transparent_background=true.
+References: hello.webp, stand.webp, sit.webp, rest.webp in this directory.
+Original generated PNG retained in the Codex image library; workspace copy: papillon-rig-v2.png.
+Runtime WebP is losslessly encoded from this PNG; the pose artwork and alpha channel are preserved.

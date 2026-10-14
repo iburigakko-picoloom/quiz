@@ -8,5 +8,5 @@ export const LEARNING_REQUIRED_ROW = { schema: 1, kind: 'quiz-learning-idb-requi
 export function isLearningStorageKey(key: string): boolean {
   if (key === 'quizMake:plan:__record_chunks_v1') return false;
   return key.startsWith('quizMake:plan:') || key.startsWith('quizMake:planDay:')
-    || ['quiz-make-creation-notes-v1', 'quiz-make-creation-notes-v1-removed-orphans', 'quiz-make-explanation-requests-v1'].includes(key);
+    || ['quiz-make-creation-notes-v1', 'quiz-make-creation-notes-v1-removed-orphans', 'quiz-make-explanation-requests-v1', 'quizMake:companion:care:v1'].includes(key);
 }

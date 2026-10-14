@@ -6,6 +6,11 @@ import { previewData } from '../fixtures/group-learning';
 import type {AppData,PublicationSource} from '../../src/types';
 import {applyPublishedSource} from '../../src/utils/groupStudySource';
 import {planGroupImport} from '../../src/utils/groupImport';
+import {questionRevision} from '../../src/utils/studyPlans';
+import App from '../../src/App';
+import {saveAppDataResult} from '../../src/storage';
+import {AccountStorageSession,activateAccountStorage,accountLocalStorage,accountNamespace} from '../../src/utils/accountStorage';
+import {writeAccountSyncMarker} from '../../src/utils/accountSync';
 import '../../src/index.css';
 import '../../src/ui-spec.css';
 import '../../src/final-reference.css';
@@ -13,6 +18,13 @@ import '../../src/group-ui.css';
 
 const data = { ...previewData, problemSets: [{ id: 'new-local-set', folderId: 'local-folder', title: '追加用セット', source: '', audience: '授業対策', description: '授業の確認用問題', createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z' }], questions: [{ id: 'new-local-question', setId: 'new-local-set', question: 'プレビュー問題', choices: ['A','B','C','D'] as [string,string,string,string], answerIndex: 0, answerText: 'A', explanation: '', sourcePage: '', category: '', difficulty: 'basic' as const, createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z' }] };
 const publicationScenario = new URLSearchParams(location.search).has('publication');
+const exerciseScenario = new URLSearchParams(location.search).has('exercise');
+// The author studied this question before publishing it to the group.
+data.folders = [{ id: 'local-folder', name: '自分の教材', createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z' }];
+data.progress = [{ questionId: 'new-local-question', answeredCount: 2, correctCount: 2, wrongCount: 0, lastSelectedIndex: 0,
+  lastAnsweredAt: new Date().toISOString(), isReview: true, isAmbiguous: false, reviewLevel: 2, isGraduated: false }];
+data.answerLogs = [{ id: 'before-publication-answer', questionId: 'new-local-question', setId: 'new-local-set', folderId: 'local-folder',
+  questionRevision: questionRevision(data.questions[0]), selectedIndex: 0, isCorrect: true, answeredAt: new Date().toISOString() }];
 const pointerScenario = new URLSearchParams(location.search).has('sourcePointer');
 const publicationSets = ['通信失敗セット', '再起動セット', '後続セット'].map((title, i) => ({ ...data.problemSets[0], id: `publication-local-${i}`, title }));
 const publicationData = { ...data, folders: [{ id: 'local-folder', name: '公開検証フォルダ', createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z' }], problemSets: publicationSets,
@@ -30,4 +42,17 @@ function Preview(){
     document.body.dataset.importedGroupFolder=JSON.stringify({folderId:plan.folderId,count:plan.imported.length});return plan;
   }} onUnpublished={async()=>{}}/><PrimaryBottomNav active="groups" onSelect={()=>{}}/></>;
 }
-createRoot(document.getElementById('root')!).render(enabled?<Preview/>:<p>この画面は隔離したブラウザテスト専用です。</p>);
+async function mount() {
+  if (enabled && exerciseScenario) {
+    const saved = JSON.parse(localStorage.getItem('publication-preview-data-source') ?? 'null');
+    const identity = { project: import.meta.env.VITE_SUPABASE_URL, userId: '00000000-0000-4000-8000-000000000001' };
+    activateAccountStorage(new AccountStorageSession(globalThis.localStorage, { identity, namespace: accountNamespace(identity), legacyUnclaimed: false }));
+    // This exercise tests group aggregates independently of whole-account sync.
+    accountLocalStorage.setItem('quizMake:sync:id', 'a'.repeat(36));
+    writeAccountSyncMarker(identity, 'a'.repeat(36), true);
+    if (!saved || !(await saveAppDataResult(saved)).ok) throw new Error('学習テストの合成データを保存できませんでした。');
+    accountLocalStorage.setItem('quiz-make-welcome-v1', 'done');
+    createRoot(document.getElementById('root')!).render(<App/>);
+  } else createRoot(document.getElementById('root')!).render(enabled?<Preview/>:<p>この画面は隔離したブラウザテスト専用です。</p>);
+}
+void mount();

@@ -1,6 +1,7 @@
 import { accountNativeStorage, getAccountStorageSession, publishLearningStorage, assertAccountStorageCurrent } from './accountStorage';
 import { LEARNING_ORIGINAL_PREFIX, LEARNING_VALUE_PREFIX, LEARNING_MIGRATED_KEY, LEARNING_REQUIRED_KEY, LEARNING_REQUIRED_ROW, isLearningStorageKey } from './learningStorageKeys';
 import { parsePlanDay, parseStudyPlan } from './studyPlans';
+import { COMPANION_CARE_KEY, parseCompanionCare } from './companionCare';
 import { isChunkInternal, RECORD_CHUNK_GUARD_ID, RECORD_CHUNK_GUARD_RAW } from './recordChunkFormat';
 
 export type LearningValue = { schema: 1; key: string; raw: string | null; sha256: string | null; nativeCleanup?: string };
@@ -11,6 +12,7 @@ function validate(key: string, raw: string | null) {
   if (raw === null) return;
   if (key.startsWith('quizMake:plan:')) { if (parseStudyPlan(raw).id !== key.slice('quizMake:plan:'.length)) throw new Error('計画のIDが一致しません。'); }
   else if (key.startsWith('quizMake:planDay:')) { const day = parsePlanDay(raw); if (key !== 'quizMake:planDay:' + day.planId + ':' + day.day) throw new Error('日次目標のIDが一致しません。'); }
+  else if (key === COMPANION_CARE_KEY) parseCompanionCare(raw);
   else if (!Array.isArray(JSON.parse(raw))) throw new Error('メモの保存形式を確認できません。');
 }
 export async function prepareLearningValue(key: string, raw: string | null): Promise<LearningValue> {

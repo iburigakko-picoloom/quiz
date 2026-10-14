@@ -25,6 +25,7 @@ const ENABLE_TABLET_NOTES = true;
 const TABLET_LANDSCAPE_QUERY = '(min-width: 768px)';
 
 export type AnswerHandlerResult = {
+  answerLogId?: string;
   isCorrect: boolean;
   addedToReview: boolean;
   levelLabel?: string;
@@ -283,7 +284,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
     const kind = getAnswerFeedback(previousCorrect, result.isCorrect);
     setFeedback(kind);
     playAnswerFeedback(kind);
-    sessionAnswersRef.current.push({ question: currentQuestion, selectedIndexes: normalizedIndexes, correct: result.isCorrect, relearned: kind === 'relearned' });
+    sessionAnswersRef.current.push({ question: currentQuestion, selectedIndexes: normalizedIndexes, correct: result.isCorrect, relearned: kind === 'relearned', answerLogId: result.answerLogId });
     const answeredQuestionId = currentQuestion.id;
     setSelectedIndexes(normalizedIndexes);
     setLastCorrect(result.isCorrect);

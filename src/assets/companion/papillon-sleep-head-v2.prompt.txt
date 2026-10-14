@@ -1,0 +1,9 @@
+Use case: identity-preserve. Asset type: one transparent head sprite for the existing Papillon companion animation.
+Image 1 is the already-created puppet atlas: match EXACTLY the dog HEAD in its top-left cell, including the same white forehead blaze, black eye masks, skull shape, white cheek fur, small black nose, fur rendering and proportions. Image 2 is the original dog's sleeping pose as an expression reference.
+Primary request: an isolated FRONT-FACING HEAD with both eyes softly CLOSED and mouth CLOSED, peacefully asleep. No tongue visible, no grin. This is the exact SAME young black-and-white Papillon dog, not a new character.
+EXCLUDE the two large butterfly ears, body, legs and tail: separate ears are attached by code. Include only the small fuzzy skull and white cheek/chin fringe. Keep the face pointing straight at the viewer, not tilted or rotated. The sleeping expression must align with the top-left atlas head so it can replace it without changing the silhouette or face position.
+Square composition with the whole small head inside the frame and a clear 12% transparent margin. True alpha transparency with fine natural fur edges. Soft painterly realism matching the references. No background, no text, no props, no shadows, no grid.
+
+Mode: built-in image_gen; transparent_background=true.
+References: papillon-rig-v2.png and rest.webp in this directory.
+PNG master retained; runtime WebP is losslessly encoded from the generated PNG.

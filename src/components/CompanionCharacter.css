@@ -1,0 +1,12 @@
+.companion-character { position: relative; display: block; width: 100%; height: 110px; isolation: isolate; contain: layout paint; }
+.companion-character__canvas { display: block; width: 100%; height: 100%; opacity: 0; transition: opacity 180ms ease; }
+.companion-character__canvas--ready { opacity: 1; }
+.companion-character .companion-character__fallback { position: absolute; inset: 0; width: 100%; height: 100%; max-width: 100%; object-fit: contain; user-select: none; pointer-events: none; }
+.companion-character--large { height: clamp(240px, 35dvh, 320px); max-width: 360px; margin: auto; }
+.companion-character__heart { position: absolute; right: 15%; top: 20%; color: #ed8aa6; font-size: 24px; font-weight: 700; animation: companion-heart 2.4s ease-out both; pointer-events: none; }
+.companion-character--large .companion-character__heart { font-size: 34px; }
+.companion-character__sleep { position: absolute; right: 18%; top: 52%; color: #8b9db6; letter-spacing: 5px; font-size: 20px; animation: companion-heart 3s ease-out both; }
+.companion-character__fallback--breathing { animation: companion-fallback-breathe 3.8s ease-in-out infinite; transform-origin: center 75%; }
+@keyframes companion-fallback-breathe { 50% { transform: scale(1.012, 1.018); } }
+@keyframes companion-heart { 0% { opacity: 0; transform: translateY(10px) scale(.6); } 25%, 65% { opacity: 1; } 100% { opacity: 0; transform: translateY(-20px) scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .companion-character__canvas { transition: none; } .companion-character__heart, .companion-character__sleep, .companion-character__fallback--breathing { animation: none; } }

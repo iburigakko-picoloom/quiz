@@ -54,7 +54,11 @@ export async function replayLocalStorageProjections(db?: IDBDatabase, onlyKeys?:
     return;
   }
   db ??= await openAppDb();
+  const companionBefore = localStorage.getItem('quizMake:companion:care:v1');
   await migrateLearningStorage(db);
+  if (companionBefore !== localStorage.getItem('quizMake:companion:care:v1') && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('quiz-make-companion-care-change'));
+  }
   const read=db.transaction(LOCAL_PROJECTION_STORE); const readDone=done(read);
   const keys=read.objectStore(LOCAL_PROJECTION_STORE).getAllKeys();
   const values=read.objectStore(LOCAL_PROJECTION_STORE).getAll();

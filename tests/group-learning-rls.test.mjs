@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, test } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
+import { reflectGroupSourceLearning } from '../src/utils/groupLearningReflection.ts';
+import { publicationSourceFromSnapshot } from '../src/utils/groupStudySource.ts';
+import { questionRevision } from '../src/utils/studyPlans.ts';
 const pg=await PGlite.create();after(()=>pg.close());
 const owner='00000000-0000-4000-8000-000000000001',member='00000000-0000-4000-8000-000000000002',outsider='00000000-0000-4000-8000-000000000003',group='10000000-0000-4000-8000-000000000001';
 await pg.exec(`
@@ -203,4 +206,36 @@ test('sharing one original into two groups does not share progress; consent and 
   await assert.rejects(call('quiz_group_learning_update',args,types),/not authorized/);await assert.rejects(call('quiz_group_learning_set_read',[groups[0],source.id],['uuid','uuid']),/not authorized/);
   assert.equal((await call('quiz_group_learning_set_read',[groups[1],source.id],['uuid','uuid'])).own.enabled,false);
   assert.deepEqual((await pg.query('select * from public.problem_set_copies')).rows,copies);
+});
+
+test('client publication reflection shares preexisting owner learning through the real authorized RPCs, preserves OFF and rejects lost membership',async()=>{
+  const g='10000000-0000-4000-8000-000000000006';await actor(owner);
+  await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'Automatic original progress']);
+  await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[g,owner,member]);
+  const result=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'studied-before-sharing',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
+  const qs=questions.map((q,i)=>({id:`pre-q${i}`,setId:'studied-before-sharing',logicalId:q.logical_id,question:q.question,choices:q.choices,answerIndex:0,answerText:'A',explanation:'',sourcePage:'',category:q.category,difficulty:q.difficulty}));
+  const shared={id:result.id,localSetId:'studied-before-sharing',ownerId:owner,versionId:result.version_id,questions:qs};
+  const local={id:shared.localSetId,cloudSetId:shared.id,publicationSource:publicationSourceFromSnapshot(shared,owner,shared.localSetId,[g])};
+  const data={questions:qs,problemSets:[local],progress:qs.map((q,i)=>({questionId:q.id,answeredCount:i?1:0,reviewLevel:i||null,isGraduated:i===3})),answerLogs:[{id:'pre-log',setId:local.id,questionId:qs[1].id,questionRevision:questionRevision(qs[1]),answeredAt:new Date().toISOString()}]};
+  const rpc=async(name,a)=>{
+    if(name==='quiz_group_learning_set_read')return call(name,[a.p_group_id,a.p_set_id],['uuid','uuid']);
+    if(name==='quiz_group_progress_consent')return call(name,[a.p_group_id,a.p_set_id,a.p_enabled,a.p_copy_id,a.p_version_id,a.p_expected_generation],['uuid','uuid','boolean','text','uuid','uuid']);
+    return call(name,[a.p_group_id,a.p_set_id,a.p_generation,a.p_copy_id,a.p_version_id,a.p_answered,a.p_levels,a.p_today,a.p_week,a.p_day,a.p_week_start],['uuid','uuid','uuid','text','uuid','integer','integer[]','integer','integer','date','date']);
+  };
+  const copies=await pg.query('select * from public.problem_set_copies');
+  await pg.exec('set role authenticated');
+  try {
+    assert.equal(await reflectGroupSourceLearning(data,local,owner,[g],rpc,{initialize:true}),1);
+    const s=await rpc('quiz_group_learning_set_read',{p_group_id:g,p_set_id:shared.id});
+    assert.equal(s.own.copy_id,local.id);assert.deepEqual(s.members.find(m=>m.user_id===owner).levels,[1,1,1,1]);assert.equal(s.members.find(m=>m.user_id===owner).answered,1);
+    const overview=await call('quiz_group_learning_read',[g,period.day,period.week],['uuid','date','date']);
+    const ownOverview=overview.members.find(m=>m.user_id===owner);
+    assert.deepEqual(ownOverview.levels,[1,1,1,1]);assert.equal(ownOverview.today_count,1);assert.equal(ownOverview.shared_set_count,1);
+    assert.equal(s.members.find(m=>m.user_id===member).levels,null);
+    await rpc('quiz_group_progress_consent',{p_group_id:g,p_set_id:shared.id,p_enabled:false,p_copy_id:null,p_version_id:null,p_expected_generation:s.own.generation});
+    assert.equal(await reflectGroupSourceLearning(data,local,owner,[g],rpc,{initialize:true}),0);
+  } finally {await pg.exec('reset role');}
+  assert.deepEqual((await pg.query('select * from public.problem_set_copies')).rows,copies.rows);
+  await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,owner]);
+  await assert.rejects(reflectGroupSourceLearning(data,local,owner,[g],rpc,{initialize:true}),/not authorized/);
 });

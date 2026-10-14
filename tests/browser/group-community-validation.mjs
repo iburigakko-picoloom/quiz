@@ -43,8 +43,8 @@ try {
       const set=sets.find(s=>s.id===args.p_set_id),c=sourceConsents.get(args.p_set_id);
       result={version_id:set.versionId,own:c??{generation:null,enabled:false,copy_id:null,version_id:null},members:[{user_id:userId,display_name:'あなた',state:c?.levels?'shared':'not_shared',imported:Boolean(c?.enabled),answered:c?.levels?c.answered:null,total:c?.levels?set.questionCount:null,reflected_at:c?.levels?new Date().toISOString():null,levels:c?.levels??null}]};
     }
-    else if(name==='quiz_group_progress_consent'){const c={generation:'source-consent',enabled:args.p_enabled,copy_id:args.p_copy_id,version_id:args.p_version_id};sourceConsents.set(args.p_set_id,c);mutations.push({name,args});result=c;}
-    else if(name==='quiz_group_learning_update'){const c=sourceConsents.get(args.p_set_id);assert.equal(c.copy_id,args.p_copy_id);assert.equal(c.generation,args.p_generation);c.levels=args.p_levels;c.answered=args.p_answered;mutations.push({name,args});result=true;}
+    else if(name==='quiz_group_progress_consent'){const old=sourceConsents.get(args.p_set_id);assert.equal(args.p_expected_generation,old?.generation??null);const c={generation:`source-consent-${mutations.length}`,enabled:args.p_enabled,copy_id:args.p_copy_id,version_id:args.p_version_id};sourceConsents.set(args.p_set_id,c);mutations.push({name,args});result=c;}
+    else if(name==='quiz_group_learning_update'){const c=sourceConsents.get(args.p_set_id);assert.equal(c.enabled,true);assert.equal(c.copy_id,args.p_copy_id);assert.equal(c.generation,args.p_generation);c.levels=args.p_levels;c.answered=args.p_answered;c.today=args.p_today;c.week=args.p_week;mutations.push({name,args});result=true;}
     else if(name==='manage_quiz_group_library') {assert.equal(args.p_action,'create');state.folders.push({id:'new-folder',name:args.p_name,parentId:null,createdBy:userId,creatorName:'あなた',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),importCount:0});result='new-folder';mutations.push({name,args});}
     else if(name==='quiz_manage_group_folder') {
       if(failManagement){failManagement=false;await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({message:'folder changed'})});return;}
@@ -87,24 +87,28 @@ try {
   await page.setViewportSize({width:390,height:844});await importButton.click();await page.getByRole('dialog').getByRole('button',{name:'フォルダごと取り込む',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
   assert.equal(JSON.parse(await page.getAttribute('body','data-imported-group-folder')).count,3);await page.getByText('「CBT対策」を3セット、ホームに取り込みました。',{exact:true}).waitFor();
   await page.getByRole('button',{name:'問題セットを追加'}).click();await page.getByRole('button',{name:'グループから選ぶ'}).click();await page.getByRole('checkbox',{name:/心電図/}).check();await page.getByRole('button',{name:'次へ（1セット）'}).click();await page.getByRole('button',{name:'フォルダに追加する'}).click();await page.getByText('フォルダに追加済み',{exact:true}).waitFor();await page.getByRole('dialog').getByRole('button',{name:'閉じる',exact:true}).click();assert.equal(await page.locator('.group-set-list .library-content-row__open').count(),4);assert.equal(mutations.filter(m=>m.name==='publish_problem_set_versioned').length,0);
-  await page.getByRole('button',{name:'問題セットを追加'}).click();await page.getByRole('checkbox',{name:'追加用セットを選択'}).check();await page.getByRole('button',{name:'次へ（1セット）'}).click();await page.getByRole('button',{name:'フォルダに追加する'}).click();await page.getByText('公開完了',{exact:true}).waitFor();await page.getByRole('dialog').getByRole('button',{name:'閉じる',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.group-set-list .library-content-row__open').length===5);
+  await page.getByRole('button',{name:'問題セットを追加'}).click();await page.getByRole('checkbox',{name:'自分の教材内をまとめて選択'}).check();await page.getByRole('button',{name:'次へ（1セット）'}).click();await page.getByRole('button',{name:'フォルダに追加する'}).click();await page.getByRole('dialog').waitFor({state:'hidden'});await page.waitForFunction(()=>document.querySelectorAll('.group-set-list .library-content-row__open').length===5);
+  assert.equal(await page.locator('.publication-jobs').count(),0);assert.equal(await page.getByText('公開完了',{exact:true}).count(),0);
+  await page.screenshot({path:`tmp/group-publication-success-${Date.now()}-390.png`});
+  assert.equal(sourceConsents.get('new-cloud-set').copy_id,'new-local-set');assert.deepEqual(sourceConsents.get('new-cloud-set').levels,[0,0,1,0]);assert.equal(sourceConsents.get('new-cloud-set').answered,1);assert.equal(sourceConsents.get('new-cloud-set').today,1);
   assert.deepEqual(mutations.find(m=>m.name==='quiz_publish_finish').args.group_ids,['preview-group']);assert.equal(state.placements.find(p=>p.setId==='new-cloud-set').folderId,'folder-0');assert.deepEqual(errors,[]);console.log('Real CommunityScreen with isolated RPCs: icon, empty folder, existing-set placement and resumable publication passed');
   const readsBefore=requests.filter(n=>n==='get_shared_problem_set_versioned').length;
-  await page.getByRole('tab',{name:'概要',exact:true}).click();await page.getByRole('button',{name:'自分',exact:true}).click();await page.getByRole('img',{name:/進捗、1問、Level0 100%/}).waitFor();
-  assert.ok(requests.filter(n=>n==='get_shared_problem_set_versioned').length>readsBefore);assert.equal(mutations.some(m=>m.name==='quiz_group_progress_consent'),false);
+  await page.getByRole('tab',{name:'概要',exact:true}).click();await page.getByRole('button',{name:'自分',exact:true}).click();await page.getByRole('img',{name:/進捗、1問、.*Level2 100%/}).waitFor();
+  assert.ok(requests.filter(n=>n==='get_shared_problem_set_versioned').length>readsBefore);assert.equal(mutations.filter(m=>m.name==='quiz_group_progress_consent').length,1);
   await page.getByRole('tab',{name:/フォルダ/}).click();
   const copiesBeforeOwnerDetail=requests.filter(name=>name==='record_problem_set_copy').length;
   await page.locator('.group-set-list .library-content-row__open').filter({hasText:'追加用セット'}).click();await page.getByRole('button',{name:'共有元を開く',exact:true}).waitFor();
   assert.equal(await page.locator('.group-preview-card__tags').count(),0);
   await mkdir('qa/group-source-screenshots',{recursive:true});await page.screenshot({path:'qa/group-source-screenshots/owner-source-390.png'});
-  assert.equal(await page.getByRole('button',{name:'取り込む',exact:true}).count(),0);assert.equal(mutations.some(m=>m.name==='quiz_group_progress_consent'),false);
+  assert.equal(await page.getByRole('button',{name:'取り込む',exact:true}).count(),0);assert.equal(mutations.filter(m=>m.name==='quiz_group_progress_consent').length,1);
   await page.getByText(/自分の進捗を共有/).click();await page.getByRole('combobox',{name:'集計する教材'}).waitFor();assert.equal(await page.getByRole('combobox',{name:'集計する教材'}).inputValue(),'new-local-set');
   await page.locator('.community-screen--group-workspace').evaluate(el=>{el.scrollTop=el.scrollHeight;});await page.screenshot({path:'qa/group-source-screenshots/owner-before-consent-390.png'});
+  await page.getByRole('button',{name:'共有をOFFにする',exact:true}).click();await page.getByRole('button',{name:'この教材の集計を共有する',exact:true}).waitFor();assert.equal(sourceConsents.get('new-cloud-set').enabled,false);
   await page.getByRole('button',{name:'この教材の集計を共有する',exact:true}).click();await page.getByRole('button',{name:'共有をOFFにする',exact:true}).waitFor();
   assert.equal(await page.getByRole('combobox',{name:'集計する教材'}).inputValue(),'new-local-set');
   assert.equal(sourceConsents.get('new-cloud-set').copy_id,'new-local-set');assert.equal(requests.filter(name=>name==='record_problem_set_copy').length,copiesBeforeOwnerDetail);
   await page.getByRole('button',{name:'共有元を開く',exact:true}).click();assert.equal(await page.locator('body').getAttribute('data-opened-set'),'new-local-set');
-  await page.locator('.community-screen--group-workspace').evaluate(el=>{el.scrollTop=el.scrollHeight;});await page.screenshot({path:'qa/group-source-screenshots/owner-after-consent-390.png'});console.log('Owner original is automatically linked, no copy is imported, consent remains explicit and source CTA opens the existing local ID');
+  await page.locator('.community-screen--group-workspace').evaluate(el=>{el.scrollTop=el.scrollHeight;});await page.screenshot({path:'qa/group-source-screenshots/owner-after-consent-390.png'});console.log('Prepublication learning is shared from the owner original at publication, successful job cards disappear, no copy is imported, and explicit OFF/ON remains available');
   await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html?publication=1');
   await page.getByRole('tab',{name:/フォルダ/}).click();await page.locator('.group-folder-list .library-content-row__open').first().click();
   await page.getByRole('button',{name:'問題セットを追加'}).click();await page.getByRole('checkbox',{name:'公開検証フォルダ内をまとめて選択'}).check();
@@ -114,12 +118,12 @@ try {
   assert.ok(!await row('通信失敗セット').innerText().then(t=>t.includes('canceling statement')));
   await page.getByRole('dialog').getByRole('button',{name:'閉じる',exact:true}).click();await row('再起動セット').getByText('公開中',{exact:true}).waitFor();
   await page.reload();releaseRestart();
-  await row('再起動セット').getByText('公開完了',{exact:true}).waitFor();await row('後続セット').getByText('公開完了',{exact:true}).waitFor();
   await page.waitForFunction(()=>JSON.parse(localStorage.getItem('publication-preview-applied')??'[]').includes('publication-local-2'));
+  await row('再起動セット').waitFor({state:'hidden'});await row('後続セット').waitFor({state:'hidden'});assert.equal(await page.getByText('公開完了',{exact:true}).count(),0);
   assert.equal(partStarts.filter(p=>p.title==='再起動セット'&&p.start===0).length,1);
   assert.equal(Array.from(uploads.values()).find(j=>j.metadata.title==='再起動セット').questions.length,600);
   const failedId=Array.from(uploads.entries()).find(([,j])=>j.metadata.title==='通信失敗セット')[0];failPublication=false;
-  await row('通信失敗セット').getByRole('button',{name:'このセットを再試行'}).click();await row('通信失敗セット').getByText('公開完了',{exact:true}).waitFor();
+  await row('通信失敗セット').getByRole('button',{name:'このセットを再試行'}).click();await row('通信失敗セット').waitFor({state:'hidden'});
   assert.equal(Array.from(uploads.entries()).find(([,j])=>j.metadata.title==='通信失敗セット')[0],failedId);
   assert.equal(mutations.filter(m=>m.name==='quiz_publish_finish'&&m.args.local_set_id?.startsWith('publication-local-')).length,3);
   await page.waitForFunction(()=>JSON.parse(localStorage.getItem('publication-preview-applied')??'[]').filter(id=>id.startsWith('publication-local-')).length===3);
@@ -159,5 +163,23 @@ try {
   await page.locator('.group-folder-list .library-content-row__open').filter({hasText:'CBT新版'}).click();
   await page.getByRole('button',{name:'不整脈の管理',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'心電図の管理',exact:true}).count(),0);
   assert.deepEqual(errors,[]);console.log('Group management: rename retry, confirmations, remove/delete, member permissions and 320/390/768px layouts passed');
+  const reflectionsBeforeStudy=mutations.filter(m=>m.name==='quiz_group_learning_update'&&m.args.p_set_id==='new-cloud-set').length;
+  const todayBeforeStudy=sourceConsents.get('new-cloud-set').today;
+  await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html?exercise=1');
+  await page.getByRole('button',{name:/自分の教材/}).first().click();
+  await page.getByRole('button',{name:/追加用セット/}).first().click();
+  await page.getByRole('button',{name:'登録順で解く',exact:true}).click();
+  await page.locator('.quiz-choice__text').filter({hasText:/^A$/}).click();
+  await page.getByRole('button',{name:'解答する',exact:true}).click();
+  const exerciseReflection=page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_learning_update')&&response.request().postDataJSON()?.p_set_id==='new-cloud-set'&&response.request().postDataJSON()?.p_today===todayBeforeStudy+1);
+  await page.getByRole('button',{name:'結果へ',exact:true}).click();
+  await page.getByRole('heading',{name:'学習結果',exact:true}).waitFor();
+  await page.waitForFunction(()=>Boolean(document.querySelector('.companion-reward strong')));
+  // The group request completes independently of answer persistence/navigation.
+  assert.equal((await exerciseReflection).status(),200);
+  assert.ok(mutations.filter(m=>m.name==='quiz_group_learning_update'&&m.args.p_set_id==='new-cloud-set').length>reflectionsBeforeStudy);
+  assert.equal(sourceConsents.get('new-cloud-set').today,todayBeforeStudy+1);
+  assert.equal(await page.getByText(/グループの進捗を反映できません/).count(),0);assert.deepEqual(errors,[]);
+  console.log('Full App: a saved exercise on the original updates group progress at the result screen, including an on-demand large-manifest snapshot');
 } catch(error) {console.error('Mock requests:',requests);console.error('Browser errors:',errors);if(page)console.error('Rendered test screen:',await page.locator('body').innerText());throw error;}
 finally {await browser?.close();server.kill();}
