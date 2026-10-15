@@ -100,6 +100,7 @@ async function loadCategoryNoteRawUnlocked(key: string): Promise<string | null> 
       if (error instanceof CategoryNoteStorageTimeoutError) abandonNoteDbConnection();
     }
   }
+  if (indexedBackup !== null && (await readDeletedNoteKeys([key])).has(key)) return null;
   const preferred = pickNewestNoteRaw([indexedBackup]);
   if (indexedBackupError && preferred === null) {
     throw createCategoryNoteReadError(indexedBackupError);
@@ -284,9 +285,21 @@ export async function exportCategoryNotesRaw(
     }
   }
   const localFallbacks = Object.fromEntries(localFallbackEntries.filter(([, raw]) => isUsableNoteRaw(raw)));
-  const backupOnlyKey = Object.keys(indexedBackups).find((key) => (
+  const backupOnlyKeys = Object.keys(indexedBackups).filter((key) => (
     indexedNotes[key] === undefined && localFallbacks[key] === undefined
   ));
+  const deletedKeys = await readDeletedNoteKeys(backupOnlyKeys);
+  const backupOnlyKey = backupOnlyKeys.find(key => !deletedKeys.has(key));
+  // Old complete restores left obsolete backups behind. Only an explicit
+  // canonical tombstone proves deletion; absence alone never proves it.
+  const manifestBefore = readCategoryNotesManifest();
+  if (!backupOnlyKey && deletedKeys.size > 0 && manifestBefore.kind === 'valid'
+      && manifestBefore.keys.every(key => indexedNotes[key] !== undefined || localFallbacks[key] !== undefined)) {
+    try {
+      const marker = JSON.parse(localStorage.getItem(CATEGORY_NOTES_RECOVERY_REQUIRED_KEY) ?? 'null');
+      if (marker?.version === 1 && marker.reason === 'backup-only') safeLocalStorageRemove(CATEGORY_NOTES_RECOVERY_REQUIRED_KEY);
+    } catch { /* Unreadable provenance remains protected. */ }
+  }
   const authoritativeKeys = new Set([
     ...Object.keys(indexedNotes),
     ...Object.keys(localFallbacks),
@@ -405,6 +418,26 @@ export function replaceCategoryNotesRaw(
     }
     return Object.keys(validNotes).length;
   }, options);
+}
+
+async function readDeletedNoteKeys(keys: string[]): Promise<Set<string>> {
+  const deleted = new Set<string>();
+  if (!keys.length || !isIndexedDbAvailable()) return deleted;
+  const db = await openNoteDb();
+  if (!db.objectStoreNames.contains('appRecords')) return deleted;
+  await waitForCategoryNoteStorage(new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('appRecords', 'readonly');
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error('Cannot verify deleted notes.'));
+    for (const key of keys) {
+      const request = tx.objectStore('appRecords').get(JSON.stringify(['indexedDbNotes', key]));
+      request.onsuccess = () => {
+        const row = request.result;
+        if (row?.collection === 'indexedDbNotes' && row.id === key && row.raw === null) deleted.add(key);
+      };
+    }
+  }));
+  return deleted;
 }
 
 type CategoryNotesManifestRead =

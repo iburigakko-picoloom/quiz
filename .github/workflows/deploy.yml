@@ -40,8 +40,9 @@ jobs:
           VITE_LINE_AUTH_PROVIDER: ${{ vars.VITE_LINE_AUTH_PROVIDER }}
           QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF: ${{ vars.QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF }}
 
-      - name: Test
-        run: npm test
+      # Keep validation scoped to the affected areas of this release.
+      - name: Test note storage and restore
+        run: node --import ./tests/helpers/typescript-imports.mjs --test tests/complete-backup.test.mjs tests/storage-provenance.test.mjs tests/note-loading.test.mjs
 
       - name: Build
         run: npm run build

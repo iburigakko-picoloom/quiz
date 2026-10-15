@@ -79,6 +79,32 @@ test('one shared transaction replaces app/notes/images/settings and stores a ful
   assert.equal((await restoreFileBackup(original)).ok,true);assert.equal((await listWholeRecovery()).length,count);
 });
 
+test('restoring a snapshot removes obsolete note backups; older restores recover only proven deletions',async()=>{
+  const priorArchives=new Set((await listWholeRecovery()).map(row=>row.id));
+  const key='quizMake:notes:s:removed',orphan='quizMake:notes:s:unknown';
+  await notes.saveCategoryNoteRaw(key,raw);
+  await notes.saveCategoryNoteRaw(key,JSON.stringify({dataUrl:'later',updatedAt:'2026-10-06T00:00:00Z'}));
+  assert.equal((await restoreFileBackup(original)).ok,true);
+  assert.equal((await notes.exportCategoryNotesRaw())[key],undefined);
+  assert.equal(await notes.loadCategoryNoteRaw(key),null);
+  const read=db.transaction('categoryNoteBackups'),count=read.objectStore('categoryNoteBackups').count();
+  await new Promise((r,j)=>{read.oncomplete=r;read.onabort=j;});assert.equal(count.result,0);
+  // Simulate the leftover backup and diagnostic marker from an older build.
+  async function putBackup(id){const tx=db.transaction('categoryNoteBackups','readwrite');tx.objectStore('categoryNoteBackups').put(raw,id);await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=j;});}
+  await putBackup(key);
+  accountLocalStorage.setItem(notes.CATEGORY_NOTES_RECOVERY_REQUIRED_KEY,JSON.stringify({version:1,reason:'backup-only'}));
+  assert.equal(await notes.loadCategoryNoteRaw(key),null);
+  assert.equal((await notes.exportCategoryNotesRaw())[key],undefined);
+  assert.equal(accountLocalStorage.getItem(notes.CATEGORY_NOTES_RECOVERY_REQUIRED_KEY),null);
+  assert.equal((await notes.exportCategoryNotesRaw({mode:'recovery'}))[key],raw,'recovery retains the old original');
+  await putBackup(orphan);
+  await assert.rejects(notes.exportCategoryNotesRaw(),/バックアップにしか/);
+  assert.equal((await notes.exportCategoryNotesRaw({mode:'recovery'}))[orphan],raw);
+  const tx=db.transaction('categoryNoteBackups','readwrite');tx.objectStore('categoryNoteBackups').clear();await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=j;});
+  accountLocalStorage.removeItem(notes.CATEGORY_NOTES_RECOVERY_REQUIRED_KEY);
+  for(const row of await listWholeRecovery())if(!priorArchives.has(row.id))await deleteWholeRecovery(row.id);
+});
+
 test('a newer durable native note fallback is archived before restore and cannot supersede the chosen restored note',async()=>{
   const fallback=JSON.stringify({dataUrl:'fallback-newer',updatedAt:'2030-01-01T00:00:00Z'});
   values.set(noteKey,fallback);

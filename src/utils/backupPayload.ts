@@ -207,6 +207,9 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     const retainedIds=new Set(retainedImages.map(image=>image.id));
     await saveAppRecords(db,target,new Date().toISOString(),undefined,[],tx=>{
       queueArchive(tx);
+      // The verified pre-restore archive retains originals; stale per-note
+      // backups must not resurrect notes omitted by the chosen snapshot.
+      tx.objectStore('categoryNoteBackups').clear();
       for(const key of new Set([...storedNoteKeys,...Object.keys(previousNotes),...Object.keys(notes)])){
         if(notes[key]===undefined)tx.objectStore('categoryNotes').delete(key);else tx.objectStore('categoryNotes').put(notes[key],key);
         queueAuxiliaryRecordWrite(tx,'indexedDbNotes',key,notes[key]??null,!sync);
