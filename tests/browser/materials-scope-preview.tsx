@@ -5,6 +5,7 @@ import {MaterialsDrawer,type MaterialsDrawerHandle} from '../../src/components/M
 import {saveCategoryNoteRaw,loadCategoryNoteRaw} from '../../src/utils/noteStorage';
 import {materialIndexKey,materialFileKey,loadMaterials,annotationCategory} from '../../src/utils/materialStorage';
 import {applyReferenceLinks,type ReferenceLink} from '../../src/utils/referenceLinking';
+import {linkQuestionMaterialPage} from '../../src/utils/materialModel';
 import {saveAppDataAsync} from '../../src/storage';
 import type {AppData} from '../../src/types';
 import '../../src/index.css';import '../../src/ui-spec.css';import '../../src/final-reference.css';
@@ -30,7 +31,7 @@ function Preview(){
  const select=async(id:string)=>{await drawer.current?.flush();if(id===questionId)await drawer.current?.openReference(current.questions.find(q=>q.id===id)?.materialReferences?.[0]);else setQuestionId(id);};
  const link=async(links:ReferenceLink[])=>{const next=applyReferenceLinks(current,setId,links,stamp);if(!await saveAppDataAsync(next))throw Error('fixture save failed');setCurrent(next);};
  return <main style={{padding:20}}><h1>脳神経</h1><button onClick={()=>void select('q1')}>直接追加したPDFを開く</button><button onClick={()=>void select('q2')}>既存の参照先を開く</button>
-  <MaterialsDrawer ref={drawer} problemSetId={setId} setIds={current.problemSets.map(s=>s.id)} questionId={questionId} references={setId==='local'?question?.materialReferences:undefined} questions={current.questions.filter(q=>q.setId===setId)} onLinkBatch={link} open={open} onOpenChange={setOpen}/>
+  <MaterialsDrawer ref={drawer} problemSetId={setId} setIds={current.problemSets.map(s=>s.id)} questionId={questionId} references={setId==='local'?question?.materialReferences:undefined} questions={current.questions.filter(q=>q.setId===setId)} onLinkBatch={link} onLinkPage={async(reference,linked)=>{const next=linkQuestionMaterialPage(current,questionId,reference,linked,stamp);if(!await saveAppDataAsync(next))throw Error('fixture save failed');setCurrent(next);}} open={open} onOpenChange={setOpen}/>
  </main>;
 }
 if(import.meta.env.VITE_SUPABASE_URL==='https://materials-scope.example.test'){

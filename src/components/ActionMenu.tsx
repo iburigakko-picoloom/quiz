@@ -4,6 +4,7 @@ import './ActionMenu.css';
 /** An action menu, not an accordion: outside taps, Tab out and Escape dismiss it. */
 export const ActionMenu = forwardRef<HTMLDetailsElement, { className: string; children: ReactNode }>(function ActionMenu({ className, children }, ref) {
   const menu = useRef<HTMLDetailsElement>(null);
+  const tabbing = useRef(false);
   useImperativeHandle(ref, () => menu.current!, []);
 
   useEffect(() => {
@@ -19,10 +20,15 @@ export const ActionMenu = forwardRef<HTMLDetailsElement, { className: string; ch
   }, []);
 
   return <details ref={menu} className={`action-menu ${className}`}
+    onPointerDownCapture={() => { tabbing.current = false; }}
     onBlur={(event) => {
+      // Safari can blur the summary without focusing a tapped button. Keep the
+      // menu mounted until its click runs; outside taps are handled above.
+      if (event.relatedTarget === null && !tabbing.current) return;
       if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
     }}
     onKeyDown={(event) => {
+      tabbing.current = event.key === 'Tab';
       if (event.key !== 'Escape' || !event.currentTarget.open) return;
       event.preventDefault();
       event.stopPropagation();
