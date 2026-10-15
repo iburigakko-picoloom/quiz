@@ -537,3 +537,49 @@ test('cloud read diagnostics distinguish HTTP failures from connection failures 
   const memory=await sync.downloadSyncData(syncId);assert.equal(memory.code,'memory_limit');assert.equal(memory.diagnostic.cause,'memory');
   assert.equal(JSON.stringify(await storage.loadAppDataAsync()),before);
 });
+
+
+test('diagnostics use one bounded whole-read page without downloading snapshots or PDFs',async()=>{
+  localStorage.clear();sync.setStoredSyncId(syncId);
+  const calls=[];
+  globalThis.fetch=async(url,init)=>{
+    calls.push(String(url));const body=JSON.parse(init.body);assert.equal(body.p_sync_id,syncId);
+    if(String(url).endsWith('/quiz_sync_probe'))return rpcResponse([]);
+    if(String(url).endsWith('/quiz_whole_status'))return rpcResponse({code:'ok',enabled:true,revision:398});
+    assert.ok(String(url).endsWith('/quiz_whole_read'));
+    assert.deepEqual(body,{p_sync_id:syncId,p_expected_revision:398,p_after_key:'',p_limit:1});
+    return rpcResponse({code:'ok',revision:398,rows:[{id:'sample'}],hasMore:true});
+  };
+  const before=JSON.stringify(await storage.loadAppDataAsync());
+  const result=await sync.runSyncDiagnostic(syncId);
+  assert.equal(result.ok,true,JSON.stringify(result));assert.equal(calls.length,3);
+  assert.equal(JSON.stringify(await storage.loadAppDataAsync()),before);
+});
+
+test('bounded diagnostic reports actual read failures and revision races without falling back to a huge snapshot',async()=>{
+  localStorage.clear();sync.setStoredSyncId(syncId);
+  for(const fault of ['network','conflict','invalid','denied']){
+    globalThis.fetch=async url=>{
+      if(String(url).endsWith('/quiz_sync_probe'))return rpcResponse([]);
+      if(String(url).endsWith('/quiz_whole_status'))return rpcResponse({code:'ok',enabled:true,revision:7});
+      assert.ok(String(url).endsWith('/quiz_whole_read'));
+      if(fault==='network')throw new TypeError('Failed to fetch');
+      if(fault==='denied')return rpcResponse({},403);
+      return rpcResponse(fault==='conflict'?{code:'conflict'}:{code:'ok',revision:8,rows:[],hasMore:false});
+    };
+    const result=await sync.runSyncDiagnostic(syncId);assert.equal(result.ok,false,fault);assert.equal(result.steps.at(-1).ok,false);
+  }
+});
+
+test('legacy diagnostic fallback reads snapshot references only',async()=>{
+  localStorage.clear();sync.setStoredSyncId(syncId);let snapshots=0;
+  for(const legacy of [false,true]){
+    globalThis.fetch=async url=>{
+      if(String(url).endsWith('/quiz_sync_probe'))return rpcResponse([]);
+      if(String(url).endsWith('/quiz_whole_status'))return legacy?rpcResponse({},404):rpcResponse({code:'ok',enabled:false,revision:0});
+      assert.ok(String(url).endsWith('/quiz_sync_read'));snapshots++;return rpcResponse([]);
+    };
+    const result=await sync.runSyncDiagnostic(syncId);assert.equal(result.ok,true,JSON.stringify(result));
+  }
+  assert.equal(snapshots,2);
+});

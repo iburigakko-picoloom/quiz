@@ -9,6 +9,9 @@ await pg.exec(await readFile(new URL('../supabase/migrations/20261005154212_quiz
 await pg.exec(await readFile(new URL('../supabase/migrations/20261007105000_quiz_whole_finish_typed_rows.sql',import.meta.url),'utf8'));
 await pg.exec("create schema auth; create function auth.uid() returns uuid language sql as $$select case when coalesce(current_setting('test.actor',true),'')='' then null else md5(current_setting('test.actor'))::uuid end$$; grant usage on schema auth to authenticated;");
 await pg.exec(await readFile(new URL('../supabase/migrations/20261007165623_quiz_answer_sync_optimization.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261012003104_sync_timeout_bounded_work.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261012021630_sync_finish_stream_changes.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261015024034_sync_concurrent_staging_and_finish_budget.sql',import.meta.url),'utf8'));
 const stamp='2026-10-05T00:00:00Z',id='1'.repeat(36),oldId='2'.repeat(36);
 const app={version:1,folders:[],problemSets:[],questions:[],progress:[],answerLogs:[]};
 const payload={version:1,updatedAt:stamp,localStorage:{'quiz-make-app-data-v1':JSON.stringify(app)},indexedDbNotes:{}};
@@ -100,7 +103,7 @@ test('invalid and cross-account requests do not alter live data or allocate temp
   const pending=await prepare([record('d','D')],2);assert.equal((await pending.begin()).code,'ok');
   assert.equal((await call('quiz_whole_part',[id,pending.commit,randomUUID(),0,'[{"key":"bad"}]'],['text','uuid','uuid','integer','text'])).code,'invalid');
   assert.equal((await call('quiz_whole_part',[id,pending.commit,randomUUID(),0,'not json'],['text','uuid','uuid','integer','text'])).code,'invalid');
-  assert.equal((await (await prepare([],2)).begin()).code,'busy');
+  const other=await prepare([],2);assert.equal((await other.begin()).code,'ok');await call('quiz_whole_abort',[id,other.commit],['text','uuid']);
   await pg.query("select set_config('test.actor','intruder',false)");await assert.rejects(status(),/sync_not_found/);await assert.rejects(pending.upload(),/sync_not_found/);await assert.rejects(pending.finish(),/sync_not_found/);
   await pg.query("select set_config('test.actor','owner',false)");
   await pg.query("update private.quiz_sync_operations set operation=jsonb_set(operation,'{expiresAt}',to_jsonb('2000-01-01'::text)) where operation_id=$1",[pending.commit]);
@@ -165,4 +168,67 @@ test('many-record replacement decodes all parts once and preserves exact bytes, 
   const summary=(await pg.query('select count(*) filter(where raw is null)::integer deleted,sum(octet_length(raw))::bigint bytes from private.quiz_sync_records where sync_id=$1',[sync])).rows[0];
   assert.equal(summary.deleted,4894);assert.equal(Number(summary.bytes),chosen.reduce((n,r)=>n+Buffer.byteLength(r.raw),0));
   assert.equal((await pg.query('select payload_bytes from private.quiz_sync_heads where sync_id=$1',[sync])).rows[0].payload_bytes,summary.bytes);
+
+  // Replacing a large snapshot with mostly identical content must not rewrite
+  // thousands of unchanged rows. Position-only edits and omissions still count.
+  const next=chosen.slice(1).map(row=>({...row}));
+  next[0].raw=JSON.stringify({id:next[0].id,name:'edited 日本語'});
+  next[1].position=20000;
+  next.push({...record('new-row','new content'),position:20001});
+  await replace(next,2);
+  const versions=(await pg.query('select record_id,raw,position,revision from private.quiz_sync_records where sync_id=$1',[sync])).rows;
+  assert.equal(versions.filter(row=>row.revision===3).length,4,'only the omission, edit, move and new row are written');
+  assert.equal(versions.find(row=>row.record_id===chosen[0].id).raw,null);
+  assert.equal(versions.find(row=>row.record_id===next[1].id).position,20000);
+  assert.equal(versions.find(row=>row.record_id===next[2].id).revision,2);
+  const current=(await pg.query('select record_key key,collection,record_id id,raw,position from private.quiz_sync_records where sync_id=$1 and raw is not null order by position',[sync])).rows;
+  assert.deepEqual(current,[...next].sort((a,b)=>a.position-b.position));
+  assert.equal(Number((await pg.query('select payload_bytes from private.quiz_sync_heads where sync_id=$1',[sync])).rows[0].payload_bytes),next.reduce((sum,row)=>sum+Buffer.byteLength(row.raw),0));
+  await replace(next,3);
+  assert.deepEqual((await pg.query('select record_id,raw,position,revision from private.quiz_sync_records where sync_id=$1',[sync])).rows,versions,'a new all-identical replacement advances only the head and receipt');
+  assert.equal(Number((await pg.query('select payload_bytes from private.quiz_sync_heads where sync_id=$1',[sync])).rows[0].payload_bytes),next.reduce((sum,row)=>sum+Buffer.byteLength(row.raw),0));
+});
+
+test('failed receipt update rolls back selective writes, omissions, head and staged parts',async()=>{
+  const sync='4'.repeat(36);
+  await pg.query('insert into public.quiz_sync_data(sync_id,updated_at,creator_hash,data) values($1,$2,private.quiz_sync_actor_hash(),$3)',[sync,stamp,JSON.stringify(payload)]);
+  await call('quiz_sync_v2_open',[sync,stamp],['text','timestamptz']);await open(0,sync);
+  const initial=await prepare([record('keep','same'),record('edit','old'),record('omit','old')],0,sync);await initial.begin();await initial.upload();await initial.finish();
+  const pending=await prepare([record('keep','same'),record('edit','new'),record('new','new')],1,sync);await pending.begin();await pending.upload();
+  const snapshot=async()=> (await pg.query('select jsonb_agg(to_jsonb(r) order by record_key) rows from private.quiz_sync_records r where sync_id=$1',[sync])).rows[0].rows;
+  const before=await snapshot();
+  await pg.exec("create function private.fail_timeout_test() returns trigger language plpgsql as $$begin raise exception 'receipt_test_failure';end$$;create trigger fail_timeout_test before update on private.quiz_sync_operations for each row execute function private.fail_timeout_test()");
+  await assert.rejects(pending.finish(),/receipt_test_failure/);
+  assert.deepEqual(await snapshot(),before);assert.equal((await status(sync)).revision,1);
+  assert.equal((await pg.query("select operation->>'state' state from private.quiz_sync_operations where sync_id=$1 and operation_id=$2",[sync,pending.commit])).rows[0].state,'staging');
+  assert.equal((await pg.query("select count(*)::integer n from private.quiz_sync_operations where sync_id=$1 and operation->>'kind'='whole-part'",[sync])).rows[0].n,1);
+  await pg.exec('drop trigger fail_timeout_test on private.quiz_sync_operations;drop function private.fail_timeout_test()');
+  assert.equal((await pending.finish()).revision,2);
+});
+
+
+test('an idle uploader cannot block another device; concurrent staging still permits only one CAS winner',async()=>{
+  const sync='5'.repeat(36);
+  await pg.query('insert into public.quiz_sync_data(sync_id,updated_at,creator_hash,data) values($1,$2,private.quiz_sync_actor_hash(),$3)',[sync,stamp,JSON.stringify(payload)]);
+  await call('quiz_sync_v2_open',[sync,stamp],['text','timestamptz']);await open(0,sync);
+  const idle=await prepare([record('idle','Must remain pending')],0,sync);
+  const winner=await prepare([record('winner','Chosen bytes')],0,sync);
+  const loser=await prepare([record('loser','Must not overwrite')],0,sync);
+  const fourth=await prepare([],0,sync);
+  for(const pending of [idle,winner,loser,fourth])assert.equal((await pending.begin()).code,'ok');
+  assert.equal((await (await prepare([],0,sync)).begin()).code,'busy');
+  assert.equal((await idle.begin()).state,'staging','existing retries bypass the staging cap');
+  await winner.upload();await loser.upload();
+  assert.equal((await winner.finish()).revision,1);
+  assert.equal((await loser.finish()).code,'conflict');
+  assert.equal((await idle.upload()).code,'conflict');
+  assert.equal((await winner.finish()).revision,1,'lost response remains idempotent');
+  const rows=(await call('quiz_whole_read',[sync,1,'',200],['text','bigint','text','integer'])).rows;
+  assert.deepEqual(rows.map(r=>r.id),['winner']);
+  assert.equal((await pg.query("select count(*)::int n from private.quiz_sync_operations where sync_id=$1 and operation->>'kind'='whole-part' and operation->>'commitId'=$2",[sync,loser.commit])).rows[0].n,1,'losing bytes are preserved');
+  const next=await prepare([record('next','Next revision')],1,sync);
+  assert.equal((await next.begin()).code,'ok','stale staging does not block the new head');
+  await next.upload();assert.equal((await next.finish()).revision,2);
+  const config=(await pg.query("select proconfig from pg_proc where oid='public.quiz_whole_finish(text,uuid)'::regprocedure")).rows[0].proconfig;
+  assert.ok(config.includes('statement_timeout=30s'));
 });

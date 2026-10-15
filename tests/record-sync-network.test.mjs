@@ -52,3 +52,15 @@ test('permission errors do not refresh/retry and an account change after 401 nev
   let calls=0,sends=0;const deny=createRecordSyncRpc(options({access:async()=>{calls++;return{userId:'owner',accessToken:'current'}},fetch:async()=>{sends++;return new Response('',{status:403})}}));await assert.rejects(deny.pull(0),e=>e.code==='permission_denied');assert.equal(calls,1);assert.equal(sends,1);
   calls=0;sends=0;const changed=createRecordSyncRpc(options({access:async()=>({userId:++calls===1?'owner':'B',accessToken:'fixture'}),fetch:async()=>{sends++;return new Response('',{status:401})}}));await assert.rejects(changed.push([]),/アカウント/);assert.equal(sends,1);
 });
+
+
+test('finish response budget exceeds its 30-second server deadline without extending ordinary requests',async()=>{
+  const original=globalThis.setTimeout,delays=[];
+  globalThis.setTimeout=(fn,ms,...args)=>{delays.push(ms);return original(fn,ms,...args)};
+  try {
+    const rpc=createRecordSyncRpc(options({fetch:async()=>Response.json({code:'ok'})}));
+    await rpc.whole('finish',{p_operation_id:'stable'});await rpc.whole('status');
+    await createRecordSyncRpc(options({timeoutMs:123,fetch:async()=>Response.json({code:'ok'})})).whole('finish');
+    assert.deepEqual(delays,[45000,30000,123]);
+  } finally {globalThis.setTimeout=original;}
+});

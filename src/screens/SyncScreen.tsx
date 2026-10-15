@@ -1247,7 +1247,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
           {configured && authenticated && hasStrongConnection ? <SyncStatus detailsOpen diagnosticsOnly syncId={activeSyncId} accountId={cloudAccount.id}
             recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={interactionProtected} onLogin={() => setLoginRequested(true)} /> : null}
           {storageUsage ? <p className="sync-help">教材・バックアップの保存領域：{storageUsage}</p> : null}{loginStorageUsage!==null?<p className="sync-help">ログイン・設定の保存領域（概算）：{formatBytes(loginStorageUsage)}（教材用とは別の上限）</p>:null}
-          <p className="sync-help">この診断は設定・端末の書き出し・全体コピー用RPCの読み込みを確認します。変更ごとの同期全体の正常性を保証するものではありません。</p>
+          <p className="sync-help">この診断は設定・端末の書き出し・同期IDを限定した読み込み接続を確認します。全データの送受信完了や内容の整合性を保証するものではありません。</p>
           <section className="sync-advanced__section">
             <h2>接続診断</h2>
             <p>クラウドURL：{environmentStatus.hasUrl ? '設定済み' : '未設定'}／接続キー：{environmentStatus.hasAnonKey ? '設定済み' : '未設定'}</p>

@@ -30,7 +30,7 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
     options.assertCurrent();
     if (access.userId !== options.connection.userId || !access.accessToken) throw new Error('差分同期中にアカウントが変わりました。');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
+    const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? (name === 'quiz_whole_finish' ? 45_000 : 30_000));
     try {
       const requestBody = JSON.stringify({ p_sync_id: options.connection.syncId, ...body });
       const send = (token: string) => (options.fetch ?? fetch)(`${origin}/rest/v1/rpc/${name}`, {

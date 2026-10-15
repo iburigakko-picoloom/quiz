@@ -30,6 +30,7 @@ export function syncFailureReason(failure:SyncFailure):string {
     local_persistence_failed:'端末に保存できません。空き容量を確認してください。',quota:'クラウドの保存容量が上限に達しました。',
     authentication_required:'ログインを確認できません。ログインし直してください。',permission_denied:'この保存先へのアクセス権限がありません。',
     network:'通信に失敗しました。再試行してください。',timeout:'通信が時間切れになりました。再試行してください。',rate_limited:'通信回数の上限に達しました。少し待つと再開します。',
+    busy:'ほかの端末の送信を待っています。少し待って再試行します。',
     server_timeout:'クラウドの保存処理が時間切れになりました。再試行します。',
     payload_too_large:'同期データが容量上限を超えています。',media_pending:'画像・PDFの保存が終わっていません。',media_unsupported:'画像・PDFの形式を確認できません。',
     remote_changed:'クラウドが更新されました。再試行します。',local_changed:'端末が更新されました。再試行します。',conflict:'端末とクラウドの両方に変更があります。',

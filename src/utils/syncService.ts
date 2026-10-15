@@ -1103,7 +1103,42 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
   }
 
   try {
-    const readResult = await downloadSyncData(normalizedSyncId);
+    // Diagnose the same bounded reader used by normal sync. A connectivity
+    // check must not materialize the complete snapshot or download every PDF.
+    const request = async (rpc: string, body: Record<string, unknown> = {}) => {
+      if (!isCurrentSyncConnection(normalizedSyncId)) throw new Error('確認中に同期先が変更されました。');
+      const response = await fetchWithTimeout(`${config.url}/rest/v1/rpc/${rpc}`, {
+        method: 'POST', headers: authenticatedHeaders.value,
+        body: JSON.stringify({ p_sync_id: normalizedSyncId, ...body }),
+      });
+      if (!isCurrentSyncConnection(normalizedSyncId)) throw new Error('確認中に同期先が変更されました。');
+      return response;
+    };
+    const statusResponse = await request('quiz_whole_status');
+    if (statusResponse.status !== 404) {
+      if (!statusResponse.ok) {
+        addStep(await responseToDiagnosticStep(statusResponse, '同期ID限定の読み込み', ''));
+        return { ok: false, steps };
+      }
+      const status: unknown = await statusResponse.json();
+      if (!isRecord(status) || (status.code !== 'not_initialized' && (status.code !== 'ok' || typeof status.enabled !== 'boolean' || !Number.isSafeInteger(status.revision) || Number(status.revision) < 0))) {
+        throw new Error('クラウドの保存状態を確認できませんでした。');
+      }
+      if (status.code === 'ok' && status.enabled) {
+        const response = await request('quiz_whole_read', { p_expected_revision: status.revision, p_after_key: '', p_limit: 1 });
+        if (!response.ok) {
+          addStep(await responseToDiagnosticStep(response, '同期ID限定の読み込み', ''));
+          return { ok: false, steps };
+        }
+        const page: unknown = await response.json();
+        if (!isRecord(page) || page.code !== 'ok' || page.revision !== status.revision || !Array.isArray(page.rows) || page.rows.length > 1 || typeof page.hasMore !== 'boolean') {
+          throw new Error(isRecord(page) && page.code === 'conflict' ? '確認中にクラウドが更新されました。もう一度診断してください。' : 'クラウドの読み込み応答を確認できませんでした。');
+        }
+        addStep({ name: '同期ID限定の読み込み', ok: true, message: '同期IDを限定した分割読み込みに接続できます' });
+        return { ok: steps.every(step => step.ok), steps };
+      }
+    }
+    const readResult = await downloadSyncData(normalizedSyncId, { materialFiles: 'references' });
     addStep(readResult.ok
       ? {
           name: '同期ID限定の読み込み',
