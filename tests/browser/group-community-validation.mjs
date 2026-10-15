@@ -101,11 +101,13 @@ try {
   assert.equal(await page.locator('.group-preview-card__tags').count(),0);
   await mkdir('qa/group-source-screenshots',{recursive:true});await page.screenshot({path:'qa/group-source-screenshots/owner-source-390.png'});
   assert.equal(await page.getByRole('button',{name:'取り込む',exact:true}).count(),0);assert.equal(mutations.filter(m=>m.name==='quiz_group_progress_consent').length,1);
-  await page.getByText(/自分の進捗を共有/).click();await page.getByRole('combobox',{name:'集計する教材'}).waitFor();assert.equal(await page.getByRole('combobox',{name:'集計する教材'}).inputValue(),'new-local-set');
+  const sharing=page.getByRole('switch',{name:'進捗を共有',exact:true});
+  await sharing.waitFor();assert.equal(await sharing.getAttribute('aria-checked'),'true');
   await page.locator('.community-screen--group-workspace').evaluate(el=>{el.scrollTop=el.scrollHeight;});await page.screenshot({path:'qa/group-source-screenshots/owner-before-consent-390.png'});
-  await page.getByRole('button',{name:'共有をOFFにする',exact:true}).click();await page.getByRole('button',{name:'この教材の集計を共有する',exact:true}).waitFor();assert.equal(sourceConsents.get('new-cloud-set').enabled,false);
-  await page.getByRole('button',{name:'この教材の集計を共有する',exact:true}).click();await page.getByRole('button',{name:'共有をOFFにする',exact:true}).waitFor();
-  assert.equal(await page.getByRole('combobox',{name:'集計する教材'}).inputValue(),'new-local-set');
+  await sharing.click();await page.waitForFunction(()=>document.querySelector('[role="switch"][aria-label="進捗を共有"]')?.getAttribute('aria-checked')==='false');assert.equal(sourceConsents.get('new-cloud-set').enabled,false);
+  await sharing.click();await page.waitForFunction(()=>document.querySelector('[role="switch"][aria-label="進捗を共有"]')?.getAttribute('aria-checked')==='true');
+  await page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_learning_set_read'),{timeout:20000});
+  assert.equal(await sharing.getAttribute('aria-checked'),'true','background refresh preserves the opened set and sharing state');
   assert.equal(sourceConsents.get('new-cloud-set').copy_id,'new-local-set');assert.equal(requests.filter(name=>name==='record_problem_set_copy').length,copiesBeforeOwnerDetail);
   await page.getByRole('button',{name:'共有元を開く',exact:true}).click();assert.equal(await page.locator('body').getAttribute('data-opened-set'),'new-local-set');
   await page.locator('.community-screen--group-workspace').evaluate(el=>{el.scrollTop=el.scrollHeight;});await page.screenshot({path:'qa/group-source-screenshots/owner-after-consent-390.png'});console.log('Prepublication learning is shared from the owner original at publication, successful job cards disappear, no copy is imported, and explicit OFF/ON remains available');
@@ -170,8 +172,10 @@ try {
   await page.getByRole('button',{name:/追加用セット/}).first().click();
   await page.getByRole('button',{name:'登録順で解く',exact:true}).click();
   await page.locator('.quiz-choice__text').filter({hasText:/^A$/}).click();
-  await page.getByRole('button',{name:'解答する',exact:true}).click();
   const exerciseReflection=page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_learning_update')&&response.request().postDataJSON()?.p_set_id==='new-cloud-set'&&response.request().postDataJSON()?.p_today===todayBeforeStudy+1);
+  await page.getByRole('button',{name:'解答する',exact:true}).click();
+  assert.equal((await exerciseReflection).status(),200);
+  assert.equal(await page.getByRole('heading',{name:'学習結果',exact:true}).count(),0,'progress is sent before leaving the exercise');
   await page.getByRole('button',{name:'結果へ',exact:true}).click();
   await page.getByRole('heading',{name:'学習結果',exact:true}).waitFor();
   await page.waitForFunction(()=>Boolean(document.querySelector('.companion-reward strong')));
@@ -180,6 +184,6 @@ try {
   assert.ok(mutations.filter(m=>m.name==='quiz_group_learning_update'&&m.args.p_set_id==='new-cloud-set').length>reflectionsBeforeStudy);
   assert.equal(sourceConsents.get('new-cloud-set').today,todayBeforeStudy+1);
   assert.equal(await page.getByText(/グループの進捗を反映できません/).count(),0);assert.deepEqual(errors,[]);
-  console.log('Full App: a saved exercise on the original updates group progress at the result screen, including an on-demand large-manifest snapshot');
+  console.log('Full App: a saved answer updates group progress before opening results, including an on-demand large-manifest snapshot');
 } catch(error) {console.error('Mock requests:',requests);console.error('Browser errors:',errors);if(page)console.error('Rendered test screen:',await page.locator('body').innerText());throw error;}
 finally {await browser?.close();server.kill();}

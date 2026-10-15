@@ -6,6 +6,7 @@ import { importedLearning } from '../utils/groupLearning';
 import { groupStudyCandidates } from '../utils/groupStudySource';
 import { parseLearningSet, type LearningSetSnapshot } from '../utils/groupLearningService';
 import { GroupEmpty, ImportedMemberProgress } from './GroupLearningUi';
+import { watchGroupProgress } from '../utils/groupReflectionQueue';
 
 export function GroupProgress({ data, groupId, set, userId, onClose, onChanged }: { data: AppData; groupId: string; set: CloudProblemSet; userId: string; onClose?: () => void; onChanged?: () => void }) {
   const [snapshot, setSnapshot] = useState<LearningSetSnapshot | null>(null);
@@ -13,6 +14,11 @@ export function GroupProgress({ data, groupId, set, userId, onClose, onChanged }
   const alive = useRef(true); const action = useRef(false);
   const copies = groupStudyCandidates(data,set,userId).filter(s=>Boolean(commonVersionProgress(data,s,set.id,set.versionId??'')));
   const candidatesKey = copies.map(s => s.id).join('|');
+  useEffect(() => watchGroupProgress(() => {
+    if (!alive.current || action.current) return;
+    action.current = true;
+    void read().catch(() => undefined).finally(() => { action.current = false; });
+  }), [groupId, set.id, set.versionId, userId, candidatesKey]);
   const read = async () => {
     const result = parseLearningSet(await groupProgressRpc('quiz_group_learning_set_read', { p_group_id: groupId, p_set_id: set.id }, userId));
     if (!alive.current) return null;

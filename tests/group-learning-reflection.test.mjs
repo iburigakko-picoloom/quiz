@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reflectGroupSourceLearning, reflectOwnedStudyLearning } from '../src/utils/groupLearningReflection.ts';
+import { reflectGroupSourceLearning, reflectOwnedStudyLearning, reflectImportedStudyLearning } from '../src/utils/groupLearningReflection.ts';
 import { applyPublishedSource, publicationSourceFromSnapshot } from '../src/utils/groupStudySource.ts';
 import { questionRevision } from '../src/utils/studyPlans.ts';
 
@@ -34,6 +34,18 @@ function server(initial = {}) {
   return { own, calls, updates, rpc, fail: group => { failGroup = group; }, disableDuringUpdate: () => { disableBeforeUpdate = true; } };
 }
 const enabled = { generation: 'ON', enabled: true, copy_id: 'original', version_id: 'version1' };
+
+test('imported copies reflect saved learning with existing consent, preserving OFF and other selected copies', async () => {
+  const { data } = fixture();
+  const local = data.problemSets[0];
+  local.sourceSetId = 'published'; local.sourceVersionId = 'version1'; local.sourceManifest = local.publicationSource.manifest;
+  data.questions.forEach((q, i) => { q.origin = { setId: 'published', logicalId: q.logicalId, publicationVersionId: 'version1', contentRevision: local.sourceManifest[i].contentRevision, importedContent: questionRevision(q) }; });
+  delete local.publicationSource; delete local.cloudSetId;
+  const mock = server({ group1: enabled, group2: { ...enabled, enabled: false, generation: 'OFF' }, group3: { ...enabled, copy_id: 'another' } });
+  assert.equal(await reflectImportedStudyLearning(data, ['original'], mock.rpc, async id => { assert.equal(id, 'published'); return ['group1','group2','group3']; }, now), 1);
+  assert.deepEqual(mock.updates.get('group1').p_levels, [1,1,1,1]);
+  assert.equal(mock.calls.some(call => call.name === 'quiz_group_progress_consent'), false);
+});
 
 test('publication immediately shares prior levels and prepublication answers from one original in every selected group', async () => {
   const { data } = fixture(), mock = server(), before = JSON.stringify(data);

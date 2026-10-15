@@ -25,7 +25,8 @@ import {planPublicImport} from './utils/publicImport';
 import {planGroupImport} from './utils/groupImport';
 import {hydratePublishedMaterials} from './utils/publicationMaterialService';
 import {applyPublishedSource} from './utils/groupStudySource';
-import {reflectOwnedStudyLearning} from './utils/groupLearningReflection';
+import {reflectOwnedStudyLearning, reflectImportedStudyLearning} from './utils/groupLearningReflection';
+import {createGroupReflectionQueue, GROUP_PROGRESS_UPDATED} from './utils/groupReflectionQueue';
 import type {PublicSet} from './utils/publicLibrary';
 import { SharedImageReceiver } from './components/SharedImageReceiver';
 import { getActiveImageTarget, sharedImageReturnScreen } from './utils/sharedImage';
@@ -98,6 +99,8 @@ import {
   initializeCloudNativeAuth,
   getCloudSession,
   getSharedProblemSet,
+  listMyGroups,
+  listGroupProblemSets,
   groupProgressRpc,
   onNativeAuthResult,
   type CloudProblemSet,
@@ -141,6 +144,9 @@ export default function App() {
   const [authNotice, setAuthNotice] = useState('');
   const [groupReflectionError, setGroupReflectionError] = useState('');
   const groupReflectionAttempt = useRef(0);
+  const importedGroupDestinations = useRef<{ userId: string; expires: number; sets: Map<string, string[]> } | null>(null);
+  const groupReflectionQueue = useRef<ReturnType<typeof createGroupReflectionQueue> | null>(null);
+  if (!groupReflectionQueue.current) groupReflectionQueue.current = createGroupReflectionQueue(setIds => reflectSavedGroupLearning(setIds));
   const [storageRecoverySyncOpen, setStorageRecoverySyncOpen] = useState(false);
   const [libraryMutationBusy, setLibraryMutationBusy] = useState(false);
   const [autoImportBusy, setAutoImportBusy] = useState(false);
@@ -444,6 +450,10 @@ export default function App() {
       return false;
     }
     durableDataRef.current = nextData;
+    if (answerChange) {
+      const answeredSetId = nextData.questions.find(question => question.id === answerChange.questionId)?.setId;
+      if (answeredSetId) void groupReflectionQueue.current!([answeredSetId]);
+    }
     if (shouldPruneQuestionImages(previous.questions, nextData.questions)) void pruneLocalQuestionImages(nextData.questions.map(question => question.id)).catch(() => undefined);
     // A newer mutation may already contain this snapshot plus further changes.
     // Do not roll the UI back to this older snapshot when that happens.
@@ -1406,23 +1416,42 @@ export default function App() {
     navigate({ name: 'quizSession', session });
   };
 
-  const reflectResultGroupLearning = async (result: QuizResult) => {
+  const reflectSavedGroupLearning = async (setIds: string[]) => {
     const attempt = ++groupReflectionAttempt.current;
     setGroupReflectionError('');
-    const current = durableDataRef.current;
-    const answers = result.sessionAnswers ?? [];
-    if (!answers.length) return;
-    const setIds = [...new Set(answers.map(answer => answer.question.setId))];
-    if (!current.problemSets.some(set => setIds.includes(set.id) && set.publicationSource?.groupIds.length)) return;
-    const savedIds = new Set(current.answerLogs.map(log => log.id));
-    if (answers.some(answer => !answer.answerLogId || !savedIds.has(answer.answerLogId))) return;
+    if (!durableDataRef.current.problemSets.some(set => setIds.includes(set.id) && (set.publicationSource?.groupIds.length || set.sourceSetId))) return;
     try {
       const userId = (await getCloudSession())?.user.id;
       if (!userId) return;
-      await reflectOwnedStudyLearning(current, setIds, userId, (name, args) => groupProgressRpc(name, args, userId), getSharedProblemSet);
+      const current = durableDataRef.current;
+      const rpc = (name: Parameters<typeof groupProgressRpc>[0], args: Record<string, unknown>) => groupProgressRpc(name, args, userId);
+      const outcomes = await Promise.allSettled([
+        reflectOwnedStudyLearning(current, setIds, userId, rpc, getSharedProblemSet),
+        reflectImportedStudyLearning(current, setIds, rpc, async publishedId => {
+          let cache = importedGroupDestinations.current;
+          if (!cache || cache.userId !== userId || cache.expires < Date.now()) {
+            const sets = new Map<string, string[]>();
+            for (const group of await listMyGroups()) {
+              for (const shared of await listGroupProblemSets(group.id)) sets.set(shared.id, [...(sets.get(shared.id) ?? []), group.id]);
+            }
+            if ((await getCloudSession())?.user.id !== userId) throw new Error('Account changed');
+            cache = { userId, expires: Date.now() + 60_000, sets };
+            importedGroupDestinations.current = cache;
+          }
+          return cache.sets.get(publishedId) ?? [];
+        }),
+      ]);
+      if (outcomes.some(outcome => outcome.status === 'rejected')) throw new Error('Group reflection failed');
+      window.dispatchEvent(new Event(GROUP_PROGRESS_UPDATED));
     } catch {
       if (attempt === groupReflectionAttempt.current) setGroupReflectionError('学習記録は保存済みですが、グループの進捗を反映できませんでした。通信を確認して再試行できます。');
     }
+  };
+
+  const reflectResultGroupLearning = (result: QuizResult) => {
+    const savedIds = new Set(durableDataRef.current.answerLogs.map(log => log.id));
+    const setIds = [...new Set((result.sessionAnswers ?? []).filter(answer => answer.answerLogId && savedIds.has(answer.answerLogId)).map(answer => answer.question.setId))];
+    return groupReflectionQueue.current!(setIds);
   };
 
   const handleFinish = (result: QuizResult) => {

@@ -13,6 +13,10 @@ export async function reflectGroupSourceLearning(data: AppData, local: ProblemSe
   { initialize = false, now = new Date() }: { initialize?: boolean; now?: Date } = {}) {
   const source = local.publicationSource;
   if (!source || source.ownerId !== userId || local.cloudSetId !== source.setId) return 0;
+  return reflectBoundLearning(data, local, source, groupIds, rpc, initialize, now);
+}
+
+async function reflectBoundLearning(data: AppData, local: ProblemSet, source: { setId: string; versionId: string }, groupIds: readonly string[], rpc: GroupLearningTransport, initialize: boolean, now: Date) {
   const aggregate = importedLearning(data, local, source.setId, source.versionId, now);
   if (!aggregate) throw new Error('共有元の公開版と学習記録を確認できません。');
   let reflected = 0;
@@ -43,6 +47,20 @@ export async function reflectGroupSourceLearning(data: AppData, local: ProblemSe
   }
   // Successful groups stay reflected; retrying sends absolute counts, never an
   // increment. A failed destination cannot silently hide behind a success.
+  if (failures.length) throw failures[0];
+  return reflected;
+}
+
+/** Imported copies use their own provenance and only existing enabled consent. */
+export async function reflectImportedStudyLearning(data: AppData, setIds: readonly string[], rpc: GroupLearningTransport,
+  groupsForSet: (publishedId: string) => Promise<string[]>, now = new Date()) {
+  const failures: unknown[] = [];
+  let reflected = 0;
+  for (const local of data.problemSets.filter(set => setIds.includes(set.id) && set.sourceSetId && set.sourceVersionId && !set.publicationSource)) {
+    try {
+      reflected += await reflectBoundLearning(data, local, { setId: local.sourceSetId!, versionId: local.sourceVersionId! }, await groupsForSet(local.sourceSetId!), rpc, false, now);
+    } catch (error) { failures.push(error); }
+  }
   if (failures.length) throw failures[0];
   return reflected;
 }
