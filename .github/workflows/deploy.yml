@@ -41,8 +41,8 @@ jobs:
           QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF: ${{ vars.QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF }}
 
       # Keep validation scoped to the affected areas of this release.
-      - name: Test note storage and restore
-        run: node --import ./tests/helpers/typescript-imports.mjs --test tests/complete-backup.test.mjs tests/storage-provenance.test.mjs tests/note-loading.test.mjs
+      - name: Test note recovery and sync
+        run: node --import ./tests/helpers/typescript-imports.mjs --test tests/whole-sync-engine.test.mjs tests/storage-provenance.test.mjs
 
       - name: Build
         run: npm run build

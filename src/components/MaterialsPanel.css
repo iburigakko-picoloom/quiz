@@ -118,3 +118,9 @@
 .category-note-panel--memo .category-note-page-slot { padding:8px 12px; container-type:size; }
 
 .materials-controls .materials-memo-button[aria-pressed="true"] { background:#305894; border-color:#305894; color:white; }
+
+.materials-file-picker { position:relative; display:inline-flex; align-items:center; border:1px solid #d5dce4; border-radius:9px; background:white; padding:8px 12px; color:#305894; min-height:40px; font:inherit; overflow:hidden; }
+.materials-file-picker input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.materials-file-picker[aria-disabled="true"] { opacity:.4; }
+.materials-file-picker:focus-within { outline:2px solid #305da3; outline-offset:2px; }
+.materials-menu > div .materials-file-picker { border:0; padding:10px 12px; }

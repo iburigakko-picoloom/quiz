@@ -206,7 +206,7 @@ test('an invalid cloud material reference retains both originals, avoids whole-d
   assert.deepEqual((await storage.loadAppDataAsync()).questions[0].materialReferences,[{materialId:'nonexistent-private-id',pageId:'missing-page'}]);
 });
 
-for(const scenario of ['missing_pdf','orphan_material','initial_missing_pdf','initial_orphan_material'])test(`current ${scenario} stops apply with its exact diagnostic; explicit cloud recovery preserves local originals before replacement`,async()=>{
+for(const scenario of ['missing_pdf','orphan_material','initial_missing_pdf','initial_orphan_material','backup_only'])test(`current ${scenario} stops apply with its exact diagnostic; explicit cloud recovery preserves local originals before replacement`,async()=>{
   const initial=scenario.startsWith('initial_'),fault=scenario.replace('initial_','');
   const fixture=await incomingFixture({count:1}),{buildWholeIncomingFile}=await import('../src/utils/wholeSyncIncoming.ts');
   const {archiveSyncOriginals,validateSyncOriginalsFile}=await import('../src/utils/syncOriginalBackup.ts');
@@ -219,8 +219,10 @@ for(const scenario of ['missing_pdf','orphan_material','initial_missing_pdf','in
   await remoteReplace('Fixture',fixture.rows.filter(row=>row.collection!=='folders'));
   const pdfKey='quizMake:notes:s:__material_pdf_pdf-0';
   const orphanKey='quizMake:notes:orphan:__materials_v1';
-  const damaged=fault==='missing_pdf'?Object.fromEntries(Object.entries(hydrated.indexedDbNotes).filter(([key])=>key!==pdfKey)):{...hydrated.indexedDbNotes,[orphanKey]:JSON.stringify({kind:'quiz-material-index',version:1,problemSetId:'orphan',updatedAt:stamp,materials:[{id:'orphan-material',title:'Private orphan',pages:[{id:'orphan-page',kind:'blank'}]}]})};
+  const damaged=fault==='backup_only'?hydrated.indexedDbNotes:fault==='missing_pdf'?Object.fromEntries(Object.entries(hydrated.indexedDbNotes).filter(([key])=>key!==pdfKey)):{...hydrated.indexedDbNotes,[orphanKey]:JSON.stringify({kind:'quiz-material-index',version:1,problemSetId:'orphan',updatedAt:stamp,materials:[{id:'orphan-material',title:'Private orphan',pages:[{id:'orphan-page',kind:'blank'}]}]})};
   await notes.replaceCategoryNotesRaw(damaged);
+  const backupOnlyKey='quizMake:notes:s:lost-note',backupOnlyRaw=JSON.stringify({dataUrl:'saved-ink',updatedAt:stamp});
+  if(fault==='backup_only'){const tx=db.transaction('categoryNoteBackups','readwrite');tx.objectStore('categoryNoteBackups').put(backupOnlyRaw,backupOnlyKey);await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=j;});}
   const source=await records.readAppRecordSnapshot(db),generation=await readUserEditGeneration(db);
   await acknowledgeIdenticalWhole(db,{version:1,connection,serverRevision:(await transport.whole('status')).revision,userGeneration:generation,digest:await (await import('../src/utils/wholeSyncDigest.ts')).computeWholeRecordDigest([...source.records.values()].filter(r=>r.raw!==null).map(r=>({...r,revision:r.serverRevision})))});
   await remoteReplace('Cloud PDF restored',fixture.rows.filter(row=>row.collection!=='folders'));
@@ -230,24 +232,27 @@ for(const scenario of ['missing_pdf','orphan_material','initial_missing_pdf','in
   const exact={...guards,assertCurrent:current,incoming:(rows,options)=>buildWholeIncomingFile(db,rows,fixture.transport,current,undefined,options?.allowMissingImages),archiveOriginals:(side,rows)=>archiveSyncOriginals(db,connection,side,rows,media,fixture.transport,current)};
   const receive=()=>runWholeRecordSync(db,connection,transport,exact);
   const deviceBefore=await storage.loadAppDataAsync(),cloudBefore=JSON.stringify(await readCloudRows()),outboxBefore=JSON.stringify(await records.readAppOutbox(db));
-  const code=fault==='missing_pdf'?'pdf_missing':'material_reference';
-  await assert.rejects(receive(),error=>error.code===code&&error.diagnostic.side==='local'&&error.diagnostic.referenceIssues[0].reason===(fault==='missing_pdf'?'missing_pdf':'missing_owner'));
-  assert.deepEqual(await storage.loadAppDataAsync(),deviceBefore);assert.deepEqual(await notes.exportCategoryNotesRaw(),damaged);
+  const code=fault==='backup_only'?'note_integrity':fault==='missing_pdf'?'pdf_missing':'material_reference';
+  await assert.rejects(receive(),error=>error.code===code&&error.diagnostic.side==='local'&&(fault==='backup_only'||error.diagnostic.referenceIssues[0].reason===(fault==='missing_pdf'?'missing_pdf':'missing_owner')));
+  assert.deepEqual(await storage.loadAppDataAsync(),deviceBefore);if(fault==='backup_only')await assert.rejects(notes.exportCategoryNotesRaw(),e=>e.code==='note_integrity');else assert.deepEqual(await notes.exportCategoryNotesRaw(),damaged);
   assert.equal(JSON.stringify(await readCloudRows()),cloudBefore);assert.equal(JSON.stringify(await records.readAppOutbox(db)),outboxBefore);
   const shown=await readWholeMeta(db,'wholeConflict',connection);assert.ok(shown);assert.equal(shown.choice,undefined);
-  await assert.rejects(receive(),error=>error.code===code);
+  if(fault==='backup_only')assert.equal((await receive()).status,'conflict');else await assert.rejects(receive(),error=>error.code===code);
   assert.equal((await readWholeMeta(db,'wholeConflict',connection)).choice,undefined,'no side is selected automatically');
+  if(fault!=='backup_only'){
   await chooseWholeConflict(db,connection,shown,'local',{preferSelected:true});
   await assert.rejects(receive(),error=>error.code===code&&error.diagnostic.side==='local');
-  assert.deepEqual(await storage.loadAppDataAsync(),deviceBefore);assert.deepEqual(await notes.exportCategoryNotesRaw(),damaged);
+  assert.deepEqual(await storage.loadAppDataAsync(),deviceBefore);if(fault==='backup_only')await assert.rejects(notes.exportCategoryNotesRaw(),e=>e.code==='note_integrity');else assert.deepEqual(await notes.exportCategoryNotesRaw(),damaged);
   assert.equal(JSON.stringify(await readCloudRows()),cloudBefore);
   const selectedLocal=await readWholeMeta(db,'wholeConflict',connection);assert.equal(selectedLocal.choice,'local');
-  await chooseWholeConflict(db,connection,selectedLocal,'remote',{preferSelected:true});
+  }
+  await chooseWholeConflict(db,connection,await readWholeMeta(db,'wholeConflict',connection),'remote',{preferSelected:true});
   assert.equal((await receive()).status,'done');assert.deepEqual(await names(),['Cloud PDF restored']);
   assert.equal(await notes.loadCategoryNoteRaw(pdfKey),hydrated.indexedDbNotes[pdfKey]);assert.equal(JSON.stringify(await readCloudRows()),cloudBefore);
   const backups=await Promise.all((await listSavedBackups()).map(row=>getSavedBackup(row.id)));
   const preserved=backups.filter(row=>row?.format==='originals').map(row=>JSON.parse(row.raw)).find(file=>file.side==='local'&&file.localCommitId===source.state.commitId);
   assert.ok(preserved);assert.equal(await validateSyncOriginalsFile(preserved),true);
+  if(fault==='backup_only')assert.deepEqual(preserved.noteBackups,[{key:backupOnlyKey,raw:backupOnlyRaw}]);
   assert.ok(preserved.notes.some(row=>row.key==='quizMake:notes:s:__materials_v1'));
   assert.deepEqual(Object.fromEntries(preserved.notes.map(row=>[row.key,row.raw])),damaged);
   for(const row of source.records.values()){

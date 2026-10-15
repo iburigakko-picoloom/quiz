@@ -1,3 +1,4 @@
+import { SyncDataError } from './syncDataIntegrity';
 import { accountLocalStorage as localStorage } from './accountStorage';
 import { advanceLocalDataRevision } from './localDataRevision';
 import { validMaterialRecord } from './materialModel';
@@ -319,12 +320,12 @@ export async function exportCategoryNotesRaw(
   if (backupOnlyKey) {
     markCategoryNotesRecoveryRequiredBestEffort('backup-only');
     if (options.mode !== 'recovery') {
-      throw new Error('端末のノートが復旧用バックアップにしか残っていないため、古い内容や欠けた内容でクラウドを上書きしないよう保存を中止しました。');
+      throw new SyncDataError('note_integrity', '端末のノートが復旧用バックアップにしか残っていないため、古い内容や欠けた内容でクラウドを上書きしないよう保存を中止しました。', { function: 'exportFileBackup', stage: 'local_backup_validate', side: 'local', cause: 'missing' });
     }
   }
 
   if (isCategoryNotesRecoveryRequired() && options.mode !== 'recovery') {
-    throw new Error('端末のノートは復旧確認が必要な状態です。欠けた内容でクラウドを上書きしないよう保存を中止しました。先にクラウドから読み込むか、バックアップを確認してください。');
+    throw new SyncDataError('note_integrity', '端末のノートは復旧確認が必要な状態です。欠けた内容でクラウドを上書きしないよう保存を中止しました。先にクラウドから読み込むか、バックアップを確認してください。', { function: 'exportFileBackup', stage: 'local_backup_validate', side: 'local', cause: 'missing' });
   }
 
   const manifest = readCategoryNotesManifest();
@@ -548,7 +549,7 @@ function writeCategoryNotesManifestBestEffort(keys: Iterable<string>): boolean {
   }
 }
 
-function isCategoryNotesRecoveryRequired(): boolean {
+export function isCategoryNotesRecoveryRequired(): boolean {
   try {
     return localStorage.getItem(CATEGORY_NOTES_RECOVERY_REQUIRED_KEY) !== null;
   } catch {

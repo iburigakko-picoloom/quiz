@@ -17,7 +17,7 @@ import { SyncInterruptedError } from './syncInterruption';
 
 export const SYNC_ORIGINALS_FORMAT='quiz-make-sync-originals-v1';
 type ImageOriginal={id:string;questionId:string;name:string;type:string;addedAt:string;dataUrl:string;sha256:string};
-type OriginalBody={format:typeof SYNC_ORIGINALS_FORMAT;schema:1;connection:RecordSyncConnection;side:'local'|'remote';revision:number;createdAt:string;localCommitId?:string;records:RemoteRecordChange[];notes:Array<{key:string;raw:unknown}>;nativeValues:Record<string,string>;images:ImageOriginal[];pdfFiles:Record<string,string>;issues:string[]};
+type OriginalBody={format:typeof SYNC_ORIGINALS_FORMAT;schema:1;connection:RecordSyncConnection;side:'local'|'remote';revision:number;createdAt:string;localCommitId?:string;records:RemoteRecordChange[];notes:Array<{key:string;raw:unknown}>;noteBackups?:Array<{key:string;raw:unknown}>;nativeValues:Record<string,string>;images:ImageOriginal[];pdfFiles:Record<string,string>;issues:string[]};
 export type SyncOriginalsFile=OriginalBody&{originalsDigest:string};
 export async function validateSyncOriginalsFile(value:unknown):Promise<boolean>{
   const file=value as SyncOriginalsFile;
@@ -46,8 +46,9 @@ export async function archiveSyncOriginals(db:IDBDatabase,connection:RecordSyncC
       const snapshot=await readAppRecordSnapshot(db);if(!snapshot)throw new Error('端末の原本を読み取れません。');
       body.localCommitId=snapshot.state.commitId;
       body.records=[...snapshot.records.values()].map(row=>({key:row.key,collection:row.collection,id:row.id,raw:row.raw,position:row.position,revision:row.serverRevision,...(row.logicalRaw!==undefined?{logicalRaw:row.logicalRaw}:{})}));
-      const tx=db.transaction(['categoryNotes','questionImageBlobs']),completion=done(tx),keys=tx.objectStore('categoryNotes').getAllKeys(),notes=tx.objectStore('categoryNotes').getAll(),images=tx.objectStore('questionImageBlobs').getAll();await completion;await current();
+      const tx=db.transaction(['categoryNotes','categoryNoteBackups','questionImageBlobs']),completion=done(tx),keys=tx.objectStore('categoryNotes').getAllKeys(),notes=tx.objectStore('categoryNotes').getAll(),images=tx.objectStore('questionImageBlobs').getAll(),backupKeys=tx.objectStore('categoryNoteBackups').getAllKeys(),backups=tx.objectStore('categoryNoteBackups').getAll();await completion;await current();
       body.notes=keys.result.map((key,index)=>({key:String(key),raw:notes.result[index]}));
+      body.noteBackups=backupKeys.result.map((key,index)=>({key:String(key),raw:backups.result[index]}));
       for(let i=0;i<accountLocalStorage.length;i++){const key=accountLocalStorage.key(i);if(key&&isQuizMakeStorageKey(key)){const raw=accountLocalStorage.getItem(key);if(raw!==null)body.nativeValues[key]=raw;}}
       const originals=images.result as StoredQuestionImage[];
       for(let i=0;i<originals.length;i++){await current();body.images.push(await imageOriginal(originals[i]));try{progress?.({label:'端末の原本を退避中',completed:i+1,total:originals.length,stage:'archiving'});}catch{/* Informational only. */}}

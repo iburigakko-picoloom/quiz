@@ -61,6 +61,18 @@ try {
   assert.deepEqual(await refs(),[{materialId:'attached',pageId:'attached-page'}],'a cancelled touch does not execute the action');
   await page.locator('.materials-title').tap();
   assert.equal(await menu.getAttribute('open'),null,'outside taps dismiss the menu');
+  await summary.tap();
+  const picker=page.locator('.materials-menu input[type=file][accept="application/pdf,.pdf"]');
+  const chooserEvent=page.waitForEvent('filechooser');await picker.tap();
+  const chooser=await chooserEvent;
+  const bytes=await page.evaluate(()=>window.materialsFixture.pdfBytes);
+  await chooser.setFiles({name:'iPad追加.pdf',mimeType:'application/pdf',buffer:Buffer.from(bytes)});
+  await page.waitForFunction(async()=>{const {loadMaterials}=await import('/quiz/src/utils/materialStorage.ts');return (await loadMaterials('local')).materials.some(m=>m.title==='iPad追加.pdf');});
+  await page.goto('http://127.0.0.1:5198/quiz/tests/browser/materials-scope-preview.html?empty');
+  const emptyPicker=page.locator('.materials-empty input[type=file]');await emptyPicker.waitFor();
+  const emptyChooserEvent=page.waitForEvent('filechooser');await emptyPicker.tap();
+  await (await emptyChooserEvent).setFiles({name:'初回.pdf',mimeType:'application/pdf',buffer:Buffer.from(bytes)});
+  await page.waitForFunction(async()=>{const {loadMaterials}=await import('/quiz/src/utils/materialStorage.ts');return (await loadMaterials('empty')).materials.some(m=>m.title==='初回.pdf');});
   assert.deepEqual(errors,[]);
-  console.log(`PASS (${engine}): touch batch registration, unlink, focused-menu relink, persisted references, Escape, Tab blur, cancelled touch and outside tap`);
+  console.log(`PASS (${engine}): touch batch registration, unlink, focused-menu relink, persisted references, Escape, Tab blur, cancelled touch, outside tap, native PDF picker and persisted PDF imports`);
 } finally {await browser.close();await server.close();}

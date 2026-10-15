@@ -1,3 +1,4 @@
+import { isCategoryNotesRecoveryRequired } from './noteStorage';
 import { appRecordKey, readCurrentAppRecordSnapshot as readAppRecordSnapshot, readAppOutbox, type AppRecord } from './appRecordStorage';
 import { acknowledgeRecordPushBatch, bindRecordSyncConnection, getPendingRecordPushBatch, releaseRejectedRecordPushBatch, type RecordPushAcknowledgement, type RecordSyncConnection } from './recordSyncOutbox';
 import { validateRecordPullPage, type RemoteRecordChange } from './recordSyncPull';
@@ -134,10 +135,11 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   if(frozen){const sent=await sendFrozenWhole(db,transport,guards,frozen);return finishUpload(frozen,sent)}
   const prior=await readWholeMeta<WholeConflict>(db,'wholeConflict',connection);
   const priority=prior?.preferSelected?prior.choice:undefined;
+  const needsNoteRecovery = Boolean(guards.archiveOriginals && isCategoryNotesRecoveryRequired());
   let preparationError:unknown;
   // Read-only comparison can still offer the healthy cloud if local media is
   // broken. A chosen local upload must finish its preparation before freezing.
-  if(priority!=='remote')try{const prepared=await guards.prepareOutgoing();if(prepared?.more)return result('more');}
+  if(priority!=='remote'&&!needsNoteRecovery)try{const prepared=await guards.prepareOutgoing();if(prepared?.more)return result('more');}
   catch(error){if(!guards.archiveOriginals||!mayRescue(error))throw error;preparationError=error;}
   await guards.assertCurrent();
   const source=await withCoordinatedDataRead(['app','notes'],async()=>{
@@ -152,10 +154,10 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     try{assertMaterialIntegrity(payload,JSON.parse(payload.localStorage['quiz-make-app-data-v1']),false);}
     catch(error){needsMaterialRepair=error instanceof SyncDataError&&error.code==='material_reference'&&Boolean(error.diagnostic.referenceIssues?.length)&&error.diagnostic.referenceIssues!.every(issue=>issue.reason==='missing_material');}
   }
-  if(!needsMaterialRepair&&!priority&&!preparationError&&remote.enabled&&baseline?.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&!source.outbox.length)return result('done');
+  if(!needsNoteRecovery&&!needsMaterialRepair&&!priority&&!preparationError&&remote.enabled&&baseline?.serverRevision===remote.revision&&baseline.userGeneration===source.generation&&!source.outbox.length)return result('done');
   const localDigest=await computeWholeRecordDigest(localRows);
   let decision:'same'|'upload'|'download'|'conflict',incoming:RemoteRecordChange[]|undefined,remoteDigest=baseline?.digest??'',downloaded=0;
-  if(!needsMaterialRepair&&!priority&&remote.enabled&&baseline?.serverRevision===remote.revision&&(localDigest===baseline.digest||source.generation!==baseline.userGeneration)){
+  if(!needsNoteRecovery&&!needsMaterialRepair&&!priority&&remote.enabled&&baseline?.serverRevision===remote.revision&&(localDigest===baseline.digest||source.generation!==baseline.userGeneration)){
     decision=decideWholeSync({baseline,serverRevision:remote.revision,userGeneration:source.generation,localDigest,remoteDigest});
   }else{
     let stage=await readWholeMeta<WholeIncoming>(db,'wholeIncoming',connection);
@@ -196,7 +198,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
   const replaceEqualWire=decision==='same'&&maintenance&&baseline?.serverRevision!==remote.revision;
   if(decision==='same'&&maintenance)decision='upload';
   let selected:'local'|'remote'|undefined;
-  if(priority)decision='conflict';
+  if(priority||needsNoteRecovery)decision='conflict';
   if(decision==='conflict'){
     const shown:WholeConflict={version:1,connection,revision:remote.revision,generation:source.generation,localDigest,remoteDigest,device:remote.device,savedAt:remote.savedAt,localSavedAt:source.snapshot.state.savedAt,localDevice:guards.device,local:summarizeWholeRows(localRows),remote:summarizeWholeRows(incoming??[])};
     if(priority){selected=priority;await putWholeMeta(db,'wholeConflict',{...shown,choice:priority,preferSelected:true});}
