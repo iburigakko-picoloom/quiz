@@ -243,6 +243,7 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     if(selected==='remote')verifiedCloud=await incomingFile();
     else {try{verifiedLocal=await exportFileBackup({recovery:true});}catch(error){if(!mayRescue(error))throw error;throw new SyncProtocolError('invalid_response','この端末の画像・教材を完全に退避できません。別の側を選び直してください。');}}
     const selectedFile=selected==='remote'?verifiedCloud!:verifiedLocal!;
+    if(selected==='local'&&isCategoryNotesRecoveryRequired())throw new SyncDataError('note_integrity','この端末のノートは復旧確認が必要です。容量不足ではなく、原本を確認できないため送信を止めています。残存データは保持しています。',{function:'exportFileBackup',stage:'local_backup_validate',side:'local',cause:'missing'});
     if(selected==='local')try{assertMaterialIntegrity(selectedFile,JSON.parse(selectedFile.localStorage['quiz-make-app-data-v1']),true);}catch(error){
       if(error instanceof SyncDataError)throw new SyncDataError(error.code as SyncDataCode,error.message,{...error.diagnostic,function:'exportFileBackup',stage:'local_backup_validate',side:'local'});
       throw error;

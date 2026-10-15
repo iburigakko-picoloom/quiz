@@ -239,6 +239,10 @@ for(const scenario of ['missing_pdf','orphan_material','initial_missing_pdf','in
   const shown=await readWholeMeta(db,'wholeConflict',connection);assert.ok(shown);assert.equal(shown.choice,undefined);
   if(fault==='backup_only')assert.equal((await receive()).status,'conflict');else await assert.rejects(receive(),error=>error.code===code);
   assert.equal((await readWholeMeta(db,'wholeConflict',connection)).choice,undefined,'no side is selected automatically');
+  if(fault==='backup_only'){
+    await chooseWholeConflict(db,connection,shown,'local',{preferSelected:true});
+    await assert.rejects(receive(),e=>e.code==='note_integrity'&&e.message.includes('容量不足ではなく'));
+  }
   if(fault!=='backup_only'){
   await chooseWholeConflict(db,connection,shown,'local',{preferSelected:true});
   await assert.rejects(receive(),error=>error.code===code&&error.diagnostic.side==='local');
