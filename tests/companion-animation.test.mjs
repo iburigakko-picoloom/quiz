@@ -27,7 +27,7 @@ test('idle draws different complete cels including a blink; tricks progress and 
   for (const activity of ['sit', ...Object.keys(COMPANION_MOTION_MS)]) {
     const frames = Array.from({ length: 101 }, (_, i) => companionFrame(activity, i * 40, 4000));
     assert.ok(new Set(frames.map(frame => frame.index)).size >= 6, activity);
-    assert.ok([0, 7, 15].includes(frames.at(-1).index), activity + ' returns to sitting');
+    assert.ok([0, 7, 15, 31].includes(frames.at(-1).index), activity + ' returns to sitting');
   }
   const blink = Array.from({ length: 101 }, (_, i) => companionFrame('sit', i * 40, 4000).index);
   assert.ok(blink.includes(6));
@@ -74,7 +74,7 @@ test('seated contributions remain continuous across every cut and stay opaque', 
   }
 });
 
-test('all five tricks soften cuts while large pose changes remain brief and fully opaque', () => {
+test('all five tricks have continuous, fully opaque contributions across cel boundaries', () => {
   for (const activity of ['spin', 'touch', 'bow', 'roll', 'sleep']) {
     const duration = companionMotionDuration(activity);
     let transitionRun = 0, longestTransition = 0, transitions = 0, previous = new Map();
@@ -92,6 +92,22 @@ test('all five tricks soften cuts while large pose changes remain brief and full
       previous = current;
     }
     assert.ok(transitions > 100, activity + ' has intermediate drawings');
-    assert.ok(longestTransition <= (['spin', 'roll'].includes(activity) ? 45 : 85), activity + ' avoids sustained double silhouettes');
+    const limit = activity === 'spin' ? duration / 32 : activity === 'roll' ? 45 : 85;
+    assert.ok(longestTransition <= limit, activity + ' avoids sustained double silhouettes');
+  }
+});
+
+test('spin paints on every display tick instead of freezing at each source cel', () => {
+  for (const activity of ['spin']) {
+    for (const hz of [60, 90, 120]) for (const awkward of [false, true]) {
+      const duration = companionMotionDuration(activity, awkward);
+      let previous = '';
+      for (let elapsed = 0; elapsed < duration * .9; elapsed += 1000 / hz) {
+        const frame = companionFrame(activity, elapsed, duration, awkward);
+        const signature = `${frame.index}:${frame.nextIndex}:${frame.mix}`;
+        assert.notEqual(signature, previous, `${activity} freezes at ${elapsed}ms / ${hz}Hz`);
+        previous = signature;
+      }
+    }
   }
 });

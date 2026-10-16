@@ -3,6 +3,7 @@ import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
 import { CompanionCharacter, type CompanionMotion } from '../components/CompanionCharacter';
 import { companionMotionDuration } from '../utils/companionAnimation';
+import { prepareCompanionMotion } from '../components/companionFrames';
 import { COMPANION_BALANCE, COMPANION_TRICKS, companionFriendshipLabel, isCompanionTrickLearned, canTeachCompanionTrick,
   type CompanionCare, type CompanionCareAction, type CompanionTrickId } from '../utils/companionCare';
 import './CompanionCareScreen.css';
@@ -14,6 +15,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
   const [tab, setTab] = useState<'feed' | 'pet' | 'tricks'>('feed');
   const [selectedTrick, setSelectedTrick] = useState<CompanionTrickId>('spin');
   const [motion, setMotion] = useState<CompanionMotion | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState('');
   const timers = useRef<number[]>([]);
@@ -21,12 +23,18 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
   const performing = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; timers.current.forEach(window.clearTimeout); }; }, []);
 
-  const play = (kind: CompanionMotion['kind'], awkward = false, reward = false) => {
+  const play = async (kind: CompanionMotion['kind'], awkward = false, reward = false) => {
+    if (performing.current) return;
+    performing.current = true;
+    setPreparing(true);
+    try { await prepareCompanionMotion(kind, reward); }
+    catch { /* The character's fallback still lets the saved care action finish. */ }
+    if (!mounted.current) return;
+    setPreparing(false);
     timers.current.forEach(window.clearTimeout);
     const id = Date.now();
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const duration = companionMotionDuration(kind, awkward);
-    performing.current = true;
     setMotion({ id, kind, awkward });
     timers.current = [];
     if (reward) timers.current.push(window.setTimeout(() => { setMotion({ id: id + 1, kind: 'feed' }); }, reduced ? 180 : duration));
@@ -50,7 +58,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
   const trick = COMPANION_TRICKS.find(trick => trick.id === selectedTrick)!;
   const learned = care ? isCompanionTrickLearned(care, selectedTrick) : false;
   const canTrain = care ? canTeachCompanionTrick(care, selectedTrick) : false;
-  const disabled = busy || Boolean(motion) || !care || Boolean(error);
+  const disabled = busy || preparing || Boolean(motion) || !care || Boolean(error);
 
   return <Layout><main className="companion-care">
     <header className="companion-care__header"><BackButton onClick={onBack} /><h1>お世話</h1><span /></header>

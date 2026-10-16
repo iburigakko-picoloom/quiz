@@ -4,6 +4,7 @@ import { COMPANION_IDLE_CLIPS, companionFrame, companionMotionDuration,
   companionActivityMessage, nextCompanionIdle, type CompanionSheet, type CompanionActivity, type CompanionMotion } from '../utils/companionAnimation';
 import { drawCompanionFrame, loadCompanionSheet, type CompanionFrameDrawing } from './companionFrames';
 import helloImage from '../assets/companion/hello.webp';
+import { companionSheetLayout } from '../utils/companionFrameLayout';
 import './CompanionCharacter.css';
 
 export type { CompanionMotion, CompanionActivity } from '../utils/companionAnimation';
@@ -49,7 +50,7 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
       latest.current.onReaction?.(reaction); latest.current.onActivity?.(activity);
     };
     const beginClip = (next: typeof clip) => {
-      const seated = displayed && (displayed.options.sheet === 'idle' || displayed.index === 0 || displayed.index === 15);
+      const seated = displayed && (displayed.options.sheet === 'idle' || displayed.index === 0 || displayed.index === companionSheetLayout(displayed.options.sheet).frames - 1);
       entranceFrom = seated && displayed ? { image: displayed.image, index: displayed.index, sheet: displayed.options.sheet,
         nextIndex: displayed.options.nextIndex, mix: displayed.options.mix } : undefined;
       clip = next; elapsed = 0; announce(next.activity);
@@ -70,7 +71,8 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
       // Follow the display clock: a 60 Hz cutoff skips every other tick on
       // 90 Hz screens. Unchanged cels still skip the expensive canvas draw.
       const dt = lastTick ? Math.min(100, now - lastTick) : 0; lastTick = now;
-      elapsed += dt;
+      // A delayed sheet must not consume the beginning of the movement.
+      if (sheets.has(companionFrame(clip.activity, 0, clip.duration).sheet)) elapsed += dt;
       const action = latest.current.motion;
       if (action && motionId !== action.id) {
         motionId = action.id; beginClip({ activity: action.kind, duration: companionMotionDuration(action.kind, action.awkward) });
@@ -112,9 +114,10 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
           drawCompanionFrame(ctx, image, 0, canvas.width, canvas.height);
           canvas.dataset.renderer = 'full-body-frames'; setLoaded(true); announce('sit');
           // Prepare the small set of whole-body clips before the first action.
-          for (const name of ['scratch', 'sleep', 'spin', 'touch', 'bow', 'roll', 'care'] as const) requestSheet(name);
+          for (const name of ['spinSmooth', 'scratch', 'sleep', 'spin', 'touch', 'bow', 'roll', 'care'] as const) requestSheet(name);
         }
-        wake();
+        // Background preloads must not reset the running action's clock.
+        if (sheet === 'idle' || sheet === companionFrame(clip.activity, 0, clip.duration).sheet) wake();
       }).catch(() => {
         pending.delete(sheet); failedSheets.add(sheet);
         if (!stopped && sheet === 'idle') setFailed(true);
