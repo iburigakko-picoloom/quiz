@@ -254,12 +254,12 @@ export async function deleteCloudAccount(): Promise<void> {
   const { data: account, error: accountError } = await client.auth.getUser();
   if (accountError || !account.user) throw new Error('ログイン状態を確認してから、もう一度お試しください。');
   // Storage binaries must be removed through its API, not by deleting SQL rows.
-  for (const bucketId of ['quiz-material-pdfs', 'quiz-question-images']) {
+  for (const bucketId of ['quiz-material-pdfs', 'quiz-question-images', 'quiz-content-blobs']) {
     const bucket = client.storage.from(bucketId);
     while (true) {
       const { data: files, error: listError } = await bucket.list(account.user.id, { limit: 100 });
       if (listError) {
-        if (bucketId === 'quiz-question-images' && listError.message.toLowerCase().includes('bucket not found')) break;
+        if (bucketId !== 'quiz-material-pdfs' && listError.message.toLowerCase().includes('bucket not found')) break;
         throw new Error('資料・画像の削除を確認できませんでした。アカウントは削除していません。再試行してください。');
       }
       if (!files.length) break;

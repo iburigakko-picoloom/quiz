@@ -47,6 +47,12 @@ test('server commit order wins and a lost-response retry never wins again', asyn
   await pg.exec("select set_config('test.actor','other',false)"); await assert.rejects(call(sync, 'status'), /sync_not_found/);
   await pg.exec("select set_config('test.actor','owner',false)");
 });
+test('explicit stream removal cascades all delta state without weakening the writer fence',async()=>{
+  const sync=await create();await call(sync,'enable',{revision:1});await call(sync,'push',request([row('edited')]));
+  await assert.rejects(pg.query('delete from private.quiz_sync_records where sync_id=$1',[sync]),/update_required/);
+  await pg.query('delete from public.quiz_sync_data where sync_id=$1',[sync]);
+  for(const table of ['quiz_sync_heads','quiz_sync_records','quiz_delta_history','quiz_delta_log','quiz_delta_receipts','quiz_delta_parts','quiz_delta_rescues'])assert.equal((await pg.query(`select count(*)::integer n from private.${table} where sync_id=$1`,[sync])).rows[0].n,0);
+});
 test('a split operation is invisible until every exact part arrives', async () => {
   const sync = await create(); await call(sync, 'enable', { revision: 1 });
   const a = request([row('中'.repeat(90000))]); const first = { ...a, parts: 2, payload: a.payload.slice(0, 45000) }, second = { ...a, parts: 2, part: 1, payload: a.payload.slice(45000) };
