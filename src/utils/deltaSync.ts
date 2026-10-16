@@ -73,7 +73,8 @@ export async function freezeDelta(db: IDBDatabase, connection: RecordSyncConnect
   const payload = JSON.stringify(selected.map(({ baseContent: _base, ...op }) => op));
   const parts: string[] = []; let start = 0;
   while (start < payload.length) {
-    let end = Math.min(start + 24000, payload.length);
+    // At most 240 KiB even for four-byte Unicode; old frozen parts stay exact.
+    let end = Math.min(start + 60000, payload.length);
     if (end < payload.length && /[\uD800-\uDBFF]/.test(payload[end - 1])) end--;
     parts.push(payload.slice(start, end)); start = end;
   }
@@ -104,15 +105,32 @@ async function acknowledgeDelta(db: IDBDatabase, frozen: Frozen, revision: numbe
   await done;
 }
 export async function sendDelta(db: IDBDatabase, transport: DeltaTransport, frozen: Frozen, assertCurrent: () => Promise<void>, progress?:RecordSyncGuards['progress']): Promise<number> {
-  report({progress},{stage:'sending',label:'学習データの送信結果を確認中',completed:0,total:frozen.parts.length});
   await assertCurrent(); const receipt = await transport.delta('receipt', { operationId: frozen.operationId }); assertReply(receipt);
+  // The server's durable receipt is authoritative even if the last response was
+  // lost or this tab/device restarted. Never rewrite an unconfirmed frozen send.
+  if (receipt.state !== 'absent' && receipt.digest !== undefined &&
+    (receipt.digest !== frozen.digest || receipt.parts !== frozen.parts.length || receipt.deviceId !== frozen.deviceId || receipt.sequence !== frozen.sequence)) {
+    throw new SyncProtocolError('invalid_response','送信内容とクラウドの受領記録が一致しません。未送信データを保持しています。');
+  }
   if (receipt.state === 'committed') { await assertCurrent(); await acknowledgeDelta(db, frozen, Number(receipt.revision)); return frozen.operations.length; }
+  const received = new Set<number>();
+  if (receipt.state === 'staging' && receipt.received !== undefined) {
+    if (!Array.isArray(receipt.received) || receipt.received.some(part => !Number.isInteger(part) || part < 0 || part >= frozen.parts.length))
+      throw new SyncProtocolError('invalid_response','送信の再開位置を確認できません。未送信データを保持しています。');
+    for (const part of receipt.received as number[]) received.add(part);
+  }
+  report({progress},{stage:'sending',label:received.size ? '受領済みの続きから学習データを送信中' : '学習データを送信中',completed:received.size,total:frozen.parts.length});
+  // Replaying one exact part also resolves an all-staged, uncommitted receipt.
+  if (received.size === frozen.parts.length) received.delete(frozen.parts.length-1);
   for (let index = 0; index < frozen.parts.length; index++) {
+    if (received.has(index)) continue;
     await assertCurrent();
+    if(received.size === frozen.parts.length-1) report({progress},{stage:'sending',label:'クラウドで学習データを保存中',completed:received.size,total:frozen.parts.length});
     const reply = await transport.delta('push', { operationId: frozen.operationId, deviceId: frozen.deviceId, sequence: frozen.sequence,
       digest: frozen.digest, parts: frozen.parts.length, part: index, payload: frozen.parts[index] });
     assertReply(reply);
-    report({progress},{stage:'sending',label:'学習データを送信中',completed:index+1,total:frozen.parts.length});
+    received.add(index);
+    report({progress},{stage:'sending',label:'学習データを送信中',completed:received.size,total:frozen.parts.length});
     if (reply.state === 'committed') { await assertCurrent(); await acknowledgeDelta(db, frozen, Number(reply.revision)); return frozen.operations.length; }
   }
   throw new Error('送信結果がまだ確定していません。同じ操作IDで確認を続けます。');

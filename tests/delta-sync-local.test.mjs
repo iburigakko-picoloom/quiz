@@ -18,6 +18,35 @@ async function database() {
 }
 const read = async (db, store, key) => { const tx = db.transaction(store), done = idbDone(tx); const result = await idbResult(tx.objectStore(store).get(key)); await done; return result; };
 
+test('an existing large frozen send resumes server-confirmed parts after lost replies and reload',async()=>{
+  const {db}=await database();const frozen=await freezeDelta(db,connection,'device-a');
+  // Keep an already-frozen old 24,000-character layout; never repartition it.
+  frozen.parts=Array.from({length:434},(_,i)=>'exact old part '+i);
+  const {writeMeta}=await import('../src/utils/blobVault.ts');await writeMeta(db,'deltaFrozen',frozen);
+  let committed=false;const pushes=[],progress=[];const accepted=new Set(Array.from({length:432},(_,i)=>i));
+  const transport={async delta(action,body){
+    if(action==='receipt')return {code:'ok',state:committed?'committed':'staging',revision:committed?9:null,digest:frozen.digest,parts:434,deviceId:frozen.deviceId,sequence:frozen.sequence,received:[...accepted]};
+    pushes.push(body.part);assert.equal(body.operationId,frozen.operationId);assert.equal(body.payload,frozen.parts[body.part]);accepted.add(body.part);
+    if(body.part===432)throw Error('response lost after durable staging');
+    committed=true;throw Error('response lost after commit');
+  }};
+  await assert.rejects(sendDelta(db,transport,frozen,async()=>{},p=>progress.push(p)),/durable staging/);
+  assert.deepEqual(await readMeta(db,'deltaFrozen'),frozen);assert.equal(progress[0].completed,432);
+  const reopened=await new Promise(resolve=>{const r=indexedDB.open(db.name);r.onsuccess=()=>resolve(r.result);});dbs.push(reopened);
+  await assert.rejects(sendDelta(reopened,transport,await freezeDelta(reopened,connection,'device-a'),async()=>{}),/after commit/);
+  await sendDelta(reopened,transport,frozen,async()=>{});
+  assert.deepEqual(pushes,[432,433]);assert.equal(await readMeta(db,'deltaFrozen'),undefined);assert.equal(await read(db,'appOutbox',frozen.operations[0].key),undefined);
+});
+
+test('resume rejects mismatched or invalid receipts without deleting the frozen original',async()=>{
+  const {db}=await database(),frozen=await freezeDelta(db,connection,'device-a');
+  const base={code:'ok',state:'staging',digest:frozen.digest,parts:frozen.parts.length,deviceId:frozen.deviceId,sequence:frozen.sequence};
+  for(const extra of [{digest:'different',received:[]},{received:[-1]},{received:[frozen.parts.length]}]){
+    await assert.rejects(sendDelta(db,{delta:async(action)=>{assert.equal(action,'receipt');return {...base,...extra};}},frozen,async()=>{}),e=>e.code==='invalid_response');
+    assert.deepEqual(await readMeta(db,'deltaFrozen'),frozen);
+  }
+});
+
 test('completed legacy checkpoint waits without redownloading or reading bodies and resumes after reload',async()=>{
   const {db}=await database(),local=await read(db,'appOutbox','["folders","f"]');
   const row={key:local.key,collection:local.collection,id:local.id,raw:JSON.stringify({...JSON.parse(local.raw),name:'Legacy cloud'}),position:0,revision:8};

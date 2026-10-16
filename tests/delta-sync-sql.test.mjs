@@ -10,6 +10,14 @@ await pg.exec(await readFile(new URL('../supabase/migrations/20261007105000_quiz
 await pg.exec("create schema auth; create function auth.uid() returns uuid language sql as $$select case when coalesce(current_setting('test.actor',true),'')='' then null else md5(current_setting('test.actor'))::uuid end$$; grant usage on schema auth to authenticated;");
 for(const name of ['20261007165623_quiz_answer_sync_optimization','20261012003104_sync_timeout_bounded_work','20261012021630_sync_finish_stream_changes','20261015024034_sync_concurrent_staging_and_finish_budget'])await pg.exec(await readFile(new URL(`../supabase/migrations/${name}.sql`,import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261015232702_quiz_delta_sync.sql', import.meta.url), 'utf8'));
+const functionPermissions=async()=> (await pg.query("select prosecdef,proconfig,proacl from pg_proc where oid='private.quiz_delta_sync(text,text,jsonb)'::regprocedure")).rows;
+const beforeResumePermissions=await functionPermissions();
+const resumeMigration=await readFile(new URL('../supabase/migrations/20261016094737_quiz_delta_resumable_finish.sql', import.meta.url), 'utf8');
+await pg.exec(resumeMigration);
+test('the exact resumable migration preserves function security and execution permissions',async()=>{
+  assert.deepEqual(await functionPermissions(),beforeResumePermissions);
+  console.log('VERIFIED_RESUME_MIGRATION_SHA256',createHash('sha256').update(resumeMigration).digest('hex'));
+});
 const stamp = '2026-10-16T00:00:00Z';
 async function call(sync, action, request = {}) { return (await pg.query('select public.quiz_delta_sync($1,$2,$3) result', [sync, action, JSON.stringify(request)])).rows[0].result; }
 async function create() {
@@ -57,6 +65,8 @@ test('a split operation is invisible until every exact part arrives', async () =
   const sync = await create(); await call(sync, 'enable', { revision: 1 });
   const a = request([row('中'.repeat(90000))]); const first = { ...a, parts: 2, payload: a.payload.slice(0, 45000) }, second = { ...a, parts: 2, part: 1, payload: a.payload.slice(45000) };
   assert.equal((await call(sync, 'push', first)).state, 'staging'); assert.equal((await call(sync, 'status')).revision, 1);
+  const receipt=await call(sync,'receipt',{operationId:a.operationId});
+  assert.deepEqual(receipt.received,[0]);assert.equal(receipt.parts,2);assert.equal(receipt.digest,a.digest);assert.equal(receipt.deviceId,a.deviceId);assert.equal(receipt.sequence,a.sequence);
   assert.equal((await call(sync, 'push', second)).state, 'committed');
   let rev = 1, offset = 0, payload = '';
   do { const p = await call(sync, 'pull', { revision: rev, offset }); assert.ok(Buffer.byteLength(JSON.stringify(p)) < 256 * 1024); payload += p.fragment; rev = p.revision; offset = p.offset; } while (offset);
@@ -93,4 +103,29 @@ test('parent deletion and a stale dependent edit preserve rescue bytes without o
   assert.equal((await pg.query("select raw from private.quiz_sync_records where sync_id=$1 and collection='questions'", [sync])).rows[0].raw, null);
   const history = await call(sync, 'history', { key: '["questions","q"]' });
   assert.ok(history.rescues.some(row => JSON.parse(row.raw).question === 'unsent edit'));
+});
+
+test('large legacy-shaped upload commits thousands of progress rows and resumes the exact last part',async()=>{
+  const sync=await create();await call(sync,'enable',{revision:1});
+  const record=(collection,id,value)=>({key:JSON.stringify([collection,id]),collection,id,raw:JSON.stringify(value),position:0,localRevision:2,baseRevision:0});
+  const rows=[record('problemSets','s',{id:'s',folderId:'f'})];
+  for(let i=0;i<4500;i++){
+    const qid='q'+i;rows.push(record('questions',qid,{id:qid,setId:'s',question:'検証'.repeat(500)}));
+    rows.push(record('progress',qid,{questionId:qid,answeredCount:7,correctCount:4,wrongCount:3}));
+    if(i<250){const answer={id:'a'+i,questionId:qid,isCorrect:true,selectedIndex:0,answeredAt:stamp};
+      rows.push(record('answerLogs',answer.id,answer),record('localStorage','quizMake:sync-event:'+i,{kind:'quiz-learning-event',questionId:qid,action:'answer',answer}));}
+  }
+  const upload=request(rows),parts=upload.payload.match(/[\s\S]{1,24000}/g);let committed;
+  assert.ok(Buffer.byteLength(upload.payload)>15_000_000);
+  for(let part=0;part<parts.length-1;part++)assert.equal((await call(sync,'push',{...upload,parts:parts.length,part,payload:parts[part]})).state,'staging');
+  const receipt=await call(sync,'receipt',{operationId:upload.operationId});assert.equal(receipt.received.length,parts.length-1);
+  assert.equal((await call(sync,'status')).revision,1);
+  const last={...upload,parts:parts.length,part:parts.length-1,payload:parts.at(-1)},start=performance.now();
+  committed=await call(sync,'push',last);const finishMs=performance.now()-start;
+  console.log(JSON.stringify({largeDelta:{records:rows.length,bytes:Buffer.byteLength(upload.payload),parts:parts.length,finishMs}}));
+  assert.equal(committed.state,'committed');assert.ok(finishMs<30000,'final transaction stays below the production statement timeout');
+  assert.deepEqual(await call(sync,'push',last),committed);
+  const counts=(await pg.query("select collection,count(*)::integer n from private.quiz_sync_records where sync_id=$1 group by collection",[sync])).rows;
+  assert.equal(counts.find(r=>r.collection==='questions').n,4500);assert.equal(counts.find(r=>r.collection==='progress').n,4500);
+  for(const [qid,expected] of [['q0',1],['q4499',7]])assert.equal(JSON.parse((await pg.query("select raw from private.quiz_sync_records where sync_id=$1 and collection='progress' and record_id=$2",[sync,qid])).rows[0].raw).answeredCount,expected);
 });
