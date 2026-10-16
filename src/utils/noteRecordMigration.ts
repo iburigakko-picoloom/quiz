@@ -32,7 +32,7 @@ export async function openCoLocatedNoteDb(migrate = true): Promise<IDBDatabase> 
   // note DB after a quota error. Recovery mode preserves available values and
   // keeps any provenance taint until an explicit import establishes authority.
   const { exportCategoryNotesRaw } = await import('./noteStorage');
-  const authoritativeNotes = await exportCategoryNotesRaw({ coordinationLockHeld: true, mode: 'recovery' });
+  const authoritativeNotes = await exportCategoryNotesRaw({ coordinationLockHeld: true, mode: 'migration' });
   assertNoteOperationEpoch(epoch);
   {
     const source = legacy.transaction([NOTE_CURRENT_STORE, NOTE_BACKUP_STORE], 'readonly');

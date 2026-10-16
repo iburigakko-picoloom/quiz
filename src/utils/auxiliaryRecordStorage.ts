@@ -1,10 +1,11 @@
 import { appRecordKey, type AppRecord, type AppRecordState, type AppOutboxOperation } from './appRecordStorage';
 import { chunkIds, parseChunkManifest } from './recordChunkFormat';
 import { queueUserEditGeneration } from './userEditGeneration';
+import { BLOB_STORES, queueBlobReferences, queueBlobUploads, parseBlobNote, queueRecordHistory } from './blobVault';
 
 export const NOTE_CURRENT_STORE = 'categoryNotes';
 export const NOTE_BACKUP_STORE = 'categoryNoteBackups';
-export const NOTE_RECORD_TRANSACTION_STORES = [NOTE_CURRENT_STORE, NOTE_BACKUP_STORE, 'appRecordMeta', 'appRecords', 'appRecordBackups', 'appOutbox'];
+export const NOTE_RECORD_TRANSACTION_STORES = [NOTE_CURRENT_STORE, NOTE_BACKUP_STORE, 'appRecordMeta', 'appRecords', 'appRecordBackups', 'appOutbox', ...BLOB_STORES, 'recordHistory'];
 const transactionStates = new WeakMap<IDBTransaction, { request: IDBRequest; changed: boolean }>();
 const activeTransactions = new Set<IDBTransaction>();
 let operationEpoch = 0;
@@ -55,13 +56,17 @@ export function queueAuxiliaryRecordWrite(tx: IDBTransaction, collection: 'index
       const revision = state.revision + 1;
       if (!Number.isSafeInteger(revision)) throw new Error('保存Revisionの上限に達しました。');
       const row: AppRecord = { key, collection, id, raw, position: 0, localRevision: revision, serverRevision: old?.serverRevision ?? 0 };
-      const operation: AppOutboxOperation = { ...row, operationId: crypto.randomUUID(), baseRevision: row.serverRevision };
+      const operation: AppOutboxOperation = { ...row, operationId: crypto.randomUUID(), baseRevision: row.serverRevision,
+        transferReady: raw && raw.includes('data:') && !parseBlobNote(raw) ? 0 : 1 };
       const prior = pendingRequest.result as AppOutboxOperation | undefined;
       const baseContent = prior
         ? (prior.baseRevision === row.serverRevision ? prior.baseContent : undefined)
         : old && old.serverRevision > 0 ? { raw: old.raw, position: old.position } : undefined;
       if (baseContent) operation.baseContent = baseContent;
       if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, key);
+      queueRecordHistory(tx,key,old,raw);
+      queueBlobReferences(tx, `current:${key}`, raw);
+      if (raw && tx.objectStoreNames.contains('contentBlobJobs')) queueBlobUploads(tx, raw);
       tx.objectStore('appRecords').put(row, key);
       tx.objectStore('appOutbox').put(operation, key);
       if (collection === 'indexedDbNotes' && raw && /"kind"\s*:\s*"quiz-material-(?:remote-)?file"/u.test(raw)) {

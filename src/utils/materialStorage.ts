@@ -1,11 +1,34 @@
 import { loadCategoryNoteRaw, saveCategoryNoteRaw } from './noteStorage';
 import { createId } from './id';
 import { validMaterialRecord, MAX_MATERIAL_PDF_BYTES, type MaterialIndex, type MaterialFile, type StudyMaterial } from './materialModel';
-import { getCloudAccessToken } from './cloudService';
 import { createMaterialTransport, hydrateMaterialDownload } from './materialCloud';
-import { getRemoteSyncConfig } from './syncService';
 import { withCoordinatedDataMutation } from './dataCoordination';
 import { openAppDb } from '../storage';
+import { blobDataUrl, getContentBlob, idbDone, idbResult, packBlobNote, parseBlobNote, putContentBlob, readMeta, setBlobOffline, trimBlobCache, writeMeta, unpackBlobNote, type BlobRef } from './blobVault';
+import { getAccountStorageSession } from './accountStorage';
+
+/** A legacy downloaded projection can be newer than its remote descriptor.
+ * Reuse it only when the content hash matches; never turn it into a new edit. */
+export async function recoverCachedMaterial(db: IDBDatabase, key: string, ref: BlobRef): Promise<Blob | undefined> {
+  const owner = getAccountStorageSession();
+  const tx = db.transaction('appDataBackups'), done = idbDone(tx);
+  const keys = await idbResult(tx.objectStore('appDataBackups').getAllKeys()); await done;
+  for (const id of keys.filter(id => String(id).startsWith(`delta-note-original:${key}:`) || String(id).startsWith(`note-rescue:${key}:`))) {
+    const read = db.transaction('appDataBackups'), completed = idbDone(read);
+    const stored = await idbResult(read.objectStore('appDataBackups').get(id)); await completed;
+    const raw = stored instanceof Blob ? await stored.text() : stored;
+    if (typeof raw !== 'string') continue;
+    let candidate: MaterialFile;
+    try { candidate = JSON.parse(await unpackBlobNote(db, raw)); } catch { continue; }
+    if (candidate.kind !== 'quiz-material-file' || !validMaterialRecord(candidate as unknown as Record<string,unknown>)) continue;
+    const bytes = Uint8Array.from(atob(candidate.dataUrl.slice(candidate.dataUrl.indexOf(',')+1)), char=>char.charCodeAt(0));
+    const blob = new Blob([bytes], { type: ref.type });
+    if (owner !== getAccountStorageSession()) throw new Error('PDFのアカウントが変わりました。'); owner?.assertCurrent();
+    // A mismatch is an unrelated historical version, which remains protected.
+    if (blob.size !== ref.size || await (await import('./blobVault')).blobHash(blob) !== ref.sha256) continue;
+    await putContentBlob(db, blob, { expected: ref, origin: 'local' }); return blob;
+  }
+}
 
 export const materialIndexKey = (setId: string) => `quizMake:notes:${setId}:__materials_v1`;
 export const materialFileKey = (setId: string, materialId: string) => `quizMake:notes:${setId}:__material_pdf_${materialId}`;
@@ -28,9 +51,24 @@ export async function loadMaterialFile(setId: string, id: string): Promise<strin
     const candidate = JSON.parse(raw);
     if (candidate?.kind === 'quiz-material-remote-file') {
       if (!validMaterialRecord(candidate)) throw new Error('PDFの参照が不正です。');
+      const db = await openAppDb();
+      const ref: BlobRef = { sha256: candidate.sha256, size: candidate.size, type: 'application/pdf' };
+      const cached = await getContentBlob(db, ref);
+      if (cached) return blobDataUrl(new Blob([cached], { type: ref.type }));
+      const recovered = await recoverCachedMaterial(db, key, ref);
+      if (recovered) return blobDataUrl(recovered);
+      const {getRemoteSyncConfig}=await import('./syncService'),{getCloudAccessToken}=await import('./cloudService');
       const config = getRemoteSyncConfig();
       const access = await getCloudAccessToken();
       if (!config || !access.ok) throw new Error('PDFを取得するにはログインが必要です。');
+      if (await readMeta(db, 'deltaEnabled')) {
+        const bytes = await createMaterialTransport(config, access).download(candidate);
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        await putContentBlob(db, blob, { origin: 'remote', expected: ref });
+        await writeMeta(db, `materialCache:${key}`, ref);
+        await trimBlobCache(db);
+        return blobDataUrl(blob);
+      }
       const result = await hydrateMaterialDownload({ version: 1, updatedAt: '', localStorage: {}, indexedDbNotes: { [key]: raw } },
         createMaterialTransport(config,access));
       const hydrated = result.indexedDbNotes?.[key];
@@ -52,6 +90,24 @@ export async function loadMaterialFile(setId: string, id: string): Promise<strin
   const file = raw ? JSON.parse(raw) as MaterialFile : null;
   if (!file || !validMaterialRecord(file as unknown as Record<string, unknown>)) throw new Error('PDF本体が見つかりません。資料を保存した端末のバックアップを確認してください。');
   return file.dataUrl;
+}
+export async function isMaterialOffline(setId: string, id: string): Promise<boolean> {
+  return Boolean(await readMeta(await openAppDb(), `materialOffline:${materialFileKey(setId, id)}`));
+}
+export async function setMaterialOffline(setId: string, id: string, offline: boolean): Promise<void> {
+  const key = materialFileKey(setId, id), db = await openAppDb();
+  if (offline) await loadMaterialFile(setId, id);
+  const tx = db.transaction('categoryNotes', 'readonly'), done = idbDone(tx);
+  const raw = await idbResult<string | undefined>(tx.objectStore('categoryNotes').get(key)); await done;
+  let refs = parseBlobNote(raw ?? null)?.blobs;
+  if (!refs && raw) {
+    const value = JSON.parse(raw);
+    if (value.kind === 'quiz-material-remote-file') refs = [{ sha256: value.sha256, size: value.size, type: 'application/pdf' }];
+    else refs = parseBlobNote(await packBlobNote(db, raw))?.blobs;
+  }
+  if (offline && !refs?.length) throw new Error('オフライン保存するPDFを確認できません。');
+  await setBlobOffline(db, refs ?? [], offline); await writeMeta(db, `materialOffline:${key}`, offline);
+  if (!offline) await trimBlobCache(db);
 }
 export async function storeMaterialPdf(setId: string, file: File, pageCount: number): Promise<StudyMaterial> {
   if (!file.size || file.size > MAX_MATERIAL_PDF_BYTES) throw new Error('PDFは1ファイル50MB以下にしてください。');

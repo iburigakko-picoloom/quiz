@@ -32,7 +32,7 @@ import { isSyncInteractionProtected } from '../utils/syncInteraction';
 import { SyncInterruptedError, SyncLocalPersistenceError } from '../utils/syncInterruption';
 import { clearSyncAttemptStatus, isBlockedSyncFailure, observeRecordSyncAttempt, publishRemoteCheck, publishSyncAttempt, publishSyncQueue } from '../utils/syncAttemptStatus';
 
-const AUTO_SYNC_INTERVAL_MS = 60000;
+const AUTO_SYNC_INTERVAL_MS = 5000;
 const REMOTE_CHECK_COOLDOWN_MS = 5000;
 
 interface AutoSyncControllerProps {
@@ -368,8 +368,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
     };
 
     const intervalId = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void checkRemote(false);
-      uploadQueue.request();
+      if (document.visibilityState !== 'visible') return;
+      void checkRemote(false);
     }, AUTO_SYNC_INTERVAL_MS);
     const handleFocus = () => {
       uploadQueue.request(true);
@@ -379,7 +379,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       // Leaving is only best-effort: browsers may suspend network immediately.
       // Startup/return always compares the durable local payload again.
       uploadQueue.request(true);
-      if (document.visibilityState === 'visible') void checkRemote(false);
+      if (document.visibilityState === 'visible') void checkRemote(true);
     };
     const handleSettingsChange = () => {
       if (manualRequest && manualScope !== manualContext()) stopManualSync();

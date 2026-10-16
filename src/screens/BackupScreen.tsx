@@ -9,7 +9,7 @@ import { saveJsonBackup } from '../utils/nativePlatform';
 import { RecordConflictRecovery } from '../components/RecordConflictRecovery';
 import { exportFileBackup, validateFileBackup } from '../utils/backupPayload';
 import { deleteWholeRecovery } from '../utils/wholeRecovery';
-import { BACKUP_HISTORY_LIMIT, enforceBackupHistoryLimit, listBackupHistory, readBackupHistoryFile, type BackupHistoryRow } from '../utils/backupHistory';
+import { BACKUP_HISTORY_LIMIT, listBackupHistory, readBackupHistoryFile, type BackupHistoryRow } from '../utils/backupHistory';
 import './BackupScreen.css';
 import { SYNC_ORIGINALS_FORMAT, validateSyncOriginalsFile } from '../utils/syncOriginalBackup';
 
@@ -31,7 +31,7 @@ export function BackupScreen({ onBack, onRestore, onOpenSyncRecovery, onExitGuar
   const [deleting,setDeleting] = useState<BackupHistoryRow | null>(null);
   const lock = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  const refresh = async () => { const rows = await listBackupHistory(); setItems(rows.slice(0,BACKUP_HISTORY_LIMIT)); };
+  const refresh = async () => { setItems(await listBackupHistory()); };
   const back = () => { if(lock.current||recoveryBusy)return; if(deleting){setDeleting(null);return;} if(page==='list'){setPage('main');setDetailsOpen(false);setError('');}else onBack(); };
   useLayoutEffect(() => {
     onExitGuardChange?.(() => { if(lock.current||recoveryBusy)return false; if(deleting){setDeleting(null);return false;} if(page==='list'){setPage('main');setDetailsOpen(false);setError('');return false;} return true; });
@@ -40,7 +40,7 @@ export function BackupScreen({ onBack, onRestore, onOpenSyncRecovery, onExitGuar
   useEffect(() => {
     if(page!=='list')return;
     let stopped=false; setLoading(true);setError('');
-    void enforceBackupHistoryLimit().then(()=>listBackupHistory()).then(rows=>{if(!stopped)setItems(rows.slice(0,BACKUP_HISTORY_LIMIT));}).catch(()=>{if(!stopped)setError('バックアップを読み込めませんでした。');}).finally(()=>{if(!stopped)setLoading(false);});
+    void listBackupHistory().then(rows=>{if(!stopped)setItems(rows);}).catch(()=>{if(!stopped)setError('バックアップを読み込めませんでした。');}).finally(()=>{if(!stopped)setLoading(false);});
     return()=>{stopped=true;};
   },[page]);
   const run = async (action: () => Promise<void>) => {
@@ -58,12 +58,12 @@ export function BackupScreen({ onBack, onRestore, onOpenSyncRecovery, onExitGuar
         {row('ファイルから復元',<BackupIcon kind="folder"/>,()=>fileInput.current?.click())}
       </section>
       <section className="backup-actions backup-actions--device" aria-label="この端末"><h2>この端末</h2>
-        {row('バックアップを取る',<BackupIcon kind="database"/>,()=>void run(async()=>{await enforceBackupHistoryLimit();await saveBackupPayloadReference(await exportFileBackup(),'manual');setMessage('バックアップを保存しました。');}))}
+        {row('バックアップを取る',<BackupIcon kind="database"/>,()=>void run(async()=>{await saveBackupPayloadReference(await exportFileBackup(),'manual');setMessage('バックアップを保存しました。');}))}
         {row('バックアップから復元',<HistoryIcon size={30}/>,()=>{setMessage('');setPage('list');})}
-        <p className="backup-retention-note">直近{BACKUP_HISTORY_LIMIT}件を保存</p>
+        <p className="backup-retention-note">確認済みの自動履歴は異なる内容を直近{BACKUP_HISTORY_LIMIT}世代保存。手動バックアップ・未確認の原本は保持します。</p>
       </section>
     </> : <>
-      <p className="backup-list-caption">直近{BACKUP_HISTORY_LIMIT}件</p>
+      <p className="backup-list-caption">保存済みの履歴と保護中の原本</p>
       {loading ? <p role="status">読み込み中…</p> : !items.length&&!error ? <p>バックアップはありません</p> : null}
       <div className="backup-history" aria-label="保存済みのバックアップ">
         {items.map(item=><button type="button" className="backup-history-row" key={item.id} disabled={busy||recoveryBusy||loading} onClick={()=>void run(async()=>{const raw=await readBackupHistoryFile(item.id);if(!raw)throw new Error('バックアップが見つかりません。');const issue=await onRestore(new File([raw],`quiz-make-backup-${item.createdAt.replace(/[:.]/g,'-')}.json`,{type:'application/json'}),item.createdAt);if(issue)throw new Error(issue);})}><time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time><small>{'format' in item&&item.format==='originals'?'救出原本':'format' in item&&item.format==='partial'?'部分コピー':item.kind==='manual'?'手動':'自動'}</small><ChevronRightIcon size={20}/></button>)}

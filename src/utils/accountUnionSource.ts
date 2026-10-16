@@ -19,7 +19,7 @@ export async function openUnionOriginal(factory: IDBFactory, name: string): Prom
     r.onblocked = () => { failed = true; reject(new Error('原本を開けません。ほかのQuizMake画面を閉じてください。')); };
     r.onsuccess = () => { if (failed) r.result.close(); else resolve(r.result); }; });
 }
-export type UnionCloudReader = { identity: LocalAccountIdentity; assertCurrent(): void; resolveOwned(id: string): Promise<unknown>; meta(id: string): Promise<{ updatedAt: string }>; open(id: string, stamp: string): Promise<number>; pull(id: string, cursor: number): Promise<unknown> };
+export type UnionCloudReader = { identity: LocalAccountIdentity; assertCurrent(): void; resolveOwned(id: string): Promise<unknown>; checkpoint?(id: string): Promise<{head:number;records:UnionRecord[]}|null>; meta(id: string): Promise<{ updatedAt: string }>; open(id: string, stamp: string): Promise<number>; pull(id: string, cursor: number): Promise<unknown> };
 export async function decodeUnionRecords(records: UnionRecord[]) {
   const parts = new Map(records.filter(row => row.collection === 'localStorage' && row.raw !== null).map(row => [row.id, row.raw!]));
   const result: UnionRecord[] = [];
@@ -38,6 +38,11 @@ export async function readOwnedUnionCloud(reader: UnionCloudReader, id: string, 
   const ownership = parseAccountResolverResult(await reader.resolveOwned(id)); reader.assertCurrent();
   if (!['ok', 'migration_required'].includes(ownership.code)) throw new Error('このアカウントが所有する保存先と確認できません。読み込みを止めました。');
   if (ownership.code === 'ok' && ownership.syncId !== id) throw new Error('所有権確認と保存先が一致しません。読み込みを止めました。');
+  const checkpoint = await reader.checkpoint?.(id); reader.assertCurrent();
+  if (checkpoint) {
+    const snapshot: UnionSnapshot = {identity:reader.identity,label,kind:'cloud',syncId:id,...checkpoint,records:await decodeUnionRecords(checkpoint.records)};
+    validateUnionSnapshot(snapshot,reader.identity); return snapshot;
+  }
   const meta = await reader.meta(id); reader.assertCurrent(); const opened = await reader.open(id, meta.updatedAt); reader.assertCurrent();
   const records = new Map<string, UnionRecord>(); let cursor = 0, head = opened;
   for (let pages = 0; pages < 10000; pages++) {
@@ -64,6 +69,24 @@ export async function createUnionCloudReader(): Promise<UnionCloudReader> {
     const response = await fetch(config.url + '/rest/v1/rpc/' + name, { method: 'POST', headers: { apikey: config.anonKey, Authorization: 'Bearer ' + access.accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify(args), signal: AbortSignal.timeout(30000), redirect: 'error' });
     assertCurrent(); if (!response.ok) throw new Error(`保存先の確認を完了できません（HTTP ${response.status}）。原本は保持しています。`); return response.json(); };
   return { identity, assertCurrent, resolveOwned: id => rpc('quiz_sync_resolve_account', { p_existing_sync_id: id }),
+    async checkpoint(id) {
+      if(import.meta.env?.VITE_DELTA_SYNC_ENABLED!=='true'&&!owner.storage.getItem('quizMake:sync:deltaRequired'))return null;
+      const delta = (action:string,request:object={}) => rpc('quiz_delta_sync',{p_sync_id:id,p_action:action,p_request:request});
+      const status=await delta('status'); if(!status.enabled)return null;
+      let after='',offset=0,fragment=''; const records:UnionRecord[]=[];
+      for(let page=0;page<10000;page++) {
+        const value=await delta('checkpoint',{revision:status.revision,after,offset});assertCurrent();
+        if(value.code!=='ok'||value.revision!==status.revision)throw new Error('統合元が更新されました。内容を確認し直してください。原本は保持しています。');
+        for(const row of value.rows){fragment+=row.fragment;if(row.complete){const record=JSON.parse(fragment);if(record.key!==row.key)throw new Error('統合元の区切りが一致しません。');records.push(record);fragment='';}}
+        if(value.complete){
+          const {unpackBlobNote,parseBlobNote}=await import('./blobVault'),{openAppDb}=await import('../storage'),{downloadContentBlob}=await import('./blobCloud');
+          for(const row of records)if(row.collection==='indexedDbNotes'&&row.raw&&parseBlobNote(row.raw)){row.raw=await unpackBlobNote(await openAppDb(),row.raw,downloadContentBlob);assertCurrent();}
+          return {head:status.revision,records};
+        }
+        after=value.after;offset=value.offset;
+      }
+      throw new Error('統合元の読み込みが上限に達しました。原本は保持しています。');
+    },
     async meta(id) { const rows = await rpc('quiz_sync_meta', { p_sync_id: id }); if (!Array.isArray(rows) || rows.length !== 1 || rows[0].sync_id !== id || !Number.isFinite(Date.parse(rows[0].updated_at))) throw new Error('所有する保存先の更新情報を確認できません。'); return { updatedAt: rows[0].updated_at }; },
     async open(id, stamp) { const row = await rpc('quiz_sync_v2_open', { p_sync_id: id, p_expected_updated_at: stamp }); if (row?.code !== 'ok' || !Number.isSafeInteger(row.revision) || row.revision < 0) throw new Error('保存先が更新されたか、差分形式を確認できません。原本は保持しています。'); return row.revision; },
     pull: (id, cursor) => rpc('quiz_sync_v2_pull', { p_sync_id: id, p_cursor: cursor, p_limit: 20 }) };
@@ -84,6 +107,8 @@ export async function readActiveUnionLocal(assertCurrent: () => void): Promise<U
   if (batch.result) throw new Error('元の保存先への送信結果が未確認です。送信結果を確認してから統合してください。元の送信原本は保持しています。');
   const backup = new Map((old.result as AppRecord[]).map(row => [row.key, row.raw]));
   const records = await decodeUnionRecords([...snapshot.records.values()].map(row => ({ key: row.key, collection: row.collection, id: row.id, raw: row.logicalRaw ?? row.raw, position: row.position, revision: row.serverRevision, ...(row.raw === null && backup.get(row.key) ? { previousRaw: backup.get(row.key)! } : {}) })));
+  const {unpackBlobNote,parseBlobNote}=await import('./blobVault'),{downloadContentBlob}=await import('./blobCloud');
+  for(const row of records)if(row.collection==='indexedDbNotes'&&row.raw&&parseBlobNote(row.raw)){row.raw=await unpackBlobNote(db,row.raw,downloadContentBlob);assertCurrent();}
   const result: UnionSnapshot = { identity: owner.identity, label: 'この端末', kind: 'local', head: Math.max(0, ...records.map(row => row.revision)), records };
   validateUnionSnapshot(result, owner.identity); return result;
 }
@@ -170,12 +195,15 @@ export async function readUnionImage(row: UnionRecord, assertCurrent: () => void
   if (archivedLegacyOwnedBy(globalThis.localStorage, owner.identity)) names.push('quiz-make-app-data-v1', 'quiz-make-local-question-images-v1');
   for (const name of names) {
     const db = await openUnionOriginal(indexedDB, name); try { const store = db?.objectStoreNames.contains('questionImageBlobs') ? 'questionImageBlobs' : db?.objectStoreNames.contains('images') ? 'images' : null;
-      if (db && store) { const tx = db.transaction(store), completion = done(tx), image = tx.objectStore(store).get(descriptor.id); await completion; assertCurrent(); if (image.result?.blob && await verifyQuestionImageBlob(image.result.blob, descriptor)) return storedQuestionImage(descriptor, image.result.blob); }
+      if (db && store) { const tx = db.transaction(store), completion = done(tx), image = tx.objectStore(store).get(descriptor.id); await completion; assertCurrent();
+        const blob = image.result?.blob ?? (db.objectStoreNames.contains('contentBlobs') ? await (await import('./blobVault')).getContentBlob(db,descriptor) : undefined);
+        if (blob && await verifyQuestionImageBlob(blob, descriptor)) return storedQuestionImage(descriptor, blob);
+      }
     } finally { db?.close(); }
   }
   const { getCloudAccessToken } = await import('./cloudService'), { getRemoteSyncConfig } = await import('./syncService');
   const access = await getCloudAccessToken(), config = getRemoteSyncConfig(); assertCurrent(); if (!access.ok || !config || access.userId !== owner.identity.userId) throw new Error('画像の取得用アカウントを確認できません。');
-  const blob = await createQuestionImageTransport(config, access).download(descriptor); assertCurrent(); return storedQuestionImage(descriptor, blob);
+  const blob = descriptor.vault ? await (await import('./blobCloud')).downloadContentBlob(descriptor) : await createQuestionImageTransport(config, access).download(descriptor); assertCurrent(); return storedQuestionImage(descriptor, blob);
 }
 
 /** Explicitly settle only the captured frozen request at its original, freshly

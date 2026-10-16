@@ -28,6 +28,8 @@ test('notes migrate without deleting the old database and atomically save their 
     req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error);
   });
   let tx=legacy.transaction('categoryNotes','readwrite'); let done=complete(tx); tx.objectStore('categoryNotes').put(initial,key); await done;
+  const orphan='quizMake:notes:s:backup-only';
+  tx=legacy.transaction('categoryNoteBackups','readwrite');done=complete(tx);tx.objectStore('categoryNoteBackups').put(initial,orphan);await done;
   assert.equal(await storage.saveAppData(storage.createEmptyAppData()),true);
   const db=await storage.openAppDb(); const original=db.transaction.bind(db);
   db.transaction=(stores,...args)=>{
@@ -47,6 +49,9 @@ test('notes migrate without deleting the old database and atomically save their 
   assert.equal(await notes.loadCategoryNoteRaw(key),initial);
   assert.equal(await get(db,'appRecordMeta','notesMigrationV1'),1);
   assert.equal((await records.readAppOutbox(db)).find(op=>op.id===key).raw,initial);
+  assert.equal(await get(db,'categoryNotes',orphan),undefined,'migration cannot promote a backup to a current note');
+  assert.equal(await get(db,'categoryNoteBackups',orphan),initial,'the rescue original is retained');
+  assert.equal((await records.readAppOutbox(db)).find(op=>op.id===orphan),undefined,'backup-only data is never queued for upload');
   const state=await get(db,'appRecordMeta','state');
   const edited=JSON.stringify({ dataUrl:'edited',updatedAt:'2026-09-29T01:00:00Z' });
   await notes.saveCategoryNoteRaw(key,edited);

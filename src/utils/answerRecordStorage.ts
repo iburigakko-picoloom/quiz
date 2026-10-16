@@ -4,6 +4,8 @@ import { appRecordKey, rememberAppRecordChanges, validateState, type AppRecord, 
 import { ExternalDataChangeError } from './dataCoordination';
 import { queueUserEditGeneration } from './userEditGeneration';
 import { recordSyncMetric } from './syncMetrics';
+import { queueLearningEvent } from './learningEvents';
+import { queueRecordHistory } from './blobVault';
 
 export type AnswerSaveChange = { previous: AppData; questionId: string; answerLogId: string };
 const done = (tx: IDBTransaction) => new Promise<void>((resolve, reject) => {
@@ -78,7 +80,7 @@ export async function saveAnswerRecordChanges(db: IDBDatabase, data: AppData, sa
   ];
   const nextState: AppRecordState = { ...state, revision, savedAt, commitId: crypto.randomUUID(),
     counts: { ...state.counts, progress: state.counts.progress + (oldProgress?.raw ? 0 : 1), answerLogs: state.counts.answerLogs + 1 } };
-  const tx = db.transaction(['appRecordMeta', 'appRecords', 'appRecordBackups', 'appOutbox'], 'readwrite'), completion = done(tx);
+  const tx = db.transaction(['appRecordMeta', 'appRecords', 'appRecordBackups', 'appOutbox', ...['recordHistory','contentBlobRefs'].filter(store=>db.objectStoreNames.contains(store))], 'readwrite'), completion = done(tx);
   let failure: unknown;
   const current = tx.objectStore('appRecordMeta').get('state');
   current.onsuccess = () => {
@@ -87,6 +89,7 @@ export async function saveAnswerRecordChanges(db: IDBDatabase, data: AppData, sa
       for (const row of changes) {
         const prior = row.collection === 'progress' ? oldProgress : answerRequest.result as AppRecord | undefined;
         if (prior) tx.objectStore('appRecordBackups').put({ ...prior, replacedAt: revision }, row.key);
+        queueRecordHistory(tx, row.key, prior, row.raw);
         tx.objectStore('appRecords').put(row, row.key);
         const pending = tx.objectStore('appOutbox').get(row.key);
         pending.onsuccess = () => {
@@ -101,6 +104,7 @@ export async function saveAnswerRecordChanges(db: IDBDatabase, data: AppData, sa
         };
       }
       tx.objectStore('appRecordMeta').put(state, 'previousState');
+      queueLearningEvent(tx, revision, before.data.progress[0], progress, answer);
       tx.objectStore('appRecordMeta').put(nextState, 'state');
       queueUserEditGeneration(tx);
     } catch (error) { failure = error; tx.abort(); }

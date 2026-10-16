@@ -187,7 +187,12 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     const storedNoteKeys=oldNoteKeys.result.map(String);
     const previousNotes=proof?{}:await exportCategoryNotesRaw({coordinationLockHeld:true});
     if(!proof&&getNoteBackupIssues(previousNotes).length)throw new Error('現在のノートを完全に退避できないため、復元を中止しました。');
-    const previousOwners=proof?new Map<string,string>():imageOwners(previous),previousImages=oldImages.result as StoredQuestionImage[];
+    const previousOwners=proof?new Map<string,string>():imageOwners(previous);
+    const previousImages=oldImages.result as StoredQuestionImage[];
+    if (!proof) for (const [id,owner] of previousOwners) {
+      const found = (await (await import('./questionImageRecords')).readQuestionImages(owner,[id]))[0];
+      if (found) { const index=previousImages.findIndex(image=>image.id===id); if(index<0)previousImages.push(found);else previousImages[index]=found; }
+    }
     if(!proof)for(const [id,owner] of previousOwners){const image=previousImages.find(image=>image.id===id&&image.questionId===owner),raw=snapshot.records.get(appRecordKey('questionImages',id))?.raw;if(!raw&&acceptsLegacyImages([{id,questionId:owner}],legacy))continue;if(!image||!raw||!await verifyQuestionImageBlob(image.blob,JSON.parse(raw)))throw new Error('現在の画像を完全に退避できないため、復元を中止しました。');}
     const previousSettings=Object.fromEntries([...existingSettings].map(key=>[key,localStorage.getItem(key)!]));
     if(!proof)try{
@@ -205,14 +210,18 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     const targetOwners=imageOwners(target),includedImages=new Set(checked.value.images.map(image=>image.id));
     const retainedImages=imageOnly?previousImages.filter(image=>!includedImages.has(image.id)&&targetOwners.get(image.id)===image.questionId&&snapshot.records.get(appRecordKey('questionImages',image.id))?.raw!==null):[];
     const retainedIds=new Set(retainedImages.map(image=>image.id));
+    const vault = await import('./blobVault'), useVault = Boolean(await vault.readMeta(db,'deltaEnabled'));
+    const storedNotes: Record<string,string> = {}, imageRefs = new Map<string,import('./blobVault').BlobRef>();
+    for(const [key,raw] of Object.entries(notes))storedNotes[key]=useVault?await vault.packBlobNote(db,raw):raw;
+    if(useVault)for(const image of checked.value.images)imageRefs.set(image.id,await vault.putContentBlob(db,image.blob));
     await saveAppRecords(db,target,new Date().toISOString(),undefined,[],tx=>{
       queueArchive(tx);
       // The verified pre-restore archive retains originals; stale per-note
       // backups must not resurrect notes omitted by the chosen snapshot.
       tx.objectStore('categoryNoteBackups').clear();
       for(const key of new Set([...storedNoteKeys,...Object.keys(previousNotes),...Object.keys(notes)])){
-        if(notes[key]===undefined)tx.objectStore('categoryNotes').delete(key);else tx.objectStore('categoryNotes').put(notes[key],key);
-        queueAuxiliaryRecordWrite(tx,'indexedDbNotes',key,notes[key]??null,!sync);
+        if(storedNotes[key]===undefined)tx.objectStore('categoryNotes').delete(key);else tx.objectStore('categoryNotes').put(storedNotes[key],key);
+        queueAuxiliaryRecordWrite(tx,'indexedDbNotes',key,storedNotes[key]??null,!sync);
       }
       for(const key of existingNoteKeys)tx.objectStore('localProjections').put(null,key);
       if(learning.size)queueLearningFence(tx);
@@ -222,7 +231,13 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
       for(const key of existingImageKeys)if(!retainedIds.has(key.slice('quizMake:image:'.length)))tx.objectStore('localProjections').put(null,key);
       const incoming=new Set(checked.value.images.map(image=>image.id));
       for(const image of previousImages)if(!incoming.has(image.id)&&!retainedIds.has(image.id))queueAuxiliaryRecordWrite(tx,'questionImages',image.id,null,!sync);
-      for(const image of checked.value.images){tx.objectStore('questionImageBlobs').put(image,image.id);const descriptor=payload.questionImageFiles.find(file=>file.descriptor.id===image.id)!.descriptor;queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor),!sync);tx.objectStore('localProjections').put(JSON.stringify(descriptor),questionImageMetadataKey(image.id));}
+      for(const image of checked.value.images){
+        const ref=imageRefs.get(image.id), descriptor={...payload.questionImageFiles.find(file=>file.descriptor.id===image.id)!.descriptor,...(ref?{vault:true as const}:{})};
+        const {blob:_blob,...metadata}=image;
+        tx.objectStore('questionImageBlobs').put(ref?{...metadata,vaultRef:ref}:image,image.id);
+        if(ref){vault.queueContentUpload(tx,ref);vault.queueBlobReferences(tx,`image:${image.id}`,JSON.stringify(descriptor));}
+        queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor),!sync);tx.objectStore('localProjections').put(JSON.stringify(descriptor),questionImageMetadataKey(image.id));
+      }
       tx.objectStore('localProjections').put(JSON.stringify({version:1,keys:Object.keys(notes).sort()}),CATEGORY_NOTES_MANIFEST_KEY);
       tx.objectStore('localProjections').put(null,CATEGORY_NOTES_RECOVERY_REQUIRED_KEY);
       if(sync){

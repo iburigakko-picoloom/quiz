@@ -1,0 +1,22 @@
+import test,{after} from 'node:test';
+import assert from 'node:assert/strict';
+import {IDBFactory,IDBKeyRange} from 'fake-indexeddb';
+globalThis.indexedDB=new IDBFactory();globalThis.IDBKeyRange=IDBKeyRange;
+const values=new Map();globalThis.localStorage={get length(){return values.size},key:i=>[...values.keys()][i]??null,getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k)};
+globalThis.window={dispatchEvent(){}};Object.defineProperty(navigator,'locks',{value:{request:async(_n,_o,run)=>run()},configurable:true});Object.defineProperty(navigator,'storage',{value:{estimate:async()=>({quota:2**30,usage:0})},configurable:true});
+const storage=await import('../src/storage.ts'),vault=await import('../src/utils/blobVault.ts'),images=await import('../src/utils/questionImageRecords.ts'),notes=await import('../src/utils/noteStorage.ts'),backups=await import('../src/utils/backupPayload.ts');
+const stamp='2026-10-16T00:00:00Z',question={id:'q',setId:'s',question:'Q',choices:['a','b','c','d'],answerIndex:0,answerText:'a',explanation:'',sourcePage:'',category:'',difficulty:'basic',createdAt:stamp,updatedAt:stamp,questionImageIds:['i']};
+const data={version:1,folders:[{id:'f',name:'F',createdAt:stamp,updatedAt:stamp}],problemSets:[{id:'s',folderId:'f',title:'S',source:'',createdAt:stamp,updatedAt:stamp}],questions:[question],progress:[],answerLogs:[]};
+await storage.saveAppDataAsync(data);const db=await storage.openAppDb();after(()=>db.close());await vault.writeMeta(db,'deltaEnabled',{version:3});
+const bytes=Uint8Array.from([137,80,78,71,42]);await images.saveQuestionImage({id:'i',questionId:'q',name:'ink.png',type:'image/png',blob:new Blob([bytes],{type:'image/png'}),addedAt:stamp});
+const note=JSON.stringify({dataUrl:'data:image/png;base64,'+Buffer.from(bytes).toString('base64'),updatedAt:stamp}),key='quizMake:notes:s:cat';await notes.saveCategoryNoteRaw(key,note);
+test('vault deduplicates images and notes; copies and complete export/restore preserve exact bytes',async()=>{
+  assert.equal((await vault.readMeta(db,'blobUsage')).count,1);
+  const copy=await images.prepareCopiedQuestionImages([{sourceId:'q',question:{...question,id:'copy'}}]);
+  assert.equal(await storage.saveAppDataAsync({...await storage.loadAppDataAsync(),questions:[question,...copy.questions]},{questionImages:copy.images}),true);
+  assert.equal((await vault.readMeta(db,'blobUsage')).count,1);
+  const file=await backups.exportFileBackup();assert.equal((await backups.validateFileBackup(file)).ok,true);assert.equal(file.indexedDbNotes[key],note);assert.equal(file.questionImageFiles.length,2);
+  const restored=await backups.restoreFileBackup(file);assert.equal(restored.ok,true,restored.error);
+  assert.equal(await notes.loadCategoryNoteRaw(key),note);assert.deepEqual(new Uint8Array(await (await images.readQuestionImages('q',['i']))[0].blob.arrayBuffer()),bytes);
+  const reread=await backups.exportFileBackup();assert.deepEqual(reread.indexedDbNotes,file.indexedDbNotes);assert.deepEqual(reread.questionImageFiles,file.questionImageFiles);assert.deepEqual(JSON.parse(reread.localStorage['quiz-make-app-data-v1']),JSON.parse(file.localStorage['quiz-make-app-data-v1']));assert.equal((await backups.validateFileBackup(reread)).ok,true);
+});

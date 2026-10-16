@@ -9,6 +9,7 @@ import { hasPersistedSyncHistory } from './utils/syncState';
 import { readAppRecords, readPreviousAppRecords, saveAppRecords, upgradeAppRecordStores } from './utils/appRecordStorage';
 import { appSaveFailure, type AppSaveFailure } from './utils/appSaveFailure';
 import { cleanupNativeOriginals } from './utils/learningValueStorage';
+import { installStorageLedger } from './utils/storageLedger';
 
 export const APP_DATA_STORAGE_KEY = 'quiz-make-app-data-v1';
 export const APP_DATA_FALLBACK_META_KEY = 'quiz-make-app-data-v1:fallback-saved-at';
@@ -403,12 +404,12 @@ export function openAppDb(): Promise<IDBDatabase> {
   if (appDbPromise) return appDbPromise;
 
   appDbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(accountDatabaseName(APP_DB_NAME), 7);
+    const request = indexedDB.open(accountDatabaseName(APP_DB_NAME), 9);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(APP_STORE_NAME)) db.createObjectStore(APP_STORE_NAME);
       if (!db.objectStoreNames.contains(APP_BACKUP_STORE_NAME)) db.createObjectStore(APP_BACKUP_STORE_NAME);
-      upgradeAppRecordStores(db);
+      upgradeAppRecordStores(db, request.transaction!);
     };
     let blocked = false;
     request.onsuccess = () => {
@@ -416,6 +417,7 @@ export function openAppDb(): Promise<IDBDatabase> {
       if (blocked) { db.close(); return; }
       db.onversionchange = () => { db.close(); appDbPromise = null; };
       db.onclose = () => { appDbPromise = null; };
+      installStorageLedger(db);
       resolve(db);
     };
     request.onerror = () => reject(request.error ?? new Error('Failed to open app data database.'));

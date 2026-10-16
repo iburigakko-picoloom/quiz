@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { MaterialReference } from '../types';
 import { ActionMenu } from './ActionMenu';
 import { CategoryNotePanel, type CategoryNotePanelHandle, type NoteToolSettings } from './CategoryNoteDrawer';
-import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf } from '../utils/materialStorage';
+import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf, isMaterialOffline, setMaterialOffline } from '../utils/materialStorage';
 import { MaterialPreviewCache, type MaterialPagePreview } from '../utils/materialPreview';
 import { createId } from '../utils/id';
 import { boundedNoteScale } from './noteGestures';
@@ -14,6 +14,8 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const [index, setIndex] = useState<MaterialIndex | null>(null);
   const [ownerId, setOwnerId] = useState(setId);
   const [materialId, setMaterialId] = useState('');
+  const [offline, setOffline] = useState(false);
+  useEffect(() => { let current = true; setOffline(false); if (materialId) void isMaterialOffline(ownerId, materialId).then(value => { if (current) setOffline(value); }, () => {}); return () => { current = false; }; }, [ownerId, materialId]);
   const [pageId, setPageId] = useState('');
   const [busy, setBusy] = useState(false);
   const [memoOpen, setMemoOpen] = useState(false);
@@ -264,6 +266,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
         <button aria-label="次のページ" disabled={busy || !memoPage.ready || memoPage.index === 2} onClick={() => void run(async () => { panel.current?.goToPage?.(memoPage.index + 1); })}>›</button>
       </div> : material ? <div className="materials-pagination"><button aria-label="前のページ" disabled={busy || pagePending || pageIndex <= 0} onClick={() => goToPage(material.pages[pageIndex - 1].id)}>‹</button><select aria-label="ページ" value={pageId} disabled={busy || pagePending} onChange={event => goToPage(event.target.value)}>{material.pages.map((item, n) => <option key={item.id} value={item.id}>p{n + 1}</option>)}</select><button aria-label="次のページ" disabled={busy || pagePending || pageIndex >= material.pages.length - 1} onClick={() => goToPage(material.pages[pageIndex + 1].id)}>›</button></div> : null}
       <ActionMenu ref={menu} className="materials-menu"><summary aria-label="資料の操作" title="資料の操作" aria-disabled={memoOpen} tabIndex={memoOpen ? -1 : 0} onClick={event => { if (memoOpen) event.preventDefault(); }}>•••</summary><div>
+        {material?.pages.some(item => item.kind === 'pdf') ? <><button type="button" aria-pressed={offline} disabled={busy} onClick={() => void run(async () => { await setMaterialOffline(ownerId, materialId, !offline); setOffline(!offline); })}>{offline ? 'オフライン保存を解除' : 'オフライン保存'}</button><hr/></> : null}
         {ownerId !== setId ? <><button disabled={busy || pagePending || transitioning} onClick={() => void openLocalMaterials()}>この問題セットの資料に戻る</button><hr/></> : null}
         {onAdjustReferences ? <><button disabled={busy || pagePending || transitioning} onClick={() => run(async () => onAdjustReferences(material?.id))}>参照ページを調整</button><hr/></> : null}
         {onOpenReference && (questionReferences?.length ?? 0) > 1 ? <>{questionReferences?.map((item, i) => <button key={`${item.materialId}/${item.pageId}`} disabled={busy} onClick={() => { if (menu.current) menu.current.open = false; onOpenReference(item); }}>参照資料 {i + 1}へ移動</button>)}<hr/></> : null}

@@ -5,7 +5,7 @@ export function StorageBreakdown() {
   const controller=useRef<AbortController|null>(null);
   const [stage,setStage]=useState(''),[complete,setComplete]=useState(false);
   useEffect(()=>()=>controller.current?.abort(),[]);
-  const read=async()=>{setBusy(true);setError('');setRows(null);setComplete(false);const active=new AbortController();controller.current=active;try{setRows(await readStorageBreakdown({signal:active.signal,onProgress:(value,label)=>{setRows(value);setStage(label);}}));setComplete(true);}catch(e){setError(e instanceof Error?e.message:'保存容量を確認できません。');}finally{setBusy(false);}};
+  const read=async()=>{setBusy(true);setError('');setRows(null);setComplete(false);const active=new AbortController();controller.current=active;try{const result=await readStorageBreakdown({signal:active.signal,onProgress:(value,label)=>{setRows(value);setStage(label);}});setRows(result);setComplete(!result.some(row=>row.partial));}catch(e){setError(e instanceof Error?e.message:'保存容量を確認できません。');}finally{setBusy(false);}};
   return <section className="sync-section" aria-label="保存容量の内訳"><h3>保存容量の内訳</h3><div>
     <button type="button" className="sync-button" disabled={busy} onClick={()=>void read()}>{busy?'集計中…':'内訳を確認'}</button>
     {busy?<><button type="button" className="sync-button" onClick={()=>controller.current?.abort()}>中止</button><p role="status">{stage?`${stage}を集計中…`:'保存先を確認中…'}</p></>:null}

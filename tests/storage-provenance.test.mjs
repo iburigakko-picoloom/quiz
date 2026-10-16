@@ -73,7 +73,7 @@ function createIndexedDbHarness() {
       },
       createObjectStore(storeName) {
         if (!stores.has(storeName)) stores.set(storeName, new Map());
-        return { createIndex() {} };
+        return { createIndex() {}, indexNames: { contains() { return false; } } };
       },
       close() {},
       transaction(storeNames) {
@@ -81,6 +81,7 @@ function createIndexedDbHarness() {
         let pendingRequests = 0;
         let completionScheduled = false;
         const transaction = {
+          objectStoreNames: { contains(name) { return names.includes(name); } },
           oncomplete: null,
           onerror: null,
           onabort: null,
@@ -130,6 +131,7 @@ function createIndexedDbHarness() {
 
   function createObjectStore(values, transaction, beginRequest, maybeComplete) {
     return {
+      indexNames: { contains() { return true; } },
       createIndex() {},
       add(value, key = value.id) {
         return beginRequest(() => { if (values.has(String(key))) throw new Error('ConstraintError'); values.set(String(key), structuredClone(value)); return key; });

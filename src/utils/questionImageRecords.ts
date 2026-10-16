@@ -1,17 +1,18 @@
 import { exportAppDataRaw, openAppDb } from '../storage';
-import { saveAppRecords, appRecordKey } from './appRecordStorage';
+import { saveAppRecords, appRecordKey, type AppRecord } from './appRecordStorage';
 import { queueAuxiliaryRecordWrite } from './auxiliaryRecordStorage';
 import { MAX_LOCAL_QUESTION_IMAGE_BYTES } from './imageLimits';
 import type { AppData, Question } from '../types';
 import { createId } from './id';
+import { BLOB_STORES, readMeta, putContentBlob, getContentBlob, queueContentUpload, type BlobRef } from './blobVault';
 
 export const IMAGE_BLOB_STORE='questionImageBlobs';
-export const IMAGE_SYNC_STORES=[IMAGE_BLOB_STORE,'appRecordMeta','appRecords','appRecordBackups','appOutbox'];
+export const IMAGE_SYNC_STORES=[IMAGE_BLOB_STORE,'appRecordMeta','appRecords','appRecordBackups','appOutbox',...BLOB_STORES,'recordHistory'];
 const MARKER='questionImageMigrationV1';
 const OLD_DB='quiz-make-local-question-images-v1';
 const OLD_STORE='images';
 export interface StoredQuestionImage { id:string;questionId:string;name:string;type:string;blob:Blob;addedAt:string }
-export interface QuestionImageDescriptor { id:string;questionId:string;name:string;type:string;size:number;sha256:string;path?:string;addedAt:string }
+export interface QuestionImageDescriptor { id:string;questionId:string;name:string;type:string;size:number;sha256:string;path?:string;addedAt:string;vault?:true }
 export interface PreparedQuestionImageCopy {
   image: StoredQuestionImage;
   descriptor: QuestionImageDescriptor;
@@ -84,6 +85,8 @@ export async function openQuestionImageRecordDb():Promise<IDBDatabase>{
 export async function saveQuestionImage(image:StoredQuestionImage):Promise<void>{
   const descriptor=await describeQuestionImage(image);
   const db=await openQuestionImageRecordDb();
+  const vaultRef = await readMeta(db, 'deltaEnabled') ? await putContentBlob(db, image.blob) : undefined;
+  if (vaultRef) descriptor.vault = true;
   const tx=db.transaction(IMAGE_SYNC_STORES,'readwrite');const completed=done(tx);
   const existing=tx.objectStore(IMAGE_BLOB_STORE).get(image.id);
   const metadata=tx.objectStore('appRecords').get(appRecordKey('questionImages',image.id));
@@ -91,7 +94,12 @@ export async function saveQuestionImage(image:StoredQuestionImage):Promise<void>
     try{
       const owner=metadata.result?.raw?JSON.parse(metadata.result.raw).questionId:null;
       if((existing.result && existing.result.questionId!==image.questionId) || (owner && owner!==image.questionId)){tx.abort();return;}
-      tx.objectStore(IMAGE_BLOB_STORE).put(image,image.id);
+      if (vaultRef) {
+        const { blob: _blob, ...metadata } = image;
+        tx.objectStore(IMAGE_BLOB_STORE).put({ ...metadata, vaultRef }, image.id);
+        tx.objectStore('contentBlobRefs').put({ hashes: [vaultRef.sha256], protect: true }, `image:${image.id}`);
+        queueContentUpload(tx, vaultRef);
+      } else tx.objectStore(IMAGE_BLOB_STORE).put(image,image.id);
       queueAuxiliaryRecordWrite(tx,'questionImages',image.id,JSON.stringify(descriptor),false);
     }catch{tx.abort();}
   };
@@ -100,6 +108,7 @@ export async function saveQuestionImage(image:StoredQuestionImage):Promise<void>
 /** Prepare bytes before opening the AppData transaction. All copies are committed
  * with their new question references; an unreadable source never becomes success. */
 export async function prepareCopiedQuestionImages(pairs: readonly { sourceId: string; question: Question }[]): Promise<{ questions: Question[]; images: PreparedQuestionImageCopy[] }> {
+  const db = await openQuestionImageRecordDb(), vault = Boolean(await readMeta(db, 'deltaEnabled'));
   const images: PreparedQuestionImageCopy[]=[];
   const questions: Question[]=[];
   for(const {sourceId,question} of pairs){
@@ -111,6 +120,7 @@ export async function prepareCopiedQuestionImages(pairs: readonly { sourceId: st
       const sourceDescriptor=await describeQuestionImage(original);
       const image={...original,id:createId('image'),questionId:question.id,blob:new Blob([original.blob],{type:original.type}),addedAt:new Date().toISOString()};
       const descriptor=await describeQuestionImage(image);
+      if (vault) { await putContentBlob(db, image.blob, { expected: descriptor }); descriptor.vault = true; }
       images.push({image,descriptor,source:{id:original.id,questionId:sourceId,sha256:sourceDescriptor.sha256}});
       replacements.set(original.id,image.id);
     }
@@ -125,7 +135,26 @@ export async function readQuestionImages(questionId:string,imageIds:readonly str
   const db=await openQuestionImageRecordDb();const tx=db.transaction(IMAGE_BLOB_STORE);const completed=done(tx);
   const requested=imageIds.map(id=>request<StoredQuestionImage|undefined>(tx.objectStore(IMAGE_BLOB_STORE).get(id)));
   const found=await Promise.all(requested);await completed;
-  return found.filter((image):image is StoredQuestionImage=>!!image&&image.questionId===questionId);
+  const result: StoredQuestionImage[] = [];
+  for (let index = 0; index < imageIds.length; index++) {
+    const image = found[index] as (StoredQuestionImage & { vaultRef?: BlobRef }) | undefined;
+    if (image?.questionId === questionId && image.blob instanceof Blob) { result.push(image); continue; }
+    const metaTx = db.transaction('appRecords', 'readonly'), metaDone = done(metaTx);
+    const record = await request<AppRecord | undefined>(metaTx.objectStore('appRecords').get(appRecordKey('questionImages', imageIds[index]))); await metaDone;
+    const descriptor = record?.raw ? JSON.parse(record.raw) as QuestionImageDescriptor : undefined;
+    if (!descriptor || !validQuestionImageDescriptor(descriptor) || descriptor.questionId !== questionId) continue;
+    let blob = await getContentBlob(db, descriptor);
+    if (!blob && descriptor.vault) blob = await (await import('./blobCloud')).downloadContentBlob(descriptor);
+    if (!blob && descriptor.path) {
+      const { getCloudAccessToken } = await import('./cloudService'), { getRemoteSyncConfig } = await import('./syncService');
+      const access = await getCloudAccessToken(), config = getRemoteSyncConfig();
+      if (!access.ok || !config) throw new Error('画像の取得にはログインが必要です。');
+      blob = await (await import('./questionImageCloud')).createQuestionImageTransport(config, access).download(descriptor);
+      await putContentBlob(db, blob, { origin: 'remote', expected: descriptor });
+    }
+    if (blob) result.push({ id: descriptor.id, questionId, name: descriptor.name, type: descriptor.type, addedAt: descriptor.addedAt, blob });
+  }
+  return result;
 }
 export async function removeQuestionImages(predicate:(image:StoredQuestionImage)=>boolean):Promise<void>{
   const db=await openQuestionImageRecordDb();const tx=db.transaction(IMAGE_SYNC_STORES,'readwrite');const completed=done(tx);

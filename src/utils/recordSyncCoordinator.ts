@@ -34,7 +34,13 @@ import { materialFileEntry } from './materialModel';
 import { recoverLegacyImageMetadata } from './legacyImageRecovery';
 import { repairMissingMaterialReferences } from './materialReferenceRepair';
 import { readWholeBaseline } from './wholeSyncStorage';
-import { enforceBackupHistoryLimit } from './backupHistory';
+import { settleAutomaticBackupHistory } from './backupHistory';
+import { repairCategoryNoteProjections } from './noteStorage';
+import { readMeta } from './blobVault';
+import { prepareDeltaSync } from './deltaMigration';
+import { runDeltaSync } from './deltaSync';
+import { startDeltaBackground } from './deltaBackground';
+import { getAccountStorageSession } from './accountStorage';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
   const report = (value: string) => { try { step(value); } catch { /* Status cannot interrupt synchronization. */ } };
@@ -66,8 +72,6 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
     if (!saved.ok) { step('local_persistence'); throw new SyncLocalPersistenceError(saved.error); }
   };
   await assertCurrent();
-  await enforceBackupHistoryLimit();
-  await assertCurrent();
   const rpc = createRecordSyncRpc({ url: config.url, anonKey: config.anonKey, connection, onRequest: step,
     async access() {
       const current = await getCloudAccessToken();
@@ -84,13 +88,17 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   });
   const db = await withCoordinatedDataRead(['app','notes'],async()=>{
     await openCoLocatedNoteDb();
+    await repairCategoryNoteProjections();
     await replayLocalStorageProjections();
     await captureSyncedLocalStorage(isQuizMakeStorageKey);
     return openQuestionImageRecordDb();
   },{requireCrossContext:true});
   // A durable whole baseline proves initialization for this exact connection.
   // Its authenticated status RPC still verifies ownership and the current head.
-  if(!WHOLE_SYNC_ROLLOUT_ENABLED||!await readWholeBaseline(db,connection)){
+  const deltaEnabled = await readMeta(db, 'deltaEnabled');
+  const deltaRequested=Boolean(deltaEnabled)||import.meta.env?.VITE_DELTA_SYNC_ENABLED==='true';
+  const initialized=deltaRequested&&!deltaEnabled?(await rpc.delta('status')).code==='ok':Boolean(deltaEnabled);
+  if(!initialized && (!WHOLE_SYNC_ROLLOUT_ENABLED||!await readWholeBaseline(db,connection))){
     step('remote_metadata');
     const remote=await getRemoteSyncMeta(syncId);
     if(!remote.ok)throw new RecordSyncRpcError(remote.code??'network',remote.error);
@@ -99,6 +107,23 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   }
   const imageTransport = createQuestionImageTransport(config, initialAccess);
   const materialTransport = createMaterialTransport(config,initialAccess,{assertCurrent});
+  if (deltaRequested) {
+    const guards = { assertCurrent, apply, step };
+    const migration = await prepareDeltaSync(db, connection, rpc, guards);
+    if (migration) return migration;
+    const result = await runDeltaSync(db, connection, rpc, guards);
+    await assertCurrent(); await writeRecordSyncReceipt(db, connection, result);
+    // Learning records are committed first. Bounded local conversion and media
+    // transfers are separate work and never require a complete-file backup.
+    const owner = getAccountStorageSession();
+    const assertMigrationCurrent = async () => {
+      if (owner !== getAccountStorageSession() || getAutoSyncSettings().syncId !== syncId) throw new Error('移行中に保存先が変わりました。');
+      owner?.assertCurrent();
+    };
+    startDeltaBackground(db, assertMigrationCurrent, assertCurrent);
+    if(result.status==='done')void settleAutomaticBackupHistory().catch(()=>{/* Retain protected originals. */});
+    return result;
+  }
   if(WHOLE_SYNC_ROLLOUT_ENABLED){
     const progress=(value:SyncProgress)=>{try{publishSyncProgress(connection,value);}catch{/* Informational only. */}};
     const result=await runWholeRecordSync(db,connection,rpc,{assertCurrent,apply,step,
@@ -127,7 +152,9 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
         progress({label:'送信の準備完了',completed:1,total:1,stage:'preparing'});
       },
     });
-    await assertCurrent();step('receipt');if(result.status==='done')progress({label:'同期結果を確認中',completed:0,total:1,stage:'finalizing'});await writeRecordSyncReceipt(db,connection,result);return result;
+    await assertCurrent();step('receipt');if(result.status==='done')progress({label:'同期結果を確認中',completed:0,total:1,stage:'finalizing'});await writeRecordSyncReceipt(db,connection,result);
+    if(result.status==='done')await settleAutomaticBackupHistory().catch(()=>{/* Cleanup failure retains originals. */});
+    return result;
   }
   step('materials'); const media = await prepareRecordMaterialOutbox(db,createMaterialTransport(config,initialAccess),assertCurrent);
   if(media.more)return {status:'more',uploaded:0,downloaded:0};

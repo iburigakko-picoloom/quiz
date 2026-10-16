@@ -1,5 +1,5 @@
 import { accountDatabaseName, getAccountStorageSession } from './accountStorage';
-export interface StorageBreakdownRow { label: string; bytes: number; count: number }
+export interface StorageBreakdownRow { label: string; bytes: number; count: number; partial?: boolean }
 // Payload size, not physical disk allocation: IDB overhead/compression and
 // browser caches are intentionally not represented by this sum.
 export function storedValueBytes(value: unknown): number {
@@ -26,6 +26,7 @@ const labels: Record<string,string> = {
   appOutbox:'未送信データ', appDataBackups:'復旧・移行用コピー',
   questionImageBlobs:'問題画像', backups:'保存したバックアップ',
   appPullStage:'受信中のデータ', appPullMedia:'受信画像', appRecordMeta:'同期管理・送信準備',
+  contentBlobs:'PDF・画像・本文の共通保管庫',contentBlobMeta:'本文の管理情報',contentBlobRefs:'本文の参照一覧',contentBlobJobs:'本文の送信待ち',recordHistory:'項目ごとの復旧履歴',deltaStage:'引き継ぎ中のデータ',
 };
 export async function readStorageBreakdown(options: {signal?: AbortSignal; onProgress?: (rows: StorageBreakdownRow[], label: string) => void} = {}): Promise<StorageBreakdownRow[]> {
   if (!indexedDB.databases) throw new Error('このブラウザでは保存先の一覧を取得できません。');
@@ -50,6 +51,21 @@ export async function readStorageBreakdown(options: {signal?: AbortSignal; onPro
     const db=await boundedRead(opening,options.signal).catch(error=>{accepting=false;throw error;});
     try{
       current();db.onversionchange=()=>db.close();
+      if(base==='quiz-make-app-data-v1'&&db.objectStoreNames.contains('storageLedger')){
+        const totals=await new Promise<Record<string,{bytes:number;count:number;complete?:boolean}>>((resolve,reject)=>{const tx=db.transaction('storageLedger'),r=tx.objectStore('storageLedger').get('summary');tx.oncomplete=()=>resolve(r.result??{});tx.onabort=()=>reject(tx.error);});
+        for(const store of Array.from(db.objectStoreNames).filter(name=>name!=='storageLedger')){
+          const total=totals[store];if(total?.count||!total?.complete)rows.push({label:labels[store]??store,bytes:total?.bytes??0,count:total?.count??0,...(!total?.complete?{partial:true}:{})});
+        }
+        options.onProgress?.([...rows],'');continue;
+      }
+      if(base==='quiz-make-backups'&&db.objectStoreNames.contains('backups')){
+        const tx=db.transaction('backups');
+        if(tx.objectStore('backups').indexNames.contains('summary')){
+          const row={label:labels.backups,bytes:0,count:0};
+          await new Promise<void>((resolve,reject)=>{const r=tx.objectStore('backups').index('summary').openKeyCursor();r.onsuccess=()=>{const c=r.result;if(!c)return;row.bytes+=(c.key as [string,string,string,number])[3];row.count++;c.continue();};tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error);});
+          if(row.count)rows.push(row);options.onProgress?.([...rows],'');continue;
+        }
+      }
       for(const store of Array.from(db.objectStoreNames)){
         const row={label:(base==='quiz-make-notes-v1'?'移行前の保存領域：':'')+(labels[store]??store),bytes:0,count:0};
         let updated=0;

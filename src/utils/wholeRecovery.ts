@@ -3,12 +3,14 @@ import { withCoordinatedDataMutation } from './dataCoordination';
 import type { FileBackup } from './backupPayload';
 import { getAccountStorageSession } from './accountStorage';
 import { hashBackupBlob, jsonBackupBlob } from './incrementalJsonDigest';
+import { packBlobNote, parseBlobNote, queueBlobReferences, readMeta, unpackBlobNote, getContentBlob, blobHash } from './blobVault';
 
 const INDEX = 'wholeRecoveryIndexV1';
 const PREFIX = 'quizMake:wholeRecovery:';
 export interface WholeRecoverySummary {
   id: string; createdAt: string; kind: 'before-restore' | 'conflict'; byteSize: number; digest: string;
   storageDigest?: string;
+  blobVault?: true;
 }
 interface RecoveryIndex { version: 1; budgetBytes: number; items: WholeRecoverySummary[] }
 function done(tx: IDBTransaction): Promise<void> {
@@ -35,12 +37,18 @@ async function readRecoveryBody(db:IDBDatabase,id:string):Promise<string|Blob|un
   return request.result;
 }
 export async function getWholeRecovery(id: string): Promise<string | undefined> {
-  const body=await readRecoveryBody(await openAppDb(),id);
-  return body instanceof Blob?body.text():body;
+  const db = await openAppDb(), body=await readRecoveryBody(db,id);
+  const raw = body instanceof Blob ? await body.text() : body;
+  return raw && parseBlobNote(raw) ? unpackBlobNote(db, raw, async ref => (await import('./blobCloud')).downloadContentBlob(ref)) : raw;
 }
 async function verifyRecovery(db:IDBDatabase,summary:WholeRecoverySummary):Promise<boolean>{
   const body=await readRecoveryBody(db,summary.id);
-  if(body instanceof Blob)return Boolean(summary.storageDigest&&body.size===summary.byteSize&&await hashBackupBlob(body)===summary.storageDigest);
+  if(body instanceof Blob){
+    if(!summary.storageDigest||body.size!==summary.byteSize||await hashBackupBlob(body)!==summary.storageDigest)return false;
+    const manifest=summary.blobVault?parseBlobNote(await body.text()):null;
+    for(const ref of manifest?.blobs??[]){const blob=await getContentBlob(db,ref);if(!blob||await blobHash(blob)!==ref.sha256)return false;}
+    return true;
+  }
   if(typeof body!=='string')return false;
   const {validateFileBackup}=await import('./backupPayload');
   const checked=await validateFileBackup(JSON.parse(body),{retainImages:false});
@@ -64,7 +72,11 @@ export async function prepareWholeRecovery(db: IDBDatabase, payload: FileBackup,
     if (!await verifyRecovery(db,duplicate)) throw new Error('既存の復旧コピーを確認できないため、データの入れ替えを中止しました。');
     currentOwner();return () => {currentOwner();};
   }
-  const stored=await jsonBackupBlob(payload),byteSize=stored.blob.size;
+  const packed = await readMeta(db, 'deltaEnabled') ? await packBlobNote(db, JSON.stringify(payload), 'remote') : undefined;
+  const stored = packed
+    ? await jsonBackupBlob(JSON.parse(packed))
+    : await jsonBackupBlob(payload);
+  const byteSize=stored.blob.size;
   currentOwner();
   const estimate = await globalThis.navigator?.storage?.estimate?.();
   if (!estimate?.quota || estimate.usage === undefined || !Number.isFinite(estimate.quota - estimate.usage)) {
@@ -75,7 +87,7 @@ export async function prepareWholeRecovery(db: IDBDatabase, payload: FileBackup,
   const budgetBytes = previous?.budgetBytes ?? Math.floor(Math.min(Math.max(byteSize,replacementBytes) * 4, free / 2));
   const used = previous?.items.reduce((sum, item) => sum + item.byteSize, 0) ?? 0;
   if (used + byteSize > budgetBytes || byteSize * 2 > free) throw new Error(`復旧コピーの容量が不足しています（使用 ${Math.ceil(used / 1048576)} MB／上限 ${Math.ceil(budgetBytes / 1048576)} MB）。必要なコピーを書き出してから、一覧で不要なコピーを削除してください。`);
-  const summary: WholeRecoverySummary = { id: PREFIX + crypto.randomUUID(), createdAt: new Date().toISOString(), kind, byteSize, digest: payload.backupManifest.contentDigest,storageDigest:stored.digest };
+  const summary: WholeRecoverySummary = { id: PREFIX + crypto.randomUUID(), createdAt: new Date().toISOString(), kind, byteSize, digest: payload.backupManifest.contentDigest,storageDigest:stored.digest, ...(packed?{blobVault:true as const}:{}) };
   const next: RecoveryIndex = { version: 1, budgetBytes, items: [...previous?.items ?? [], summary] };
   return tx => {
     currentOwner();
@@ -91,6 +103,7 @@ export async function prepareWholeRecovery(db: IDBDatabase, payload: FileBackup,
       try {
         if (JSON.stringify(current.result) !== JSON.stringify(previous)) throw new Error('復旧コピーの一覧が別の画面で更新されました。');
         tx.objectStore('appDataBackups').add(stored.blob, summary.id);
+        if (packed) queueBlobReferences(tx, `checkpoint:${summary.id}`, packed);
         tx.objectStore('appRecordMeta').put(next, INDEX);
       } catch { tx.abort(); }
     };
@@ -104,8 +117,9 @@ export async function deleteWholeRecovery(id: string, options: {coordinationLock
     const db = await openAppDb(), previous = await index(db);
     current();
     if (!previous?.items.some(item => item.id === id)) throw new Error('復旧コピーが見つかりません。');
-    const tx = db.transaction(['appDataBackups', 'appRecordMeta'], 'readwrite'), completed = done(tx);
+    const tx = db.transaction(['appDataBackups', 'appRecordMeta', ...['contentBlobRefs'].filter(name=>db.objectStoreNames.contains(name))], 'readwrite'), completed = done(tx);
     tx.objectStore('appDataBackups').delete(id);
+    if(tx.objectStoreNames.contains('contentBlobRefs'))tx.objectStore('contentBlobRefs').delete(`checkpoint:${id}`);
     const items = previous.items.filter(item => item.id !== id);
     if (items.length) tx.objectStore('appRecordMeta').put({ ...previous, items }, INDEX);
     else tx.objectStore('appRecordMeta').delete(INDEX);

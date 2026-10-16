@@ -20,7 +20,7 @@ export class RecordSyncRpcError extends Error {
 /** Every request revalidates the authenticated account; a timeout never implies
  * that a push failed to commit. Its caller retains the frozen Operation IDs.
  */
-export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransport & { open(expectedUpdatedAt: string): Promise<number>; whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}>; commitSmallWhole(body:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}> } {
+export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransport & { open(expectedUpdatedAt: string): Promise<number>; delta(action:string,body?:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}>; whole(name:'status'|'open'|'read'|'begin'|'part'|'finish'|'abort'|'receipts',body?:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}>; commitSmallWhole(body:Record<string,unknown>):Promise<{code:string;[key:string]:unknown}> } {
   const origin = new URL(options.url).origin;
   if (origin !== options.connection.project) throw new Error('差分同期のプロジェクトが一致しません。');
   const request = async (name: string, body: Record<string, unknown>) => {
@@ -66,11 +66,13 @@ export function createRecordSyncRpc(options: RecordRpcOptions): RecordSyncTransp
       const result: unknown = await response.json();
       options.assertCurrent();
       if (!result || typeof result !== 'object' || !('code' in result) || typeof result.code !== 'string') throw new RecordSyncRpcError('invalid_response', '差分同期の応答を確認できませんでした。');
+      if(result.code==='update_required')throw new RecordSyncRpcError('update_required','この同期先は新しい方式に切り替わっています。アプリを更新してください。端末の未送信データは保持しています。');
       return result as { code: string; [key: string]: unknown };
     } finally { clearTimeout(timer); }
   };
   let smallCommitAvailable = true;
   return {
+    delta: (action, body = {}) => request('quiz_delta_sync', { p_action: action, p_request: body }),
     async open(expectedUpdatedAt) {
       if (!Number.isFinite(Date.parse(expectedUpdatedAt))) throw new Error('初回同期のSnapshotを確認できませんでした。');
       const result = await request('quiz_sync_v2_open', { p_expected_updated_at: expectedUpdatedAt });

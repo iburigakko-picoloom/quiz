@@ -41,13 +41,24 @@ jobs:
           QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF: ${{ vars.QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF }}
 
       # Keep validation scoped to the affected areas of this release.
-      - name: Test storage breakdown
-        run: node --import ./tests/helpers/typescript-imports.mjs --test tests/storage-breakdown.test.mjs
+      - name: Test sync inheritance and recovery
+        run: >-
+          node --import ./tests/helpers/typescript-imports.mjs --test --test-concurrency=2 --test-timeout=60000
+          tests/backup-retention.test.mjs tests/note-loading.test.mjs tests/note-record-migration.test.mjs
+          tests/blob-vault.test.mjs tests/blob-archive-migration.test.mjs tests/blob-complete-backup.test.mjs
+          tests/delta-sync-local.test.mjs tests/delta-sync-sql.test.mjs
+          tests/storage-ledger.test.mjs tests/storage-breakdown.test.mjs tests/storage-provenance.test.mjs
+          tests/app-record-storage.test.mjs tests/account-union-source.test.mjs tests/account-storage.test.mjs
+          tests/record-sync-network.test.mjs tests/record-sync-opt-in.test.mjs
+          tests/question-image-records.test.mjs tests/question-image-copy.test.mjs
+          tests/complete-backup.test.mjs tests/whole-sync-sql.test.mjs
+          tests/public-import.test.mjs tests/publication-materials.test.mjs
 
       - name: Build
         run: npm run build
         env:
           VITE_WHOLE_SYNC_ENABLED: 'true'
+          VITE_DELTA_SYNC_ENABLED: 'false'
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_LINE_AUTH_PROVIDER: ${{ vars.VITE_LINE_AUTH_PROVIDER }}

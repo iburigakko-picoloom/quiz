@@ -10,7 +10,7 @@ import {
   waitForNoteSave,
 } from './noteExitGuard';
 import { createId } from '../utils/id';
-import { loadCategoryNoteRaw, saveCategoryNoteRaw } from '../utils/noteStorage';
+import { loadCategoryNoteRaw, saveCategoryNoteRaw, CategoryNoteRecoveryRequiredError, restoreCategoryNoteCandidate } from '../utils/noteStorage';
 import {
   appendByteBudgetHistory,
   ByteBudgetLruCache,
@@ -345,6 +345,9 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const [isFlushing, setIsFlushing] = useState(false);
   const [noteLoadState, setNoteLoadState] = useState<NoteLoadState>('loading');
   const [noteLoadError, setNoteLoadError] = useState('');
+  const [recoveryCandidate,setRecoveryCandidate]=useState<CategoryNoteRecoveryRequiredError|null>(null);
+  const [restoringCandidate,setRestoringCandidate]=useState(false);
+  const candidateRestoreRef=useRef<Promise<void>|null>(null);
   const [notePaintState, setNotePaintState] = useState<NotePaintState>('loading');
 
   const getPagePanMetrics = (scale = pageScaleRef.current) => {
@@ -447,7 +450,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const activeWidths = tool === 'eraser' ? ERASER_WIDTHS : tool === 'marker' ? MARKER_WIDTHS : PEN_WIDTHS;
   const noteInteractionDisabled = isFlushing || noteLoadState !== 'ready' || notePaintState !== 'ready';
   useEffect(() => { onPageStateChange?.({ index: currentPageIndex, ready: !noteInteractionDisabled }); }, [currentPageIndex, noteInteractionDisabled, onPageStateChange]);
-  const saveStatusText = noteLoadState === 'loading' || notePaintState === 'loading'
+  const saveStatusText = recoveryCandidate ? '要復旧' : noteLoadState === 'loading' || notePaintState === 'loading'
     ? '読み込み中'
     : noteLoadState === 'error' || notePaintState === 'error'
       ? '読み込み失敗'
@@ -477,6 +480,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     noteLoadStateRef.current = 'loading';
     setNoteLoadState('loading');
     setNoteLoadError('');
+    setRecoveryCandidate(null);
     setSaveState('idle');
     setSaveError('');
 
@@ -507,7 +511,8 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         const loadError = new NoteLoadError();
         noteLoadStateRef.current = 'error';
         setNoteLoadState('error');
-        setNoteLoadError(getNoteSaveErrorMessage(loadError));
+        if(error instanceof CategoryNoteRecoveryRequiredError){setRecoveryCandidate(error);setNoteLoadError(error.message);}
+        else setNoteLoadError(getNoteSaveErrorMessage(loadError));
         throw loadError;
       });
     noteLoadPromiseRef.current = pending;
@@ -618,6 +623,10 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       let failurePhase: 'load' | 'paint' | 'save' = 'load';
 
       try {
+        if(candidateRestoreRef.current)await waitForNoteSave(candidateRestoreRef.current);
+        // An untouched recovery preview has nothing to save. Leaving it must
+        // neither promote the old copy nor trap the rest of the study screen.
+        if(recoveryCandidate&&noteLoadStateRef.current==='error'&&!canvasDirtyRef.current&&noteSaveQueueStateRef.current==='idle')return;
         if (noteLoadStateRef.current === 'error') {
           await waitForNoteSave(startNoteLoad().pending);
         } else if (noteLoadStateRef.current === 'loading') {
@@ -1271,6 +1280,22 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
           ) : null}
         </div>
       ) : null}
+
+      {recoveryCandidate?.candidate ? <section className="category-note-recovery" aria-label="このノートの復旧候補">
+        <p>保存されていた復旧候補です。復元すると、新しい編集として保存します。</p>
+        <div className="category-note-recovery__pages">
+          {parseNote(recoveryCandidate.candidate,problemSetId!,normalizedCategory).pages.map((page,index)=>/^data:image\/(?:png|jpeg|webp);base64,/.test(page.dataUrl)?<img key={page.id} src={page.dataUrl} alt={`復旧候補 ${index+1}ページ`}/>:<p key={page.id}>{page.dataUrl?'画像のプレビューを表示できません':'白紙のページ'}</p>)}
+        </div>
+        <button type="button" disabled={restoringCandidate} onClick={()=>{
+          const candidate=recoveryCandidate;if(!candidate.candidate)return;
+          setRestoringCandidate(true);
+          const restored=restoreCategoryNoteCandidate(candidate.key,candidate.candidate).then(()=>startNoteLoad().pending);
+          candidateRestoreRef.current=restored;
+          void restored
+            .catch(error=>setNoteLoadError(error instanceof Error?error.message:'復元できませんでした。'))
+            .finally(()=>{candidateRestoreRef.current=null;setRestoringCandidate(false);});
+        }}>{restoringCandidate?'復元中…':'この内容を復元'}</button>
+      </section>:null}
 
       <div className="category-note-canvas-area">
         <div className="category-note-page-viewport">

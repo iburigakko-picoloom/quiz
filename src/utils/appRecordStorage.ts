@@ -3,8 +3,10 @@ import { normalizeAppData } from './appDataValidation';
 import { recordSyncMetric } from './syncMetrics';
 import type { PreparedQuestionImageCopy } from './questionImageRecords';
 import { queueUserEditGeneration } from './userEditGeneration';
+import { BLOB_STORES, queueRecordHistory, queueContentUpload, queueBlobReferences, packBlobNote, parseBlobNote, readMeta } from './blobVault';
+import { queueLearningEvent } from './learningEvents';
 
-export const APP_RECORD_STORES = ['appRecords', 'appRecordMeta', 'appOutbox', 'appRecordBackups', 'appPullStage', 'appRecordConflicts', 'categoryNotes', 'categoryNoteBackups', 'localProjections', 'questionImageBlobs', 'appPullMedia'] as const;
+export const APP_RECORD_STORES = ['appRecords', 'appRecordMeta', 'appOutbox', 'appRecordBackups', 'appPullStage', 'appRecordConflicts', 'categoryNotes', 'categoryNoteBackups', 'localProjections', 'questionImageBlobs', 'appPullMedia', ...BLOB_STORES, 'recordHistory', 'deltaStage'] as const;
 export const APP_COLLECTIONS = ['folders', 'problemSets', 'questions', 'progress', 'answerLogs'] as const;
 export type AppCollection = typeof APP_COLLECTIONS[number];
 export const RECORD_COLLECTIONS = [...APP_COLLECTIONS, 'localStorage', 'indexedDbNotes', 'questionImages'] as const;
@@ -21,6 +23,7 @@ export type AppRecord = {
   localRevision: number;
 };
 export type AppOutboxOperation = {
+  transferReady?: 0 | 1;
   operationId: string;
   key: string;
   collection: RecordCollection;
@@ -46,12 +49,19 @@ const materialized = new WeakMap<IDBDatabase, { commitId: string; data: AppData 
 const LEGACY_STORE = 'appData';
 const RECORD_AUTHORITY_KEY = 'quiz-make-app-data-v1:record-schema';
 
-export function upgradeAppRecordStores(db: IDBDatabase): void {
+export function upgradeAppRecordStores(db: IDBDatabase, upgradeTransaction?: IDBTransaction): void {
+  const created=new Set<string>();
   APP_RECORD_STORES.forEach(name => { if (!db.objectStoreNames.contains(name)) {
+    created.add(name);
     const store = db.createObjectStore(name);
     if (name === 'questionImageBlobs') store.createIndex('questionId','questionId',{unique:false});
+    if (name === 'appOutbox') store.createIndex('transferReady',['collection','transferReady']);
+    if (name === 'appRecordConflicts') store.createIndex('kind','kind');
   } });
+  if(upgradeTransaction&&!created.has('appOutbox')){const store=upgradeTransaction.objectStore('appOutbox');if(!store.indexNames.contains('transferReady'))store.createIndex('transferReady',['collection','transferReady']);}
+  if(upgradeTransaction&&!created.has('appRecordConflicts')){const store=upgradeTransaction.objectStore('appRecordConflicts');if(!store.indexNames.contains('kind'))store.createIndex('kind','kind');}
   if (!db.objectStoreNames.contains(LEGACY_STORE)) db.createObjectStore(LEGACY_STORE);
+  if (!db.objectStoreNames.contains('storageLedger')) db.createObjectStore('storageLedger');
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -234,6 +244,11 @@ export async function saveAppRecords(
   materialRecords: Record<string,string> = {},
 ): Promise<void> {
   const started = performance.now();
+  if (Object.keys(materialRecords).length && await readMeta(db, 'deltaEnabled')) {
+    const packed: Record<string,string> = {};
+    for (const [key, raw] of Object.entries(materialRecords)) packed[key] = await packBlobNote(db, raw);
+    materialRecords = packed;
+  }
   const readTx = db.transaction('appRecordMeta', 'readonly');
   const readDone = transactionDone(readTx);
   const [state] = await Promise.all([requestResult<AppRecordState | undefined>(readTx.objectStore('appRecordMeta').get('state')), readDone]);
@@ -290,6 +305,7 @@ export async function saveAppRecords(
   const operations = changes.map(row => ({
     operationId: crypto.randomUUID(), key: row.key, collection: row.collection, id: row.id,
     raw: row.raw, position: row.position, baseRevision: row.serverRevision, localRevision: revision,
+    ...(row.collection === 'indexedDbNotes' ? { transferReady: 1 as const } : {}),
   } satisfies AppOutboxOperation));
   const tx = db.transaction([...APP_RECORD_STORES, LEGACY_STORE, ...(extraCommit ? ['appDataBackups'] : [])], 'readwrite');
   const done = transactionDone(tx);
@@ -303,14 +319,21 @@ export async function saveAppRecords(
       const existing=tx.objectStore('categoryNotes').get(id);
       existing.onsuccess=()=>{if(existing.result!==undefined){conflict=true;tx.abort();return;}tx.objectStore('categoryNotes').put(raw,id);};
       if(/"kind"\s*:\s*"quiz-material-file"/u.test(raw))tx.objectStore('appRecordMeta').put(1,'recordMediaPresent');
+      queueBlobReferences(tx, `current:${appRecordKey('indexedDbNotes',id)}`, raw);
+      queueBlobReferences(tx, `pending:${appRecordKey('indexedDbNotes',id)}`, raw);
+      for (const ref of parseBlobNote(raw)?.blobs ?? []) queueContentUpload(tx, ref);
     }
     for(const {image,descriptor,source} of imageCopies){
       const sourceBlob=tx.objectStore('questionImageBlobs').get(source.id);
       sourceBlob.onsuccess=()=>{
         try {
           const original=sourceBlob.result;
-          if(!original || original.questionId!==source.questionId || original.blob?.size!==descriptor.size || original.blob?.type!==descriptor.type){conflict=true;tx.abort();return;}
-          tx.objectStore('questionImageBlobs').put(image,image.id);
+          if(!original || original.questionId!==source.questionId || (original.blob?.size??original.vaultRef?.size)!==descriptor.size || (original.blob?.type??original.vaultRef?.type)!==descriptor.type){conflict=true;tx.abort();return;}
+          if (descriptor.vault) {
+            const { blob: _blob, ...metadata } = image;
+            tx.objectStore('questionImageBlobs').put({ ...metadata, vaultRef: descriptor }, image.id);
+            queueContentUpload(tx, descriptor); queueBlobReferences(tx, `image:${image.id}`, JSON.stringify(descriptor));
+          } else tx.objectStore('questionImageBlobs').put(image,image.id);
         } catch(error) { writeFailure=error;tx.abort(); }
       };
     }
@@ -320,6 +343,15 @@ export async function saveAppRecords(
       if (previous) tx.objectStore('appRecordMeta').put(previous.state, 'previousState');
       if (fallback?.raw) tx.objectStore('appRecordMeta').put(fallback, 'migrationFallback');
       if(changes.length&&userEdit)queueUserEditGeneration(tx);
+      if (userEdit) for (const row of changes) if (row.collection === 'progress' && row.raw) {
+        const old = previous?.records.get(row.key);
+        const answers = changes.filter(change => change.collection === 'answerLogs' && change.raw && !previous?.records.get(change.key)?.raw)
+          .map(change => JSON.parse(change.raw!)).filter(answer => answer.questionId === row.id);
+        for (const answer of answers.length ? answers : [undefined]) {
+          const event = queueLearningEvent(tx, revision, old?.raw ? JSON.parse(old.raw) : undefined, JSON.parse(row.raw), answer);
+          if (event) rows.set(event.key, event);
+        }
+      }
       extraCommit?.(tx);
     };
     let next=0;
@@ -330,6 +362,7 @@ export async function saveAppRecords(
       const index=next,row=changes[index];
       const old = previous?.records.get(row.key);
       if (old) tx.objectStore('appRecordBackups').put({ ...old, replacedAt: revision }, row.key);
+      queueRecordHistory(tx, row.key, old, row.raw);
       tx.objectStore('appRecords').put(row, row.key);
       // Coalesce unsent changes. A transport must durably freeze a batch before
       // sending and only acknowledge the exact operationId it sent.
