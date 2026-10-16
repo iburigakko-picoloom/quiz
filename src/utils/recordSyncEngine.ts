@@ -13,6 +13,7 @@ import { materialFileEntry } from './materialModel';
 import { parseQuestionImageDescriptor } from './recordQuestionImageSync';
 import { remoteQuestionImageDescriptor } from './questionImageCloud';
 import { SyncProtocolError } from './syncInterruption';
+import type { SyncProgress } from './syncAttemptStatus';
 
 export interface RecordSyncTransport {
   pull(cursor: number): Promise<unknown>;
@@ -24,6 +25,7 @@ export type RecordSyncOutcome =
 export type RecordSyncGuards = {
   /** Informational stages; observers must never affect persisted data. */
   step?(value: string): void;
+  progress?(value: SyncProgress): void;
   /** Re-check account, sync ID, import markers and pending-save failures. */
   assertCurrent(): Promise<void>;
   /** Hold the origin lock; protected screens may inspect without changing live data. */

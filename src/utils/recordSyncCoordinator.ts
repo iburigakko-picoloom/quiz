@@ -108,7 +108,7 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   const imageTransport = createQuestionImageTransport(config, initialAccess);
   const materialTransport = createMaterialTransport(config,initialAccess,{assertCurrent});
   if (deltaRequested) {
-    const guards = { assertCurrent, apply, step };
+    const guards = { assertCurrent, apply, step, progress:(value:SyncProgress)=>{try{publishSyncProgress(connection,value);}catch{/* Informational only. */}} };
     const migration = await prepareDeltaSync(db, connection, rpc, guards);
     if (migration) return migration;
     const result = await runDeltaSync(db, connection, rpc, guards);

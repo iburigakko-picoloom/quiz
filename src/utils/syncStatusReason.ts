@@ -47,11 +47,11 @@ export function syncStatusReason(attempt:SyncAttemptStatus|null,conflicts:number
   const failure=attempt?.lastFailure;
   if(failure&&(attempt?.phase==='failed'||attempt?.phase==='paused'&&attempt.pauseReason===failure.code||attempt?.phase==='queued'&&attempt.retryAt))return syncFailureReason(failure);
   if(conflicts||attempt?.pauseReason==='conflict')return '端末とクラウドの両方に変更があります。';
-  if(attempt?.pauseReason==='deferred')return '保存が終わると同期を再開します。';
+  if(attempt?.pauseReason==='deferred')return '操作や保存が終わったら、ホームまたは同期画面を開くと反映を再開します。';
   return lastError?'同期に失敗しました。詳細設定で確認できます。':'';
 }
 
 export function syncStageLabel(step: string): string {
-  const labels: Record<string,string> = {authentication:'ログインを確認中',remote_metadata:'クラウドの状態を確認中',open:'保存先を確認中',materials:'資料を送信中',images:'画像を送信中',records:'教材を照合中',pull:'クラウドを読み込み中',push:'データを送信中',receipt:'保存結果を確認中',backup:'原本をバックアップ中'};
+  const labels: Record<string,string> = {authentication:'ログインを確認中',remote_metadata:'クラウドの状態を確認中',open:'保存先を確認中',materials:'資料を送信中',images:'画像を送信中',records:'教材を照合中',pull:'クラウドを読み込み中',push:'データを送信中',receipt:'保存結果を確認中',backup:'原本をバックアップ中',applying:'受信済みデータを反映中',finalizing:'引き継ぎの完了を確認中'};
   return labels[step] ?? '同期の準備中';
 }

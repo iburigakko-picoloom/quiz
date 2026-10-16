@@ -7,11 +7,20 @@ import { idbDone, idbResult, readMeta, writeMeta, blobHash, parseBlobNote, queue
 import { categoryNoteRecoveryKeys } from './noteStorage';
 import { getSyncDevice } from './syncDevice';
 import { isChunkInternal, parseChunkManifest, restoreRecordChunks } from './recordChunkFormat';
+import { SyncProtocolError } from './syncInterruption';
+import type { SyncProgress } from './syncAttemptStatus';
+import { accountCheckpointRecords, appendCheckpointStage } from './storageLedger';
 
 type Reply = { code: string; [key: string]: unknown };
 export type DeltaTransport = { delta(action: string, body?: Record<string, unknown>): Promise<Reply> };
 type Frozen = { connection: RecordSyncConnection; operationId: string; deviceId: string; sequence: number; digest: string; parts: string[]; operations: AppOutboxOperation[] };
 type Cursor = { connection: RecordSyncConnection; revision: number };
+type Checkpoint = { connection: RecordSyncConnection; revision?: number; after: string; offset: number; fragment: string; complete?: boolean; received?: number };
+const report = (guards: Pick<RecordSyncGuards,'progress'>, progress:SyncProgress) => { try { guards.progress?.(progress); } catch { /* Informational only. */ } };
+export async function clearDeltaCheckpoint(db:IDBDatabase) {
+  const tx=db.transaction(['deltaStage','appRecordMeta'],'readwrite'),done=idbDone(tx);
+  tx.objectStore('deltaStage').clear();tx.objectStore('appRecordMeta').delete('deltaCheckpoint');await done;
+}
 const assertReply = (r: Reply) => { if (r.code !== 'ok') throw new Error(`同期を一時停止しています（${r.code}）。端末の学習データと未送信データは保持しています。`); };
 const validRevision = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
@@ -94,7 +103,8 @@ async function acknowledgeDelta(db: IDBDatabase, frozen: Frozen, revision: numbe
   };
   await done;
 }
-export async function sendDelta(db: IDBDatabase, transport: DeltaTransport, frozen: Frozen, assertCurrent: () => Promise<void>): Promise<number> {
+export async function sendDelta(db: IDBDatabase, transport: DeltaTransport, frozen: Frozen, assertCurrent: () => Promise<void>, progress?:RecordSyncGuards['progress']): Promise<number> {
+  report({progress},{stage:'sending',label:'学習データの送信結果を確認中',completed:0,total:frozen.parts.length});
   await assertCurrent(); const receipt = await transport.delta('receipt', { operationId: frozen.operationId }); assertReply(receipt);
   if (receipt.state === 'committed') { await assertCurrent(); await acknowledgeDelta(db, frozen, Number(receipt.revision)); return frozen.operations.length; }
   for (let index = 0; index < frozen.parts.length; index++) {
@@ -102,6 +112,7 @@ export async function sendDelta(db: IDBDatabase, transport: DeltaTransport, froz
     const reply = await transport.delta('push', { operationId: frozen.operationId, deviceId: frozen.deviceId, sequence: frozen.sequence,
       digest: frozen.digest, parts: frozen.parts.length, part: index, payload: frozen.parts[index] });
     assertReply(reply);
+    report({progress},{stage:'sending',label:'学習データを送信中',completed:index+1,total:frozen.parts.length});
     if (reply.state === 'committed') { await assertCurrent(); await acknowledgeDelta(db, frozen, Number(reply.revision)); return frozen.operations.length; }
   }
   throw new Error('送信結果がまだ確定していません。同じ操作IDで確認を続けます。');
@@ -171,6 +182,7 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
   const current = tx.objectStore('appRecordMeta').get('state');
   current.onsuccess = () => {
     if (current.result?.commitId !== before.state.commitId) { tx.abort(); return; }
+    if(checkpoint)accountCheckpointRecords(tx,next.values());
     for (const op of released) {
       const queued = tx.objectStore('appOutbox').get(op.key);
       queued.onsuccess = () => { if (queued.result?.operationId === op.operationId) tx.objectStore('appOutbox').delete(op.key); else tx.abort(); };
@@ -215,50 +227,84 @@ export async function runDeltaSync(db: IDBDatabase, connection: RecordSyncConnec
   let cursor = await readMeta<Cursor>(db, 'deltaCursor');
   if (cursor && !bootstrapOnly) {
     const frozen = await freezeDelta(db, connection, deviceId);
-    if (frozen) uploaded += await sendDelta(db, transport, frozen, guards.assertCurrent);
+    if (frozen) uploaded += await sendDelta(db, transport, frozen, guards.assertCurrent, guards.progress);
   }
   if (cursor && !sameRecordSyncConnection(cursor.connection, connection)) throw new Error('受信履歴のアカウントが一致しません。');
   if (!cursor) {
     // Restartable initial checkpoint; never replace unsent rows or delete originals.
-    let checkpoint = await readMeta<{ connection: RecordSyncConnection; revision?: number; after: string; offset: number; fragment: string }>(db, 'deltaCheckpoint');
+    let checkpoint = await readMeta<Checkpoint>(db, 'deltaCheckpoint');
     checkpoint ??= { connection, after: '', offset: 0, fragment: '' };
     if (!sameRecordSyncConnection(checkpoint.connection, connection)) throw new Error('引き継ぎ中のアカウントが一致しません。');
-    for (let page = 0; page < 20; page++) {
+    if (checkpoint.received === undefined) {
+      const tx=db.transaction('deltaStage'),done=idbDone(tx);checkpoint.received=await idbResult<number>(tx.objectStore('deltaStage').count());await done;
+    }
+    report(guards,{stage:'receiving_records',label:'以前の同期データを引き継ぎ中',completed:checkpoint.received,total:checkpoint.complete?checkpoint.received:null});
+    for (let page = 0; !checkpoint.complete && page < 20; page++) {
       await guards.assertCurrent(); const reply = await transport.delta('checkpoint', { revision: checkpoint.revision, after: checkpoint.after, offset: checkpoint.offset });
       if (reply.code === 'conflict') {
-        const tx = db.transaction(['deltaStage', 'appRecordMeta'], 'readwrite'), done = idbDone(tx); tx.objectStore('deltaStage').clear(); tx.objectStore('appRecordMeta').delete('deltaCheckpoint'); await done;
+        await clearDeltaCheckpoint(db);
         return { status: 'more', uploaded, downloaded };
       }
-      assertReply(reply); if (!Array.isArray(reply.rows) || !validRevision(reply.revision)) throw new Error('引き継ぎデータを確認できません。');
-      const tx = db.transaction(['deltaStage', 'appRecordMeta'], 'readwrite'), done = idbDone(tx);
+      assertReply(reply);
+      if (!Array.isArray(reply.rows) || !validRevision(reply.revision) || checkpoint.revision!==undefined && checkpoint.revision!==reply.revision || typeof reply.after!=='string' || !validRevision(reply.offset) || typeof reply.complete!=='boolean') throw new SyncProtocolError('invalid_response','引き継ぎデータを確認できません。');
+      const values:RemoteRecordChange[]=[];
       for (const row of reply.rows as Array<{ key: string; fragment: string; complete: boolean }>) {
+        if(typeof row.key!=='string'||typeof row.fragment!=='string'||typeof row.complete!=='boolean')throw new SyncProtocolError('invalid_response','引き継ぎデータを確認できません。');
+        if(checkpoint.fragment&&row.key!==checkpoint.after)throw new SyncProtocolError('invalid_response','引き継ぎの区切りが一致しません。');
         checkpoint.fragment += row.fragment;
-        if (row.complete) { const value = JSON.parse(checkpoint.fragment) as RemoteRecordChange; if (value.key !== row.key) { tx.abort(); throw new Error('引き継ぎの区切りが一致しません。'); } tx.objectStore('deltaStage').put(value, row.key); checkpoint.fragment = ''; }
+        if (row.complete) {
+          let value:RemoteRecordChange;try{value=JSON.parse(checkpoint.fragment);}catch{throw new SyncProtocolError('invalid_response','引き継ぎの区切りが一致しません。');}
+          if(value.key!==row.key)throw new SyncProtocolError('invalid_response','引き継ぎの区切りが一致しません。');
+          values.push(value);checkpoint.fragment='';
+        }
       }
-      checkpoint = { ...checkpoint, revision: reply.revision, after: String(reply.after), offset: Number(reply.offset) };
+      if(reply.complete && (checkpoint.fragment || reply.offset!==0))throw new SyncProtocolError('invalid_response','引き継ぎの区切りが一致しません。');
+      checkpoint = { ...checkpoint, revision: reply.revision, after: reply.after, offset: reply.offset, complete:reply.complete, received:(checkpoint.received??0)+values.length };
+      const tx = db.transaction(['deltaStage', 'appRecordMeta'], 'readwrite'), done = idbDone(tx);
+      appendCheckpointStage(tx,values);
       tx.objectStore('appRecordMeta').put(checkpoint, 'deltaCheckpoint'); await done;
-      if (reply.complete) {
+      report(guards,{stage:'receiving_records',label:'以前の同期データを引き継ぎ中',completed:checkpoint.received!,total:checkpoint.complete?checkpoint.received!:null});
+    }
+    if(checkpoint.complete){
+      if(!validRevision(checkpoint.revision))throw new SyncProtocolError('invalid_response','引き継ぎデータを確認できません。');
+      const revision=checkpoint.revision;
+      await guards.assertCurrent();
+      guards.step?.('applying');
+      report(guards,{stage:'applying',label:'受信済みデータの反映を待っています',completed:0,total:1});
+      // Keep the completed checkpoint across pauses/reloads. Only read its bodies
+      // once the UI permits a commit; editor/quiz screens cannot replace live data.
+      const applied = await guards.apply(async options => {
+        if(options?.preserveLiveData){const state=await readMeta<AppRecordState>(db,'state');return {applied:false as const,deferred:true as const,commitId:state?.commitId??''};}
+        report(guards,{stage:'applying',label:'受信済みデータを確認して反映中',completed:0,total:1});
         const read = db.transaction('deltaStage', 'readonly'), finished = idbDone(read); const rows = await idbResult<RemoteRecordChange[]>(read.objectStore('deltaStage').getAll()); await finished;
-        const applied = await guards.apply(options => applyDeltaRows(db, connection, rows, reply.revision as number, options, true));
-        if (!applied?.applied) return { status: 'deferred', uploaded, downloaded };
-        downloaded += rows.length;
-        const cleanup = db.transaction(['deltaStage','appRecordMeta'],'readwrite'), cleaned = idbDone(cleanup);
-        cleanup.objectStore('deltaStage').clear(); cleanup.objectStore('appRecordMeta').delete('deltaCheckpoint'); await cleaned;
-        cursor = { connection, revision: reply.revision }; break;
-      }
+        const result=await applyDeltaRows(db,connection,rows,revision,options,true);
+        if(result.applied)downloaded+=rows.length;
+        return result;
+      });
+      if(!applied?.applied)return {status:'deferred',uploaded,downloaded};
+      report(guards,{stage:'applying',label:'受信済みデータを反映しました',completed:1,total:1});
+      await clearDeltaCheckpoint(db);
+      cursor={connection,revision};
     }
     if (!cursor) return { status: 'more', uploaded, downloaded };
+  } else if(await readMeta(db,'deltaCheckpoint')) {
+    // A crash between the atomic cursor commit and cleanup must not leave the
+    // UI stuck on "staged" after a successfully applied checkpoint.
+    await clearDeltaCheckpoint(db);
   }
   if (bootstrapOnly) return { status: 'done', uploaded, downloaded };
   let stage = await readMeta<{ revision: number; offset: number; fragment: string }>(db, 'deltaPull');
   for (let page = 0; page < 20; page++) {
     await guards.assertCurrent(); const reply = await transport.delta('pull', { revision: stage?.revision ?? cursor.revision, offset: stage?.offset ?? 0 });
+    report(guards,{stage:'comparing',label:'学習データの変更を確認中',completed:downloaded,total:null});
     if (reply.code === 'checkpoint_required') { await writeMeta(db, 'deltaCursor', undefined); await writeMeta(db, 'deltaPull', undefined); return { status: 'more', uploaded, downloaded }; }
     assertReply(reply); if (!validRevision(reply.revision) || typeof reply.fragment !== 'string') throw new Error('受信した差分を確認できません。');
     const fragment = (stage?.fragment ?? '') + reply.fragment;
     if (!reply.complete) { stage = { revision: reply.revision, offset: Number(reply.offset), fragment }; await writeMeta(db, 'deltaPull', stage); continue; }
     const rows = fragment ? JSON.parse(fragment) as RemoteRecordChange[] : [];
     if (rows.length) {
+      guards.step?.('applying');
+      report(guards,{stage:'applying',label:'受信した学習データを反映中',completed:0,total:rows.length});
       const applied = await guards.apply(options => applyDeltaRows(db, connection, rows, reply.revision as number, options));
       if (!applied?.applied) return { status: 'deferred', uploaded, downloaded };
       downloaded += rows.length;

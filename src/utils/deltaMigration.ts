@@ -1,7 +1,7 @@
 import { acknowledgeRecordPushBatch, bindRecordSyncConnection, getPendingRecordPushBatch, releaseRejectedRecordPushBatch, type RecordPushAcknowledgement, type RecordSyncConnection } from './recordSyncOutbox';
 import { acknowledgeWholeUpload, readWholeMeta, releaseWholeUpload, type WholeFrozen } from './wholeSyncStorage';
 import { readMeta, writeMeta } from './blobVault';
-import { runDeltaSync, type DeltaTransport } from './deltaSync';
+import { clearDeltaCheckpoint, runDeltaSync, type DeltaTransport } from './deltaSync';
 import type { RecordSyncGuards, RecordSyncOutcome } from './recordSyncEngine';
 import type { WholeTransport } from './wholeSyncEngine';
 import { getSyncDevice } from './syncDevice';
@@ -37,8 +37,10 @@ export async function prepareDeltaSync(db: IDBDatabase, connection: RecordSyncCo
     const bootstrap = await runDeltaSync(db, connection, transport, guards, true);
     if (bootstrap.status !== 'done') return bootstrap;
     const cursor = await readMeta<{ revision: number }>(db, 'deltaCursor');
+    guards.step?.('finalizing');
+    try{guards.progress?.({stage:'finalizing',label:'旧データの引き継ぎを確定中',completed:0,total:1});}catch{/* Informational only. */}
     const enabled = await transport.delta('enable', { revision: cursor?.revision }); await guards.assertCurrent();
-    if (enabled.code === 'conflict') { await writeMeta(db, 'deltaCursor', undefined); return { status: 'more', uploaded: 0, downloaded: 0 }; }
+    if (enabled.code === 'conflict') { await writeMeta(db, 'deltaCursor', undefined); await clearDeltaCheckpoint(db); return { status: 'more', uploaded: 0, downloaded: 0 }; }
     if (enabled.code === 'legacy_pending') return { status: 'more', uploaded: 0, downloaded: 0 };
     if (enabled.code !== 'ok') throw new Error('引き継ぎの検証が完了していません。元データを保持しています。');
   }

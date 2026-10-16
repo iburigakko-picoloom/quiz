@@ -12,6 +12,11 @@ test('small commits verify the exact account for one authenticated request; only
   for(const status of [401,403,500])await assert.rejects(createRecordSyncRpc(options({fetch:async()=>new Response('',{status})})).commitSmallWhole(body));
 });
 function options(overrides={}) { return {url:connection.project,anonKey:'public-key',connection,access:async()=>({userId:'owner',accessToken:'test-token'}),assertCurrent(){},...overrides}; }
+test('delta requests report their actual transfer stage instead of remaining at preparation',async()=>{
+  const steps=[];const rpc=createRecordSyncRpc(options({onRequest:step=>steps.push(step),fetch:async()=>Response.json({code:'ok'})}));
+  for(const action of ['status','checkpoint','pull','push','receipt','enable'])await rpc.delta(action);
+  assert.deepEqual(steps,['open','pull','pull','push','open','open']);
+});
 test('record network adapter revalidates account, uses RPC auth, and preserves exact operation IDs',async()=>{
   const seen=[]; let accessCalls=0;
   const rpc=createRecordSyncRpc(options({access:async()=>{accessCalls++;return {userId:'owner',accessToken:'test-token'};},fetch:async(url,init)=>{

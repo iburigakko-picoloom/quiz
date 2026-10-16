@@ -6,7 +6,7 @@ const values = new Map(); globalThis.localStorage = { get length() { return valu
 globalThis.window = { dispatchEvent() {}, location:{href:'https://example.invalid/'}, addEventListener(){}, removeEventListener(){} };
 const records = await import('../src/utils/appRecordStorage.ts');
 const { normalizeAppData } = await import('../src/utils/appDataValidation.ts');
-const { freezeDelta, sendDelta, applyDeltaRows } = await import('../src/utils/deltaSync.ts');
+const { freezeDelta, sendDelta, applyDeltaRows, runDeltaSync } = await import('../src/utils/deltaSync.ts');
 const { idbDone, idbResult, readMeta } = await import('../src/utils/blobVault.ts');
 const dbs = []; after(() => dbs.forEach(db => db.close()));
 const connection = { userId: 'account-a', project: 'https://example.supabase.co', syncId: 'a'.repeat(36) };
@@ -17,6 +17,61 @@ async function database() {
   return { db, data };
 }
 const read = async (db, store, key) => { const tx = db.transaction(store), done = idbDone(tx); const result = await idbResult(tx.objectStore(store).get(key)); await done; return result; };
+
+test('completed legacy checkpoint waits without redownloading or reading bodies and resumes after reload',async()=>{
+  const {db}=await database(),local=await read(db,'appOutbox','["folders","f"]');
+  const row={key:local.key,collection:local.collection,id:local.id,raw:JSON.stringify({...JSON.parse(local.raw),name:'Legacy cloud'}),position:0,revision:8};
+  let requests=0,mode='blocked',bodyReads=0;
+  const progress=[],getAll=IDBObjectStore.prototype.getAll;
+  IDBObjectStore.prototype.getAll=function(...args){if(this.name==='deltaStage')bodyReads++;return getAll.apply(this,args);};
+  const transport={async delta(action){assert.equal(action,'checkpoint');requests++;return {code:'ok',revision:8,after:row.key,offset:0,rows:[{key:row.key,fragment:JSON.stringify(row),complete:true}],complete:true};}};
+  const guards={assertCurrent:async()=>{},progress:p=>progress.push(p),apply:async op=>mode==='blocked'?null:op({preserveLiveData:mode==='editing'})};
+  try{
+    assert.equal((await runDeltaSync(db,connection,transport,guards,true)).status,'deferred');
+    assert.equal((await readMeta(db,'deltaCheckpoint')).complete,true);assert.equal(await readMeta(db,'deltaCursor'),undefined);
+    mode='editing';assert.equal((await runDeltaSync(db,connection,transport,guards,true)).status,'deferred');
+    assert.equal(requests,1);assert.equal(bodyReads,0);assert.equal((await read(db,'appOutbox',local.key)).raw,local.raw);
+    const reopened=await new Promise((resolve,reject)=>{const r=indexedDB.open(db.name);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});dbs.push(reopened);
+    mode='ready';assert.equal((await runDeltaSync(reopened,connection,transport,guards,true)).status,'done');
+    assert.equal(requests,1);assert.equal(bodyReads,1);assert.equal((await readMeta(reopened,'deltaCursor')).revision,8);assert.equal(await readMeta(reopened,'deltaCheckpoint'),undefined);
+    assert.equal((await read(reopened,'appRecordConflicts',`legacy:${local.operationId}`)).local.raw,local.raw);
+    assert.equal(JSON.parse((await read(reopened,'appRecords',local.key)).raw).name,'Legacy cloud');
+    assert.ok(progress.some(p=>p.stage==='receiving_records'&&p.completed===1&&p.total===1));assert.ok(progress.some(p=>p.stage==='applying'&&p.completed===1));
+  }finally{IDBObjectStore.prototype.getAll=getAll;}
+});
+
+test('legacy completed marker without complete flag upgrades once and a changed head restarts safely',async()=>{
+  const {db}=await database(),{writeMeta}=await import('../src/utils/blobVault.ts');
+  await writeMeta(db,'deltaCheckpoint',{connection,revision:3,after:'old-key',offset:0,fragment:''});
+  let checkpoints=0,enables=0;
+  const transport={async delta(action){
+    if(action==='status')return {code:'ok',enabled:false,revision:4,sequence:0};
+    if(action==='checkpoint'){checkpoints++;return {code:'ok',revision:checkpoints===1?3:4,after:'',offset:0,rows:[],complete:true};}
+    assert.equal(action,'enable');return {code:++enables===1?'conflict':'ok'};
+  },whole:async()=>assert.fail('no unresolved legacy send')};
+  const {prepareDeltaSync}=await import('../src/utils/deltaMigration.ts'),guards={assertCurrent:async()=>{},apply:op=>op({})};
+  assert.equal((await prepareDeltaSync(db,connection,transport,guards)).status,'more');
+  assert.equal(await readMeta(db,'deltaCursor'),undefined);assert.equal(await readMeta(db,'deltaCheckpoint'),undefined);
+  assert.equal(await prepareDeltaSync(db,connection,transport,guards),null);
+  assert.equal(checkpoints,2);assert.ok(await readMeta(db,'deltaEnabled'));
+});
+
+test('checkpoint fragments survive interruption and invalid completion never applies partial data',async()=>{
+  const {db}=await database(),local=await read(db,'appOutbox','["folders","f"]');
+  const row={key:local.key,collection:local.collection,id:local.id,raw:local.raw,position:0,revision:6},raw=JSON.stringify(row),cut=raw.length>>1;
+  let requests=0,applies=0,invalid=false;const guards={assertCurrent:async()=>{},apply:op=>{applies++;return op({});}};
+  const transport={async delta(_action,request){
+    requests++;
+    if(requests===1)return {code:'ok',revision:6,after:row.key,offset:cut,rows:[{key:row.key,fragment:raw.slice(0,cut),complete:false}],complete:false};
+    assert.equal(request.offset,cut);
+    if(requests===2)throw Error('offline');
+    return {code:'ok',revision:6,after:row.key,offset:invalid?cut:0,rows:invalid?[]:[{key:row.key,fragment:raw.slice(cut),complete:true}],complete:true};
+  }};
+  await assert.rejects(runDeltaSync(db,connection,transport,guards,true),/offline/);
+  invalid=true;await assert.rejects(runDeltaSync(db,connection,transport,guards,true),e=>e.code==='invalid_response');
+  assert.equal(applies,0);assert.equal(await readMeta(db,'deltaCursor'),undefined);assert.equal((await read(db,'appOutbox',local.key)).raw,local.raw);
+  invalid=false;assert.equal((await runDeltaSync(db,connection,transport,guards,true)).status,'done');assert.equal(applies,1);
+});
 test('lost response reuses immutable bytes; only matching acknowledged edits are removed', async () => {
   const { db, data } = await database(); const frozen = await freezeDelta(db, connection, 'device-a');
   let committed = false, pushes = 0;

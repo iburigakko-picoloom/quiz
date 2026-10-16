@@ -28,6 +28,7 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
   const deltaEnabled = meta.get('deltaEnabled');
   const deltaFrozen = meta.count('deltaFrozen');
   const deltaPull = meta.count('deltaPull');
+  const deltaCheckpoint = meta.count('deltaCheckpoint');
   const deltaCursor=meta.get('deltaCursor'),migrationError=meta.get('blobMigrationError');
   const conflictStore=tx.objectStore('appRecordConflicts');
   const candidates=conflictStore.indexNames.contains('kind')?conflictStore.index('kind').count('legacy-recovery-candidate'):undefined;
@@ -47,7 +48,7 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
     pending: Math.max(pending.result, batch.result, wholeFrozen.result,deltaFrozen.result),
     conflicts: wholeConflict.result && sameRecordSyncConnection(wholeConflict.result.connection,connection)?1:stage.result && sameRecordSyncConnection(stage.result.connection, connection)
       ? conflicts.filter(item => item.operationId && item.remote && item.connection && sameRecordSyncConnection(item.connection, connection)).length : 0,
-    staged: Boolean(deltaFrozen.result || deltaPull.result || stage.result && sameRecordSyncConnection(stage.result.connection, connection)||wholeIncoming.result),
+    staged: Boolean(deltaCheckpoint.result || deltaFrozen.result || deltaPull.result || stage.result && sameRecordSyncConnection(stage.result.connection, connection)||wholeIncoming.result),
     cursor: deltaCursor.result?.revision??(cursor.result && sameRecordSyncConnection(cursor.result.connection, connection) ? cursor.result.cursor : 0) };
 }
 

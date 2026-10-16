@@ -7,13 +7,26 @@ after(()=>hooks.deregister());
 const {createAutoSyncScheduler}=await import('../src/utils/autoSyncScheduler.ts');
 const {clearSyncAttemptStatus,readSyncAttemptStatus,publishSyncAttempt,publishSyncProgress,publishSyncQueue,publishRemoteCheck,observeRecordSyncAttempt}=await import('../src/utils/syncAttemptStatus.ts');
 const {SyncInterruptedError,SyncLocalPersistenceError,SyncProtocolError}=await import('../src/utils/syncInterruption.ts');
-const {syncStatusPresentation}=await import('../src/utils/syncStatusPresentation.ts');
+const {isLearningSyncComplete,syncStatusPresentation}=await import('../src/utils/syncStatusPresentation.ts');
 const {createRecordSyncRpc,RecordSyncRpcError}=await import('../src/utils/recordSyncNetwork.ts');
 const {writeRecordSyncReceipt,readRecordSyncStatus}=await import('../src/utils/recordSyncStatus.ts');
 const connection={project:'https://test.invalid',userId:'test-user',syncId:'test-sync'};
 const base={now:0,online:true,loginRequired:false,error:true,autoEnabled:true,recordEnabled:true,record:{phase:'done',pending:0,staged:false,conflicts:0,lastSuccessAt:'2026-10-01T00:00:00Z',cursor:1},pending:false,success:'2026-10-01T00:00:00Z'};
 const present=extra=>syncStatusPresentation({...base,attempt:readSyncAttemptStatus(connection),...extra});
 const settle=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
+test('delta progress advances during bootstrap and learning completion includes separate media transfers',()=>{
+  clearSyncAttemptStatus();publishSyncAttempt(connection,{phase:'running',step:'prepare'});
+  publishSyncProgress(connection,{stage:'receiving_records',label:'引き継ぎ中',completed:200,total:null});
+  assert.equal(readSyncAttemptStatus(connection).overallPercent,15);
+  publishSyncProgress(connection,{stage:'receiving_records',label:'引き継ぎ中',completed:40000,total:40000});
+  assert.equal(readSyncAttemptStatus(connection).overallPercent,80);
+  publishSyncAttempt(connection,{phase:'done'});
+  for(const mediaPending of [0,1]){
+    const presentation=present({record:{...base.record,deltaEnabled:true,mediaPending}});
+    assert.equal(isLearningSyncComplete(presentation.text),true);assert.equal(readSyncAttemptStatus(connection).overallPercent,100);
+  }
+  assert.equal(isLearningSyncComplete(present({record:{...base.record,deltaEnabled:true,recoveryNotes:1}}).text),false);
+});
 function harness(run){
   clearSyncAttemptStatus();let now=0,id=0;const timers=new Map();
   const clock={now:()=>now,setTimeout:(fn,ms)=>{timers.set(++id,{fn,at:now+ms});return id},clearTimeout:id=>timers.delete(id)};

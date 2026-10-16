@@ -1,5 +1,6 @@
 import type { RecordSyncStatus } from './recordSyncStatus';
 import type { SyncAttemptStatus } from './syncAttemptStatus';
+export const isLearningSyncComplete = (text:string) => ['同期済み','学習データ同期済み','学習データ同期済み・資料転送中'].includes(text);
 export function syncStatusPresentation(input: { online: boolean; loginRequired: boolean; error: boolean; readError?: boolean; attempt?: SyncAttemptStatus | null; autoEnabled: boolean; recordEnabled: boolean; record: RecordSyncStatus | null; pending: boolean; success: string; now?: number }) {
   if (!input.online) return { text: 'オフライン', action: null } as const;
   if (input.readError) return { text: '同期状態を確認できません', action: 'retry' } as const;

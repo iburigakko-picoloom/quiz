@@ -5,12 +5,12 @@ import { integrityCodes, SyncDataError, type SyncFailureDetails } from './syncDa
 
 export const SYNC_ATTEMPT_EVENT = 'quiz-make-sync-attempt';
 export type SyncFailure = { code: string; step: string; at: string; message: string; diagnostic?: SyncFailureDetails };
-export type SyncProgressStage = 'preparing' | 'comparing' | 'receiving_images' | 'checking_materials' | 'receiving_materials' | 'building_backup' | 'archiving' | 'backup' | 'validating' | 'sending' | 'applying' | 'finalizing';
+export type SyncProgressStage = 'preparing' | 'comparing' | 'receiving_records' | 'receiving_images' | 'checking_materials' | 'receiving_materials' | 'building_backup' | 'archiving' | 'backup' | 'validating' | 'sending' | 'applying' | 'finalizing';
 export type SyncProgress = { label: string; completed: number; total: number | null; stage?: SyncProgressStage };
 // Stages have different costs, so this is a work-completion estimate, not an
 // elapsed-time forecast. Unknown totals hold at the stage's starting point.
 const progressRanges: Record<SyncProgressStage, readonly [number,number]> = {
-  preparing:[0,15], comparing:[15,30], receiving_images:[30,50], checking_materials:[50,50],receiving_materials:[50,65],building_backup:[65,68],
+  preparing:[0,15], comparing:[15,30], receiving_records:[15,80], receiving_images:[30,50], checking_materials:[50,50],receiving_materials:[50,65],building_backup:[65,68],
   archiving:[68,72], backup:[72,80], validating:[80,85], sending:[85,95], applying:[85,97], finalizing:[97,99],
 };
 export const isBlockedSyncFailure = (code: string) => ['local_persistence_failed', 'invalid_response', 'invalid_request',

@@ -182,10 +182,12 @@ export default function App() {
   backupExitStateRef.current = { pending: pendingBackupImport !== null, busy: backupImportBusy };
   // Home and the normal sync display can apply data. Quiz/editor/viewer state stays untouched;
   // downloading in the background never blocks interaction.
-  autoImportEligibleRef.current = isSyncDisplaySafe(screen.name) && !guideReturn && !waitingWorker
+  // A waiting update does not invalidate this version's records. The import lock
+  // and beginRecordApply protect an active commit from service-worker reloads.
+  autoImportEligibleRef.current = isSyncDisplaySafe(screen.name) && !guideReturn
     && !receivingSharedImage && !pendingBackupImport && !backupImportBusy
     && !pendingExitTarget && !storageError && !storageLoadError;
-  recordCheckEligibleRef.current = storageReady && !guideReturn && !waitingWorker
+  recordCheckEligibleRef.current = storageReady && !guideReturn
     && !receivingSharedImage && !pendingBackupImport && !backupImportBusy
     && !pendingExitTarget && !storageError && !storageLoadError;
   const canCheckRecordImport = () => recordCheckEligibleRef.current

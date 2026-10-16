@@ -4,6 +4,27 @@ import { idbDone, idbResult } from './blobVault';
 type Total={bytes:number;count:number;complete?:boolean;after?:IDBValidKey};
 type Summary=Record<string,Total>;
 const installed=new WeakSet<IDBDatabase>();
+const checkpointStores=new WeakMap<IDBTransaction,Set<string>>();
+const appendTotals=new WeakMap<IDBTransaction,(name:string,bytes:number,count:number)=>void>();
+const replaceTotals=new WeakMap<IDBTransaction,(name:string,bytes:number,count:number)=>void>();
+function accountInBulk(tx:IDBTransaction,name:string){const names=checkpointStores.get(tx)??new Set<string>();names.add(name);checkpointStores.set(tx,names);}
+/** Checkpoint pages append new keys after their durable cursor. Account for the
+ * page once in the same transaction, instead of three ledger requests per row.
+ * This keeps the row format readable by earlier clients and preserves rollback. */
+export function appendCheckpointStage(tx:IDBTransaction,rows:readonly {key:string}[]):void{
+  accountInBulk(tx,'deltaStage');
+  const store=tx.objectStore('deltaStage');
+  for(const row of rows)store.put(row,row.key);
+  if(rows.length)appendTotals.get(tx)?.('deltaStage',rows.reduce((sum,row)=>sum+storedValueBytes(row),0),rows.length);
+}
+/** The checkpoint already holds a validated complete record view. Seed its
+ * per-key sizes in one request batch so later single edits stay incremental. */
+export function accountCheckpointRecords(tx:IDBTransaction,records:Iterable<{key:string}>):void{
+  if(!replaceTotals.has(tx))return;
+  accountInBulk(tx,'appRecords');const ledger=tx.objectStore('storageLedger');let bytes=0,count=0;
+  for(const row of records){const size=storedValueBytes(row);bytes+=size;count++;ledger.put(size,JSON.stringify(['appRecords',row.key]));}
+  replaceTotals.get(tx)!('appRecords',bytes,count);
+}
 /** Account payload accounting commits with the actual write. It reads only
  * small ledger entries, never the old PDF/body, on the ordinary save path. */
 export function installStorageLedger(db:IDBDatabase):void{
@@ -14,6 +35,13 @@ export function installStorageLedger(db:IDBDatabase):void{
     if(mode!=='readwrite'||list.every(name=>name==='storageLedger'))return transaction(names,mode,options);
     const tx=transaction([...new Set([...list,'storageLedger'])],mode,options),objectStore=tx.objectStore.bind(tx),ledger=objectStore('storageLedger');
     const summaryRequest=ledger.get('summary');let summary:Summary={};summaryRequest.onsuccess=()=>{summary=summaryRequest.result??{};};
+    appendTotals.set(tx,(name,bytes,count)=>{
+      const ready=ledger.count('summary');ready.onsuccess=()=>{
+        const before=summary[name]??{bytes:0,count:0};
+        summary[name]={...before,bytes:before.bytes+bytes,count:before.count+count,complete:true};ledger.put(summary,'summary');
+      };
+    });
+    replaceTotals.set(tx,(name,bytes,count)=>{const ready=ledger.count('summary');ready.onsuccess=()=>{summary[name]={bytes,count,complete:true};ledger.put(summary,'summary');};});
     const cache=new Map<string,number|undefined>(),wrapped=new Map<string,IDBObjectStore>();
     const account=(name:string,key:IDBValidKey,bytes:number|undefined)=>{
       const id=JSON.stringify([name,key]),old=ledger.get(id);
@@ -29,6 +57,7 @@ export function installStorageLedger(db:IDBDatabase):void{
       if(wrapped.has(name))return wrapped.get(name)!;
       const store=objectStore(name),put=store.put.bind(store),add=store.add.bind(store),remove=store.delete.bind(store),clear=store.clear.bind(store);
       const write=(fn:typeof put,value:unknown,key?:IDBValidKey)=>{
+        if(checkpointStores.get(tx)?.has(name))return key===undefined?fn(value):fn(value,key);
         const actual=key??(typeof store.keyPath==='string'?(value as Record<string,IDBValidKey>)[store.keyPath]:undefined);
         const bytes=storedValueBytes(value),result=key===undefined?fn(value):fn(value,key);
         if(actual!==undefined)account(name,actual,bytes);return result;

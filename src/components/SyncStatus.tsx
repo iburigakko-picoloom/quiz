@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { openAppDb } from '../storage';
 import { getRemoteSyncConfig, isLocalSyncUnchanged, type LastSyncState } from '../utils/syncService';
 import { readRecordSyncStatus, RECORD_SYNC_STATE_EVENT, type RecordSyncStatus } from '../utils/recordSyncStatus';
-import { syncStatusPresentation } from '../utils/syncStatusPresentation';
+import { isLearningSyncComplete, syncStatusPresentation } from '../utils/syncStatusPresentation';
 import { readSyncAttemptStatus, SYNC_ATTEMPT_EVENT, type SyncAttemptStatus } from '../utils/syncAttemptStatus';
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { requestSyncRetry } from '../utils/syncRequest';
@@ -54,7 +54,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const presentation = syncStatusPresentation({ online, loginRequired, error: failed, readError: Boolean(readError), attempt, autoEnabled, recordEnabled, record, pending, success: success ?? '' });
   const summary = presentation.text === '変更の確認があります' && record?.conflicts ? `変更の確認が${record.conflicts}件あります` : presentation.text;
   const reason = syncStatusReason(attempt, record?.conflicts ?? 0, readError, lastState.error ?? '');
-  const complete = presentation.text === '同期済み' && attempt?.phase === 'done';
+  const complete = isLearningSyncComplete(presentation.text) && attempt?.phase === 'done';
   const showProgress = attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt || attempt?.overallPercent !== undefined;
   const progress = attempt?.progress;
   const percentage = complete ? 100 : Math.min(99,Math.max(0,attempt?.overallPercent??0));

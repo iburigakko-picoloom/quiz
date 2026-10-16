@@ -50,6 +50,7 @@ jobs:
           tests/storage-ledger.test.mjs tests/storage-breakdown.test.mjs tests/storage-provenance.test.mjs
           tests/app-record-storage.test.mjs tests/account-union-source.test.mjs tests/account-storage.test.mjs
           tests/record-sync-network.test.mjs tests/record-sync-opt-in.test.mjs
+          tests/sync-attempt-status.test.mjs
           tests/question-image-records.test.mjs tests/question-image-copy.test.mjs
           tests/complete-backup.test.mjs tests/whole-sync-sql.test.mjs
           tests/public-import.test.mjs tests/publication-materials.test.mjs
