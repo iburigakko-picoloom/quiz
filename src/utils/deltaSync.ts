@@ -182,7 +182,9 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
   const current = tx.objectStore('appRecordMeta').get('state');
   current.onsuccess = () => {
     if (current.result?.commitId !== before.state.commitId) { tx.abort(); return; }
-    if(checkpoint)accountCheckpointRecords(tx,next.values());
+    // A mostly identical legacy checkpoint must not rebuild a large ledger.
+    // Bulk seeding is useful only when most records actually need writing.
+    if(checkpoint && writes.length>200 && writes.length>=next.size/2)accountCheckpointRecords(tx,next.values());
     for (const op of released) {
       const queued = tx.objectStore('appOutbox').get(op.key);
       queued.onsuccess = () => { if (queued.result?.operationId === op.operationId) tx.objectStore('appOutbox').delete(op.key); else tx.abort(); };

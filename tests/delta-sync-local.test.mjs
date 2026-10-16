@@ -116,6 +116,14 @@ test('legacy bootstrap does not publish older unknown originals as fresh edits',
   assert.equal((await read(db, 'appRecordConflicts', `legacy:${local.operationId}`)).local.raw, local.raw);
 });
 
+test('an unchanged legacy checkpoint does not rebuild record accounting',async()=>{
+  const {db}=await database();(await import('../src/utils/storageLedger.ts')).installStorageLedger(db);
+  const original=await read(db,'appRecords','["folders","f"]'),put=IDBObjectStore.prototype.put;let recordSizes=0;
+  IDBObjectStore.prototype.put=function(value,key){if(this.name==='storageLedger'&&typeof key==='string'&&key.startsWith('["appRecords",'))recordSizes++;return put.call(this,value,key);};
+  try{const result=await applyDeltaRows(db,connection,[{key:original.key,collection:original.collection,id:original.id,raw:original.raw,position:original.position,revision:original.serverRevision}],1,{},true);assert.equal(result.changed,0);assert.equal(recordSizes,0);}
+  finally{IDBObjectStore.prototype.put=put;}
+});
+
 test('checkpoint protects a hydrated legacy PDF and it remains available offline', async () => {
   const {db}=await database(),vault=await import('../src/utils/blobVault.ts');
   const id='quizMake:notes:s:__material_pdf_pdf',key=records.appRecordKey('indexedDbNotes',id),bytes=new Blob(['%PDF-1.4 local original'],{type:'application/pdf'});
