@@ -1,7 +1,7 @@
 import type { AppData, MaterialReference, Question } from '../types';
 import type { StudyMaterial } from './materialModel';
 
-export interface ReferenceLink { questionId: string; sourcePage: string; reference: MaterialReference; references?: MaterialReference[] }
+export interface ReferenceLink { questionId: string; sourcePage: string; reference: MaterialReference; references?: MaterialReference[]; append?: boolean }
 /** Parse explicit page expressions, never trailing chapter/question numbers. */
 export function referencePages(text: string): number[] {
   const value = text.normalize('NFKC');
@@ -35,12 +35,18 @@ export function referenceCandidates(questions: Question[], material: StudyMateri
 }
 export function applyReferenceLinks(data: AppData, setId: string, links: ReferenceLink[], updatedAt: string): AppData {
   const ids = new Set<string>();
+  const questions = new Map(data.questions.filter(q => q.setId === setId).map(q => [q.id, q]));
   for (const link of links) {
-    const question = data.questions.find(q => q.id === link.questionId && q.setId === setId);
+    const question = questions.get(link.questionId);
     const references = link.references ?? [link.reference];
-    if (ids.has(link.questionId) || !question || (question.sourcePage ?? '') !== link.sourcePage || question.materialReferences?.length || !references.length || references.length > 100 || references.some(r => !r.materialId || !r.pageId)) throw new Error('問題または参照が変更されています。候補を開き直してください。');
+    if (ids.has(link.questionId) || !question || (question.sourcePage ?? '') !== link.sourcePage || (!link.append && question.materialReferences?.length) || !references.length || references.length > 100 || references.some(r => !r.materialId || !r.pageId)) throw new Error('問題または参照が変更されています。候補を開き直してください。');
     ids.add(link.questionId);
   }
-  const map = new Map(links.map(link => [link.questionId, link.references ?? [link.reference]]));
+  const map = new Map(links.map(link => {
+    const previous=link.append ? questions.get(link.questionId)!.materialReferences??[] : [];
+    const combined=[...new Map([...previous,...(link.references??[link.reference])].map(r=>[JSON.stringify([r.materialId,r.pageId]),r])).values()];
+    if(combined.length>100)throw new Error('1問に登録できる参照ページは100件までです。');
+    return [link.questionId,combined];
+  }));
   return { ...data, questions: data.questions.map(q => map.has(q.id) ? { ...q, materialReferences: map.get(q.id)!, updatedAt } : q) };
 }

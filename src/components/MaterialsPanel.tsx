@@ -9,7 +9,7 @@ import { boundedNoteScale } from './noteGestures';
 import { insertMaterialPage, moveMaterialPage, MAX_MATERIAL_PDF_BYTES, type MaterialIndex, type MaterialPage, type StudyMaterial } from '../utils/materialModel';
 import './MaterialsPanel.css';
 
-interface Props { setId: string; setIds?: string[]; reference?: MaterialReference; referenceRequest?: number; onClose?: () => void; onAdjustReferences?: (materialId?: string) => void; questionReferences?: MaterialReference[]; onOpenReference?: (reference: MaterialReference) => void; onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void> }
+interface Props { setId: string; setIds?: string[]; reference?: MaterialReference; referenceRequest?: number; onClose?: () => void; onAdjustReferences?: (materialId?: string, pageId?: string) => void; questionReferences?: MaterialReference[]; onOpenReference?: (reference: MaterialReference) => void; onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void> }
 export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(function MaterialsPanel({ setId, setIds, reference, referenceRequest, onClose, onAdjustReferences, questionReferences, onOpenReference, onLinkPage }, ref) {
   const [index, setIndex] = useState<MaterialIndex | null>(null);
   const [ownerId, setOwnerId] = useState(setId);
@@ -134,10 +134,10 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     stopAnimation.current = () => { cancelAnimationFrame(frame); cancelAnimationFrame(settleFrame); window.clearTimeout(timer); rail.removeEventListener('transitionend', onEnd); };
     rail.style.transition = 'none'; void rail.offsetHeight;
     rail.addEventListener('transitionend', onEnd);
-    rail.style.transition = fastJump ? 'transform 360ms cubic-bezier(.45,0,.15,1)' : 'transform 360ms cubic-bezier(.25,.8,.25,1)';
+    rail.style.transition = fastJump ? 'transform 280ms cubic-bezier(.45,0,.15,1)' : 'transform 220ms cubic-bezier(.25,.8,.25,1)';
     frame = requestAnimationFrame(() => {
       rail.style.transform = `translate3d(${destination}%, 0, 0)`;
-      timer = window.setTimeout(finish, 440);
+      timer = window.setTimeout(finish, fastJump ? 360 : 300);
     });
   }, [clearTransition]);
   useImperativeHandle(ref, () => ({ flush: async () => { await operation.current; await panel.current?.flush(); } }));
@@ -261,9 +261,9 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       </select> : <span className="materials-title" title={material?.title}>{material?.title ?? (index ? '資料' : '読み込み中…')}</span>}
       <button type="button" className="materials-memo-button" aria-pressed={memoOpen} disabled={busy || (!memoOpen && (pagePending || transitioning))} onClick={() => void run(async () => { clearTransition(); setMemoPage(value => ({ ...value, ready: false })); setMemoOpen(value => !value); })}>メモ</button>
       {memoOpen ? <div className="materials-pagination">
-        <button aria-label="前のページ" disabled={busy || !memoPage.ready || memoPage.index === 0} onClick={() => void run(async () => { panel.current?.goToPage?.(memoPage.index - 1); })}>‹</button>
-        <select aria-label="ページ" value={memoPage.index} disabled={busy || !memoPage.ready} onChange={event => { const next = Number(event.target.value); void run(async () => { panel.current?.goToPage?.(next); }); }}>{[0, 1, 2].map(i => <option key={i} value={i}>p{i + 1}</option>)}</select>
-        <button aria-label="次のページ" disabled={busy || !memoPage.ready || memoPage.index === 2} onClick={() => void run(async () => { panel.current?.goToPage?.(memoPage.index + 1); })}>›</button>
+        <button aria-label="前のページ" disabled={busy || !memoPage.ready || memoPage.index === 0} onClick={() => panel.current?.goToPage?.(memoPage.index - 1)}>‹</button>
+        <select aria-label="ページ" value={memoPage.index} disabled={busy || !memoPage.ready} onChange={event => { const next = Number(event.target.value); panel.current?.goToPage?.(next); }}>{[0, 1, 2].map(i => <option key={i} value={i}>p{i + 1}</option>)}</select>
+        <button aria-label="次のページ" disabled={busy || !memoPage.ready || memoPage.index === 2} onClick={() => panel.current?.goToPage?.(memoPage.index + 1)}>›</button>
       </div> : material ? <div className="materials-pagination"><button aria-label="前のページ" disabled={busy || pagePending || pageIndex <= 0} onClick={() => goToPage(material.pages[pageIndex - 1].id)}>‹</button><select aria-label="ページ" value={pageId} disabled={busy || pagePending} onChange={event => goToPage(event.target.value)}>{material.pages.map((item, n) => <option key={item.id} value={item.id}>p{n + 1}</option>)}</select><button aria-label="次のページ" disabled={busy || pagePending || pageIndex >= material.pages.length - 1} onClick={() => goToPage(material.pages[pageIndex + 1].id)}>›</button></div> : null}
       <ActionMenu ref={menu} className="materials-menu"><summary aria-label="資料の操作" title="資料の操作" aria-disabled={memoOpen} tabIndex={memoOpen ? -1 : 0} onClick={event => { if (memoOpen) event.preventDefault(); }}>•••</summary><div>
         {material?.pages.some(item => item.kind === 'pdf') ? <><button type="button" aria-pressed={offline} disabled={busy} onClick={() => void run(async () => { await setMaterialOffline(ownerId, materialId, !offline); setOffline(!offline); })}>{offline ? 'オフライン保存を解除' : 'オフライン保存'}</button><hr/></> : null}
@@ -279,6 +279,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       {onClose ? <button className="materials-close" type="button" aria-label="資料を閉じる" title="資料を閉じる" disabled={busy} onClick={() => run(async () => onClose())}>×</button> : null}
       <input ref={photoInput} hidden type="file" accept="image/*" multiple onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; if (files.length) void addPhotos(files); }} />
     </div>
+    {!memoOpen && onAdjustReferences && material && page && ownerId === setId ? <div className="materials-reference-actions"><button type="button" disabled={busy || pagePending || transitioning} onClick={() => void run(async () => onAdjustReferences(material.id,page.id))}>参照ページを追加</button></div> : null}
     {error ? <p className="materials-error" role="alert">{error}</p> : null}
     <div ref={contentRef} className={`materials-content${!memoOpen && (pagePending || (transitioning && !transitionReady)) ? ' is-page-loading' : ''}`} aria-busy={!memoOpen && (pagePending || (transitioning && !transitionReady))} onPointerDownCapture={() => { if (transitionReadyRef.current) clearTransition(); }}>
       {memoOpen ? <CategoryNotePanel key={`memo-${setId}`} ref={panel} problemSetId={setId} category="__scratch_memo_v1" scratchMemo singlePage initialTools={tools.current} onToolsChange={rememberTools} onPageStateChange={rememberMemoPage} /> : displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} initialScale={boundedNoteScale(viewScale.current)} onScaleChange={rememberScale} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? '資料を読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <div className="materials-empty__actions"><label className="materials-file-picker" aria-disabled={!index || busy}>PDFを追加<input type="file" aria-label="PDFを追加" accept="application/pdf,.pdf" disabled={!index || busy} onChange={selectPdf} /></label><button disabled={!index || busy} onClick={() => photoInput.current?.click()}>写真を追加</button></div> : null}<small>合計50MB・500ページまで。</small></div>}

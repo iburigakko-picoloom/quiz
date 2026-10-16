@@ -133,7 +133,7 @@ test('flush waits for load and snapshots only a paint-ready dirty canvas', () =>
   assert.match(notePanelSource, /await decodeNoteImage\(image\);[\s\S]*?context\.drawImage/);
   assert.match(notePanelSource, /function drawDataUrlToCanvas[\s\S]*?notePaintStateRef\.current = 'loading'[\s\S]*?drawDataUrlToContext[\s\S]*?renderedPageIdRef\.current = targetPageId[\s\S]*?notePaintStateRef\.current = 'ready'/);
   assert.match(notePanelSource, /const redrawCanvasFromCurrentImage = \(\) => \{\s*drawDataUrlToCanvas\(pageDataUrlRef\.current\)/);
-  assert.match(notePanelSource, /const animatePageCommit[\s\S]*?persistNote\(nextNote\);[\s\S]*?rail\.addEventListener\('transitionend'/);
+  assert.match(notePanelSource, /const animatePageCommit[\s\S]*?persistNote\(nextNote, noteKey, pageVisible\);[\s\S]*?rail\.addEventListener\('transitionend'/);
   assert.match(notePanelSource, /noteLoadStateRef\.current !== 'ready'[\s\S]*?notePaintStateRef\.current !== 'ready'/);
   assert.match(flushBody, /failurePhase === 'load'[\s\S]*?noteLoadStateRef\.current = 'error'/);
   assert.match(flushBody, /failurePhase === 'paint'[\s\S]*?notePaintStateRef\.current = 'error'/);

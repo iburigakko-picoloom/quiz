@@ -2,6 +2,7 @@ import React,{useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {PDFDocument} from 'pdf-lib';
 import {MaterialsDrawer,type MaterialsDrawerHandle} from '../../src/components/MaterialsDrawer';
+import {NoteListScreen} from '../../src/screens/NoteListScreen';
 import {saveCategoryNoteRaw,loadCategoryNoteRaw} from '../../src/utils/noteStorage';
 import {materialIndexKey,materialFileKey,loadMaterials,annotationCategory} from '../../src/utils/materialStorage';
 import {applyReferenceLinks,type ReferenceLink} from '../../src/utils/referenceLinking';
@@ -14,6 +15,8 @@ const data:AppData={version:1,folders:[{id:'f',name:'教材',createdAt:stamp,upd
  {id:'q1',setId:'local',question:'未登録の問題',choices:['A','B','C','D'],answerIndex:0,answerText:'A',explanation:'',sourcePage:'p.1',category:'',difficulty:'basic',createdAt:stamp,updatedAt:stamp},
  {id:'q2',setId:'local',question:'既存の別セット参照',choices:['A','B','C','D'],answerIndex:0,answerText:'A',explanation:'',sourcePage:'p.1',category:'',difficulty:'basic',createdAt:stamp,updatedAt:stamp,materialReferences:[{materialId:'linked',pageId:'linked-page'}]},
 ],progress:[],answerLogs:[]};
+const libraryMode=new URLSearchParams(location.search).has('library');
+if(libraryMode)data.questions[0].sourcePage='';
 async function seed(){
  const doc=await PDFDocument.create();doc.addPage([200,280]);const bytes=await doc.save(),pdf='data:application/pdf;base64,'+btoa(String.fromCharCode(...bytes));
  await saveAppDataAsync(data);
@@ -30,6 +33,7 @@ function Preview(){
  const setId=new URLSearchParams(location.search).has('empty')?'empty':'local',question=current.questions.find(q=>q.id===questionId);
  const select=async(id:string)=>{await drawer.current?.flush();if(id===questionId)await drawer.current?.openReference(current.questions.find(q=>q.id===id)?.materialReferences?.[0]);else setQuestionId(id);};
  const link=async(links:ReferenceLink[])=>{const next=applyReferenceLinks(current,setId,links,stamp);if(!await saveAppDataAsync(next))throw Error('fixture save failed');setCurrent(next);};
+ if(libraryMode)return <NoteListScreen data={current} setId={setId} onBack={()=>{}} onLinkBatch={link}/>;
  return <main style={{padding:20}}><h1>脳神経</h1><button onClick={()=>void select('q1')}>直接追加したPDFを開く</button><button onClick={()=>void select('q2')}>既存の参照先を開く</button>
   <MaterialsDrawer ref={drawer} problemSetId={setId} setIds={current.problemSets.map(s=>s.id)} questionId={questionId} references={setId==='local'?question?.materialReferences:undefined} questions={current.questions.filter(q=>q.setId===setId)} onLinkBatch={link} onLinkPage={async(reference,linked)=>{const next=linkQuestionMaterialPage(current,questionId,reference,linked,stamp);if(!await saveAppDataAsync(next))throw Error('fixture save failed');setCurrent(next);}} open={open} onOpenChange={setOpen}/>
  </main>;

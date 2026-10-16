@@ -296,6 +296,9 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const noteSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const latestNoteSaveIdRef = useRef(0);
   const pendingDrawSaveTimerRef = useRef<number | null>(null);
+  const pageTurnFinishRef = useRef<(() => void) | null>(null);
+  const pageTurnCancelRef = useRef<(() => void) | null>(null);
+  const [pageTurning,setPageTurning]=useState(false);
   const flushPromiseRef = useRef<Promise<void> | null>(null);
   const flushingRef = useRef(false);
   const noteLoadPromiseRef = useRef<Promise<void>>(Promise.resolve());
@@ -436,6 +439,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   };
 
   useEffect(() => () => {
+    pageTurnCancelRef.current?.();
     if (pagePanFrameRef.current !== null) cancelAnimationFrame(pagePanFrameRef.current);
     if (pageSwipeFrameRef.current !== null) cancelAnimationFrame(pageSwipeFrameRef.current);
     if (pageResetTimerRef.current !== null) window.clearTimeout(pageResetTimerRef.current);
@@ -448,7 +452,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const currentPage = pages[currentPageIndex] ?? pages[0];
   const activeWidth = tool === 'eraser' ? eraserSize : tool === 'marker' ? markerSize : penSize;
   const activeWidths = tool === 'eraser' ? ERASER_WIDTHS : tool === 'marker' ? MARKER_WIDTHS : PEN_WIDTHS;
-  const noteInteractionDisabled = isFlushing || noteLoadState !== 'ready' || notePaintState !== 'ready';
+  const noteInteractionDisabled = isFlushing || pageTurning || noteLoadState !== 'ready' || notePaintState !== 'ready';
   useEffect(() => { onPageStateChange?.({ index: currentPageIndex, ready: !noteInteractionDisabled }); }, [currentPageIndex, noteInteractionDisabled, onPageStateChange]);
   const saveStatusText = recoveryCandidate ? '要復旧' : noteLoadState === 'loading' || notePaintState === 'loading'
     ? '読み込み中'
@@ -469,6 +473,9 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   }, [activeWidth]);
 
   const startNoteLoad = () => {
+    pageTurnCancelRef.current?.();
+    resetPageRail(false);
+    setPageTurning(false);
     const requestId = noteLoadRequestIdRef.current + 1;
     noteLoadRequestIdRef.current = requestId;
     renderedNoteKeyRef.current = '';
@@ -560,11 +567,11 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 
   const snapshot = () => canvasRef.current?.toDataURL('image/png') ?? '';
 
-  const persistNote = (nextNote: CategoryNote, targetNoteKey = noteKey): Promise<void> => {
+  const persistNote = (nextNote: CategoryNote, targetNoteKey = noteKey, readyToSerialize?: Promise<void>): Promise<void> => {
     if (!targetNoteKey) return Promise.resolve();
 
-    const raw = JSON.stringify(nextNote);
     const saveId = latestNoteSaveIdRef.current + 1;
+    const loadId = noteLoadRequestIdRef.current;
     latestNoteSaveIdRef.current = saveId;
     latestNoteSaveCandidateRef.current = { noteKey: targetNoteKey, note: nextNote };
     noteSaveQueueStateRef.current = 'pending';
@@ -573,7 +580,13 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 
     const queuedSave = noteSaveQueueRef.current
       .catch(() => undefined)
-      .then(() => saveCategoryNoteRaw(targetNoteKey, raw));
+      .then(async () => {
+        await readyToSerialize;
+        // A newer complete snapshot includes these edits. Coalesce queued saves
+        // for this note only; another note's unsaved original must still persist.
+        if(loadId===noteLoadRequestIdRef.current && saveId!==latestNoteSaveIdRef.current && latestNoteSaveCandidateRef.current?.noteKey===targetNoteKey)return;
+        return saveCategoryNoteRaw(targetNoteKey, JSON.stringify(nextNote));
+      });
     noteSaveQueueRef.current = queuedSave;
 
     void queuedSave
@@ -615,6 +628,12 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 
   const flushPendingNote = (): Promise<void> => {
     if (flushPromiseRef.current) return flushPromiseRef.current;
+    pageTurnFinishRef.current?.();
+    if (noteLoadStateRef.current === 'ready' && notePaintStateRef.current === 'ready'
+      && !canvasDirtyRef.current && !drawingRef.current && !candidateRestoreRef.current
+      && (noteSaveQueueStateRef.current === 'idle' || noteSaveQueueStateRef.current === 'saved')) {
+      return Promise.resolve();
+    }
 
     const pendingFlush = (async () => {
       flushingRef.current = true;
@@ -806,22 +825,15 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   };
 
   const goToPage = (nextIndex: number) => {
-    if (flushingRef.current || noteLoadStateRef.current !== 'ready' || notePaintStateRef.current !== 'ready') return;
-    if (nextIndex < 0 || nextIndex >= pages.length) return;
-    const saved = updateCurrentPage();
-    const nextNote = { ...saved, currentPageIndex: nextIndex, updatedAt: new Date().toISOString() };
-    pageDataUrlRef.current = nextNote.pages[nextIndex]?.dataUrl ?? '';
-    markCanvasPaintPending();
-    setNote(nextNote);
-    setPageIndex(nextIndex);
-    resetPageView(pageScaleRef.current);
-    clearHistory();
-    persistNote(nextNote);
+    if (flushingRef.current || pageTurnFinishRef.current || drawingRef.current || noteLoadStateRef.current !== 'ready' || notePaintStateRef.current !== 'ready') return;
+    if (nextIndex < 0 || nextIndex >= pages.length || nextIndex===currentPageIndex) return;
+    animatePageCommit(nextIndex>currentPageIndex?'next':'prev',nextIndex);
   };
 
   const beginPageSwipe = (event: PointerEvent<HTMLCanvasElement>) => {
     if (
       flushingRef.current
+      || pageTurnFinishRef.current
       || noteLoadStateRef.current !== 'ready'
       || notePaintStateRef.current !== 'ready'
       || renderedNoteKeyRef.current !== noteKey
@@ -1026,15 +1038,12 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     if (nextPageRef.current) nextPageRef.current.style.opacity = '';
   };
   const animatePageCommit = (direction: 'prev' | 'next', targetIndex: number) => {
+    if(pageTurnFinishRef.current)return;
     const rail = pageElementRef.current;
-    if (!rail) {
-      goToPage(targetIndex);
-      return;
-    }
-
-    const dataUrl = snapshot();
+    if(pendingDrawSaveTimerRef.current!==null){window.clearTimeout(pendingDrawSaveTimerRef.current);pendingDrawSaveTimerRef.current=null;}
+    const dataUrl = canvasDirtyRef.current ? snapshot() : currentPage?.dataUrl;
     const nextPages = [...pages];
-    if (dataUrl) {
+    if (canvasDirtyRef.current && dataUrl) {
       nextPages[currentPageIndex] = { ...nextPages[currentPageIndex], dataUrl, updatedAt: new Date().toISOString() };
     }
     const nextNote: CategoryNote = {
@@ -1045,26 +1054,37 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
       updatedAt: new Date().toISOString(),
     };
     canvasDirtyRef.current = false;
-    persistNote(nextNote);
+    // Keep serialization of a large multi-page note out of the slide animation.
+    // Exit flush and unmount both release this gate, so the save is never lost.
+    let releaseSave: () => void = () => {};
+    const pageVisible = new Promise<void>(resolve => { releaseSave = resolve; });
+    persistNote(nextNote, noteKey, pageVisible);
     preloadNoteImage(nextPages[targetIndex]?.dataUrl ?? '');
-
+    let finished=false,timer=0,frame=0;
     const finishCommit = () => {
-      rail.removeEventListener('transitionend', finishCommit);
+      if(finished)return;finished=true;window.clearTimeout(timer);cancelAnimationFrame(frame);
+      rail?.removeEventListener('transitionend', onEnd);
+      pageTurnFinishRef.current=null;
+      pageTurnCancelRef.current=null;
       pageDataUrlRef.current = nextPages[targetIndex]?.dataUrl ?? '';
       resetTouchGesture();
       resetPageView(pageScaleRef.current);
-      rail.style.transition = 'none';
-      rail.style.transform = 'translate3d(-33.333333%, 0, 0)';
+      if(rail){rail.style.transition = 'none';rail.style.transform = 'translate3d(-33.333333%, 0, 0)';}
       markCanvasPaintPending();
       flushSync(() => {
         setNote(nextNote);
         setPageIndex(targetIndex);
         clearHistory();
+        setPageTurning(false);
       });
-      drawDataUrlToCanvas(pageDataUrlRef.current, nextPages[targetIndex]?.id ?? '');
-      void rail.offsetHeight;
-      rail.style.transition = '';
+      releaseSave();
+      if(rail){void rail.offsetHeight;rail.style.transition = '';}
     };
+    const onEnd=(event:TransitionEvent)=>{if(event.target===rail&&event.propertyName==='transform')finishCommit();};
+    pageTurnFinishRef.current=finishCommit;
+    pageTurnCancelRef.current=()=>{finished=true;window.clearTimeout(timer);cancelAnimationFrame(frame);rail?.removeEventListener('transitionend',onEnd);pageTurnFinishRef.current=null;pageTurnCancelRef.current=null;releaseSave();};
+    setPageTurning(true);
+    if(!rail || Math.abs(targetIndex-currentPageIndex)>1 || window.matchMedia('(prefers-reduced-motion: reduce)').matches){finishCommit();return;}
 
     if (pageSwipeFrameRef.current !== null) {
       cancelAnimationFrame(pageSwipeFrameRef.current);
@@ -1076,16 +1096,18 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     rail.style.transform = currentOffset === 0 ? 'translate3d(-33.333333%, 0, 0)' : `translate3d(calc(-33.333333% + ${currentOffset}px), 0, 0)`;
     void rail.offsetHeight;
 
-    rail.addEventListener('transitionend', finishCommit, { once: true });
+    rail.addEventListener('transitionend', onEnd);
     setPageSwiping(false);
-    rail.style.transition = 'transform 360ms cubic-bezier(.25,.8,.25,1)';
-    requestAnimationFrame(() => {
+    rail.style.transition = 'transform 220ms cubic-bezier(.25,.8,.25,1)';
+    timer=window.setTimeout(finishCommit,300);
+    frame=requestAnimationFrame(() => {
       rail.style.transform = direction === 'next' ? 'translate3d(-66.666667%, 0, 0)' : 'translate3d(0, 0, 0)';
     });
   };
   const beginDraw = (event: PointerEvent<HTMLCanvasElement>) => {
     if (
       flushingRef.current
+      || pageTurnFinishRef.current
       || noteLoadStateRef.current !== 'ready'
       || notePaintStateRef.current !== 'ready'
       || renderedNoteKeyRef.current !== noteKey
@@ -1538,9 +1560,8 @@ async function drawDataUrlToContext(
   transparent = false,
 ): Promise<void> {
   if (!shouldDraw()) return;
-  context.clearRect(0, 0, width, height);
-  if (!transparent) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, width, height); }
-  if (!dataUrl) return;
+  const clear=()=>{context.clearRect(0,0,width,height);if(!transparent){context.fillStyle='#ffffff';context.fillRect(0,0,width,height);}};
+  if (!dataUrl) {clear();return;}
 
   const cached = getCachedNoteImage(dataUrl);
   const image = cached ?? new Image();
@@ -1555,7 +1576,7 @@ async function drawDataUrlToContext(
     throw error;
   }
   updateCachedNoteImageWeight(dataUrl, image);
-  if (shouldDraw()) context.drawImage(image, 0, 0, width, height);
+  if (shouldDraw()) {clear();context.drawImage(image, 0, 0, width, height);}
 }
 
 async function decodeNoteImage(image: HTMLImageElement): Promise<void> {

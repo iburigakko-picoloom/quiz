@@ -54,6 +54,8 @@ jobs:
           tests/question-image-records.test.mjs tests/question-image-copy.test.mjs
           tests/complete-backup.test.mjs tests/whole-sync-sql.test.mjs
           tests/public-import.test.mjs tests/publication-materials.test.mjs
+          tests/reference-link-manual.test.mjs
+          tests/problem-set-creation.test.mjs tests/note-exit-flush.test.mjs tests/material-reference-integrity.test.mjs
 
       - name: Build
         run: npm run build

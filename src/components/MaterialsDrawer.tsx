@@ -17,7 +17,7 @@ export const MaterialsDrawer = forwardRef<MaterialsDrawerHandle, {
 }>(function MaterialsDrawer({ problemSetId, setIds, questionId, references, open, onOpenChange, onLinkPage, onLinkBatch, questions = [], launcherTarget }, ref) {
   const panel = useRef<CategoryNotePanelHandle>(null);
   const [error, setError] = useState('');
-  const [linkDialog, setLinkDialog] = useState<{ materialId?: string } | null>(null);
+  const [linkDialog, setLinkDialog] = useState<{ materialId?: string; pageId?: string } | null>(null);
   const [reference, setReference] = useState<MaterialReference | undefined>(references?.[0]);
   const [keepPanel, setKeepPanel] = useState(open);
   const [referenceRequest, setReferenceRequest] = useState(0);
@@ -104,7 +104,7 @@ export const MaterialsDrawer = forwardRef<MaterialsDrawerHandle, {
   };
   return <>
     {error && !open ? <p className="materials-error" role="alert">{error}</p> : null}
-    {linkDialog && onLinkBatch ? <ReferenceLinkDialog setId={problemSetId} questions={questions} initialMaterialId={linkDialog.materialId} onSave={onLinkBatch} onClose={() => setLinkDialog(null)} /> : null}
+    {linkDialog && onLinkBatch ? <ReferenceLinkDialog setId={problemSetId} questions={questions} initialMaterialId={linkDialog.materialId} initialPageId={linkDialog.pageId} onSave={onLinkBatch} onClose={() => setLinkDialog(null)} /> : null}
     {launcherTarget && !open ? createPortal(<button className="materials-mobile-launcher" type="button" aria-label="資料を開く" aria-expanded={open} onClick={() => void openAt()}><span aria-hidden="true">▤</span> 資料</button>, launcherTarget) : null}
     {createPortal(<><button type="button" className={`materials-edge-tab${open ? ' is-open' : ''}`} aria-label={open ? '資料を閉じる' : '資料を開く'} aria-expanded={open}
       onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={event => void endDrag(event)} onPointerCancel={event => void endDrag(event)}
@@ -112,7 +112,7 @@ export const MaterialsDrawer = forwardRef<MaterialsDrawerHandle, {
       onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } if (open) void close(); else void openAt(); }}><span aria-hidden="true">{open ? '›' : '‹'}</span><span className="materials-edge-tab__label">資料</span></button>
     <aside ref={drawer} className={`materials-drawer${open ? ' is-open' : ''}${dragging ? ' is-dragging' : ''}`} aria-label="資料ビューア" aria-hidden={!open} inert={!open}>
       {error ? <p role="alert">{error}</p> : null}
-      {open || keepPanel ? <MaterialsPanel ref={panel} setId={problemSetId} setIds={setIds} reference={reference} referenceRequest={referenceRequest} questionReferences={references} onOpenReference={target => void openAt(target)} onLinkPage={onLinkPage} onAdjustReferences={onLinkBatch ? materialId => setLinkDialog({ materialId }) : undefined} onClose={() => void close()} /> : null}
+      {open || keepPanel ? <MaterialsPanel ref={panel} setId={problemSetId} setIds={setIds} reference={reference} referenceRequest={referenceRequest} questionReferences={references} onOpenReference={target => void openAt(target)} onLinkPage={onLinkPage} onAdjustReferences={onLinkBatch ? (materialId,pageId) => setLinkDialog({ materialId,pageId }) : undefined} onClose={() => void close()} /> : null}
     </aside></>, document.body)}
   </>;
 });

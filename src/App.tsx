@@ -1771,6 +1771,7 @@ export default function App() {
         data={data}
         setId={screen.setId}
         initialCategory={screen.category}
+        onLinkBatch={links => handleLinkMaterialBatch(screen.setId, links)}
         registerExitGuard={(guard) => { noteExitGuardRef.current = guard; }}
         onOpenQuestions={() => navigate({ name: 'problemList', setId: screen.setId, backScreen: screen })}
         onBack={problemSet ? () => goBackTo(screen.backScreen ?? { name: 'noteList', setId: screen.setId }) : goHome}
