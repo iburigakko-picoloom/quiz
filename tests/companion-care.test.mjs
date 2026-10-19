@@ -5,6 +5,7 @@ import { COMPANION_BALANCE, COMPANION_TRICKS, createCompanionCare, parseCompanio
   companionReactions, pickCompanionReaction, companionSessionFood, companionSessionTreats } from '../src/utils/companionCare.ts';
 
 const day = '2026-10-14';
+const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} should be close to ${expected}`);
 const logs = (count, prefix = 'answer') => Array.from({ length: count }, (_, i) => ({ id: `${prefix}-${i}`, isCorrect: i % 2 === 0 }));
 const funded = (food = 60) => creditCompanionAnswers(createCompanionCare(day), logs(food * COMPANION_BALANCE.answersPerFood));
 const legacy = (count = 338) => {
@@ -82,12 +83,27 @@ test('batch completion pays all earned food, and stored food never expires', () 
   assert.equal(care.food, 5); assert.equal(care.answerRemainder, 5);
 });
 
+test('feeding and petting gain one third while balances, earned rewards and saved bond survive', () => {
+  const original = { ...funded(3), friendship: 30.5, peakFriendship: 30.5 };
+  let care = parseCompanionCare(JSON.stringify(original));
+  assert.equal(care.friendship, 30.5);
+  for (let i = 0; i < 3; i++) care = applyCompanionCareAction(care, { kind: 'feed' }, day);
+  near(care.friendship, 34.5);
+  assert.equal(care.food, 0);
+  assert.equal(care.treats, original.treats);
+  assert.deepEqual(care.foodAwardAnswerIds, original.foodAwardAnswerIds);
+  const petted = applyCompanionCareAction(care, { kind: 'pet' }, day);
+  near(petted.friendship - care.friendship, 1 / 6);
+  assert.deepEqual(parseCompanionCare(JSON.stringify(petted)), petted);
+  assert.equal(original.friendship, 30.5);
+});
+
 test('petting always works but only three interactions gain friendship per calendar day', () => {
   let care = createCompanionCare(day);
   for (let i = 0; i < 20; i++) care = applyCompanionCareAction(care, { kind: 'pet' }, day);
-  assert.equal(care.friendship, 1.5); assert.equal(care.rewardedPets, 3); assert.equal(care.food, 0);
+  assert.equal(care.friendship, 0.5); assert.equal(care.rewardedPets, 3); assert.equal(care.food, 0);
   care = applyCompanionCareAction(parseCompanionCare(JSON.stringify(care)), { kind: 'pet' }, '2026-10-15');
-  assert.equal(care.friendship, 2); assert.equal(care.rewardedPets, 1);
+  near(care.friendship, 2 / 3); assert.equal(care.rewardedPets, 1);
 });
 
 test('two days are safe; day three starts gentle decay once, including month/year transitions', () => {
@@ -112,10 +128,10 @@ test('bond loss reduces spontaneous reactions, keeps learned tricks and never go
 });
 
 test('recovery is faster up to the previous peak and normal beyond it; friendship caps at 100', () => {
-  const care = { ...funded(), friendship: 33, peakFriendship: 40 };
+  const care = { ...funded(), friendship: 38, peakFriendship: 40 };
   const recovered = applyCompanionCareAction(care, { kind: 'feed' }, day);
-  assert.equal(recovered.friendship, 40.5); assert.equal(recovered.peakFriendship, 40.5);
-  assert.equal(applyCompanionCareAction(recovered, { kind: 'feed' }, day).friendship, 44.5);
+  near(recovered.friendship, 40 + 1 / 3); near(recovered.peakFriendship, 40 + 1 / 3);
+  near(applyCompanionCareAction(recovered, { kind: 'feed' }, day).friendship, 40 + 5 / 3);
   assert.equal(applyCompanionCareAction({ ...care, friendship: 99, peakFriendship: 100 }, { kind: 'feed' }, day).friendship, 100);
 });
 
@@ -171,10 +187,10 @@ test('food and treats remain independent after reaching a training threshold', (
   const original={...funded(1),friendship:80,peakFriendship:80};
   const fed=applyCompanionCareAction(original,{kind:'feed'},day);
   const trained=applyCompanionCareAction(fed,{kind:'train',trickId:'sleep'},day);
-  assert.equal(trained.food,0);assert.equal(trained.treats,0);assert.equal(trained.friendship,84);assert.equal(trained.tricks.sleep,1);
+  assert.equal(trained.food,0);assert.equal(trained.treats,0);near(trained.friendship,80 + 4 / 3);assert.equal(trained.tricks.sleep,1);
   const firstTrain=applyCompanionCareAction(original,{kind:'train',trickId:'roll'},day);
   const thenFeed=applyCompanionCareAction(firstTrain,{kind:'feed'},day);
-  assert.deepEqual(thenFeed.tricks,firstTrain.tricks);assert.equal(thenFeed.treats,0);assert.equal(thenFeed.friendship,84);
+  assert.deepEqual(thenFeed.tricks,firstTrain.tricks);assert.equal(thenFeed.treats,0);near(thenFeed.friendship,80 + 4 / 3);
 });
 
 test('v2 grants initial treats once and reports only new answer rewards', () => {

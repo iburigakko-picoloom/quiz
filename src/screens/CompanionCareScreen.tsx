@@ -67,7 +67,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
         <input aria-label="キャラの名前" value={name} onChange={event => setName(event.target.value)} maxLength={20} autoFocus />
         <button type="submit" disabled={disabled || !name.trim()}>保存</button><button type="button" onClick={() => setRenaming(false)}>取消</button>
       </form> : <button className="companion-care__name" type="button" aria-label="キャラの名前を変更" disabled={disabled} onClick={() => { setName(care?.name ?? ''); setRenaming(true); }}>{care?.name ?? 'パピィ'}<span aria-hidden="true">✎</span></button>}
-      <div className="companion-care__bond-caption"><span>♡ なかよし度 <strong>{care?.friendship ?? 0}</strong><small> / {COMPANION_BALANCE.maxFriendship}</small></span><span>{companionFriendshipLabel(care?.friendship ?? 0)}</span></div>
+      <div className="companion-care__bond-caption"><span>♡ なかよし度 <strong>{Number((care?.friendship ?? 0).toFixed(2))}</strong><small> / {COMPANION_BALANCE.maxFriendship}</small></span><span>{companionFriendshipLabel(care?.friendship ?? 0)}</span></div>
       <progress value={care?.friendship ?? 0} max={COMPANION_BALANCE.maxFriendship} aria-label="なかよし度" />
     </section>
     <section className="companion-care__stage" aria-label="キャラクター">

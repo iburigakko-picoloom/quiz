@@ -5,8 +5,8 @@ export const COMPANION_CARE_EVENT = 'quiz-make-companion-care-change';
 export const COMPANION_BALANCE = {
   answersPerFood: 50,
   maxFriendship: 100,
-  feedingGain: 4,
-  pettingGain: 0.5,
+  feedingGain: 4 / 3,
+  pettingGain: 0.5 / 3,
   rewardedPetsPerDay: 3,
   absenceGraceDays: 2,
   absenceLossPerDay: 1,
