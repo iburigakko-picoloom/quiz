@@ -12,9 +12,10 @@ interface Props {
   onSave: (data: AppData) => Promise<boolean>;
   onDelete: () => void;
   onAddSet?: () => void;
+  disabled?: boolean;
 }
 
-export function LibraryItemActions({ data, kind, id, onSave, onDelete, onAddSet }: Props) {
+export function LibraryItemActions({ data, kind, id, onSave, onDelete, onAddSet, disabled = false }: Props) {
   const [open, setOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const backdropPressed = useRef(false);
@@ -50,7 +51,7 @@ export function LibraryItemActions({ data, kind, id, onSave, onDelete, onAddSet 
     finally { setBusy(false); }
   };
   return <div className="library-actions">
-    <button type="button" className="library-actions__trigger" aria-label={`${folder?.name ?? set?.title ?? ''}の操作`} aria-haspopup="dialog" onClick={() => { setMode(null); setError(''); setOpen(true); }}>…</button>
+    <button type="button" className="library-actions__trigger" disabled={disabled} aria-label={`${folder?.name ?? set?.title ?? ''}の操作`} aria-haspopup="dialog" onClick={() => { setMode(null); setError(''); setOpen(true); }}>…</button>
     {createPortal(<dialog ref={dialogRef} className="library-actions__body library-actions__dialog" aria-label={`${folder?.name ?? set?.title ?? ''}の操作`} onCancel={(event) => { if (busy) event.preventDefault(); }} onClose={() => setOpen(false)}
       onPointerDown={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();

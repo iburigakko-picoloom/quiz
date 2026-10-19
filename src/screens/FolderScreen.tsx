@@ -58,32 +58,32 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
       <span className="library-row__body"><strong>{problemSet.title}</strong><span>{questionCount}問 · 正答率 {correctRate}% {problemSet.isStudyCompleted ? <span className="library-row__done">学習済み</span> : reviewCount > 0 ? <em>復習 {reviewCount}</em> : null}</span></span>
       <ChevronRightIcon size={18} />
     </button>
-    <LibraryItemActions data={data} kind="set" id={problemSet.id} onSave={onSave} onDelete={() => setDeleteSet(problemSet)} />
+    <LibraryItemActions data={data} kind="set" id={problemSet.id} disabled={Boolean(deletingProblemSetId)} onSave={onSave} onDelete={() => setDeleteSet(problemSet)} />
   </div>;
 
   if (!folder) return <Layout><MissingResourceState title="フォルダが見つかりません" description="フォルダ一覧から選び直してください。" onAction={onBack} /></Layout>;
   return <Layout>
     {deletingProblemSetId ? <p role="status">問題セットを削除しています…</p> : null}
-    <div className="quiz-folder" ref={rootRef} inert={Boolean(deletingProblemSetId)} aria-busy={Boolean(deletingProblemSetId)}>
+    <div className="quiz-folder" ref={rootRef}>
     <header className="quiz-folder__header">
       <BackButton onClick={onBack} /><h1 className="quiz-folder__title">{folder.name}</h1>
       <ActionMenu className="library-actions library-header-add">
         <summary aria-label="追加"><PlusIcon size={22} /></summary>
         <div className="library-actions__body">
-          <button type="button" onClick={() => setAdding(true)}>子フォルダを追加</button>
-          <button type="button" onClick={() => onCreateProblemSet(parentId)}>ここに問題セットを追加</button>
+          <button type="button" disabled={Boolean(deletingProblemSetId)} onClick={() => setAdding(true)}>子フォルダを追加</button>
+          <button type="button" disabled={Boolean(deletingProblemSetId)} onClick={() => onCreateProblemSet(parentId)}>ここに問題セットを追加</button>
         </div>
       </ActionMenu>
     </header>
     {adding ? <form className="library-form" onSubmit={async (event) => {
-      event.preventDefault(); if (busy || !name.trim()) return;
+      event.preventDefault(); if (busy || deletingProblemSetId || !name.trim()) return;
       setBusy(true); setError('');
       try { if (await onSave(addFolder(data, name, parentId))) { setAdding(false); setName(''); } else setError('保存できませんでした。'); }
       catch (reason) { setError(reason instanceof Error ? reason.message : '保存できませんでした。'); }
       finally { setBusy(false); }
     }}><label>子フォルダ名<input value={name} onChange={(event) => setName(event.target.value)} disabled={busy} autoFocus /></label>
       {error ? <p role="alert">{error}</p> : null}
-      <button disabled={busy || !name.trim()}>作成</button><button type="button" disabled={busy} onClick={() => setAdding(false)}>キャンセル</button>
+      <button disabled={busy || Boolean(deletingProblemSetId) || !name.trim()}>作成</button><button type="button" disabled={busy} onClick={() => setAdding(false)}>キャンセル</button>
     </form> : null}
     {children.length > 0 ? <section className="library-section"><h2>子フォルダ</h2>
       {children.map(({ folder: child, setCount, questionCount, reviewCount }) => <div key={child.id}>
@@ -93,7 +93,7 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
             <span className="library-row__body"><strong>{child.name}</strong><span>{setCount}セット · {questionCount}問 {reviewCount > 0 ? <em>復習 {reviewCount}</em> : null}</span></span>
             <ChevronRightIcon size={18} className="quiz-folder__child-chevron" style={{ transform: expanded === child.id ? 'rotate(90deg)' : undefined }} />
           </button>
-          <LibraryItemActions data={data} kind="folder" id={child.id} onSave={onSave} onDelete={() => setDeleteFolder(child)} onAddSet={() => onCreateProblemSet(child.id)} />
+          <LibraryItemActions data={data} kind="folder" id={child.id} disabled={Boolean(deletingProblemSetId)} onSave={onSave} onDelete={() => setDeleteFolder(child)} onAddSet={() => onCreateProblemSet(child.id)} />
         </div>
         <div className={`quiz-folder__child-reveal${expanded === child.id ? ' is-open' : ''}`} inert={expanded !== child.id} aria-hidden={expanded !== child.id}>
           <div className="quiz-folder__child-content"><div className="library-child-sets">{(view.problemSetsByFolderId.get(child.id) ?? []).map(renderSet)}{!setCount ? <p>問題セットがありません</p> : null}</div></div>
