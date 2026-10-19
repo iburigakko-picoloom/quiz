@@ -16,6 +16,14 @@ try {
   await page.goto('http://127.0.0.1:5198/quiz/tests/browser/materials-scope-preview.html',{timeout:60000});
   await page.locator('.category-note-canvas[aria-disabled="false"]').waitFor();
   const menu=page.locator('.materials-menu');
+  assert.equal(await page.getByRole('button',{name:'参照ページを追加',exact:true}).isVisible(),false,'add reference is hidden while the menu is closed');
+  assert.equal(await page.locator('.materials-reference-actions').count(),0,'no extra reference row above the paper');
+  await page.getByLabel('資料の操作',{exact:true}).tap();
+  await menu.getByRole('button',{name:'参照ページを追加',exact:true}).tap();
+  await page.getByRole('dialog').waitFor();
+  assert.equal(await menu.getAttribute('open'),null);
+  assert.equal(await page.getByLabel('追加するページ',{exact:true}).inputValue(),'attached-page','the menu action keeps the current page selected');
+  await page.getByRole('dialog').getByRole('button',{name:'閉じる',exact:true}).tap();
   await page.getByLabel('資料の操作',{exact:true}).tap();
   await page.getByRole('button',{name:'参照ページを調整',exact:true}).tap();
   await page.getByRole('dialog').waitFor();

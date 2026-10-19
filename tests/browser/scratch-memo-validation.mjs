@@ -26,6 +26,17 @@ try {
  const pixels=()=>canvas.evaluate(c=>{const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=3;i<d.length;i+=4)if(d[i])n++;return n;});
  const draw=async()=>{await ready();const b=await canvas.boundingBox();await page.mouse.move(b.x+b.width*.3,b.y+b.height*.4);await page.mouse.down();await page.mouse.move(b.x+b.width*.65,b.y+b.height*.55,{steps:12});await page.mouse.up();await page.waitForTimeout(80);};
  await ready();
+ // Adjacent pages are visible during a slide. Their paper size must match the
+ // active canvas, including when a narrow viewport limits the available width.
+ for (const width of [1024, 390]) {
+   await page.setViewportSize({ width, height: 900 });
+   const sizes = await page.locator('.category-note-page').evaluateAll(nodes => nodes.map(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height })));
+   for (const preview of [sizes[0], sizes[2]]) {
+     assert.ok(Math.abs(preview.width - sizes[1].width) < 1, `memo preview width must match active paper at ${width}px: ${JSON.stringify(sizes)}`);
+     assert.ok(Math.abs(preview.height - sizes[1].height) < 1, `memo preview height must match active paper at ${width}px`);
+   }
+ }
+ await page.setViewportSize({ width: 1024, height: 900 });
  const tools=page.getByRole('group',{name:'筆記用具',exact:true});
  assert.equal(await tools.getByRole('button').count(),3);
  for(const name of ['マーカー','消しゴム','ペン']) {

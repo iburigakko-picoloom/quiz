@@ -8,7 +8,7 @@ import { MissingResourceState } from '../components/MissingResourceState';
 import { LibraryItemActions } from '../components/LibraryItemActions';
 import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, PlusIcon } from '../components/UiIcons';
 import { buildAppDataView, type ProblemSetOverview } from '../utils/appDataView';
-import { addFolder } from '../utils/quiz';
+import { addFolder, deleteProblemSet } from '../utils/quiz';
 import { useLocalDay } from '../hooks/useLocalDay';
 import './FolderScreen.css';
 
@@ -19,15 +19,18 @@ interface FolderScreenProps {
   onCreateProblemSet: (folderId: string) => void;
   onOpenProblemSet: (setId: string) => void;
   onDeleteProblemSet: (setId: string) => void;
+  deletingProblemSetId?: string | null;
   onDeleteFolder: (folderId: string) => void;
   onSave: (data: AppData) => Promise<boolean>;
 }
 
 const folderNavigation = new Map<string, { expanded: string | null; scroll: number }>();
 
-export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpenProblemSet, onDeleteProblemSet, onDeleteFolder, onSave }: FolderScreenProps) {
+export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpenProblemSet, onDeleteProblemSet, deletingProblemSetId, onDeleteFolder, onSave }: FolderScreenProps) {
   const day = useLocalDay();
-  const view = useMemo(() => buildAppDataView(data), [data, day]);
+  // Only the displayed snapshot is optimistic. AppData stays durable until the
+  // coordinated deletion succeeds; clearing the pending ID also restores failures.
+  const view = useMemo(() => buildAppDataView(deletingProblemSetId ? deleteProblemSet(data, deletingProblemSetId) : data), [data, day, deletingProblemSetId]);
   const requested = view.folderById.get(folderId);
   const parentId = requested?.parentFolderId ?? folderId;
   const folder = view.folderById.get(parentId);
@@ -59,7 +62,9 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
   </div>;
 
   if (!folder) return <Layout><MissingResourceState title="フォルダが見つかりません" description="フォルダ一覧から選び直してください。" onAction={onBack} /></Layout>;
-  return <Layout><div className="quiz-folder" ref={rootRef}>
+  return <Layout>
+    {deletingProblemSetId ? <p role="status">問題セットを削除しています…</p> : null}
+    <div className="quiz-folder" ref={rootRef} inert={Boolean(deletingProblemSetId)} aria-busy={Boolean(deletingProblemSetId)}>
     <header className="quiz-folder__header">
       <BackButton onClick={onBack} /><h1 className="quiz-folder__title">{folder.name}</h1>
       <ActionMenu className="library-actions library-header-add">

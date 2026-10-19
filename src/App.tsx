@@ -149,6 +149,7 @@ export default function App() {
   if (!groupReflectionQueue.current) groupReflectionQueue.current = createGroupReflectionQueue(setIds => reflectSavedGroupLearning(setIds));
   const [storageRecoverySyncOpen, setStorageRecoverySyncOpen] = useState(false);
   const [libraryMutationBusy, setLibraryMutationBusy] = useState(false);
+  const [deletingProblemSetId, setDeletingProblemSetId] = useState<string | null>(null);
   const [autoImportBusy, setAutoImportBusy] = useState(false);
   const autoImportBusyRef = useRef(false);
   const [storageError, setStorageError] = useState('');
@@ -676,6 +677,7 @@ export default function App() {
     if (libraryMutationBusyRef.current) return;
     libraryMutationBusyRef.current = true;
     setLibraryMutationBusy(true);
+    setDeletingProblemSetId(setId);
     try {
       const result = await persistLibraryDeletion({
         buildPlan: (currentData) => ({
@@ -685,6 +687,7 @@ export default function App() {
       });
       applyLibraryDeletionResult(result, '問題セット');
     } finally {
+      setDeletingProblemSetId(null);
       libraryMutationBusyRef.current = false;
       setLibraryMutationBusy(false);
     }
@@ -1695,6 +1698,7 @@ export default function App() {
         onCreateProblemSet={(folderId) => navigate({ name: 'createProblemSet', folderId, backScreen: { name: 'folder', folderId } })}
         onOpenProblemSet={(setId) => navigate({ name: 'problemSetDetail', setId, backScreen: screen })}
         onDeleteProblemSet={handleDeleteProblemSet}
+        deletingProblemSetId={deletingProblemSetId}
         onSave={commitData}
         onDeleteFolder={handleDeleteFolder}
       />

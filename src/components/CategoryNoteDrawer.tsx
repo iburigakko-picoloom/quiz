@@ -1330,7 +1330,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
               <div
                 ref={prevPageRef}
                 className={`category-note-page category-note-page--preview${!(pageNavigation?.hasPrevious ?? currentPageIndex > 0) ? ' category-note-page--missing' : ''}`}
-                style={{ ...(pageNavigation ? materialPreviewStyle(pageNavigation.previous, pageAspect) : { backgroundImage: pages[currentPageIndex - 1]?.dataUrl ? `url(${pages[currentPageIndex - 1].dataUrl})` : undefined }), transform: pageScale === 1 ? undefined : `scale(${pageScale})` }}
+                style={{ aspectRatio: pageAspect, width: singlePage ? `min(100%, ${pageAspect * 100}cqh)` : undefined, ...(pageNavigation ? materialPreviewStyle(pageNavigation.previous, pageAspect) : { backgroundImage: pages[currentPageIndex - 1]?.dataUrl ? `url(${pages[currentPageIndex - 1].dataUrl})` : undefined }), transform: pageScale === 1 ? undefined : `scale(${pageScale})` }}
               />
             </div>
             <div className="category-note-page-slot">
@@ -1355,7 +1355,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
               <div
                 ref={nextPageRef}
                 className={`category-note-page category-note-page--preview${!(pageNavigation?.hasNext ?? currentPageIndex < pages.length - 1) ? ' category-note-page--missing' : ''}`}
-                style={{ ...(pageNavigation ? materialPreviewStyle(pageNavigation.next, pageAspect) : { backgroundImage: pages[currentPageIndex + 1]?.dataUrl ? `url(${pages[currentPageIndex + 1].dataUrl})` : undefined }), transform: pageScale === 1 ? undefined : `scale(${pageScale})` }}
+                style={{ aspectRatio: pageAspect, width: singlePage ? `min(100%, ${pageAspect * 100}cqh)` : undefined, ...(pageNavigation ? materialPreviewStyle(pageNavigation.next, pageAspect) : { backgroundImage: pages[currentPageIndex + 1]?.dataUrl ? `url(${pages[currentPageIndex + 1].dataUrl})` : undefined }), transform: pageScale === 1 ? undefined : `scale(${pageScale})` }}
               />
             </div>
           </div>
