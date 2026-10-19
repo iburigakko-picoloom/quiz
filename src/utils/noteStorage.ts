@@ -168,6 +168,36 @@ export async function waitForPendingCategoryNoteSaves(): Promise<void> {
   await noteSaveQueue;
 }
 
+/** Update the material list and remove its file/ink in one durable transaction. */
+export async function replaceNoteAndDeleteKeys(key: string, raw: string, keys: readonly string[]): Promise<void> {
+  if (!isCategoryNoteKey(key) || !isUsableNoteRaw(raw) || keys.includes(key) || keys.some(id => !isCategoryNoteKey(id))) throw new Error('削除する資料情報が不正です。');
+  // Caller holds the shared app/notes lock and has checked current references.
+  const db = await openNoteDb(true);
+  const deleted = new Set(keys);
+  const previous = collectLegacyLocalStorageNotesOrThrow(id => id === key || deleted.has(id));
+  removeLegacyLocalStorageNotesOrThrow(previous);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(NOTE_RECORD_TRANSACTION_STORES, 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('資料を削除できませんでした。'));
+      tx.objectStore(NOTE_STORE_NAME).put(raw, key);
+      queueNoteRecordWrite(tx, key, raw);
+      for (const id of deleted) {
+        tx.objectStore(NOTE_STORE_NAME).delete(id);
+        tx.objectStore(NOTE_BACKUP_STORE_NAME).delete(id);
+        queueNoteRecordWrite(tx, id, null);
+      }
+    });
+  } catch (error) {
+    restoreLegacyLocalStorageNotes(previous);
+    throw error;
+  }
+  await recordCategoryNoteDeletionBestEffort(id => deleted.has(id));
+  await ensureCategoryNoteManifestIncludesBestEffort(key);
+  advanceLocalDataRevision();
+}
+
 export async function deleteCategoryNotesForProblemSetIds(
   problemSetIds: Iterable<string>,
   options: { coordinationLockHeld?: boolean } = {},

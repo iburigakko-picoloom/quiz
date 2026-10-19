@@ -1,8 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { MaterialReference } from '../types';
 import { ActionMenu } from './ActionMenu';
+import { ConfirmDialog } from './ConfirmDialog';
 import { CategoryNotePanel, type CategoryNotePanelHandle, type NoteToolSettings } from './CategoryNoteDrawer';
-import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf, isMaterialOffline, setMaterialOffline } from '../utils/materialStorage';
+import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf, isMaterialOffline, setMaterialOffline, deleteMaterial } from '../utils/materialStorage';
 import { MaterialPreviewCache, type MaterialPagePreview } from '../utils/materialPreview';
 import { createId } from '../utils/id';
 import { boundedNoteScale } from './noteGestures';
@@ -19,6 +20,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const [pageId, setPageId] = useState('');
   const [busy, setBusy] = useState(false);
   const [memoOpen, setMemoOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [memoPage, setMemoPage] = useState({ index: 0, ready: false });
   const rememberMemoPage = useCallback((page: { index: number; ready: boolean }) => setMemoPage(page), []);
   const [error, setError] = useState('');
@@ -276,11 +278,21 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
         <button type="button" disabled={!index || busy} onClick={() => { if (menu.current) menu.current.open = false; photoInput.current?.click(); }}>写真を追加</button>
         <button type="button" disabled={!index || busy} onClick={() => run(async () => { await appendLocalMaterial(async local => ({ id: createId('material'), title: `白紙の資料 ${local.materials.length + 1}`, pages: [{ id: createId('page'), kind: 'blank' }] })); })}>白紙の資料を追加</button>
         {material ? <><hr/><button disabled={busy} onClick={() => addBlank(false)}>前に白紙ページ</button><button disabled={busy} onClick={() => addBlank(true)}>後ろに白紙ページ</button><hr/><button disabled={busy || pageIndex <= 0} onClick={() => move(-1)}>このページを前へ移動</button><button disabled={busy || pageIndex >= material.pages.length - 1} onClick={() => move(1)}>このページを後ろへ移動</button></> : null}
+        {!memoOpen && material && ownerId === setId ? <><hr/><button type="button" disabled={busy || pagePending || transitioning} onClick={() => { if (menu.current) menu.current.open = false; setDeleteConfirm(true); }}>この資料を削除</button></> : null}
       </div></ActionMenu>
       {onClose ? <button className="materials-close" type="button" aria-label="資料を閉じる" title="資料を閉じる" disabled={busy} onClick={() => run(async () => onClose())}>×</button> : null}
       <input ref={photoInput} hidden type="file" accept="image/*" multiple onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; if (files.length) void addPhotos(files); }} />
     </div>
     {error ? <p className="materials-error" role="alert">{error}</p> : null}
+    <ConfirmDialog open={deleteConfirm} title="この資料を削除しますか？" message={`「${material?.title ?? ''}」のPDF・ページ・書き込みを削除します。問題や解答履歴は残ります。参照中の場合は、先に参照を解除してください。`} onCancel={() => setDeleteConfirm(false)} onConfirm={() => {
+      setDeleteConfirm(false);
+      if (!material || ownerId !== setId) return;
+      void run(async () => {
+        const next = await deleteMaterial(setId, material.id);
+        clearTransition(); previews.current.clear(); setNeighbours({ pageId: '' }); setDisplayed(null);
+        setIndex(next); setMaterialId(next.materials[0]?.id ?? ''); setPageId(next.materials[0]?.pages[0]?.id ?? '');
+      });
+    }} />
     <div ref={contentRef} className={`materials-content${!memoOpen && (pagePending || (transitioning && !transitionReady)) ? ' is-page-loading' : ''}`} aria-busy={!memoOpen && (pagePending || (transitioning && !transitionReady))} onPointerDownCapture={() => { if (transitionReadyRef.current) clearTransition(); }}>
       {memoOpen ? <CategoryNotePanel key={`memo-${setId}`} ref={panel} problemSetId={setId} category="__scratch_memo_v1" scratchMemo singlePage initialTools={tools.current} onToolsChange={rememberTools} onPageStateChange={rememberMemoPage} /> : displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} initialScale={boundedNoteScale(viewScale.current)} onScaleChange={rememberScale} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? '資料を読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <div className="materials-empty__actions"><label className="materials-file-picker" aria-disabled={!index || busy}>PDFを追加<input type="file" aria-label="PDFを追加" accept="application/pdf,.pdf" disabled={!index || busy} onChange={selectPdf} /></label><button disabled={!index || busy} onClick={() => photoInput.current?.click()}>写真を追加</button></div> : null}<small>合計50MB・500ページまで。</small></div>}
       <div ref={transitionLayer} className="materials-transition-cover" aria-hidden="true" inert />

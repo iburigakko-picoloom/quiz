@@ -1,7 +1,7 @@
 import type { AppData, MaterialReference, Question } from '../types';
 import type { StudyMaterial } from './materialModel';
 
-export interface ReferenceLink { questionId: string; sourcePage: string; reference: MaterialReference; references?: MaterialReference[]; append?: boolean }
+export interface ReferenceLink { questionId: string; sourcePage: string; reference: MaterialReference; references?: MaterialReference[]; append?: boolean; replaceMaterialId?: string; expectedReferences?: MaterialReference[] }
 /** Parse explicit page expressions, never trailing chapter/question numbers. */
 export function referencePages(text: string): number[] {
   const value = text.normalize('NFKC');
@@ -25,8 +25,8 @@ export function referencePage(text: string): number | null {
   const pages = referencePages(text);
   return pages.length === 1 ? pages[0] : null;
 }
-export function referenceCandidates(questions: Question[], material: StudyMaterial, offset = 0) {
-  return questions.filter(q => !q.materialReferences?.length).map(question => {
+export function referenceCandidates(questions: Question[], material: StudyMaterial, offset = 0, includeRegistered = false) {
+  return questions.filter(q => !q.materialReferences?.length || (includeRegistered && q.materialReferences.some(r => r.materialId === material.id))).map(question => {
     const numbers = referencePages(question.sourcePage ?? '');
     const matches = numbers.map(number => material.pages.find(p => p.kind === 'pdf' && p.pdfPage === number + offset));
     const pages = matches.every(Boolean) ? matches.filter(p => p !== undefined) : [];
@@ -39,11 +39,17 @@ export function applyReferenceLinks(data: AppData, setId: string, links: Referen
   for (const link of links) {
     const question = questions.get(link.questionId);
     const references = link.references ?? [link.reference];
-    if (ids.has(link.questionId) || !question || (question.sourcePage ?? '') !== link.sourcePage || (!link.append && question.materialReferences?.length) || !references.length || references.length > 100 || references.some(r => !r.materialId || !r.pageId)) throw new Error('問題または参照が変更されています。候補を開き直してください。');
+    const replacing = Boolean(link.replaceMaterialId);
+    const referenceKey = (rows: MaterialReference[]) => JSON.stringify(rows.map(r => [r.materialId, r.pageId]).sort());
+    if (ids.has(link.questionId) || !question || (question.sourcePage ?? '') !== link.sourcePage
+      || (!link.append && !replacing && question.materialReferences?.length)
+      || (!replacing && !references.length) || references.length > 100 || references.some(r => !r.materialId || !r.pageId)
+      || (replacing && (link.append || !link.expectedReferences || referenceKey(link.expectedReferences) !== referenceKey(question.materialReferences ?? []) || references.some(r => r.materialId !== link.replaceMaterialId)))) throw new Error('問題または参照が変更されています。候補を開き直してください。');
     ids.add(link.questionId);
   }
   const map = new Map(links.map(link => {
-    const previous=link.append ? questions.get(link.questionId)!.materialReferences??[] : [];
+    const current = questions.get(link.questionId)!.materialReferences ?? [];
+    const previous = link.replaceMaterialId ? current.filter(r => r.materialId !== link.replaceMaterialId) : link.append ? current : [];
     const combined=[...new Map([...previous,...(link.references??[link.reference])].map(r=>[JSON.stringify([r.materialId,r.pageId]),r])).values()];
     if(combined.length>100)throw new Error('1問に登録できる参照ページは100件までです。');
     return [link.questionId,combined];

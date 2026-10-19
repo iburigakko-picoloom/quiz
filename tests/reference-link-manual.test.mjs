@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyReferenceLinks } from '../src/utils/referenceLinking.ts';
+import { applyReferenceLinks, referenceCandidates } from '../src/utils/referenceLinking.ts';
 
 const first={materialId:'old',pageId:'old-page'},extra={materialId:'new',pageId:'new-page'};
 const data={questions:[{id:'q',setId:'s',question:'unchanged',sourcePage:'',materialReferences:[first]}],progress:[{questionId:'q',correctCount:3}],answerLogs:[{id:'answer'}]};
@@ -20,4 +20,26 @@ test('manual registration rejects stale sources, wrong sets, duplicates and exce
   const full={...data,questions:[{...data.questions[0],materialReferences:Array.from({length:100},(_,i)=>({materialId:'old',pageId:String(i)}))}]};
   assert.throws(()=>applyReferenceLinks(full,'s',[link],'now'),/100/);
   assert.equal(full.questions[0].materialReferences.length,100);
+});
+
+test('registered references can be replaced or removed without touching other materials or answer history',()=>{
+  const current={...data,questions:[{...data.questions[0],materialReferences:[first,extra]}]};
+  const replacement={questionId:'q',sourcePage:'',reference:{materialId:'old',pageId:'p2'},replaceMaterialId:'old',expectedReferences:[first,extra]};
+  const changed=applyReferenceLinks(current,'s',[replacement],'now');
+  assert.deepEqual(changed.questions[0].materialReferences,[extra,replacement.reference]);
+  assert.equal(changed.answerLogs,current.answerLogs);assert.equal(changed.progress,current.progress);
+  assert.throws(()=>applyReferenceLinks(changed,'s',[replacement],'later'),/変更/);
+  assert.throws(()=>applyReferenceLinks(current,'s',[{...replacement,reference:extra}],'now'),/変更/);
+  assert.throws(()=>applyReferenceLinks(current,'s',[{...replacement,expectedReferences:undefined}],'now'),/変更/);
+  const removed=applyReferenceLinks(current,'s',[{...replacement,references:[]}],'now');
+  assert.deepEqual(removed.questions[0].materialReferences,[extra]);
+  assert.deepEqual(current.questions[0].materialReferences,[first,extra]);
+});
+
+test('source-page adjustment includes registered questions only when explicitly requested',()=>{
+  const material={id:'old',pages:[{id:'p1',kind:'pdf',pdfPage:1},{id:'p2',kind:'pdf',pdfPage:2}]};
+  const questions=[{...data.questions[0],sourcePage:'p.1'},{id:'unrelated',materialReferences:[extra],sourcePage:'p.1'}];
+  assert.equal(referenceCandidates(questions,material,1).length,0);
+  const candidates=referenceCandidates(questions,material,1,true);
+  assert.equal(candidates.length,1);assert.equal(candidates[0].page.id,'p2');
 });

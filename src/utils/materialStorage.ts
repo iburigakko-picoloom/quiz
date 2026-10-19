@@ -1,9 +1,9 @@
-import { loadCategoryNoteRaw, saveCategoryNoteRaw } from './noteStorage';
+import { loadCategoryNoteRaw, saveCategoryNoteRaw, waitForPendingCategoryNoteSaves, replaceNoteAndDeleteKeys } from './noteStorage';
 import { createId } from './id';
 import { validMaterialRecord, MAX_MATERIAL_PDF_BYTES, type MaterialIndex, type MaterialFile, type StudyMaterial } from './materialModel';
 import { createMaterialTransport, hydrateMaterialDownload } from './materialCloud';
 import { withCoordinatedDataMutation } from './dataCoordination';
-import { openAppDb } from '../storage';
+import { openAppDb, loadAppDataAsync, waitForPendingAppDataSaves } from '../storage';
 import { blobDataUrl, getContentBlob, idbDone, idbResult, packBlobNote, parseBlobNote, putContentBlob, readMeta, setBlobOffline, trimBlobCache, writeMeta, unpackBlobNote, type BlobRef } from './blobVault';
 import { getAccountStorageSession } from './accountStorage';
 
@@ -43,6 +43,28 @@ export async function loadMaterials(setId: string): Promise<MaterialIndex> {
 export async function saveMaterials(index: MaterialIndex) {
   if (!validMaterialRecord(index as unknown as Record<string, unknown>)) throw new Error('資料情報が不正です。');
   await saveCategoryNoteRaw(materialIndexKey(index.problemSetId), JSON.stringify({ ...index, updatedAt: new Date().toISOString() }));
+}
+
+export async function deleteMaterial(setId: string, materialId: string): Promise<MaterialIndex> {
+  const [ready] = await Promise.all([waitForPendingAppDataSaves(), waitForPendingCategoryNoteSaves()]);
+  if (!ready) throw new Error('未保存の変更があります。保存を確認してから削除してください。');
+  return withCoordinatedDataMutation(['app', 'notes'], async () => {
+    const data = await loadAppDataAsync({ coordinationLockHeld: true });
+    const raw = await loadCategoryNoteRaw(materialIndexKey(setId), { coordinationLockHeld: true });
+    const index = raw ? JSON.parse(raw) as MaterialIndex : null;
+    if (!index || index.kind !== 'quiz-material-index' || index.problemSetId !== setId || !validMaterialRecord(index as unknown as Record<string, unknown>)) throw new Error('資料一覧を確認できません。開き直してください。');
+    const material = index.materials.find(item => item.id === materialId);
+    if (!material) throw new Error('資料が変更されています。開き直してください。');
+    const references = data.questions.filter(q => q.materialReferences?.some(r => r.materialId === materialId));
+    if (references.length) {
+      const names = [...new Set(references.map(q => data.problemSets.find(s => s.id === q.setId)?.title ?? q.setId))];
+      throw new Error(`「${names.join('」「')}」の${references.length}問が参照しています。「参照ページを調整」→「参照を解除」で解除してから削除してください。`);
+    }
+    const next = { ...index, materials: index.materials.filter(item => item.id !== materialId), updatedAt: new Date().toISOString() };
+    const keys = [materialFileKey(setId, materialId), ...material.pages.map(page => `quizMake:notes:${setId}:${annotationCategory(materialId, page.id)}`)];
+    await replaceNoteAndDeleteKeys(materialIndexKey(setId), JSON.stringify(next), keys);
+    return next;
+  }, { requireCrossContext: true });
 }
 export async function loadMaterialFile(setId: string, id: string): Promise<string> {
   const key = materialFileKey(setId, id);
