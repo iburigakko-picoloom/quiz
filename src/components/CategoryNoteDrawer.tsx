@@ -1,3 +1,4 @@
+import { useMaterialImageReferences } from './useMaterialImageReferences';
 import { forwardRef, type PointerEvent, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useAccountWork } from '../hooks/useAccountWork';
 import { flushSync } from 'react-dom';
@@ -90,6 +91,7 @@ type CategoryNote = {
 };
 
 interface CategoryNoteProps {
+  materialImagePage?: string;
   scratchMemo?: boolean;
   onPageStateChange?: (page: { index: number; ready: boolean }) => void;
   initialScale?: number;
@@ -261,7 +263,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, scratchMemo = false, onPageStateChange, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
+  { materialImagePage, problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, scratchMemo = false, onPageStateChange, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -453,6 +455,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const activeWidth = tool === 'eraser' ? eraserSize : tool === 'marker' ? markerSize : penSize;
   const activeWidths = tool === 'eraser' ? ERASER_WIDTHS : tool === 'marker' ? MARKER_WIDTHS : PEN_WIDTHS;
   const noteInteractionDisabled = isFlushing || pageTurning || noteLoadState !== 'ready' || notePaintState !== 'ready';
+  const imageReferences = useMaterialImageReferences(scratchMemo ? undefined : materialImagePage, noteInteractionDisabled);
   useEffect(() => { onPageStateChange?.({ index: currentPageIndex, ready: !noteInteractionDisabled }); }, [currentPageIndex, noteInteractionDisabled, onPageStateChange]);
   const saveStatusText = recoveryCandidate ? '要復旧' : noteLoadState === 'loading' || notePaintState === 'loading'
     ? '読み込み中'
@@ -1349,6 +1352,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
                   onPointerCancel={endDraw}
                   onPointerLeave={endDraw}
                 />
+                {imageReferences.overlay}
               </div>
             </div>
             <div className="category-note-page-slot" aria-hidden="true">
@@ -1372,6 +1376,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         <button type="button" className="note-color-trigger" disabled={noteInteractionDisabled || tool === 'eraser'} aria-label="色を選ぶ" aria-expanded={toolOptions === 'color'} onClick={() => setToolOptions(toolOptions === 'color' ? null : 'color')}><span style={{ background: tool === 'marker' ? MARKER_COLORS[markerColor] : NOTE_COLORS[colorKey] }} /></button>
         <button type="button" className="note-width-trigger" disabled={noteInteractionDisabled} aria-label="太さを選ぶ" aria-expanded={toolOptions === 'width'} onClick={() => setToolOptions(toolOptions === 'width' ? null : 'width')}>{activeWidth}</button>
         <button type="button" className="category-note-icon-button" aria-label="戻す" title="戻す" disabled={noteInteractionDisabled || !canUndo} onClick={undo}><UndoIcon /></button>
+        {imageReferences.toolbar}
         {scratchMemo ? <button type="button" className="note-memo-clear" disabled={noteInteractionDisabled} onClick={clearMemoPage}>クリア</button> : null}
         {toolOptions ? <div className="note-tool-options" role="group" aria-label={toolOptions === 'color' ? '色' : '太さ'}>
           <span>{toolOptions === 'color' ? '色' : '太さ'}</span>
@@ -1381,6 +1386,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         </div> : null}
       </div>
 
+      {imageReferences.sheet}
       <ConfirmDialog
         open={deletePageConfirmOpen}
         busy={isFlushing}
