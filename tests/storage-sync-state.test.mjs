@@ -84,7 +84,9 @@ test('IndexedDB backup listing reads metadata without any backup bodies', async 
   const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('quiz-make-backups',1);r.onupgradeneeded=()=>r.result.createObjectStore('backups',{keyPath:'id'});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
   const tx=db.transaction('backups','readwrite');rows.forEach(row=>tx.objectStore('backups').put(row));await new Promise(resolve=>tx.oncomplete=resolve);db.close();
   const get=IDBObjectStore.prototype.get,all=IDBObjectStore.prototype.getAll,cursor=IDBObjectStore.prototype.openCursor;
-  IDBObjectStore.prototype.get=IDBObjectStore.prototype.getAll=IDBObjectStore.prototype.openCursor=function(){assert.fail('No backup body should be read for the history list')};
+  IDBObjectStore.prototype.get=function(...args){if(this.name==='backups')assert.fail('No backup body should be read for the history list');return get.apply(this,args)};
+  IDBObjectStore.prototype.getAll=function(...args){if(this.name==='backups')assert.fail('No backup bodies should be read for the history list');return all.apply(this,args)};
+  IDBObjectStore.prototype.openCursor=function(...args){if(this.name==='backups')assert.fail('No backup bodies should be read for the history list');return cursor.apply(this,args)};
   try{
     const summaries=await backups.listSavedBackups();
     assert.deepEqual(summaries.map(row=>row.id),['2','1','0']);assert.ok(summaries.every(row=>!('raw' in row)&&row.byteSize===1000));
@@ -160,7 +162,7 @@ test('problem-set note matching requires an exact id boundary', () => {
   assert.equal(notes.isCategoryNoteKeyForProblemSetIds('quizMake:other:set-1:vocabulary', ['set-1']), false);
 });
 
-test('note loading keeps a valid legacy fallback but never treats an IndexedDB failure as empty', async () => {
+test('note loading preserves a legacy fallback when deletion status cannot be verified', async () => {
   const key = 'quizMake:notes:set-1:vocabulary';
   const raw = JSON.stringify({
     problemSetId: 'set-1',
@@ -183,7 +185,7 @@ test('note loading keeps a valid legacy fallback but never treats an IndexedDB f
   try {
     resetStorage();
     localStorage.setItem(key, raw);
-    assert.equal(await notes.loadCategoryNoteRaw(key), raw, 'the durable fallback remains readable');
+    await assert.rejects(notes.loadCategoryNoteRaw(key), /temporarily unavailable/, 'an unchecked fallback must not revive a deleted note');
     assert.equal(localStorage.getItem(key), raw, 'a failed primary read must not consume the fallback');
 
     resetStorage();

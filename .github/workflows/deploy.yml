@@ -1,4 +1,4 @@
-﻿name: Deploy to GitHub Pages
+name: Deploy to GitHub Pages
 
 on:
   push:
@@ -39,6 +39,9 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_LINE_AUTH_PROVIDER: ${{ vars.VITE_LINE_AUTH_PROVIDER }}
           QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF: ${{ vars.QUIZMAKE_EXPECTED_SUPABASE_PROJECT_REF }}
+
+      - name: Run complete test suite
+        run: npm test
 
       # Keep validation scoped to the affected areas of this release.
       - name: Test sync inheritance and recovery

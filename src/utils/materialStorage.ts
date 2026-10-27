@@ -1,10 +1,10 @@
 import { loadCategoryNoteRaw, saveCategoryNoteRaw, waitForPendingCategoryNoteSaves, replaceNoteAndDeleteKeys } from './noteStorage';
 import { createId } from './id';
-import { validMaterialRecord, MAX_MATERIAL_PDF_BYTES, type MaterialIndex, type MaterialFile, type StudyMaterial } from './materialModel';
+import { validMaterialRecord, MAX_MATERIAL_PDF_BYTES, MAX_MATERIAL_PAGES, MATERIAL_PDF_SIZE_ERROR, MATERIAL_PAGE_COUNT_ERROR, type MaterialIndex, type MaterialFile, type StudyMaterial } from './materialModel';
 import { createMaterialTransport, hydrateMaterialDownload } from './materialCloud';
 import { withCoordinatedDataMutation } from './dataCoordination';
 import { openAppDb, loadAppDataAsync, waitForPendingAppDataSaves } from '../storage';
-import { blobDataUrl, getContentBlob, idbDone, idbResult, packBlobNote, parseBlobNote, putContentBlob, readMeta, setBlobOffline, trimBlobCache, writeMeta, unpackBlobNote, type BlobRef } from './blobVault';
+import { BLOB_NOTE_KIND, blobDataUrl, getContentBlob, idbDone, idbResult, packBlobNote, parseBlobNote, putContentBlob, readMeta, setBlobOffline, trimBlobCache, writeMeta, unpackBlobNote, type BlobRef } from './blobVault';
 import { getAccountStorageSession } from './accountStorage';
 
 /** A legacy downloaded projection can be newer than its remote descriptor.
@@ -74,7 +74,7 @@ export async function loadMaterialFile(setId: string, id: string): Promise<strin
     if (candidate?.kind === 'quiz-material-remote-file') {
       if (!validMaterialRecord(candidate)) throw new Error('PDFの参照が不正です。');
       const db = await openAppDb();
-      const ref: BlobRef = { sha256: candidate.sha256, size: candidate.size, type: 'application/pdf' };
+      const ref: BlobRef = { sha256: candidate.sha256, size: candidate.size, type: 'application/pdf', ...(candidate.parts ? { parts: candidate.parts } : {}) };
       const cached = await getContentBlob(db, ref);
       if (cached) return blobDataUrl(new Blob([cached], { type: ref.type }));
       const recovered = await recoverCachedMaterial(db, key, ref);
@@ -132,12 +132,30 @@ export async function setMaterialOffline(setId: string, id: string, offline: boo
   if (!offline) await trimBlobCache(db);
 }
 export async function storeMaterialPdf(setId: string, file: File, pageCount: number): Promise<StudyMaterial> {
-  if (!file.size || file.size > MAX_MATERIAL_PDF_BYTES) throw new Error('PDFは1ファイル50MB以下にしてください。');
+  if (!file.size || file.size > MAX_MATERIAL_PDF_BYTES) throw new Error(MATERIAL_PDF_SIZE_ERROR);
+  if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > MAX_MATERIAL_PAGES) throw new Error(MATERIAL_PAGE_COUNT_ERROR);
+  const owner = getAccountStorageSession();
+  const assertCurrent = () => {
+    if (owner !== getAccountStorageSession()) throw new Error('PDFのアカウントが変わりました。');
+    owner?.assertCurrent();
+  };
   const id = createId('material');
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader(); reader.onerror = () => reject(new Error('PDFを読み込めません。'));
-    reader.onload = () => resolve(String(reader.result)); reader.readAsDataURL(new Blob([file], { type: 'application/pdf' }));
-  });
-  await saveCategoryNoteRaw(materialFileKey(setId, id), JSON.stringify({ kind: 'quiz-material-file', version: 1, materialId: id, dataUrl, updatedAt: new Date().toISOString() }));
+  const db = await openAppDb();
+  assertCurrent();
+  if (await readMeta(db, 'deltaEnabled')) {
+    // Store the original bytes directly, avoiding several simultaneous base64
+    // copies and the ordinary handwriting-save timeout for large PDFs.
+    const ref = await putContentBlob(db, new Blob([file], { type: 'application/pdf' }));
+    assertCurrent();
+    const value = { kind: 'quiz-material-file', version: 1, materialId: id, dataUrl: `quiz-blob:${ref.sha256}`, updatedAt: new Date().toISOString() };
+    await saveCategoryNoteRaw(materialFileKey(setId, id), JSON.stringify({ kind: BLOB_NOTE_KIND, version: 1, value, blobs: [ref] }));
+  } else {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onerror = () => reject(new Error('PDFを読み込めません。'));
+      reader.onload = () => resolve(String(reader.result)); reader.readAsDataURL(new Blob([file], { type: 'application/pdf' }));
+    });
+    assertCurrent();
+    await saveCategoryNoteRaw(materialFileKey(setId, id), JSON.stringify({ kind: 'quiz-material-file', version: 1, materialId: id, dataUrl, updatedAt: new Date().toISOString() }));
+  }
   return { id, title: file.name, pages: Array.from({ length: pageCount }, (_, index) => ({ id: createId('page'), kind: 'pdf' as const, pdfPage: index + 1 })) };
 }

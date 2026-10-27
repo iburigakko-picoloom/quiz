@@ -1,7 +1,8 @@
 /** Account-scoped, content addressed storage. Bodies are verified before a
  * reference is returned; failed writes leave the source and migration cursor intact. */
+import { contentHash, describeContent, validContentParts, type ContentReference } from './contentParts';
 export const BLOB_STORES = ['contentBlobs', 'contentBlobMeta', 'contentBlobRefs', 'contentBlobJobs'] as const;
-export type BlobRef = { sha256: string; size: number; type: string };
+export type BlobRef = ContentReference & { type: string };
 export type BlobMeta = BlobRef & { touched: number; uploaded?: boolean; origin: 'local' | 'remote'; offline?: boolean };
 export const BLOB_NOTE_KIND = 'quiz-note-blobs';
 type BlobNote = { kind: typeof BLOB_NOTE_KIND; version: 1; value: unknown; blobs: BlobRef[]; template?: string; templateRef?: BlobRef; prefix?: string };
@@ -21,15 +22,9 @@ export async function writeMeta(db: IDBDatabase, key: string, value: unknown): P
   if (value === undefined) tx.objectStore('appRecordMeta').delete(key); else tx.objectStore('appRecordMeta').put(value, key);
   await done;
 }
-export async function blobHash(blob: Blob): Promise<string> {
-  // Incremental hashing bounds peak memory for migration and 50 MB PDFs.
-  const { sha256 } = await import('@noble/hashes/sha2.js');
-  const hash = sha256.create();
-  for (let offset = 0; offset < blob.size; offset += 1024 * 1024) hash.update(new Uint8Array(await blob.slice(offset, offset + 1024 * 1024).arrayBuffer()));
-  return Array.from(hash.digest(), byte => byte.toString(16).padStart(2, '0')).join('');
-}
+export const blobHash = contentHash;
 export async function putContentBlob(db: IDBDatabase, blob: Blob, options: { origin?: 'local' | 'remote'; expected?: BlobRef } = {}): Promise<BlobRef> {
-  const ref = { sha256: await blobHash(blob), size: blob.size, type: blob.type || 'application/octet-stream' };
+  const ref: BlobRef = { ...await describeContent(blob), type: blob.type || 'application/octet-stream' };
   if (options.expected && (options.expected.sha256 !== ref.sha256 || options.expected.size !== ref.size)) throw new Error('本文のハッシュが一致しません。元データを保持しています。');
   // Binary buffers also work on WebKit builds whose IndexedDB Blob serializer
   // cannot persist file-backed Blob parts. Hydration exposes the same Blob API.
@@ -70,7 +65,7 @@ export function parseBlobNote(raw: string | null): BlobNote | null {
   let v: BlobNote;
   try { v = JSON.parse(raw); } catch { return null; }
   if (v.kind !== BLOB_NOTE_KIND || v.version !== 1 || !Array.isArray(v.blobs) || !v.value || typeof v.value !== 'object'
-    || v.blobs.some(ref => !/^[0-9a-f]{64}$/.test(ref.sha256) || !Number.isSafeInteger(ref.size) || ref.size < 1 || typeof ref.type !== 'string')) return null;
+    || v.blobs.some(ref => !ref || !/^[0-9a-f]{64}$/.test(ref.sha256) || !Number.isSafeInteger(ref.size) || ref.size < 1 || typeof ref.type !== 'string' || !validContentParts(ref))) return null;
   return v;
 }
 function decodeDataUrl(url: string): Blob {

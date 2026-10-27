@@ -53,16 +53,18 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const success = recordEnabled ? record?.lastSuccessAt : lastState.lastSyncAt;
   const presentation = syncStatusPresentation({ online, loginRequired, error: failed, readError: Boolean(readError), attempt, autoEnabled, recordEnabled, record, pending, success: success ?? '' });
   const summary = presentation.text === '変更の確認があります' && record?.conflicts ? `変更の確認が${record.conflicts}件あります` : presentation.text;
-  const reason = syncStatusReason(attempt, record?.conflicts ?? 0, readError, lastState.error ?? '');
-  const complete = isLearningSyncComplete(presentation.text) && attempt?.phase === 'done';
-  const showProgress = attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt || attempt?.overallPercent !== undefined;
+  const complete = isLearningSyncComplete(presentation.text);
+  const reason = complete || attempt?.background && ['running','queued'].includes(attempt.phase) && !attempt.retryAt
+    ? '' : syncStatusReason(attempt, record?.conflicts ?? 0, readError, lastState.error ?? '');
+  const showProgress = complete || (!attempt?.background || !success && attempt?.progress?.stage === 'receiving_records')
+    && (attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt || attempt?.overallPercent !== undefined);
   const progress = attempt?.progress;
   const percentage = complete ? 100 : Math.min(99,Math.max(0,attempt?.overallPercent??0));
   const activeFailure=attempt?.lastFailure&&(attempt.phase==='failed'||attempt.phase==='paused'&&attempt.pauseReason===attempt.lastFailure.code)?attempt.lastFailure:null;
   const canChoose=Boolean(onChooseSource&&record?.conflicts&&activeFailure&&(activeFailure.code!=='material_reference'||activeFailure.diagnostic?.side==='local')&&['invalid_response','invalid','media_pending','media_unsupported',...integrityCodes].includes(activeFailure.code));
   if(choiceOpen&&!detailsOpen&&!diagnosticsOnly)return null;
   return <section className="sync-status-card" aria-live="polite">
-    {!diagnosticsOnly && presentation.text === '同期済み' ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
+    {!diagnosticsOnly && complete ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
     {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : activeFailure?'同期できませんでした':summary}</h2> : null}
     {!diagnosticsOnly && reason ? <p className="sync-status-reason">{reason}</p> : null}
     {!diagnosticsOnly && showProgress ? <div className="sync-progress" aria-live="polite">
@@ -77,6 +79,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
       disabled={disabled || !online} onClick={() => requestSyncRetry(syncId)}>再試行</button> : null}
     {detailsOpen && lastState.error ? <p role="alert">{lastState.error}</p> : null}
     {detailsOpen && readError ? <p role="alert">{readError}</p> : null}
+    {detailsOpen && record?.recoveryCandidates ? <p>復旧用に保存した原本が{record.recoveryCandidates}件あります。バックアップ画面で確認できます。</p> : null}
     {detailsOpen && attempt?.lastFailure ? <>
       <p>前回の失敗：{attempt.lastFailure.step} / {attempt.lastFailure.code} / {new Date(attempt.lastFailure.at).toLocaleString('ja-JP')}</p>
       <p role="alert">{safeSyncFailureMessage(attempt.lastFailure.message)}</p>

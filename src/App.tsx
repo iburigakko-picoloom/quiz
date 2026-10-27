@@ -238,15 +238,14 @@ export default function App() {
   };
 
   const applyRecordImport: RecordSyncGuards['apply'] = async (operation) => {
-    if (!canAutoImport()) {
+    if (!canCheckRecordImport()) return null;
+    // Empty pulls and echoes of our own uploads only advance receipts. Inspect
+    // under the origin lock before showing an overlay or disabling the screen.
+    const inspected = await withCoordinatedDataRead(['app','notes'], async () => {
       if (!canCheckRecordImport()) return null;
-      // Metadata/inspection only: keep editor drafts, current answers, notes,
-      // blobs and React state unchanged, and do not reserve a new data epoch.
-      return withCoordinatedDataRead(['app','notes'], async () => {
-        if (!canCheckRecordImport()) return null;
-        return operation({ preserveLiveData: true });
-      }, { requireCrossContext: true });
-    }
+      return operation({ preserveLiveData: true });
+    }, { requireCrossContext: true });
+    if (!inspected || inspected.applied || !('deferred' in inspected) || !canAutoImport()) return inspected;
     const finishRecordApply = beginRecordApply();
     autoImportBusyRef.current = true;
     setAutoImportBusy(true);

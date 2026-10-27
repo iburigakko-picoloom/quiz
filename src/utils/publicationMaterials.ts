@@ -1,5 +1,8 @@
 import type {MaterialReference} from '../types';
-import {MAX_MATERIAL_PDF_BYTES,validMaterialRecord,type StudyMaterial} from './materialModel';
+import {validMaterialRecord,type StudyMaterial} from './materialModel';
+// Public versions use a separate server contract; private multipart PDFs do
+// not change public access policies or the publication format.
+const MAX_PUBLICATION_PDF_BYTES = 50 * 1024 * 1024;
 
 export const PUBLICATION_MATERIAL_BUCKET='quiz-publication-pdfs';
 export interface PublishedMaterial extends StudyMaterial {pdf?:{path:string;sha256:string;size:number}}
@@ -9,7 +12,7 @@ export function parsePublishedMaterials(value:unknown,ownerId:string):PublishedM
     if(!material.id||material.id.length>200||material.title.length>500||material.pages.length>500||material.pages.some(p=>!p.id||p.id.length>200||(p.pdfPage??0)>500))throw new Error('公開された資料情報を確認できません。');
     const pdf=material.pdf;
     if(material.pages.some(p=>p.kind==='pdf')&&!pdf)throw new Error('公開されたPDF本体の参照がありません。');
-    if(pdf&&(!/^[a-f0-9]{64}$/.test(pdf.sha256)||pdf.path!==`${ownerId}/${pdf.sha256}.pdf`||!Number.isSafeInteger(pdf.size)||pdf.size<1||pdf.size>MAX_MATERIAL_PDF_BYTES))throw new Error('公開されたPDF本体の参照が不正です。');
+    if(pdf&&(!/^[a-f0-9]{64}$/.test(pdf.sha256)||pdf.path!==`${ownerId}/${pdf.sha256}.pdf`||!Number.isSafeInteger(pdf.size)||pdf.size<1||pdf.size>MAX_PUBLICATION_PDF_BYTES))throw new Error('公開されたPDF本体の参照が不正です。');
   }
   return structuredClone(value);
 }
@@ -20,7 +23,7 @@ export function assertPublishedReferences(materials:PublishedMaterial[],referenc
 export function pdfBytes(dataUrl:string):Uint8Array<ArrayBuffer> {
   if(!/^data:application\/pdf;base64,[A-Za-z0-9+/]+={0,2}$/.test(dataUrl))throw new Error('PDF本体を確認できません。');
   const raw=atob(dataUrl.split(',')[1]);
-  if(!raw.length||raw.length>MAX_MATERIAL_PDF_BYTES)throw new Error('PDFは1ファイル50MB以下にしてください。');
+  if(!raw.length||raw.length>MAX_PUBLICATION_PDF_BYTES)throw new Error('公開するPDFは1ファイル50MB以下にしてください。');
   return Uint8Array.from(raw,c=>c.charCodeAt(0));
 }
 export async function pdfHash(bytes:Uint8Array<ArrayBuffer>) {

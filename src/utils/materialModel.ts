@@ -1,14 +1,19 @@
 import type { AppData, MaterialReference } from '../types';
+import { MAX_CONTENT_OBJECT_BYTES, validContentParts, type ContentPart } from './contentParts';
 
 export interface MaterialPage { id: string; kind: 'pdf' | 'blank'; pdfPage?: number }
 export interface StudyMaterial { id: string; title: string; pages: MaterialPage[] }
 export interface MaterialIndex { kind: 'quiz-material-index'; version: 1; problemSetId: string; materials: StudyMaterial[]; updatedAt: string }
 export interface MaterialFile { kind: 'quiz-material-file'; version: 1; materialId: string; dataUrl: string; updatedAt: string }
-export const MAX_MATERIAL_PDF_BYTES = 50 * 1024 * 1024;
+export const MAX_MATERIAL_PDF_BYTES = 100 * 1024 * 1024;
+export const MAX_MATERIAL_PAGES = 2000;
+export const MATERIAL_PDF_SIZE_ERROR = 'PDFは1ファイル100MB以下にしてください。';
+export const MATERIAL_PAGE_COUNT_ERROR = 'PDFは2000ページ以下にしてください。';
 export const MATERIAL_BUCKET = 'quiz-material-pdfs';
 export interface RemoteMaterialFile {
   kind: 'quiz-material-remote-file'; version: 1; materialId: string; updatedAt: string;
   bucket: typeof MATERIAL_BUCKET; path: string; sha256: string; size: number;
+  parts?: ContentPart[];
 }
 
 export function isMaterialFile(value: unknown): value is MaterialFile {
@@ -31,7 +36,8 @@ export function isRemoteMaterialFile(value: unknown): value is RemoteMaterialFil
     && typeof file.sha256 === 'string' && /^[a-f0-9]{64}$/.test(file.sha256)
     && typeof file.path === 'string' && /^[a-f0-9-]{36}\/[a-f0-9]{64}\.pdf$/.test(file.path)
     && file.path.endsWith('/' + file.sha256 + '.pdf')
-    && Number.isSafeInteger(file.size) && file.size > 0 && file.size <= MAX_MATERIAL_PDF_BYTES;
+    && Number.isSafeInteger(file.size) && file.size > 0 && file.size <= MAX_MATERIAL_PDF_BYTES
+    && (file.size <= MAX_CONTENT_OBJECT_BYTES || file.parts !== undefined) && validContentParts(file);
 }
 
 export function materialFileEntry(key: string, raw: string): MaterialFile | RemoteMaterialFile | null {

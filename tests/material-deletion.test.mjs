@@ -7,8 +7,8 @@ globalThis.localStorage = { get length() { return values.size; }, key: i => [...
 globalThis.window = { dispatchEvent() {} };
 Object.defineProperty(navigator, 'locks', { value: { request: async (_name,_options,run) => run() }, configurable: true });
 const { saveAppDataAsync, openAppDb, loadAppDataAsync } = await import('../src/storage.ts');
-const { saveCategoryNoteRaw, loadCategoryNoteRaw, exportCategoryNotesRaw } = await import('../src/utils/noteStorage.ts');
-const { deleteMaterial, materialIndexKey, materialFileKey, loadMaterials } = await import('../src/utils/materialStorage.ts');
+const { saveCategoryNoteRaw, loadCategoryNoteRaw, exportCategoryNotesRaw, deleteCategoryNotesForProblemSetIds } = await import('../src/utils/noteStorage.ts');
+const { deleteMaterial, materialIndexKey, materialFileKey, loadMaterials, storeMaterialPdf } = await import('../src/utils/materialStorage.ts');
 const { appRecordKey } = await import('../src/utils/appRecordStorage.ts');
 const db = await openAppDb(); after(() => db.close());
 const stamp='2026-10-19T00:00:00Z';
@@ -37,4 +37,37 @@ test('referenced PDFs are protected; scoped deletion rolls back on failure and w
   const read=(store,key)=>new Promise((resolve,reject)=>{const req=db.transaction(store).objectStore(store).get(key);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
   for(const key of [fileKey,inkKey]) assert.equal((await read('appOutbox',appRecordKey('indexedDbNotes',key))).raw,null);
   assert.equal((await loadAppDataAsync()).questions[0].question,'Q');
+});
+
+test('library deletion includes canonical-only, backup-only and local fallback notes, with durable tombstones',async()=>{
+  const keys=['canonical','backup','fallback'].map(id=>`quizMake:notes:removed:${id}`);
+  await saveCategoryNoteRaw(keys[0],ink);
+  const tx=db.transaction(['categoryNotes','categoryNoteBackups'],'readwrite');
+  tx.objectStore('categoryNotes').delete(keys[0]);
+  tx.objectStore('categoryNoteBackups').put(ink,keys[1]);
+  await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});
+  const {accountLocalStorage}=await import('../src/utils/accountStorage.ts');
+  accountLocalStorage.setItem(keys[2],ink);
+  assert.equal(await deleteCategoryNotesForProblemSetIds(['removed']),3);
+  for(const key of keys){
+    assert.equal(await loadCategoryNoteRaw(key),null);
+    assert.equal(accountLocalStorage.getItem(key),null);
+    const read=db.transaction(['appRecords','appOutbox']);
+    const record=read.objectStore('appRecords').get(appRecordKey('indexedDbNotes',key));
+    const pending=read.objectStore('appOutbox').get(appRecordKey('indexedDbNotes',key));
+    await new Promise((resolve,reject)=>{read.oncomplete=resolve;read.onabort=()=>reject(read.error);});
+    assert.equal(record.result.raw,null);assert.equal(pending.result.raw,null);
+  }
+  assert.equal((await exportCategoryNotesRaw())['quizMake:notes:s:__scratch_memo_v1'],ink);
+});
+
+test('material persistence accepts 2000 pages and rejects excess pages or bytes before reading a file',async()=>{
+  const {writeMeta}=await import('../src/utils/blobVault.ts');await writeMeta(db,'deltaEnabled',true);
+  const file=new File(['%PDF-1.4 synthetic'],'boundary.pdf',{type:'application/pdf'});
+  await assert.rejects(storeMaterialPdf('s',file,2001),/2000ページ/);
+  await assert.rejects(storeMaterialPdf('s',{size:100*1024*1024+1},1),/100MB/);
+  const material=await storeMaterialPdf('s',file,2000);
+  assert.equal(material.pages.length,2000);assert.equal(material.pages.at(-1).pdfPage,2000);
+  const saved=JSON.parse(await loadCategoryNoteRaw(materialFileKey('s',material.id)));
+  assert.equal(saved.dataUrl,'data:application/pdf;base64,'+Buffer.from('%PDF-1.4 synthetic').toString('base64'));
 });

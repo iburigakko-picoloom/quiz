@@ -187,6 +187,9 @@ export async function replaceNoteAndDeleteKeys(key: string, raw: string, keys: r
         tx.objectStore(NOTE_STORE_NAME).delete(id);
         tx.objectStore(NOTE_BACKUP_STORE_NAME).delete(id);
         queueNoteRecordWrite(tx, id, null);
+        queueBlobReferences(tx, `note-backup:${JSON.stringify(['indexedDbNotes', id])}`, null);
+        tx.objectStore('appRecordMeta').delete(`materialOffline:${id}`);
+        tx.objectStore('appRecordMeta').delete(`materialCache:${id}`);
       }
     });
   } catch (error) {
@@ -251,7 +254,7 @@ async function deleteCategoryNotesWhere(predicate: (key: string) => boolean): Pr
 
   try {
     const indexedDbKeys = isIndexedDbAvailable()
-      ? await deleteIndexedDbNotesWhere(predicate)
+      ? await deleteIndexedDbNotesWhere(predicate, localNotes.map(([key]) => key))
       : new Set<string>();
     return new Set([...localNotes.map(([key]) => key), ...indexedDbKeys]).size;
   } catch (error) {
@@ -353,7 +356,7 @@ export async function exportCategoryNotesRaw(
     if(typeof canonical==='string'){indexedNotes[key]=canonical;clearCategoryNoteRecovery(key);}
     else if(canonical===null)clearCategoryNoteRecovery(key);
   }
-  const deletedKeys = await readDeletedNoteKeys([...new Set([...backupOnlyKeys,...missingKeys,...Object.keys(localFallbacks)])]);
+  const deletedKeys = await readDeletedNoteKeys([...new Set([...Object.keys(indexedNotes),...backupOnlyKeys,...missingKeys,...Object.keys(localFallbacks)])]);
   const unresolvedKeys = backupOnlyKeys.filter(key => indexedNotes[key]===undefined&&!deletedKeys.has(key));
   const backupOnlyKey = unresolvedKeys[0];
   // Old complete restores left obsolete backups behind. Only an explicit
@@ -736,9 +739,16 @@ export async function waitForCategoryNoteStorage<T>(
 async function getRawFromIndexedDb(key: string): Promise<string | null> {
   const db = await openNoteDb();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(NOTE_STORE_NAME, 'readonly');
+    const hasRecords = db.objectStoreNames.contains('appRecords');
+    const transaction = db.transaction(hasRecords ? [NOTE_STORE_NAME, 'appRecords'] : [NOTE_STORE_NAME], 'readonly');
+    const record = hasRecords ? transaction.objectStore('appRecords').get(JSON.stringify(['indexedDbNotes', key])) : undefined;
     const request = transaction.objectStore(NOTE_STORE_NAME).get(key);
-    request.onsuccess = () => resolve(typeof request.result === 'string' ? request.result : null);
+    transaction.oncomplete = () => {
+      const row = record?.result;
+      const deleted = row?.collection === 'indexedDbNotes' && row.id === key && row.raw === null;
+      resolve(deleted ? null : typeof request.result === 'string' ? request.result : null);
+    };
+    transaction.onabort = () => reject(transaction.error ?? new Error('Failed to read note.'));
     request.onerror = () => reject(request.error ?? new Error('Failed to read note.'));
   });
 }
@@ -841,22 +851,35 @@ async function exportIndexedDbNoteBackups(allowInvalid = false): Promise<Record<
   });
 }
 
-async function deleteIndexedDbNotesWhere(predicate: (key: string) => boolean): Promise<Set<string>> {
+async function deleteIndexedDbNotesWhere(predicate: (key: string) => boolean, fallbackKeys: readonly string[] = []): Promise<Set<string>> {
   const db = await openNoteDb(true);
   return new Promise((resolve, reject) => {
     const deletedKeys = new Set<string>();
     const transaction = db.transaction(NOTE_RECORD_TRANSACTION_STORES, 'readwrite');
 
-    [NOTE_STORE_NAME, NOTE_BACKUP_STORE_NAME].forEach((storeName) => {
+    const markDeleted = (key: string) => {
+      if (deletedKeys.has(key)) return;
+      deletedKeys.add(key);
+      queueNoteRecordWrite(transaction, key, null);
+      queueBlobReferences(transaction, `note-backup:${JSON.stringify(['indexedDbNotes', key])}`, null);
+      transaction.objectStore('appRecordMeta').delete(`materialOffline:${key}`);
+      transaction.objectStore('appRecordMeta').delete(`materialCache:${key}`);
+    };
+    fallbackKeys.filter(predicate).forEach(markDeleted);
+    // Include canonical-only rows: a missing projection must not turn a
+    // successful library deletion into a later automatic reconstruction.
+    [NOTE_STORE_NAME, NOTE_BACKUP_STORE_NAME, 'appRecords'].forEach((storeName) => {
       const request = transaction.objectStore(storeName).openCursor();
       request.onsuccess = () => {
         const cursor = request.result;
         if (!cursor) return;
-        const key = String(cursor.key);
+        const canonical = storeName === 'appRecords';
+        const key = canonical
+          ? cursor.value.collection === 'indexedDbNotes' && cursor.value.raw !== null ? cursor.value.id : ''
+          : String(cursor.key);
         if (predicate(key)) {
-          cursor.delete();
-          if (storeName === NOTE_STORE_NAME) queueNoteRecordWrite(transaction, key, null);
-          deletedKeys.add(key);
+          if (storeName !== 'appRecords') cursor.delete();
+          markDeleted(key);
         }
         cursor.continue();
       };

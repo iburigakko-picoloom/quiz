@@ -72,7 +72,6 @@ export async function writeRecordSyncReceipt(db: IDBDatabase, connection: Record
 export function recordSyncSummary(status: RecordSyncStatus): string {
   if(status.recoveryNotes)return `要復旧のノート${status.recoveryNotes}件`;
   if(status.recoveryUnknown)return 'ノートの復旧確認が必要です';
-  if(status.recoveryCandidates)return `復旧候補が${status.recoveryCandidates}件あります（バックアップ画面で確認）`;
   if(status.migrationError)return '学習データを同期中・本文の移行は再試行待ち';
   if (status.conflicts || status.phase === 'conflict') return '確認が必要です。同期は完了していません';
   if (status.pending) return `未送信の変更があります（${status.pending}件）`;

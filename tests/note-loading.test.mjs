@@ -86,12 +86,16 @@ test('pre-sync repair resolves an old global marker from canonical records witho
 
 test('canonical tombstones do not revive an old backup or durable fallback',async()=>{
   const id='quizMake:notes:s:deleted',recordKey=JSON.stringify(['indexedDbNotes',id]);
-  const tx=db.transaction(['categoryNoteBackups','appRecords'],'readwrite');
+  const tx=db.transaction(['categoryNotes','categoryNoteBackups','appRecords'],'readwrite');
+  tx.objectStore('categoryNotes').put(raw,id);
   tx.objectStore('categoryNoteBackups').put(raw,id);
   tx.objectStore('appRecords').put({key:recordKey,collection:'indexedDbNotes',id,raw:null,position:0,localRevision:1,serverRevision:1},recordKey);
   await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)});
   accountLocalStorage.setItem(id,raw);
-  try{assert.equal(await notes.loadCategoryNoteRaw(id),null);}finally{accountLocalStorage.removeItem(id);}
+  try{
+    assert.equal((await notes.exportCategoryNotesRaw())[id],undefined,'stale current copies are excluded from backup/sync');
+    assert.equal(await notes.loadCategoryNoteRaw(id),null);
+  }finally{accountLocalStorage.removeItem(id);}
 });
 
 test('an unreadable primary cannot turn into an older backup or empty editable canvas', async () => {

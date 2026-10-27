@@ -18,6 +18,54 @@ async function database() {
 }
 const read = async (db, store, key) => { const tx = db.transaction(store), done = idbDone(tx); const result = await idbResult(tx.objectStore(store).get(key)); await done; return result; };
 
+test('acknowledged upload echoes advance the cursor without changing live data or sending again', async () => {
+  const { db } = await database(), { writeMeta } = await import('../src/utils/blobVault.ts');
+  await writeMeta(db, 'deltaCursor', { connection, revision: 0 });
+  const original = await read(db, 'appRecords', '["folders","f"]');
+  const value = JSON.parse(original.raw);
+  // PostgreSQL JSONB changes key order and whitespace in its response.
+  const echoed = { key: original.key, collection: 'folders', id: 'f', position: original.position,
+    raw: JSON.stringify(Object.fromEntries(Object.entries(value).reverse()), null, 1), revision: 1 };
+  let pushes = 0, inspections = 0;
+  const transport = { async delta(action, body) {
+    if (action === 'receipt') return { code: 'ok', state: 'absent' };
+    if (action === 'push') { pushes++; return { code: 'ok', state: 'committed', revision: 1 }; }
+    assert.equal(action, 'pull');
+    return { code: 'ok', revision: 1, head: 1, complete: true, fragment: body.revision === 0 ? JSON.stringify([echoed]) : '' };
+  } };
+  const guards = { assertCurrent: async () => {}, apply: async operation => {
+    inspections++;
+    const result = await operation({ preserveLiveData: true });
+    assert.equal(result.applied, true); assert.equal(result.changed, 0);
+    return result;
+  } };
+  assert.equal((await runDeltaSync(db, connection, transport, guards)).status, 'done');
+  const state = await readMeta(db, 'state');
+  for (let n = 0; n < 3; n++) assert.equal((await runDeltaSync(db, connection, transport, guards)).status, 'done');
+  assert.equal(pushes, 1); assert.equal(inspections, 1);
+  assert.equal((await readMeta(db, 'state')).commitId, state.commitId);
+  assert.equal((await read(db, 'appRecords', original.key)).raw, original.raw);
+  assert.equal((await read(db, 'appRecords', original.key)).serverRevision, 1);
+  assert.equal((await readMeta(db, 'deltaCursor')).revision, 1);
+  assert.equal(await freezeDelta(db, connection, 'device-a'), undefined);
+});
+
+test('inspection defers real cloud edits without losing pending local edits or advancing the cursor', async () => {
+  const { db } = await database();
+  const original = await read(db, 'appRecords', '["folders","f"]');
+  const row = { key: original.key, collection: 'folders', id: 'f', raw: JSON.stringify({ ...JSON.parse(original.raw), name: 'Cloud edit' }), position: 0, revision: 3 };
+  // Pending local work wins until sent, even on a protected screen.
+  assert.equal((await applyDeltaRows(db, connection, [row], 3, { preserveLiveData: true })).changed, 0);
+  assert.equal((await read(db, 'appOutbox', original.key)).raw, original.raw);
+  const tx = db.transaction('appOutbox', 'readwrite'), done = idbDone(tx); tx.objectStore('appOutbox').clear(); await done;
+  const state = await readMeta(db, 'state');
+  assert.equal((await applyDeltaRows(db, connection, [{ ...row, revision: 4 }], 4, { preserveLiveData: true })).deferred, true);
+  assert.equal((await readMeta(db, 'deltaCursor')).revision, 3);
+  assert.equal((await readMeta(db, 'state')).commitId, state.commitId);
+  const applied = await applyDeltaRows(db, connection, [{ ...row, revision: 4 }], 4);
+  assert.equal(applied.changed, 1); assert.equal(applied.data.folders[0].name, 'Cloud edit');
+});
+
 test('an existing large frozen send resumes server-confirmed parts after lost replies and reload',async()=>{
   const {db}=await database();const frozen=await freezeDelta(db,connection,'device-a');
   // Keep an already-frozen old 24,000-character layout; never repartition it.

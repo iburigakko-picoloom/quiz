@@ -50,7 +50,9 @@ export function queueAuxiliaryRecordWrite(tx: IDBTransaction, collection: 'index
       const state = stateRequest.result as AppRecordState | undefined;
       const old = oldRequest.result as AppRecord | undefined;
       if (!state) throw new Error('問題データのレコード移行が完了していません。');
-      if ((old && (old.logicalRaw ?? old.raw) === raw) || (!old && raw === null)) return;
+      // A fallback/backup-only note may have no local canonical row yet.
+      // Its explicit deletion must still reach other devices.
+      if ((old && (old.logicalRaw ?? old.raw) === raw) || (!old && raw === null && collection !== 'indexedDbNotes')) return;
       if(userEdit)queueUserEditGeneration(tx);
       rememberChunkGarbage(tx,old);
       const revision = state.revision + 1;

@@ -32,7 +32,7 @@ const fixtureApi={name:'bootstrap-api',configureServer(server){server.middleware
 });}};
 const server=await createServer({server:{host:'127.0.0.1',port:5197,strictPort:true,watch:{ignored:['**/tmp/**']}},plugins:[fixtureApi,...(oldGate?[{name:'previous-import-gate',enforce:'pre',transform(code,id){if(id.endsWith('/src/App.tsx'))return code.replace('isSyncDisplaySafe(screen.name) && !guideReturn','isSyncDisplaySafe(screen.name) && !guideReturn && !waitingWorker').replace('storageReady && !guideReturn','storageReady && !guideReturn && !waitingWorker');}}]:[])]});
 await server.listen();
-const {webkit}=await import(pathToFileURL(resolve(process.env.QUIZMAKE_PLAYWRIGHT_MODULE,'index.mjs')).href),browser=await webkit.launch({headless:true}),output=`tmp/delta-bootstrap-${Date.now()}`;
+const engine=process.env.QUIZMAKE_BROWSER??'webkit',playwright=await import(pathToFileURL(resolve(process.env.QUIZMAKE_PLAYWRIGHT_MODULE,'index.mjs')).href),browser=await playwright[engine].launch({headless:true,...(engine==='chromium'?{channel:'chrome'}:{})}),output=`tmp/delta-bootstrap-${Date.now()}`;
 const token=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:owner,iss:project+'/auth/v1',aud:'authenticated',role:'authenticated',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.fixture';
 const page=await browser.newPage({viewport:{width:1024,height:768}});
 async function waitForState(predicate,timeout=count<100?30000:600000){const end=Date.now()+timeout;let logged=0;while(Date.now()<end){let timer;try{if(await Promise.race([page.evaluate(predicate),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('IndexedDB state read timed out')),120000);})]))return;}finally{clearTimeout(timer);}if(requests.length&&Date.now()-logged>10000){logged=Date.now();console.log('fixture progress: '+JSON.stringify({requests:requests.length,checkpointPages:requests.filter(x=>x==='checkpoint').length,last:await page.evaluate(()=>window.bootstrapProgress?.slice(-1)[0])}));}await new Promise(r=>setTimeout(r,500));}throw Error('Timed out waiting for persisted migration state');}
@@ -96,9 +96,10 @@ try{
   });
   assert.equal(result.answers,count);assert.equal(result.folder,'Legacy cloud folder');assert.equal(result.rescue,true);assert.equal(result.checkpoint,undefined);assert.deepEqual(errors,[]);
   assert.ok(result.progress.some(p=>p.percent>0&&p.percent<100));
+  if(process.env.FIXTURE_QUIET_SYNC==='true')await(await import('./quiet-sync-validation.mjs')).validateQuietSync(page,pg,connection,requests);
   const enabled=(await pg.query('select delta_enabled from private.quiz_sync_heads where sync_id=$1',[syncId])).rows[0].delta_enabled;assert.equal(enabled,true);
   await mkdir(output,{recursive:true});await page.screenshot({path:`${output}/home.png`,fullPage:true});
-  await writeFile(`${output}/verified.json`,JSON.stringify({engine:'webkit',oldGate,count,...result,requests,errors},null,2));
+  await writeFile(`${output}/verified.json`,JSON.stringify({engine,oldGate,count,...result,requests,errors},null,2));
   console.log(JSON.stringify({output,oldGate,count,answers:result.answers,rescue:result.rescue,requests:requests.length,checkpointRequests:requests.filter(x=>x==='checkpoint').length,errors}));
 }catch(error){console.error((await page.locator('body').innerText()).slice(-7000));console.error(JSON.stringify({requests:requests.slice(-10),errors,state:await page.evaluate(async()=>({progress:window.bootstrapProgress?.slice(-10),identity:(await import('/quiz/src/utils/cloudService.ts')).getCachedCloudAccountIdentity(),namespace:(await import('/quiz/src/utils/accountStorage.ts')).getAccountStorageSession()?.namespace,settings:(await import('/quiz/src/utils/syncService.ts')).getAutoSyncSettings(),databases:await indexedDB.databases()}))}));throw error;}
 finally{await browser.close();await server.close();await pg.close();}

@@ -2,20 +2,21 @@ import { MATERIAL_BUCKET, materialFileEntry, type MaterialFile, type RemoteMater
 import type { SyncPayload } from './syncService';
 import { recordSyncMetric } from './syncMetrics';
 import { SyncDataError, type SyncFailureDetails } from './syncDataIntegrity';
+import { describeContent, uploadContentParts, downloadContentParts, type ContentReference } from './contentParts';
 
 // Key by exact immutable content, never ID/timestamp. Bound retained base64 text.
-const pdfDigests = new Map<string, Promise<{ sha256: string; size: number }>>();
+const pdfDigests = new Map<string, Promise<ContentReference>>();
 const MAX_DIGEST_CHARACTERS = 48 * 1024 * 1024;
 let digestCharacters = 0;
-async function describePdf(dataUrl: string): Promise<{ sha256: string; size: number }> {
+async function describePdf(dataUrl: string): Promise<ContentReference> {
   const cached = pdfDigests.get(dataUrl);
   if (cached) { recordSyncMetric('pdfDigestReused'); return cached; }
   const pending = (async () => {
     const started = performance.now();
     const bytes = decodePdf(dataUrl);
-    const sha256 = await digest(bytes);
+    const reference = await describeContent(new Blob([bytes]));
     recordSyncMetric('pdfDigest', performance.now() - started, bytes.byteLength);
-    return { sha256, size: bytes.byteLength };
+    return reference;
   })();
   if (dataUrl.length <= MAX_DIGEST_CHARACTERS) {
     while (digestCharacters + dataUrl.length > MAX_DIGEST_CHARACTERS) {
@@ -122,9 +123,9 @@ export async function prepareMaterialUpload(payload: SyncPayload, transport: Mat
   const checked = new Set<string>();
   return mapFiles(payload, async file => {
     if (file.kind !== 'quiz-material-file') throw new Error('PDF本体が未取得のため保存を中止しました。先にクラウドから読み込んでください。');
-    const { sha256, size } = await describePdf(file.dataUrl);
+    const { sha256, size, parts } = await describePdf(file.dataUrl);
     const remote: RemoteMaterialFile = { kind: 'quiz-material-remote-file', version: 1, materialId: file.materialId,
-      updatedAt: file.updatedAt, bucket: MATERIAL_BUCKET, path: `${transport.userId}/${sha256}.pdf`, sha256, size };
+      updatedAt: file.updatedAt, bucket: MATERIAL_BUCKET, path: `${transport.userId}/${sha256}.pdf`, sha256, size, ...(parts ? { parts } : {}) };
     if (!checked.has(remote.path)) {
       if (!await transport.exists(remote)) {
         await transport.upload(remote, decodePdf(file.dataUrl));
@@ -177,15 +178,25 @@ export function createMaterialTransport(config: { url: string; anonKey: string }
   const headers = { apikey: config.anonKey, Authorization: `Bearer ${access.accessToken}` };
   const storageUrl = config.url.replace(/\/$/, '') + '/storage/v1';
   const objectUrl = (file: RemoteMaterialFile) => `${storageUrl}/object/${bucket}/${file.path}`;
+  const partFile = (file: RemoteMaterialFile, part: { sha256: string; size: number }): RemoteMaterialFile => ({ ...file, ...part, parts: undefined, path: `${access.userId}/${part.sha256}.pdf` });
   const exists = async (file: RemoteMaterialFile) => {
-    const response = await fetch(objectUrl(file), { method: 'HEAD', headers, signal: AbortSignal.timeout(30000) });
+    if (file.parts) { for (const part of file.parts) if (!await exists(partFile(file, part))) return false; return true; }
+    const response = await downloadFetch(objectUrl(file), { method: 'HEAD', headers, signal: AbortSignal.timeout(30000) });
     if (response.ok) return true;
     if (response.status === 400 || response.status === 404) return false;
     throw new Error('PDFの保存先を確認できません。ログイン状態と通信を確認してください。');
   };
-  return {
+  const transport: MaterialTransport = {
     userId: access.userId, cacheScope: `${config.url}:${access.userId}:${access.accessToken}`, exists,
     async upload(file, bytes) {
+      if (file.parts) {
+        await uploadContentParts(file, new Blob([bytes], { type: 'application/pdf' }), async (part, body) => {
+          await options.assertCurrent?.();
+          const target = partFile(file, part);
+          if (!await exists(target)) await transport.upload(target, new Uint8Array(await body.arrayBuffer()));
+        });
+        return;
+      }
       const { Upload } = await import('tus-js-client');
       const endpoint = storageUrl.replace('.supabase.co/', '.storage.supabase.co/') + '/upload/resumable';
       await new Promise<void>((resolve, reject) => {
@@ -203,6 +214,11 @@ export function createMaterialTransport(config: { url: string; anonKey: string }
     },
     async download(file) {
       if(file.path.split('/')[0]!==access.userId)throw new SyncDataError('permission_denied','資料の所有者が現在のアカウントと一致しません。',{function:'materialDownload',stage:'pdf_download',cause:'reference'});
+      if (file.parts) {
+        const blob = await downloadContentParts(file, 'application/pdf', async part => new Blob([await transport.download(partFile(file, part))]));
+        await options.assertCurrent?.();
+        return new Uint8Array(await blob.arrayBuffer());
+      }
       for(let attempt=0;;attempt++)try{
       await options.assertCurrent?.();
       const response = await downloadFetch(objectUrl(file), { headers, redirect:'error', signal: AbortSignal.timeout(options.downloadTimeoutMs??120000) });
@@ -229,4 +245,5 @@ export function createMaterialTransport(config: { url: string; anonKey: string }
       }
     },
   };
+  return transport;
 }

@@ -9,11 +9,49 @@ const {clearSyncAttemptStatus,readSyncAttemptStatus,publishSyncAttempt,publishSy
 const {SyncInterruptedError,SyncLocalPersistenceError,SyncProtocolError}=await import('../src/utils/syncInterruption.ts');
 const {isLearningSyncComplete,syncStatusPresentation}=await import('../src/utils/syncStatusPresentation.ts');
 const {createRecordSyncRpc,RecordSyncRpcError}=await import('../src/utils/recordSyncNetwork.ts');
-const {writeRecordSyncReceipt,readRecordSyncStatus}=await import('../src/utils/recordSyncStatus.ts');
+const {writeRecordSyncReceipt,readRecordSyncStatus,recordSyncSummary}=await import('../src/utils/recordSyncStatus.ts');
 const connection={project:'https://test.invalid',userId:'test-user',syncId:'test-sync'};
 const base={now:0,online:true,loginRequired:false,error:true,autoEnabled:true,recordEnabled:true,record:{phase:'done',pending:0,staged:false,conflicts:0,lastSuccessAt:'2026-10-01T00:00:00Z',cursor:1},pending:false,success:'2026-10-01T00:00:00Z'};
 const present=extra=>syncStatusPresentation({...base,attempt:readSyncAttemptStatus(connection),...extra});
 const settle=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
+
+test('automatic polls keep completion stable while pending changes and failures stay truthful', async () => {
+  clearSyncAttemptStatus(); publishSyncAttempt(connection, { phase: 'done' });
+  publishRemoteCheck(connection, true, true);
+  assert.equal(present({ error: false }).text, '同期済み');
+  assert.equal(readSyncAttemptStatus(connection).overallPercent, 100);
+  publishRemoteCheck(connection, false);
+  for (const phase of ['queued', 'running']) {
+    publishSyncQueue(connection, { phase, retryAt: null }, true);
+    assert.equal(present({ error: false }).text, '同期済み');
+    assert.equal(present({ record: { ...base.record, pending: 1 } }).text, '同期中');
+    assert.equal(present({ record: { ...base.record, staged: true } }).text, '同期中');
+  }
+  await observeRecordSyncAttempt(async step => {
+    step('authentication'); assert.equal(present({ error: false }).text, '同期済み');
+    return { status: 'done' };
+  }, update => publishSyncAttempt(connection, update));
+  publishSyncQueue(connection, { phase: 'idle', retryAt: null }, true);
+  assert.equal(readSyncAttemptStatus(connection).overallPercent, 100);
+  publishSyncAttempt(connection, { phase: 'paused', pauseReason: 'protected_work' });
+  assert.equal(present().text, '同期済み');
+  assert.equal(present({ record: { ...base.record, pending: 1 } }).text, '内容の確認後に同期を再開します');
+  publishSyncAttempt(connection, { phase: 'failed', lastFailure: { step: 'pull', code: 'network', at: 'now', message: 'offline' } });
+  publishSyncQueue(connection, { phase: 'queued', retryAt: 5000 }, true);
+  assert.equal(present().text, '再試行を待っています');
+  // Explicit retries still get foreground progress.
+  publishSyncQueue(connection, { phase: 'running', retryAt: null }, false);
+  assert.equal(present().text, '同期中');
+});
+
+test('retained recovery originals do not prevent verified completion, but damaged notes do', () => {
+  clearSyncAttemptStatus(); publishSyncAttempt(connection, { phase: 'done' });
+  const record = { ...base.record, deltaEnabled: true, recoveryCandidates: 12 };
+  assert.equal(present({ record }).text, '学習データ同期済み');
+  assert.equal(recordSyncSummary(record), '学習データ同期済み');
+  assert.equal(present({ record: { ...record, recoveryNotes: 1 } }).text, '要復旧のノート1件');
+  assert.equal(present({ record: { ...record, conflicts: 1 } }).text, '変更の確認があります');
+});
 test('delta progress advances during bootstrap and learning completion includes separate media transfers',()=>{
   clearSyncAttemptStatus();publishSyncAttempt(connection,{phase:'running',step:'prepare'});
   publishSyncProgress(connection,{stage:'receiving_records',label:'引き継ぎ中',completed:200,total:null});

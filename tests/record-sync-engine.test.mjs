@@ -430,6 +430,7 @@ test('explicit conflict choices archive both originals and create validated sepa
     const chosen = await applyStagedRecordPull(b, f.connection, [{ key: item.key, operationId: item.operationId, remoteRevision: item.remote.revision, choice: 'remote' }]);
     assert.equal(chosen.applied, true);
     const archives = await readArchivedRecordConflicts(b, f.connection);
+    assert.ok(archives.some(archive => archive.choice === 'history'), 'the owning connection can recover local history');
     const saved = archives.find(archive => archive.conflict.local.raw === item.local.raw && archive.conflict.remote.raw === item.remote.raw);
     assert.ok(saved); const original = structuredClone(saved);
     const current = await read(b);
@@ -443,7 +444,12 @@ test('explicit conflict choices archive both originals and create validated sepa
       assert.ok(normalizeAppData(copy).ok);
     }
     assert.deepEqual(saved, original); assert.deepEqual(await read(b), current);
-    assert.deepEqual(await readArchivedRecordConflicts(b, { ...f.connection, userId: 'another-account' }), []);
+    for (const other of [{userId:'another-account'}, {project:'another-project'}, {syncId:'another-sync'}]) {
+      assert.deepEqual(await readArchivedRecordConflicts(b, { ...f.connection, ...other }), []);
+    }
+    const unbind = b.transaction('appRecordMeta', 'readwrite');
+    unbind.objectStore('appRecordMeta').delete('recordSyncConnection'); await complete(unbind);
+    assert.ok((await readArchivedRecordConflicts(b, f.connection)).every(archive => archive.choice !== 'history'), 'unbound history never adopts a caller-supplied owner');
   } finally { a.close(); b.close(); }
 });
 

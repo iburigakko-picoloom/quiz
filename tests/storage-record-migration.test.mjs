@@ -48,7 +48,7 @@ test('legacy v2 migration, failed saves, fallback recovery and missing-record re
   legacy.close();
   assert.deepEqual(await storage.loadAppDataAsync(), initial);
   const db = await storage.openAppDb();
-  assert.equal(db.version, 7);
+  assert.equal(db.version, 9);
   assert.equal(await read(db, 'appRecordMeta', 'state'), undefined, 'schema upgrade alone never commits a partial migration');
 
   // A real transaction abort plus exhausted localStorage leaves the legacy data intact.

@@ -78,7 +78,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
       if (syncId === manualSyncId) { manualRequest = false; manualSyncId = ''; manualScope = ''; }
       finishManualSync(syncId);
     };
-    const publishQueue = () => { const connection = attemptConnection(); if (connection) publishSyncQueue(connection, queueState); };
+    const publishQueue = () => { const connection = attemptConnection(); if (connection) publishSyncQueue(connection, queueState, !manualRequest); };
     const paused = (reason: string) => { const connection = attemptConnection(); if (!disposed && connection) publishSyncAttempt(connection, { phase: 'paused', pauseReason: reason }); };
     const failure = (step: string, code: string, message: string, connection = attemptConnection()) => {
       const current = attemptConnection();
@@ -278,7 +278,7 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         await sessionReady;
         if (disposed || getAutoSyncSettings().syncId !== settings.syncId) return;
         remoteConnection = attemptConnection();
-        if (remoteConnection) publishRemoteCheck(remoteConnection, true);
+        if (remoteConnection) publishRemoteCheck(remoteConnection, true, !manualRequest);
         const meta = await getRemoteSyncMeta(settings.syncId);
         const latestSettings = getAutoSyncSettings();
         if (disposed || latestSettings.syncId !== settings.syncId) return;
@@ -450,7 +450,8 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
   useEffect(() => {
     const previousReason = previousProtectedWorkReasonRef.current;
     previousProtectedWorkReasonRef.current = protectedWorkReason;
-    if (previousReason !== protectedWorkReason && !isAutoUploadBlocked(protectedWorkReason)) resumeSyncRef.current?.();
+    if (previousReason !== protectedWorkReason && !isAutoUploadBlocked(protectedWorkReason)
+      && !uploadRunningRef.current && !remoteCheckRunningRef.current) resumeSyncRef.current?.();
   }, [protectedWorkReason]);
 
   useEffect(() => {

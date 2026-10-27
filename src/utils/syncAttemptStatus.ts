@@ -16,7 +16,7 @@ const progressRanges: Record<SyncProgressStage, readonly [number,number]> = {
 export const isBlockedSyncFailure = (code: string) => ['local_persistence_failed', 'invalid_response', 'invalid_request',
   'invalid', 'operation_reused', 'quota', 'payload_too_large', 'unavailable', 'permission_denied', 'media_unsupported', 'legacy_snapshot','storage_capacity','memory_limit',...integrityCodes].includes(code);
 export type SyncAttemptStatus = { phase: 'queued' | 'running' | 'paused' | 'failed' | 'done'; retryAt: number | null;
-  pauseReason: string; step: string; lastFailure: SyncFailure | null; progress?: SyncProgress; overallPercent?: number; notice?: string };
+  pauseReason: string; step: string; lastFailure: SyncFailure | null; progress?: SyncProgress; overallPercent?: number; notice?: string; background?: boolean };
 type Entry = { connection: RecordSyncConnection; queue: AutoSyncQueueState; remoteChecking: boolean; result: SyncAttemptStatus };
 let entry: Entry | null = null;
 const same = (a: RecordSyncConnection, b: RecordSyncConnection) => a.project === b.project && a.userId === b.userId && a.syncId === b.syncId;
@@ -33,14 +33,15 @@ export function readSyncAttemptStatus(connection: RecordSyncConnection): SyncAtt
   return { ...entry.result, phase, retryAt: entry.queue.retryAt };
 }
 function resetProgress(current:Entry){delete current.result.progress;current.result.overallPercent=0;}
-export function publishSyncQueue(connection: RecordSyncConnection, queue: AutoSyncQueueState) {
+export function publishSyncQueue(connection: RecordSyncConnection, queue: AutoSyncQueueState, background = false) {
   const current = owned(connection);
-  if(current.result.phase==='done'&&current.queue.phase==='idle'&&(queue.phase==='queued'||queue.phase==='running'))resetProgress(current);
+  current.result.background = background;
+  if(!background&&current.result.phase==='done'&&current.queue.phase==='idle'&&(queue.phase==='queued'||queue.phase==='running'))resetProgress(current);
   current.queue = { ...queue }; changed();
 }
 export function publishSyncAttempt(connection: RecordSyncConnection, update: Partial<SyncAttemptStatus>) {
   const current = owned(connection);
-  if(update.phase==='running'&&update.step==='prepare'&&(['done','failed','paused'].includes(current.result.phase)||current.result.overallPercent===undefined))resetProgress(current);
+  if(!current.result.background&&update.phase==='running'&&update.step==='prepare'&&(['done','failed','paused'].includes(current.result.phase)||current.result.overallPercent===undefined))resetProgress(current);
   if (update.step && update.step !== current.result.step || update.phase === 'running' && update.step === 'prepare') delete current.result.progress;
   current.result = { ...current.result, ...update, ...(update.phase==='done'?{overallPercent:100}:{}) }; changed();
 }
@@ -51,9 +52,10 @@ export function publishSyncProgress(connection: RecordSyncConnection, progress: 
   const percent=range?Math.floor(range[0]+(range[1]-range[0])*fraction):current.result.overallPercent??0;
   publishSyncAttempt(connection, {progress,overallPercent:Math.min(99,Math.max(current.result.overallPercent??0,percent))});
 }
-export function publishRemoteCheck(connection: RecordSyncConnection, running: boolean) {
+export function publishRemoteCheck(connection: RecordSyncConnection, running: boolean, background = false) {
   const current=owned(connection);
-  if(running&&!current.remoteChecking&&current.result.phase==='done'&&current.queue.phase==='idle')resetProgress(current);
+  if(running)current.result.background=background;
+  if(!background&&running&&!current.remoteChecking&&current.result.phase==='done'&&current.queue.phase==='idle')resetProgress(current);
   current.remoteChecking = running; changed();
 }
 

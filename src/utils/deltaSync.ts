@@ -139,7 +139,6 @@ export async function sendDelta(db: IDBDatabase, transport: DeltaTransport, froz
  * A newer unsent local edit stays pending and is sent in the next operation. */
 export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConnection, rows: RemoteRecordChange[], revision: number, options: RecordPullApplyOptions = {}, checkpoint = false) {
   const before = await readCurrentAppRecordSnapshot(db); if (!before) throw new Error('端末の保存状態を確認できません。');
-  if (options.preserveLiveData && rows.length) return { applied: false as const, deferred: true as const, commitId: before.state.commitId };
   const read = db.transaction('appOutbox', 'readonly'), readDone = idbDone(read);
   const pending = new Map((await idbResult<AppOutboxOperation[]>(read.objectStore('appOutbox').getAll())).map(op => [op.key, op])); await readDone;
   const released: AppOutboxOperation[] = [], candidates: Array<{ local: AppOutboxOperation; remote: RemoteRecordChange }> = [];
@@ -153,6 +152,7 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
     released.push(op); pending.delete(remote.key);
   }
   const next = new Map(before.records), writes: AppRecord[] = [];
+  const changedKeys = new Set<string>();
   const counts = { ...before.state.counts };
   for (const remote of new Map(rows.map(row => [row.key, row])).values()) {
     if (remote.key !== appRecordKey(remote.collection, remote.id) || !validRevision(remote.revision)
@@ -161,7 +161,12 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
     const old = next.get(remote.key);
     if (old && old.serverRevision > remote.revision) continue;
     const row: AppRecord = { ...remote, serverRevision: remote.revision, localRevision: before.state.revision + 1 };
+    // A pull also echoes this device's acknowledged uploads. Advancing their
+    // server revision is bookkeeping, not a new cloud edit for the screen.
+    const sameContent = old && old.position === row.position && sameRecordContent(row.collection, old.raw, row.raw);
+    if (sameContent) { row.raw = old.raw; if (old.logicalRaw !== undefined) row.logicalRaw = old.logicalRaw; }
     if (old?.raw === row.raw && old.position === row.position && old.serverRevision === row.serverRevision) continue;
+    if (!sameContent) changedKeys.add(row.key);
     if ((APP_COLLECTIONS as readonly string[]).includes(row.collection)) counts[row.collection as keyof typeof counts] += Number(row.raw !== null) - Number(old?.raw != null);
     next.set(row.key, row); writes.push(row);
   }
@@ -180,15 +185,18 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
     const local=pending.get(old.key);
     if(local){candidates.push({local,remote});released.push(local);pending.delete(old.key);}
     const row:AppRecord={...old,raw:null,serverRevision:revision,localRevision:before.state.revision+1};delete row.logicalRaw;
-    next.set(row.key,row);writes.push(row);cascade=true;
+    next.set(row.key,row);writes.push(row);changedKeys.add(row.key);cascade=true;
     if((APP_COLLECTIONS as readonly string[]).includes(row.collection))counts[row.collection as keyof typeof counts]--;
   }}
+  const visibleChanges = writes.filter(row => changedKeys.has(row.key) && !isChunkInternal(row.collection, row.id)
+    && !(row.collection === 'localStorage' && (row.id.startsWith('quizMake:sync-event:') || row.id.startsWith('quizMake:answer-applied:')))).length;
+  if (options.preserveLiveData && visibleChanges) return { applied: false as const, deferred: true as const, commitId: before.state.commitId };
   // Read legacy multipart notes from their exact existing chunks on first upgrade.
   for (const row of writes) {
     const manifest = parseChunkManifest(row.raw, row.collection, row.id);
     if (manifest) row.logicalRaw = await restoreRecordChunks(manifest, new Map([...next.values()].filter(r => r.collection === 'localStorage' && r.raw !== null).map(r => [r.id, r.raw!])));
   }
-  const state: AppRecordState = { ...before.state, revision: before.state.revision + 1, counts, commitId: crypto.randomUUID(), savedAt: new Date().toISOString() };
+  const state: AppRecordState = writes.length ? { ...before.state, revision: before.state.revision + 1, counts, commitId: crypto.randomUUID(), savedAt: new Date().toISOString() } : before.state;
   const data = materializeAppRecords({ state, records: next });
   // Save in the same canonical representation as local edits. PostgreSQL JSONB
   // key order differs from the browser's normalized objects; treating that as
@@ -219,7 +227,7 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
         queueRecordHistory(tx,row.key,old,row.raw);
       }
       tx.objectStore('appRecords').put(row, row.key);
-      if (row.collection === 'indexedDbNotes') {
+      if (row.collection === 'indexedDbNotes' && (changedKeys.has(row.key) || checkpoint)) {
         const projection=tx.objectStore('categoryNotes').get(row.id);
         projection.onsuccess=()=>{
           if(typeof projection.result==='string'&&projection.result!==(old?.logicalRaw??old?.raw)&&projection.result!==(row.logicalRaw??row.raw)&&tx.objectStoreNames.contains('appDataBackups')) {
@@ -231,14 +239,14 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
         };
         queueBlobReferences(tx, `current:${row.key}`, row.raw, false);
       }
-      if (row.collection === 'localStorage' && !isChunkInternal(row.collection, row.id) && !row.id.startsWith('quizMake:sync-event:') && !row.id.startsWith('quizMake:answer-applied:')) tx.objectStore('localProjections').put(row.logicalRaw ?? row.raw, row.id);
+      if (row.collection === 'localStorage' && changedKeys.has(row.key) && !isChunkInternal(row.collection, row.id) && !row.id.startsWith('quizMake:sync-event:') && !row.id.startsWith('quizMake:answer-applied:')) tx.objectStore('localProjections').put(row.logicalRaw ?? row.raw, row.id);
     }
     tx.objectStore('appRecordMeta').put(state, 'state');
     tx.objectStore('appRecordMeta').put({ connection, revision } satisfies Cursor, 'deltaCursor');
     tx.objectStore('appRecordMeta').delete('deltaPull');
   };
   await done; rememberAppRecordSnapshot(db, { state, records: next }); rememberAppRecordData(db, state.commitId, data);
-  return { applied: true as const, data, cursor: revision, changed: writes.length, commitId: state.commitId };
+  return { applied: true as const, data, cursor: revision, changed: visibleChanges, commitId: state.commitId };
 }
 export async function runDeltaSync(db: IDBDatabase, connection: RecordSyncConnection, transport: DeltaTransport, guards: RecordSyncGuards, bootstrapOnly = false): Promise<RecordSyncOutcome> {
   await bindRecordSyncConnection(db, connection); await guards.assertCurrent();

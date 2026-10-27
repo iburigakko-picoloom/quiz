@@ -7,7 +7,7 @@ import { annotationCategory, loadMaterials, saveMaterials, storeMaterialPdf, isM
 import { MaterialPreviewCache, type MaterialPagePreview } from '../utils/materialPreview';
 import { createId } from '../utils/id';
 import { boundedNoteScale } from './noteGestures';
-import { insertMaterialPage, moveMaterialPage, MAX_MATERIAL_PDF_BYTES, type MaterialIndex, type MaterialPage, type StudyMaterial } from '../utils/materialModel';
+import { insertMaterialPage, moveMaterialPage, MAX_MATERIAL_PDF_BYTES, MAX_MATERIAL_PAGES, MATERIAL_PDF_SIZE_ERROR, MATERIAL_PAGE_COUNT_ERROR, type MaterialIndex, type MaterialPage, type StudyMaterial } from '../utils/materialModel';
 import './MaterialsPanel.css';
 
 interface Props { setId: string; setIds?: string[]; reference?: MaterialReference; referenceRequest?: number; onClose?: () => void; onAdjustReferences?: (materialId?: string, pageId?: string) => void; questionReferences?: MaterialReference[]; onOpenReference?: (reference: MaterialReference) => void; onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void> }
@@ -240,13 +240,13 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   });
   const addPdf = (file: File) => run(async () => {
     if (!index) throw new Error('資料一覧を読み込んでから登録してください。');
-    if (file.size > MAX_MATERIAL_PDF_BYTES) throw new Error('PDFは1ファイル50MB以下にしてください。');
+    if (file.size > MAX_MATERIAL_PDF_BYTES) throw new Error(MATERIAL_PDF_SIZE_ERROR);
     if (!file.name.toLowerCase().endsWith('.pdf')) throw new Error('PDFファイルを選んでください。');
     const { openPdf } = await import('../utils/pdfReader');
     const task = openPdf(new Uint8Array(await file.arrayBuffer()));
     try {
       const doc = await task.promise;
-      if (doc.numPages > 500) throw new Error('PDFは500ページ以下にしてください。');
+      if (doc.numPages > MAX_MATERIAL_PAGES) throw new Error(MATERIAL_PAGE_COUNT_ERROR);
       await appendLocalMaterial(() => storeMaterialPdf(setId, file, doc.numPages));
     } finally { await task.destroy(); }
   });
@@ -294,7 +294,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       });
     }} />
     <div ref={contentRef} className={`materials-content${!memoOpen && (pagePending || (transitioning && !transitionReady)) ? ' is-page-loading' : ''}`} aria-busy={!memoOpen && (pagePending || (transitioning && !transitionReady))} onPointerDownCapture={() => { if (transitionReadyRef.current) clearTransition(); }}>
-      {memoOpen ? <CategoryNotePanel key={`memo-${setId}`} ref={panel} problemSetId={setId} category="__scratch_memo_v1" scratchMemo singlePage initialTools={tools.current} onToolsChange={rememberTools} onPageStateChange={rememberMemoPage} /> : displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} initialScale={boundedNoteScale(viewScale.current)} onScaleChange={rememberScale} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? '資料を読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <div className="materials-empty__actions"><label className="materials-file-picker" aria-disabled={!index || busy}>PDFを追加<input type="file" aria-label="PDFを追加" accept="application/pdf,.pdf" disabled={!index || busy} onChange={selectPdf} /></label><button disabled={!index || busy} onClick={() => photoInput.current?.click()}>写真を追加</button></div> : null}<small>合計50MB・500ページまで。</small></div>}
+      {memoOpen ? <CategoryNotePanel key={`memo-${setId}`} ref={panel} problemSetId={setId} category="__scratch_memo_v1" scratchMemo singlePage initialTools={tools.current} onToolsChange={rememberTools} onPageStateChange={rememberMemoPage} /> : displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} initialScale={boundedNoteScale(viewScale.current)} onScaleChange={rememberScale} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? '資料を読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <div className="materials-empty__actions"><label className="materials-file-picker" aria-disabled={!index || busy}>PDFを追加<input type="file" aria-label="PDFを追加" accept="application/pdf,.pdf" disabled={!index || busy} onChange={selectPdf} /></label><button disabled={!index || busy} onClick={() => photoInput.current?.click()}>写真を追加</button></div> : null}<small>PDFは1ファイル100MB・2000ページまで。</small></div>}
       <div ref={transitionLayer} className="materials-transition-cover" aria-hidden="true" inert />
     </div>
   </section>;

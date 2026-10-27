@@ -31,10 +31,17 @@ export async function readArchivedRecordConflicts(db: IDBDatabase, connection: R
     ? [{ id: String(keys.result[index]), conflict: item.conflict, savedAt: item.resolvedAt ?? item.archivedAt ?? '', choice: item.choice }] : [])
     .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
   if(db.objectStoreNames.contains('recordHistory')){
-    const read=db.transaction(['recordHistory','appRecords']),complete=new Promise<void>((r,j)=>{read.oncomplete=()=>r();read.onabort=()=>j(read.error);});
-    const history=read.objectStore('recordHistory').openCursor();
-    history.onsuccess=()=>{const cursor=history.result;if(!cursor)return;const versions=cursor.value as import('./appRecordStorage').AppRecord[],current=read.objectStore('appRecords').get(cursor.key);
-      current.onsuccess=()=>{const remote=current.result;if(remote)versions.forEach((local,index)=>{conflicts.push({id:`history:${String(cursor.key)}:${index}`,savedAt:'',choice:'history',conflict:{connection,key:local.key,operationId:null,local,remote:{...remote,revision:remote.serverRevision}}});});};cursor.continue();};await complete;
+    const read=db.transaction(['appRecordMeta','recordHistory','appRecords']),complete=new Promise<void>((r,j)=>{read.oncomplete=()=>r();read.onabort=()=>j(read.error);});
+    const binding=read.objectStore('appRecordMeta').get('recordSyncConnection');
+    // Local history has no per-version owner. Verify its database binding in
+    // the same transaction before attaching it to the requested connection.
+    binding.onsuccess=()=>{
+      if(!binding.result||!sameRecordSyncConnection(binding.result,connection))return;
+      const history=read.objectStore('recordHistory').openCursor();
+      history.onsuccess=()=>{const cursor=history.result;if(!cursor)return;const versions=cursor.value as import('./appRecordStorage').AppRecord[],current=read.objectStore('appRecords').get(cursor.key);
+        current.onsuccess=()=>{const remote=current.result;if(remote)versions.forEach((local,index)=>{conflicts.push({id:`history:${String(cursor.key)}:${index}`,savedAt:'',choice:'history',conflict:{connection,key:local.key,operationId:null,local,remote:{...remote,revision:remote.serverRevision}}});});};cursor.continue();};
+    };
+    await complete;
   }
   return conflicts;
 }

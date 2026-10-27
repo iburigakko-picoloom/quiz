@@ -1,7 +1,7 @@
-import { MAX_MATERIAL_PDF_BYTES } from './materialModel';
+import { MAX_MATERIAL_PDF_BYTES, MAX_MATERIAL_PAGES } from './materialModel';
 
 export async function createPhotoPdf(images: { bytes: Uint8Array; type: 'image/jpeg' | 'image/png' }[]): Promise<Uint8Array> {
-  if (!images.length || images.length > 500) throw new Error('写真を1〜500枚選んでください。');
+  if (!images.length || images.length > MAX_MATERIAL_PAGES) throw new Error('写真を1〜2000枚選んでください。');
   const { PDFDocument } = await import('pdf-lib');
   const document = await PDFDocument.create();
   for (const image of images) {
@@ -10,16 +10,16 @@ export async function createPhotoPdf(images: { bytes: Uint8Array; type: 'image/j
     page.drawImage(embedded, { x: 0, y: 0, width: page.getWidth(), height: page.getHeight() });
   }
   const bytes = await document.save();
-  if (bytes.byteLength > MAX_MATERIAL_PDF_BYTES) throw new Error('写真の合計サイズを50MB以下にしてください。');
+  if (bytes.byteLength > MAX_MATERIAL_PDF_BYTES) throw new Error('写真の合計サイズを100MB以下にしてください。');
   return bytes;
 }
 
 /** Photos use the existing private material file and separate handwriting layer. */
 export async function photosToMaterialFile(files: File[]): Promise<File> {
-  if (!files.length || files.length > 500) throw new Error('写真を1〜500枚選んでください。');
+  if (!files.length || files.length > MAX_MATERIAL_PAGES) throw new Error('写真を1〜2000枚選んでください。');
   if (files.some(file => !/^image\/(png|jpeg|webp|heic|heif)$/.test(file.type))) throw new Error('PNG・JPEG・WebP形式の写真を選んでください。');
   if (files.some(file => !file.size) || files.reduce((sum, file) => sum + file.size, 0) > MAX_MATERIAL_PDF_BYTES) {
-    throw new Error('写真の合計サイズを50MB以下にしてください。');
+    throw new Error('写真の合計サイズを100MB以下にしてください。');
   }
   const images: { bytes: Uint8Array; type: 'image/jpeg' }[] = [];
   let encodedBytes = 0;
@@ -40,7 +40,7 @@ export async function photosToMaterialFile(files: File[]): Promise<File> {
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('写真を資料に追加できませんでした。')), 'image/jpeg', .95));
       encodedBytes += blob.size;
-      if (encodedBytes > MAX_MATERIAL_PDF_BYTES) throw new Error('写真の合計サイズを50MB以下にしてください。');
+      if (encodedBytes > MAX_MATERIAL_PDF_BYTES) throw new Error('写真の合計サイズを100MB以下にしてください。');
       images.push({ bytes: new Uint8Array(await blob.arrayBuffer()), type: 'image/jpeg' });
     } finally { URL.revokeObjectURL(url); canvas.width = 0; canvas.height = 0; }
   }
