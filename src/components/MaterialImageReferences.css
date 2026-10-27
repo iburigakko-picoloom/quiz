@@ -1,0 +1,8 @@
+.material-image-marks{position:absolute;inset:0;pointer-events:none;z-index:3}
+.materials-panel .material-image-mark{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;min-width:32px;min-height:32px;padding:0;border:2px solid #fff;border-radius:50%;background:#1765be;color:#fff;font-size:24px;line-height:1;box-shadow:0 1px 4px #0005;touch-action:none}
+.material-image-placement{position:absolute;inset:0;pointer-events:auto;touch-action:none;cursor:crosshair;background:#1765be08}
+.material-image-status{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#eef6ff;padding:8px 12px;font-size:13px;flex-shrink:0}
+.material-image-status button,.material-image-sheet button{min-height:44px;min-width:60px}
+.material-image-sheet{position:fixed;inset:auto 0 0;box-sizing:border-box;height:50dvh;z-index:10000;background:#fff;box-shadow:0 -4px 24px #0003;border-radius:16px 16px 0 0;display:flex;flex-direction:column;padding:8px 12px max(12px,env(safe-area-inset-bottom));}
+.material-image-sheet header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.material-image-sheet img{width:100%;height:100%;min-height:0;object-fit:contain}
