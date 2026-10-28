@@ -13,6 +13,16 @@ try {
  await page.goto('http://127.0.0.1:5199/quiz/tests/browser/image-references-preview.html');
  const add=page.getByRole('button',{name:'参照画像を追加',exact:true});await add.waitFor();await page.waitForFunction(()=>!document.querySelector('[aria-label="参照画像を追加"]').disabled);
  assert.equal(await add.evaluate(e=>e.previousElementSibling.getAttribute('aria-label')),'戻す');
+ for(const width of [320,375,430,768]) {
+  await page.setViewportSize({width,height:900});
+  const layout=await page.locator('[aria-label="note tools"]').evaluate(toolbar=>{
+   const bounds=toolbar.getBoundingClientRect(),labels=['倍率をリセット','ペン','マーカー','消しゴム','色を選ぶ','太さを選ぶ','戻す','参照画像を追加'];
+   return labels.map(label=>{const r=toolbar.querySelector(`[aria-label="${label}"]`).getBoundingClientRect();return {label,left:r.left,right:r.right,center:r.top+r.height/2,within:r.left>=bounds.left&&r.right<=bounds.right};});
+  });
+  assert.ok(layout.every(item=>item.within),`toolbar fits ${width}px: ${JSON.stringify(layout)}`);
+  assert.ok(Math.max(...layout.map(item=>item.center))-Math.min(...layout.map(item=>item.center))<2,`all tools remain on one row at ${width}px: ${JSON.stringify(layout)}`);
+ }
+ await page.setViewportSize({width:430,height:900});
  const canvas=page.locator('.category-note-page--active canvas'),box=await canvas.boundingBox();
  await page.mouse.move(box.x+30,box.y+30);await page.mouse.down();await page.mouse.move(box.x+100,box.y+80,{steps:10});await page.mouse.up();const before=await canvas.evaluate(e=>e.toDataURL());
  const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=200;c.height=100;const x=c.getContext('2d');x.fillStyle='navy';x.fillRect(0,0,200,100);return c.toDataURL().split(',')[1];});

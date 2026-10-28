@@ -1366,7 +1366,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         </div>
       </div>
 
-      <div ref={toolbarRef} className="category-note-toolbar category-note-toolbar--compact" aria-label="note tools">
+      <div ref={toolbarRef} className={`category-note-toolbar category-note-toolbar--compact${!scratchMemo && materialImagePage ? ' category-note-toolbar--with-image' : ''}`} aria-label="note tools">
         <button type="button" className="note-zoom-label" aria-label="倍率をリセット" title="タップで100%に戻す" onClick={() => resetPageView()}>{Math.round(pageScale * 100)}%</button>
         <div className="note-tool-switch" role="group" aria-label="筆記用具">
           <button type="button" disabled={noteInteractionDisabled} aria-label="ペン" title="ペン" aria-pressed={tool === 'pen'} onClick={() => { setTool('pen'); setToolOptions(null); }}><PenIcon /></button>
