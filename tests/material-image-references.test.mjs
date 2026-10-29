@@ -18,6 +18,13 @@ test('device-only transactions retain bytes and page identity with concurrent nu
  assert.deepEqual(await store.load('page2'),[]);
  await assert.rejects(store.add('page1',image,NaN,0));
  assert.throws(()=>validateReferenceImage(new Blob(['svg'],{type:'image/svg+xml'})));
+ const moved=await store.move('page1',rows[0].id,.75,.85);
+ assert.equal(moved.x,.75);assert.equal(moved.y,.85);assert.equal(await moved.image.text(),'fixture-image');
+ assert.deepEqual((await store.load('page1')).map(row=>[row.number,row.x,row.y]),[[1,.75,.85],[2,.4,.5]]);
+ await assert.rejects(store.move('page2',rows[0].id,.1,.1));
+ await assert.rejects(store.move('page1','missing',.1,.1));
+ await assert.rejects(store.move('page1',rows[0].id,1.1,.1));
+ assert.equal((await store.load('page1'))[0].x,.75);
  assert.equal((await store.load('page1')).length,2);
  assert.deepEqual((await indexedDB.databases()).map(d=>d.name),['quizmake-device-image-references-v1:legacy']);
 });
@@ -27,6 +34,7 @@ test('an account change fences a pending store and isolates the next owner',asyn
  const session=new AccountStorageSession({getItem:()=>null},{identity:null,namespace:'guest',legacyUnclaimed:false});
  activateAccountStorage(session);
  await assert.rejects(old.load('page1'),/アカウント/);
+ await assert.rejects(old.move('page1','old',.1,.1),/アカウント/);
  const next=localImageReferenceStore();assert.deepEqual(await next.load('page1'),[]);
  session.invalidate();await assert.rejects(next.add('page1',new Blob(['x'],{type:'image/png'}),.1,.1));
 });

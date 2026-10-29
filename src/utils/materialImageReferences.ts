@@ -41,5 +41,20 @@ export function localImageReferenceStore() {
         tx.oncomplete=()=>resolve(value); tx.onabort=()=>reject(tx.error ?? new Error('画像を保存できませんでした。'));
       }); } finally { db.close(); }
     },
+    async move(page: string, id: string, x: number, y: number): Promise<MaterialImageReference> {
+      if (!page || !id || !Number.isFinite(x) || !Number.isFinite(y) || x<0 || x>1 || y<0 || y>1) throw new Error('配置位置が不正です。');
+      const db=await open();
+      try { assertOwner(); return await new Promise((resolve,reject)=>{
+        const tx=db.transaction('references','readwrite'), store=tx.objectStore('references'), request=store.get(id);
+        let value: MaterialImageReference | undefined, failure: unknown;
+        request.onsuccess=()=>{ try {
+          assertOwner();
+          if (!request.result || request.result.page !== page) throw new Error('画像参照が見つかりません。資料を開き直してください。');
+          value={...request.result,x,y}; store.put(value);
+        } catch(error) { failure=error; tx.abort(); } };
+        tx.oncomplete=()=>{ try { assertOwner(); resolve(value!); } catch(error) { reject(error); } };
+        tx.onabort=()=>reject(failure ?? tx.error ?? new Error('画像の位置を保存できませんでした。'));
+      }); } finally { db.close(); }
+    },
   };
 }
