@@ -1,3 +1,4 @@
+import { beginMarkerStroke, drawInkSegment } from './noteDrawing';
 import { useMaterialImageReferences } from './useMaterialImageReferences';
 import { forwardRef, type PointerEvent, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useAccountWork } from '../hooks/useAccountWork';
@@ -455,7 +456,9 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const activeWidth = tool === 'eraser' ? eraserSize : tool === 'marker' ? markerSize : penSize;
   const activeWidths = tool === 'eraser' ? ERASER_WIDTHS : tool === 'marker' ? MARKER_WIDTHS : PEN_WIDTHS;
   const noteInteractionDisabled = isFlushing || pageTurning || noteLoadState !== 'ready' || notePaintState !== 'ready';
-  const imageReferences = useMaterialImageReferences(scratchMemo ? undefined : materialImagePage, noteInteractionDisabled);
+  const [drawingTarget, setDrawingTarget] = useState<'note' | 'image'>('note');
+  const imageReferences = useMaterialImageReferences(scratchMemo ? undefined : materialImagePage, noteInteractionDisabled, { tool, color: tool === 'marker' ? MARKER_COLORS[markerColor] : NOTE_COLORS[colorKey], width: activeWidth }, () => setDrawingTarget('image'));
+  const imageDrawingActive = imageReferences.isOpen && drawingTarget === 'image';
   useEffect(() => { onPageStateChange?.({ index: currentPageIndex, ready: !noteInteractionDisabled }); }, [currentPageIndex, noteInteractionDisabled, onPageStateChange]);
   const saveStatusText = recoveryCandidate ? '要復旧' : noteLoadState === 'loading' || notePaintState === 'loading'
     ? '読み込み中'
@@ -727,8 +730,9 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     return pendingFlush;
   };
 
-  useImperativeHandle(ref, () => ({ flush: flushPendingNote, resetPageSlide: (animate = true) => resetPageRail(animate), goToPage: index => goToPage(index) }));
-  useAccountWork(`category-note:${noteKey}`, () => ({ pageIndex }), flushPendingNote);
+  const flushWithReferenceImage = async () => { await imageReferences.flush(); await flushPendingNote(); };
+  useImperativeHandle(ref, () => ({ flush: flushWithReferenceImage, resetPageSlide: (animate = true) => resetPageRail(animate), goToPage: index => goToPage(index) }));
+  useAccountWork(`category-note:${noteKey}`, () => ({ pageIndex }), flushWithReferenceImage);
 
   function clearHistory() {
     historyRef.current = createByteBudgetHistory();
@@ -1108,6 +1112,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     });
   };
   const beginDraw = (event: PointerEvent<HTMLCanvasElement>) => {
+    setDrawingTarget('note');
     if (
       flushingRef.current
       || pageTurnFinishRef.current
@@ -1129,9 +1134,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     lastPointRef.current = getCanvasPoint(canvas, event);
     markerStrokeRef.current = null;
     if (toolRef.current === 'marker') {
-      const base = document.createElement('canvas'); base.width = canvas.width; base.height = canvas.height;
-      base.getContext('2d')?.drawImage(canvas, 0, 0);
-      markerStrokeRef.current = { base, points: [lastPointRef.current] };
+      markerStrokeRef.current = beginMarkerStroke(canvas, lastPointRef.current);
     }
     canvas.setPointerCapture?.(event.pointerId);
   };
@@ -1150,32 +1153,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
     const nextPoint = getCanvasPoint(canvas, event);
     const drawingTool = toolRef.current;
 
-    context.save();
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    context.lineWidth = widthRef.current;
-    context.strokeStyle = drawingTool === 'eraser' ? '#ffffff' : colorRef.current;
-    if (singlePage && drawingTool === 'eraser') context.globalCompositeOperation = 'destination-out';
-    const marker = drawingTool === 'marker' ? markerStrokeRef.current : null;
-    if (marker) {
-      // Repaint the whole stroke once per frame: slow movement must not leave
-      // darker overlapping dots. The original PDF remains a separate layer.
-      context.save(); context.setTransform(1, 0, 0, 1, 0, 0);
-      context.clearRect(0, 0, canvas.width, canvas.height); context.drawImage(marker.base, 0, 0); context.restore();
-      context.globalAlpha = 0.48;
-      context.globalCompositeOperation = 'multiply';
-      marker.points.push(nextPoint);
-    }
-    context.beginPath();
-    if (marker) {
-      context.moveTo(marker.points[0].x, marker.points[0].y);
-      for (const point of marker.points.slice(1)) context.lineTo(point.x, point.y);
-    } else {
-      context.moveTo(lastPoint.x, lastPoint.y);
-      context.lineTo(nextPoint.x, nextPoint.y);
-    }
-    context.stroke();
-    context.restore();
+    drawInkSegment(canvas, context, lastPoint, nextPoint, { tool: drawingTool, color: colorRef.current, width: widthRef.current }, drawingTool === 'marker' ? markerStrokeRef.current : null, singlePage);
     canvasDirtyRef.current = true;
     lastPointRef.current = nextPoint;
   };
@@ -1264,6 +1242,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
 
   return (
     <section
+      data-image-reference-open={imageReferences.isOpen || undefined}
       className={`category-note-panel${singlePage ? ' category-note-panel--material' : ''}${isFlushing ? ' category-note-panel--flushing' : ''}${scratchMemo ? ' category-note-panel--memo' : ''} ${className}`.trim()}
       aria-busy={isFlushing}
     >
@@ -1366,8 +1345,10 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         </div>
       </div>
 
+      {imageReferences.sheet}
+
       <div ref={toolbarRef} className={`category-note-toolbar category-note-toolbar--compact${!scratchMemo && materialImagePage ? ' category-note-toolbar--with-image' : ''}`} aria-label="note tools">
-        <button type="button" className="note-zoom-label" aria-label="倍率をリセット" title="タップで100%に戻す" onClick={() => resetPageView()}>{Math.round(pageScale * 100)}%</button>
+        <button type="button" className="note-zoom-label" aria-label="倍率をリセット" title="タップで100%に戻す" onClick={() => imageDrawingActive ? imageReferences.resetZoom() : resetPageView()}>{Math.round((imageDrawingActive ? imageReferences.scale : pageScale) * 100)}%</button>
         <div className="note-tool-switch" role="group" aria-label="筆記用具">
           <button type="button" disabled={noteInteractionDisabled} aria-label="ペン" title="ペン" aria-pressed={tool === 'pen'} onClick={() => { setTool('pen'); setToolOptions(null); }}><PenIcon /></button>
           <button type="button" disabled={noteInteractionDisabled} aria-label="マーカー" title="マーカー" aria-pressed={tool === 'marker'} onClick={() => { setTool('marker'); setToolOptions(null); }}><MarkerIcon /></button>
@@ -1375,7 +1356,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         </div>
         <button type="button" className="note-color-trigger" disabled={noteInteractionDisabled || tool === 'eraser'} aria-label="色を選ぶ" aria-expanded={toolOptions === 'color'} onClick={() => setToolOptions(toolOptions === 'color' ? null : 'color')}><span style={{ background: tool === 'marker' ? MARKER_COLORS[markerColor] : NOTE_COLORS[colorKey] }} /></button>
         <button type="button" className="note-width-trigger" disabled={noteInteractionDisabled} aria-label="太さを選ぶ" aria-expanded={toolOptions === 'width'} onClick={() => setToolOptions(toolOptions === 'width' ? null : 'width')}>{activeWidth}</button>
-        <button type="button" className="category-note-icon-button" aria-label="戻す" title="戻す" disabled={noteInteractionDisabled || !canUndo} onClick={undo}><UndoIcon /></button>
+        <button type="button" className="category-note-icon-button" aria-label="戻す" title="戻す" disabled={noteInteractionDisabled || (imageDrawingActive ? !imageReferences.canUndo : !canUndo)} onClick={() => imageDrawingActive ? imageReferences.undo() : undo()}><UndoIcon /></button>
         {imageReferences.toolbar}
         {scratchMemo ? <button type="button" className="note-memo-clear" disabled={noteInteractionDisabled} onClick={clearMemoPage}>クリア</button> : null}
         {toolOptions ? <div className="note-tool-options" role="group" aria-label={toolOptions === 'color' ? '色' : '太さ'}>
@@ -1386,7 +1367,6 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
         </div> : null}
       </div>
 
-      {imageReferences.sheet}
       <ConfirmDialog
         open={deletePageConfirmOpen}
         busy={isFlushing}

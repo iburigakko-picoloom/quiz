@@ -29,6 +29,23 @@ test('device-only transactions retain bytes and page identity with concurrent nu
  assert.deepEqual((await indexedDB.databases()).map(d=>d.name),['quizmake-device-image-references-v1:legacy']);
 });
 
+test('image ink persists independently without replacing the original image or other references', async () => {
+ const store=localImageReferenceStore();
+ const original=new Blob(['original'],{type:'image/png'});
+ const first=await store.add('ink-page',original,.2,.3);
+ const second=await store.add('ink-page',original,.4,.5);
+ await store.saveInk(first.id,new Blob(['stroke-one'],{type:'image/png'}));
+ await store.saveInk(first.id,new Blob(['stroke-two'],{type:'image/png'}));
+ const rows=await localImageReferenceStore().load('ink-page');
+ assert.equal(await rows[0].ink.text(),'stroke-two');
+ assert.equal(await rows[0].image.text(),'original');
+ assert.equal(rows[0].x,.2);
+ assert.equal(rows[1].id,second.id);
+ assert.equal(rows[1].ink,undefined);
+ await assert.rejects(store.saveInk('missing-reference',original));
+});
+
+
 test('an account change fences a pending store and isolates the next owner',async()=>{
  const old=localImageReferenceStore();
  const session=new AccountStorageSession({getItem:()=>null},{identity:null,namespace:'guest',legacyUnclaimed:false});

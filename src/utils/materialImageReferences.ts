@@ -1,6 +1,6 @@
 import { getAccountStorageSession } from './accountStorage';
 
-export interface MaterialImageReference { id: string; page: string; number: number; x: number; y: number; image: Blob }
+export interface MaterialImageReference { id: string; page: string; number: number; x: number; y: number; image: Blob; ink?: Blob }
 export function referencePoint(x: number, y: number, rect: { left: number; top: number; width: number; height: number }) {
   if (![x,y,rect.left,rect.top,rect.width,rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) throw new Error('配置位置を確認できません。');
   return { x: Math.max(0,Math.min(1,(x-rect.left)/rect.width)), y: Math.max(0,Math.min(1,(y-rect.top)/rect.height)) };
@@ -30,17 +30,6 @@ export function localImageReferenceStore() {
         tx.onabort=()=>reject(tx.error);
       }); } finally { db.close(); }
     },
-    async add(page: string, image: Blob, x: number, y: number): Promise<MaterialImageReference> {
-      validateReferenceImage(image);
-      if (!page || !Number.isFinite(x) || !Number.isFinite(y) || x<0 || x>1 || y<0 || y>1) throw new Error('配置位置が不正です。');
-      const db=await open();
-      try { assertOwner(); return await new Promise((resolve,reject)=>{
-        const tx=db.transaction('references','readwrite'), store=tx.objectStore('references');
-        const request=store.index('page').getAll(page); let value: MaterialImageReference;
-        request.onsuccess=()=>{ value={id:crypto.randomUUID(),page,image,x,y,number:1+Math.max(0,...request.result.map((r: MaterialImageReference)=>r.number))}; store.add(value); };
-        tx.oncomplete=()=>resolve(value); tx.onabort=()=>reject(tx.error ?? new Error('画像を保存できませんでした。'));
-      }); } finally { db.close(); }
-    },
     async move(page: string, id: string, x: number, y: number): Promise<MaterialImageReference> {
       if (!page || !id || !Number.isFinite(x) || !Number.isFinite(y) || x<0 || x>1 || y<0 || y>1) throw new Error('配置位置が不正です。');
       const db=await open();
@@ -54,6 +43,33 @@ export function localImageReferenceStore() {
         } catch(error) { failure=error; tx.abort(); } };
         tx.oncomplete=()=>{ try { assertOwner(); resolve(value!); } catch(error) { reject(error); } };
         tx.onabort=()=>reject(failure ?? tx.error ?? new Error('画像の位置を保存できませんでした。'));
+      }); } finally { db.close(); }
+    },
+    async saveInk(id: string, ink: Blob): Promise<void> {
+      const db = await open();
+      try { assertOwner(); await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('references', 'readwrite'), store = tx.objectStore('references');
+        const request = store.get(id);
+        request.onsuccess = () => {
+          try {
+            assertOwner();
+            if (!request.result) throw new Error('参照画像が見つかりません。');
+            store.put({ ...request.result, ink });
+          } catch { tx.abort(); }
+        };
+        tx.oncomplete = () => { try { assertOwner(); resolve(); } catch (error) { reject(error); } };
+        tx.onabort = () => reject(tx.error ?? new Error('書き込みを保存できませんでした。'));
+      }); } finally { db.close(); }
+    },
+    async add(page: string, image: Blob, x: number, y: number): Promise<MaterialImageReference> {
+      validateReferenceImage(image);
+      if (!page || !Number.isFinite(x) || !Number.isFinite(y) || x<0 || x>1 || y<0 || y>1) throw new Error('配置位置が不正です。');
+      const db=await open();
+      try { assertOwner(); return await new Promise((resolve,reject)=>{
+        const tx=db.transaction('references','readwrite'), store=tx.objectStore('references');
+        const request=store.index('page').getAll(page); let value: MaterialImageReference;
+        request.onsuccess=()=>{ value={id:crypto.randomUUID(),page,image,x,y,number:1+Math.max(0,...request.result.map((r: MaterialImageReference)=>r.number))}; store.add(value); };
+        tx.oncomplete=()=>resolve(value); tx.onabort=()=>reject(tx.error ?? new Error('画像を保存できませんでした。'));
       }); } finally { db.close(); }
     },
   };

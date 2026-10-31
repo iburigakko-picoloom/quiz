@@ -29,14 +29,16 @@ const appSource = readSource('../src/App.tsx');
 
 test('note zoom resistance is stable at both limits and settles within range', () => {
   assert.equal(boundedNoteScale(1.75, true), 1.75);
-  for (const raw of [0.1, 0.5, 0.99, 2.51, 3, 10]) {
+  for (const raw of [0.1, 0.5, 0.99, 3.01, 3.5, 10]) {
     const resisted = boundedNoteScale(raw, true);
-    assert.ok(resisted >= 0.86 && resisted <= 2.64);
+    assert.ok(resisted >= 0.86 && resisted <= 3.14);
     assert.equal(boundedNoteScale(raw, true), resisted, 'a held gesture must not creep or oscillate');
-    assert.equal(boundedNoteScale(resisted), raw < 1 ? 1 : 2.5);
+    assert.equal(boundedNoteScale(resisted), raw < 1 ? 1 : 3);
   }
-  assert.ok(boundedNoteScale(3.5, true) - boundedNoteScale(3, true) < boundedNoteScale(3, true) - boundedNoteScale(2.5, true));
+  assert.ok(boundedNoteScale(4, true) - boundedNoteScale(3.5, true) < boundedNoteScale(3.5, true) - boundedNoteScale(3, true));
   assert.ok(boundedNoteScale(0.5, true) - boundedNoteScale(0, true) < boundedNoteScale(1, true) - boundedNoteScale(0.5, true));
+  assert.equal(boundedNoteScale(3), 3);
+  assert.equal(boundedNoteScale(4), 3);
   assert.equal(boundedNoteScale(NaN), 1);
 });
 
@@ -112,7 +114,7 @@ test('drawer close button and swipe share the guarded close request', () => {
 
 test('flush waits for load and snapshots only a paint-ready dirty canvas', () => {
   const flushStart = notePanelSource.indexOf('const flushPendingNote = (): Promise<void> => {');
-  const flushEnd = notePanelSource.indexOf('useImperativeHandle(ref, () => ({ flush: flushPendingNote', flushStart);
+  const flushEnd = notePanelSource.indexOf('const flushWithReferenceImage =', flushStart);
   assert.ok(flushStart >= 0 && flushEnd > flushStart, 'flush implementation should exist');
   const externalSwipe = notePanelSource.slice(notePanelSource.indexOf('if (pageNavigation) {'), notePanelSource.indexOf("if (direction === 1 && currentPageIndex"));
   assert.match(externalSwipe, /pageNavigation\.onNavigate\(direction\)/);
