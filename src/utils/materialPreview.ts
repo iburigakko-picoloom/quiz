@@ -1,10 +1,11 @@
+import { materialRenderScale } from './materialRenderScale';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { annotationCategory, loadMaterialFile } from './materialStorage';
 import { loadCategoryNoteRaw } from './noteStorage';
 import type { MaterialPage } from './materialModel';
 import { ByteBudgetLruCache, estimateDataUrlMemoryBytes, estimateRgbaPixelBytes } from '../components/noteMemory';
 
-export interface MaterialPagePreview { url?: string; inkUrl?: string; aspect: number }
+export interface MaterialPagePreview { url?: string; inkUrl?: string; aspect: number; pixelWidth?: number }
 // Retain the decoded PDF image within the existing byte budget. Revisiting a
 // prefetched page must not create and decode another copy of the same bitmap.
 type Background = Omit<MaterialPagePreview, 'inkUrl'> & { decoded?: HTMLImageElement };
@@ -35,11 +36,12 @@ export class MaterialPreviewCache {
     return session.ready;
   }
 
-  private async background(ownerId: string, materialId: string, page: MaterialPage): Promise<Background> {
+  private async background(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0): Promise<Background> {
     if (page.kind === 'blank') return { aspect: 210 / 297 };
     const docPromise = this.pdf(ownerId, materialId);
     const session = this.document!;
-    const key = `${ownerId}/${materialId}/${page.pdfPage}`;
+    const pixelWidth = requestedWidth > 0 ? Math.min(4096, Math.ceil(requestedWidth / 256) * 256) : 0;
+    const key = `${ownerId}/${materialId}/${page.pdfPage}/${pixelWidth}`;
     const cached = this.images.get(key);
     if (cached) return cached;
     const existing = this.pending.get(key);
@@ -49,7 +51,7 @@ export class MaterialPreviewCache {
       const pdfPage = await doc.getPage(page.pdfPage!);
       if (session.cancelled) throw new Error('資料の読込を中止しました。');
       const native = pdfPage.getViewport({ scale: 1 });
-      const viewport = pdfPage.getViewport({ scale: Math.min(2, 1800 / Math.max(native.width, native.height)) });
+      const viewport = pdfPage.getViewport({ scale: materialRenderScale(native.width, native.height, pixelWidth) });
       const canvas = document.createElement('canvas');
       canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
       try {
@@ -67,7 +69,7 @@ export class MaterialPreviewCache {
         const decoded = new Image(); decoded.src = url;
         await decoded.decode();
         if (session.cancelled) throw new Error('資料の読込を中止しました。');
-        const result = { url, aspect: native.width / native.height, decoded };
+        const result = { url, aspect: native.width / native.height, pixelWidth: canvas.width, decoded };
         this.images.set(key, result, estimateDataUrlMemoryBytes(result.url) + estimateRgbaPixelBytes(canvas.width, canvas.height));
         return result;
       } finally { canvas.width = 0; canvas.height = 0; }
@@ -77,9 +79,9 @@ export class MaterialPreviewCache {
   }
 
   /** The live handwriting panel reads and validates its own ink exactly once. */
-  async loadBackground(ownerId: string, materialId: string, page: MaterialPage): Promise<MaterialPagePreview> {
-    const { url, aspect } = await this.background(ownerId, materialId, page);
-    return { url, aspect };
+  async loadBackground(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0): Promise<MaterialPagePreview> {
+    const { url, aspect, pixelWidth } = await this.background(ownerId, materialId, page, requestedWidth);
+    return { url, aspect, pixelWidth };
   }
 
   async load(ownerId: string, materialId: string, page: MaterialPage): Promise<MaterialPagePreview> {

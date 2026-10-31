@@ -12,7 +12,7 @@ function SplitPreview(){
 }
 if(import.meta.env.VITE_SUPABASE_URL==='https://image-references.example.test'){
  const index=await loadMaterials('image-fixture');
- if(!index.materials.length){const doc=await PDFDocument.create();doc.addPage([200,280]);doc.addPage([200,280]);
+ if(!index.materials.length){const doc=await PDFDocument.create();const pdfPage=doc.addPage([200,280]);pdfPage.drawText('PDF clarity test 0123456789',{x:12,y:240,size:8});pdfPage.drawText('Small vector text',{x:12,y:225,size:5});pdfPage.drawText('Vector text',{x:75,y:140,size:8});doc.addPage([200,280]);
  const material=await storeMaterialPdf('image-fixture',new File([await doc.save()], '資料.pdf',{type:'application/pdf'}),2);
  await saveMaterials({...index,materials:[material]});}
  createRoot(document.getElementById('root')!).render(new URLSearchParams(location.search).has('split')?<SplitPreview/>:<div style={{height:'100dvh'}}><MaterialsPanel setId="image-fixture"/></div>);

@@ -24,7 +24,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const [memoPage, setMemoPage] = useState({ index: 0, ready: false });
   const rememberMemoPage = useCallback((page: { index: number; ready: boolean }) => setMemoPage(page), []);
   const [error, setError] = useState('');
-  const [displayed, setDisplayed] = useState<{ ownerId: string; materialId: string; page: MaterialPage; url?: string; aspect?: number } | null>(null);
+  const [displayed, setDisplayed] = useState<{ ownerId: string; materialId: string; page: MaterialPage; url?: string; aspect?: number; pixelWidth?: number } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const transitionLayer = useRef<HTMLDivElement>(null);
   const transitionDirection = useRef(1);
@@ -40,7 +40,8 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const tools = useRef<NoteToolSettings | undefined>(undefined);
   const rememberTools = useCallback((settings: NoteToolSettings) => { tools.current = settings; }, []);
   const viewScale = useRef(1);
-  const rememberScale = useCallback((scale: number) => { viewScale.current = scale; }, []);
+  const [renderScale, setRenderScale] = useState(1);
+  const rememberScale = useCallback((scale: number) => { viewScale.current = scale; setRenderScale(scale); }, []);
   const operation = useRef<Promise<void>>(Promise.resolve());
   const lock = useRef(false);
   const photoInput = useRef<HTMLInputElement>(null);
@@ -181,7 +182,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     let disposed = false;
     void (async () => {
       const preview = await previews.current.loadBackground(ownerId, material.id, page);
-      if (!disposed) setDisplayed({ ownerId, materialId: material.id, page, url: preview.url, aspect: preview.aspect });
+      if (!disposed) setDisplayed({ ownerId, materialId: material.id, page, url: preview.url, aspect: preview.aspect, pixelWidth: preview.pixelWidth });
     })().catch(err => { if (!disposed) { clearTransition(); if (displayed) { setMaterialId(displayed.materialId); setPageId(displayed.page.id); } setError(`資料を表示できません: ${err.message ?? err}`); } });
     return () => { disposed = true; };
   }, [material?.id, page?.id, page?.pdfPage, ownerId]);
@@ -207,6 +208,29 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     })();
     return () => { disposed = true; };
   }, [displayed?.page.id, displayed?.materialId, material?.pages, ownerId, transitioning]);
+
+  // Re-render vector text at screen resolution once resizing/pinching settles.
+  // Keep the sharper image when the note shrinks; never resample the saved PDF.
+  useEffect(() => {
+    if (!displayed || displayed.page.kind === 'blank' || memoOpen) return;
+    const target = contentRef.current?.querySelector<HTMLElement>('.category-note-page--active');
+    if (!target) return;
+    let disposed = false, timer: ReturnType<typeof setTimeout>;
+    const refresh = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const width = target.getBoundingClientRect().width * Math.max(1, window.devicePixelRatio || 1);
+        if (!width || width <= (displayed.pixelWidth ?? 0)) return;
+        try {
+          const preview = await previews.current.loadBackground(displayed.ownerId, displayed.materialId, displayed.page, width);
+          if (!disposed) setDisplayed(current => current?.page.id === displayed.page.id && current.materialId === displayed.materialId && current.ownerId === displayed.ownerId && (preview.pixelWidth ?? 0) > (current.pixelWidth ?? 0) ? { ...current, ...preview } : current);
+        } catch { /* Retain the current readable background if refinement fails. */ }
+      }, 180);
+    };
+    const observer = new ResizeObserver(refresh); observer.observe(target);
+    window.addEventListener('resize', refresh); refresh();
+    return () => { disposed = true; clearTimeout(timer); observer.disconnect(); window.removeEventListener('resize', refresh); };
+  }, [displayed?.page.id, displayed?.materialId, displayed?.ownerId, renderScale, memoOpen]);
 
   const update = async (nextMaterial: StudyMaterial) => {
     if (!index) return;

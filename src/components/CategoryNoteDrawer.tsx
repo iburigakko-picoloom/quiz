@@ -457,7 +457,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
   const activeWidths = tool === 'eraser' ? ERASER_WIDTHS : tool === 'marker' ? MARKER_WIDTHS : PEN_WIDTHS;
   const noteInteractionDisabled = isFlushing || pageTurning || noteLoadState !== 'ready' || notePaintState !== 'ready';
   const [drawingTarget, setDrawingTarget] = useState<'note' | 'image'>('note');
-  const imageReferences = useMaterialImageReferences(scratchMemo ? undefined : materialImagePage, noteInteractionDisabled, { tool, color: tool === 'marker' ? MARKER_COLORS[markerColor] : NOTE_COLORS[colorKey], width: activeWidth }, () => setDrawingTarget('image'));
+  const imageReferences = useMaterialImageReferences(scratchMemo ? undefined : materialImagePage, noteInteractionDisabled, { tool, color: tool === 'marker' ? MARKER_COLORS[markerColor] : NOTE_COLORS[colorKey], width: activeWidth }, () => setDrawingTarget('image'), pageScale);
   const imageDrawingActive = imageReferences.isOpen && drawingTarget === 'image';
   useEffect(() => { onPageStateChange?.({ index: currentPageIndex, ready: !noteInteractionDisabled }); }, [currentPageIndex, noteInteractionDisabled, onPageStateChange]);
   const saveStatusText = recoveryCandidate ? '要復旧' : noteLoadState === 'loading' || notePaintState === 'loading'

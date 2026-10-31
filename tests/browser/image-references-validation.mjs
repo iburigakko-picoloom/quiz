@@ -9,7 +9,7 @@ const output=resolve('tmp',`image-references-${Date.now()}`);await mkdir(output,
 const server=await createServer({cacheDir:resolve(output,'vite-cache'),server:{host:'127.0.0.1',port:5199,strictPort:true,watch:{ignored:['**/tmp/**']}}});await server.listen();
 const browser=await chromium.launch({channel:process.env.QUIZMAKE_BROWSER_CHANNEL ?? 'msedge',headless:true});
 try {
- const page=await browser.newPage({viewport:{width:430,height:900},hasTouch:true,reducedMotion:'reduce'}),errors=[];page.setDefaultTimeout(30000);page.on('pageerror',e=>errors.push(e.message));await page.route('https://**/*',r=>r.abort());
+ const page=await browser.newPage({viewport:{width:430,height:900},deviceScaleFactor:2,hasTouch:true,reducedMotion:'reduce'}),errors=[];page.setDefaultTimeout(30000);page.on('pageerror',e=>errors.push(e.message));await page.route('https://**/*',r=>r.abort());
  await page.goto('http://127.0.0.1:5199/quiz/tests/browser/image-references-preview.html');
  const add=page.getByRole('button',{name:'参照画像を追加',exact:true});await add.waitFor();await page.waitForFunction(()=>!document.querySelector('[aria-label="参照画像を追加"]').disabled);
  assert.equal(await add.evaluate(e=>e.previousElementSibling.getAttribute('aria-label')),'戻す');
@@ -29,7 +29,9 @@ try {
  await page.getByLabel('参照画像ファイル',{exact:true}).setInputFiles({name:'image.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});
  await page.getByLabel('画像マークの配置位置').click({position:{x:box.width*.4,y:box.height*.35}});
  const marker=page.getByRole('button',{name:'参照画像1を開く',exact:true});await marker.waitFor();assert.equal(await marker.textContent(),'1');assert.equal(await canvas.evaluate(e=>e.toDataURL()),before);
+ const labelSize=await marker.locator('span').evaluate(e=>e.getBoundingClientRect().width);assert.ok(labelSize<=23);
  await marker.click();const dialog=page.getByRole('dialog',{name:'参照画像1',exact:true});await dialog.waitFor();await page.waitForFunction(()=>document.querySelector('.material-image-sheet img')?.naturalWidth===200);
+ assert.ok(Math.abs(await marker.locator('span').evaluate(e=>e.getBoundingClientRect().width)-labelSize)<1,'marker stays small in the split view');
  const inkCanvas=page.getByLabel('参照画像への書き込み',{exact:true});
  await page.waitForFunction(()=>document.querySelector('.reference-image-paper canvas')?.width===200);
  assert.equal(await page.locator('[aria-label="note tools"]').count(),1);
@@ -86,6 +88,15 @@ try {
  for(let i=1;i<=8;i++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:points(35*(1+3*i/8))});
  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  await page.waitForFunction(()=>document.querySelector('[aria-label="倍率をリセット"]').textContent==='300%');
+ assert.ok(Math.abs(await marker.locator('span').evaluate(e=>e.getBoundingClientRect().width)-labelSize)<1,'marker size does not multiply with PDF zoom');
+ await page.waitForFunction(async()=>{
+  const paper=document.querySelector('.category-note-page--active');const match=paper.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/);if(!match)return false;
+  const img=new Image();img.src=match[1];await img.decode();
+  const aspect=img.naturalWidth/img.naturalHeight;
+  const desired=Math.min(paper.getBoundingClientRect().width*devicePixelRatio,4096*Math.min(1,aspect),Math.sqrt(8*1024*1024*aspect));
+  return img.naturalWidth>=desired*.98;
+ });
+ await page.screenshot({path:resolve(output,'pdf-300-percent.png')});
  const zoom=await ratio();for(let i=0;i<2;i++)assert.ok(Math.abs(original[i]-zoom[i])<.002);
  const zoomBox=await marker.boundingBox(),zoomX=zoomBox.x+zoomBox.width/2,zoomY=zoomBox.y+zoomBox.height/2;
  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:touch(zoomX,zoomY)});await page.waitForTimeout(550);

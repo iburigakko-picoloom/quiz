@@ -388,11 +388,12 @@
     grid-template-columns: repeat(3, 1fr);
     transform: translate3d(-33.333333%, 0, 0);
     transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: transform;
+    will-change: auto;
     background: #f3f4f6;
   }
 
   .category-note-page-rail--swiping {
+    will-change: transform;
     transition: none;
   }
 

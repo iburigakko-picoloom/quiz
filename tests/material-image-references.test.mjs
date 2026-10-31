@@ -1,3 +1,4 @@
+import { materialRenderScale } from '../src/utils/materialRenderScale.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {IDBFactory} from 'fake-indexeddb';
@@ -54,4 +55,14 @@ test('an account change fences a pending store and isolates the next owner',asyn
  await assert.rejects(old.move('page1','old',.1,.1),/アカウント/);
  const next=localImageReferenceStore();assert.deepEqual(await next.load('page1'),[]);
  session.invalidate();await assert.rejects(next.add('page1',new Blob(['x'],{type:'image/png'}),.1,.1));
+});
+
+test('PDF refinement follows device pixels and stays within raster memory limits', () => {
+ assert.equal(materialRenderScale(600, 840, 2400), 4);
+ assert.equal(materialRenderScale(200, 280, 1024), 5.12);
+ for (const [width, height] of [[600,840],[840,600],[100,10000],[10000,100]]) {
+  const scale=materialRenderScale(width,height,100000);
+  assert.ok(width*height*scale*scale<=8*1024*1024+1);
+  assert.ok(Math.max(width,height)*scale<=4096+1);
+ }
 });
