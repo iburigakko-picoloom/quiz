@@ -996,7 +996,7 @@ function readLocalStorageValue(key: string): { value: string | null; error: unkn
 }
 
 function createCategoryNoteReadError(cause: unknown): Error {
-  return new Error(`Failed to read category note data. ${getErrorMessage(cause)}`);
+  return Object.assign(new Error(`Failed to read category note data. ${getErrorMessage(cause)}`), { cause });
 }
 
 function safeLocalStorageRemove(key: string): void {
