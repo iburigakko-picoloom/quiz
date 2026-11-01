@@ -69,7 +69,7 @@ test('copy save checks durable notes under the deletion lock; a stale draft writ
   const deletion=await persistLibraryDeletion({buildPlan:current=>({nextData:{...current,problemSets:[target],questions:[]},problemSetIds:['s']})});assert.equal(deletion.ok,true);
   const before=await storage.loadAppDataAsync();
   const stale=await storage.saveAppDataResult({...before,questions:[draft.questions[1]]},{materialReferenceQuestionIds:['draft']});
-  assert.equal(stale.ok,false);assert.equal(stale.failure.code,'invalid_data');assert.match(stale.failure.validationReason,/資料/);
+  assert.equal(stale.ok,false);assert.equal(stale.failure.code,'material_reference');assert.equal(stale.failure.referenceIssue,'missing_material');assert.match(stale.failure.validationReason,/資料/);
   assert.deepEqual(await storage.loadAppDataAsync(),before);assert.deepEqual(draft.questions[1].materialReferences,[ref]);
   assert.deepEqual(await storage.saveAppDataResult({...before,questions:[draft.questions[1]]},{materialReferenceQuestionIds:['draft']}),stale);
 });

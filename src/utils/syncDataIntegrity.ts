@@ -34,6 +34,53 @@ export function syncDataFailure(error: unknown, fn: SyncFailureDetails['function
   return new SyncDataError('backup_integrity','バックアップの内容を検証できませんでした。',{function:fn,stage,cause:'format'});
 }
 
+/** Caller holds the origin mutation lock until the question save commits.
+ * References have no owner ID, so inspect every live owner's index to detect
+ * collisions, but read PDF bodies only for the materials actually referenced.
+ * Backup/sync validation must continue to use assertMaterialIntegrity directly.
+ */
+export async function assertQuestionMaterialReferences(
+  data: AppData,
+  loadRaw: (key: string) => Promise<string | null>,
+): Promise<void> {
+  const materialIds = new Set(data.questions.flatMap(question => (question.materialReferences ?? []).map(ref => ref.materialId)));
+  if (!materialIds.size) return;
+  const notes: Record<string, string> = {};
+  const fileKeys = new Set<string>();
+  for (const owner of data.problemSets) {
+    const key = `quizMake:notes:${owner.id}:__materials_v1`;
+    const raw = await loadRaw(key);
+    if (raw === null) continue;
+    let index: MaterialIndex;
+    try {
+      index = JSON.parse(raw);
+      if (index.kind !== 'quiz-material-index' || !validMaterialRecord(index as unknown as Record<string, unknown>)) throw new Error();
+    } catch {
+      throw new SyncDataError('material_reference', '資料の紐づけ情報に不備があります。', {
+        function: 'materialReferences', stage: 'material_references', cause: 'format',
+        referenceIssues: [{ reason: 'invalid_index', problemSetId: owner.id }], issueCount: 1,
+      });
+    }
+    if (index.problemSetId !== owner.id) {
+      throw new SyncDataError('material_reference', '資料の紐づけ情報に不備があります。', {
+        function: 'materialReferences', stage: 'material_references', cause: 'reference',
+        referenceIssues: [{ reason: 'index_identity', problemSetId: owner.id }], issueCount: 1,
+      });
+    }
+    const materials = index.materials.filter(material => materialIds.has(material.id));
+    if (!materials.length) continue;
+    notes[key] = JSON.stringify({ ...index, materials });
+    for (const material of materials) if (material.pages.some(page => page.kind === 'pdf')) {
+      fileKeys.add(`quizMake:notes:${owner.id}:__material_pdf_${material.id}`);
+    }
+  }
+  for (const key of fileKeys) {
+    const raw = await loadRaw(key);
+    if (raw !== null) notes[key] = raw;
+  }
+  assertMaterialIntegrity({ localStorage: {}, indexedDbNotes: notes }, data, false);
+}
+
 /** Validate identities before downloading bodies. Never guess or remove a reference. */
 export function assertMaterialIntegrity(payload: Pick<SyncPayload,'localStorage'|'indexedDbNotes'>, data: AppData, hydrated: boolean): void {
   for(const [key,raw] of Object.entries(payload.localStorage))if(key.endsWith(':__materials_v1')&&payload.indexedDbNotes?.[key]!==undefined&&payload.indexedDbNotes[key]!==raw){

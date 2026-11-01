@@ -7,7 +7,7 @@ import { saveAnswerRecordChanges, type AnswerSaveChange } from './utils/answerRe
 import { advanceLocalDataRevision } from './utils/localDataRevision';
 import { hasPersistedSyncHistory } from './utils/syncState';
 import { readAppRecords, readPreviousAppRecords, saveAppRecords, upgradeAppRecordStores } from './utils/appRecordStorage';
-import { appSaveFailure, type AppSaveFailure } from './utils/appSaveFailure';
+import { appSaveFailure, materialReferenceSaveFailure, type AppSaveFailure } from './utils/appSaveFailure';
 import { cleanupNativeOriginals } from './utils/learningValueStorage';
 import { installStorageLedger } from './utils/storageLedger';
 
@@ -185,13 +185,15 @@ async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailur
     try{
       // Runs inside the same origin lock as deletion, immediately before the
       // AppData/Blob commit. A draft copied before source deletion stays a draft.
-      const {exportCategoryNotesRaw}=await import('./utils/noteStorage');
-      const {assertMaterialIntegrity}=await import('./utils/syncDataIntegrity');
+      const {loadCategoryNoteRaw}=await import('./utils/noteStorage');
+      const {assertQuestionMaterialReferences}=await import('./utils/syncDataIntegrity');
       const ids=new Set(materialReferenceQuestionIds);
-      const notes=await exportCategoryNotesRaw({coordinationLockHeld:true});
-      assertMaterialIntegrity({localStorage:{},indexedDbNotes:notes},{...data,questions:data.questions.filter(question=>ids.has(question.id))},false);
-    }catch{
-      try{onFailure?.(appSaveFailure([{stage:'validation',error:new Error()}],'参照先の資料が変更・削除されています。元の教材の資料を確認してから保存してください。'));}catch{/* Informational only. */}
+      await assertQuestionMaterialReferences(
+        {...data,questions:data.questions.filter(question=>ids.has(question.id))},
+        key=>materialRecords[key]!==undefined?Promise.resolve(materialRecords[key]):loadCategoryNoteRaw(key,{coordinationLockHeld:true}),
+      );
+    }catch(error){
+      try{onFailure?.(materialReferenceSaveFailure(error));}catch{/* Informational only. */}
       return false;
     }
   }
