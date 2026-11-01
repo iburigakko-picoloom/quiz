@@ -619,6 +619,7 @@ button:disabled {
 }
 
 .quiz-choice__text {
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", "Noto Serif JP", "MS PMincho", serif;
   min-width: 0;
   flex: 1 1 auto;
   overflow: visible;
