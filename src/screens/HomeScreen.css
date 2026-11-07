@@ -600,3 +600,19 @@
 @media (max-height: 700px), (max-width: 374px) { .quiz-home__content { gap: 6px; } }
 
 .quiz-home.quiz-home--plans .quiz-home__search-entry { min-height: 44px; min-width: 44px; padding: 6px 8px; color: var(--ui-accent, #2467bc); font-size: .78rem; border-radius: 8px; }
+.quiz-home__header-actions { display: flex; gap: 6px; align-items: center; }
+.quiz-home__materials { padding-bottom: calc(var(--primary-nav-height) + var(--safe-bottom) + 16px); }
+.quiz-home__materials > input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #dce5ef; border-radius: 10px; color: #173042; font: inherit; }
+.quiz-home--plans button.quiz-home__material-row { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 76px; padding: 12px; border-bottom: 1px solid #e2e5e8; text-align: left; color: #173042; }
+.quiz-home__material-row > span { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.quiz-home__material-row > span > span { font-size: .8rem; }
+.quiz-home__material-row:disabled { opacity: .6; }
+.quiz-home.quiz-home--plans.quiz-home--materials-active .quiz-home__header { height: calc(68px + var(--safe-top)); min-height: calc(68px + var(--safe-top)); flex-basis: calc(68px + var(--safe-top)); padding-inline: 18px; }
+.quiz-home--materials-active .quiz-home__header-actions .quiz-home__plans-link { border: 0; border-radius: 6px; padding: 8px; }
+.quiz-home--materials-active .quiz-home__header-actions .quiz-home__plans-link[aria-pressed=true] { background: #edf3fc; }
+.quiz-home--materials-active .quiz-home__materials { padding: 16px 16px calc(var(--primary-nav-height) + var(--safe-bottom) + 16px); }
+.quiz-home__materials-search { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px; border: 1px solid #dce5ef; border-radius: 6px; color: #71849a; }
+.quiz-home__materials-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: #173042; font: inherit; }
+.quiz-home--plans button.quiz-home__material-row { gap: 12px; padding: 14px 0; }
+.quiz-home__material-row > .quiz-home__material-icon { display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; background: #edf3fc; border-radius: 5px; }
+.quiz-home__material-row > .quiz-home__material-details { flex: 1; }

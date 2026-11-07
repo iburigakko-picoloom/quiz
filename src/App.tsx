@@ -1818,6 +1818,7 @@ export default function App() {
         data={data}
         setId={screen.setId}
         initialCategory={screen.category}
+        initialReference={screen.reference}
         onLinkBatch={links => handleLinkMaterialBatch(screen.setId, links)}
         registerExitGuard={(guard) => { noteExitGuardRef.current = guard; }}
         onOpenQuestions={() => navigate({ name: 'problemList', setId: screen.setId, backScreen: screen })}
@@ -1947,6 +1948,13 @@ export default function App() {
     content = (
     <HomeScreen
       data={data}
+      initialMaterials={screen.name === 'home' ? screen : undefined}
+      onCloseMaterials={() => replaceScreen({ name: 'home' })}
+      onOpenMaterial={(setId, reference, materialsQuery, materialsScroll) => {
+        const backScreen: AppScreen = { name: 'home', materialsView: true, materialsQuery, materialsScroll };
+        replaceScreen(backScreen);
+        navigate({ name: 'noteDetail', setId, category: '__materials', reference, backScreen });
+      }}
       onCreateFolder={handleCreateFolder}
       onCreateSample={() => void commitData(createSampleAppData())}
       onDeleteFolder={handleDeleteFolder}

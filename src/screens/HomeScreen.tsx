@@ -1,15 +1,21 @@
 import { useDeviceRole } from '../hooks/useDeviceRole';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { AppData, Folder } from '../types';
+import type { AppData, Folder, MaterialReference } from '../types';
+import { loadMaterials } from '../utils/materialStorage';
+import { getAccountStorageSession } from '../utils/accountStorage';
+import { registerScreenBack } from '../utils/screenBack';
+import type { StudyMaterial } from '../utils/materialModel';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
 import { LibraryItemActions } from '../components/LibraryItemActions';
 import {
   CheckIcon,
   ChevronRightIcon,
+  DocumentOutlineIcon,
   FolderOutlineIcon,
   PlusIcon,
+  SearchIcon,
   TrashIcon,
 } from '../components/UiIcons';
 import { buildAppDataView } from '../utils/appDataView';
@@ -21,6 +27,9 @@ import type { CompanionCare } from '../utils/companionCare';
 
 interface HomeScreenProps {
   data: AppData;
+  initialMaterials?: { materialsView?: boolean; materialsQuery?: string; materialsScroll?: number };
+  onOpenMaterial?: (setId: string, reference: MaterialReference, query: string, scroll: number) => void;
+  onCloseMaterials?: () => void;
   onCreateFolder: (name: string) => void;
   onCreateSample: () => void;
   onDeleteFolder: (folderId: string) => void;
@@ -35,6 +44,9 @@ interface HomeScreenProps {
 
 export function HomeScreen({
   data,
+  initialMaterials,
+  onOpenMaterial,
+  onCloseMaterials,
   onCreateFolder,
   onCreateSample,
   onDeleteFolder,
@@ -47,6 +59,47 @@ export function HomeScreen({
   onSave,
 }: HomeScreenProps) {
   const isMainDevice = useDeviceRole() === 'main';
+  const [materialsView, setMaterialsView] = useState(initialMaterials?.materialsView ?? false);
+  const [materialsQuery, setMaterialsQuery] = useState(initialMaterials?.materialsQuery ?? '');
+  const [materialRows, setMaterialRows] = useState<Array<{setId: string; setTitle: string; material: StudyMaterial}>>([]);
+  const [materialError, setMaterialError] = useState('');
+  const [materialsLoading, setMaterialsLoading] = useState(false);
+  const visibleMaterialRows = materialRows.filter(row => `${row.material.title} ${row.setTitle}`.toLocaleLowerCase().includes(materialsQuery.trim().toLocaleLowerCase()));
+  const materialList = useRef<HTMLDivElement>(null);
+  const restoreScroll = useRef(initialMaterials?.materialsScroll ?? 0);
+  useEffect(() => {
+    if (!materialsView) return;
+    return registerScreenBack(() => { setMaterialsView(false); onCloseMaterials?.(); });
+  }, [materialsView, onCloseMaterials]);
+  useEffect(() => {
+    if (!materialsView) return;
+    let cancelled = false;
+    const owner = getAccountStorageSession();
+    setMaterialsLoading(true); setMaterialError('');
+    void (async () => {
+      const results: Array<{set: AppData['problemSets'][number]; index: Awaited<ReturnType<typeof loadMaterials>>}> = [];
+      for (let start = 0; start < data.problemSets.length; start += 4) {
+        const batch = await Promise.all(data.problemSets.slice(start, start + 4).map(async set => {
+          const index = await loadMaterials(set.id);
+          if (index.problemSetId !== set.id) throw new Error('資料の所有教材を確認できません。');
+          return {set, index};
+        }));
+        if (cancelled) return [];
+        if (owner !== getAccountStorageSession()) throw new Error('アカウントが変わりました。');
+        owner?.assertCurrent();
+        results.push(...batch);
+      }
+      return results;
+    })().then(results => {
+      if (owner !== getAccountStorageSession()) throw new Error('アカウントが変わりました。');
+      owner?.assertCurrent();
+      if (!cancelled) setMaterialRows(results.flatMap(({set,index}) => index.materials.map(material => ({setId:set.id,setTitle:set.title,material}))));
+    }).catch(() => { if (!cancelled) { setMaterialRows([]); setMaterialError('資料一覧を読み込めません。再度開いてください。'); } }).finally(() => { if (!cancelled) setMaterialsLoading(false); });
+    return () => { cancelled = true; };
+  }, [materialsView, data.problemSets]);
+  useEffect(() => {
+    if (materialsView && !materialsLoading && materialRows.length && materialList.current) { materialList.current.scrollTop = restoreScroll.current; restoreScroll.current = 0; }
+  }, [materialsView, materialsLoading, materialRows]);
   const [folderName, setFolderName] = useState('');
   const { summary, day } = useStudyRecord(data.answerLogs);
   const [query, setQuery] = useState('');
@@ -66,13 +119,21 @@ export function HomeScreen({
 
   return (
     <Layout>
-      <div className="quiz-home quiz-home--plans">
+      <div className={`quiz-home quiz-home--plans${materialsView ? ' quiz-home--materials-active' : ''}`}>
         <header className="quiz-home__header">
           <h1 className="quiz-home__title">Quiz Make</h1>
-          <button type="button" className="quiz-home__plans-link" onClick={onOpenPlans}>学習計画</button>
+          <div className="quiz-home__header-actions"><button type="button" className="quiz-home__plans-link" aria-pressed={materialsView} onClick={() => { if (materialsView) onCloseMaterials?.(); setMaterialsView(value => !value); }}>資料</button><button type="button" className="quiz-home__plans-link" onClick={onOpenPlans}>学習計画</button></div>
         </header>
 
-        <div className="quiz-home__content">
+        {materialsView ? <div className="quiz-home__content quiz-home__materials" ref={materialList}>
+          <div className="quiz-home__section-heading"><h2>資料一覧</h2><button type="button" onClick={() => { setMaterialsView(false); onCloseMaterials?.(); }}>学習フォルダへ</button></div>
+          <label className="quiz-home__materials-search"><SearchIcon size={18} aria-hidden="true"/><input type="search" aria-label="資料を検索" placeholder="資料名・教材名で検索" value={materialsQuery} onChange={event => setMaterialsQuery(event.target.value)} /></label>
+          {materialsLoading ? <p role="status">読み込み中…</p> : null}
+          {materialError ? <p role="alert">{materialError}</p> : null}
+          {!isMainDevice ? <p>資料を開くにはメイン端末に切り替えてください。</p> : null}
+          {!materialsLoading && !materialError && visibleMaterialRows.map(({setId,setTitle,material}) => <button key={`${setId}/${material.id}`} type="button" className="quiz-home__material-row" disabled={!isMainDevice || !material.pages.length} onClick={() => onOpenMaterial?.(setId, {materialId:material.id,pageId:material.pages[0].id}, materialsQuery, materialList.current?.scrollTop ?? 0)}><span className="quiz-home__material-icon"><DocumentOutlineIcon size={24} aria-hidden="true"/></span><span className="quiz-home__material-details"><strong>{material.title}</strong><span>{setTitle}</span><span>{material.pages.some(page => page.kind === 'pdf') ? 'PDF' : 'ノート'}・{material.pages.length}ページ</span></span><ChevronRightIcon /></button>)}
+          {!materialsLoading && !materialError && !visibleMaterialRows.length ? <p>{materialRows.length ? '該当する資料はありません。' : '登録された資料はありません。'}</p> : null}
+        </div> : <div className="quiz-home__content">
         <section className="quiz-home__library" aria-label="学習フォルダ">
           <div className="quiz-home__section-heading"><h2>学習フォルダ</h2><button type="button" className="quiz-home__search-entry" onClick={onOpenSearch}>教材検索</button>{isMainDevice && <HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} />}</div>
           <details className="quiz-home__folder-options"><summary>検索・並び替え{query ? ` · ${query}` : sort === 'name' ? ' · 名前順' : ''}</summary><div className="quiz-home__folder-tools"><input type="search" aria-label="フォルダを検索" placeholder="フォルダを検索" value={query} onChange={e => setQuery(e.target.value)} /><select aria-label="フォルダの並び順" value={sort} onChange={e => setSort(e.target.value)}><option value="recent">更新順</option><option value="name">名前順</option></select></div></details>
@@ -108,9 +169,9 @@ export function HomeScreen({
         {!folders.length && query ? <p className="quiz-home__no-results">該当するフォルダがありません</p> : null}
         </section>
 
-        </div>
+        </div>}
 
-        <section className="quiz-home__today" aria-label="今日のがんばり">
+        {!materialsView && <section className="quiz-home__today" aria-label="今日のがんばり">
           <h2 className="sr-only">今日のがんばり</h2>
           <StudyCompanion scene="home" care={companionCare} onOpenCare={onOpenCompanion}>
             <button type="button" className="quiz-home__study-card" aria-label="学習記録を見る" onClick={onOpenStudyRecord}>
@@ -118,7 +179,7 @@ export function HomeScreen({
               <StudyActivity summary={summary} compact />
             </button>
           </StudyCompanion>
-        </section>
+        </section>}
 
         {createOpen ? (
           <CreateFolderDialog
