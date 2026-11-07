@@ -120,7 +120,7 @@ try {
   await app.locator('canvas[data-renderer="full-body-frames"]').waitFor();
   assert.equal(await app.locator('.companion-care__stage p').count(), 0, 'no narration under the character');
   assert.equal(await app.getByText(/ちょこんと座って/).count(), 0);
-  await app.getByRole('tab', { name: '芸' }).click();
+  await app.getByRole('tab', { name: 'おやつ' }).click();
   for (const [width, height] of [[320, 568], [390, 844], [768, 1024]]) {
     await app.setViewportSize({ width, height });
     await app.getByRole('button', { name: /くるりんを教える/ }).scrollIntoViewIfNeeded();

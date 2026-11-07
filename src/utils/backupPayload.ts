@@ -1,3 +1,4 @@
+import { COMPANION_CARE_KEY, companionSpendWouldRollback, preserveCompanionBudgetRaw } from './companionCare';
 import { incrementalJsonDigest, jsonByteSize } from './incrementalJsonDigest';
 import { accountLocalStorage as localStorage } from './accountStorage';
 import { exportQuizMakeData, exportQuizMakeRecoveryData, validateHydratedSyncPayload, isQuizMakeStorageKey, waitForLocalPersistence, type SyncPayload, type SyncResult } from './syncService';
@@ -182,6 +183,10 @@ async function replaceCompleteFile(payload:FileBackup,sync?:{expectedGeneration:
     const notes=checked.value.payload.indexedDbNotes??{},settings=Object.fromEntries(Object.entries(checked.value.payload.localStorage).filter(([key])=>key!=='quiz-make-app-data-v1'&&!key.startsWith('quizMake:notes:')&&!key.startsWith('quizMake:image:')));
     const existingSettings=new Set<string>(),existingImageKeys=new Set<string>(),existingNoteKeys=new Set<string>();for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith('quizMake:image:'))existingImageKeys.add(key);if(key?.startsWith('quizMake:notes:'))existingNoteKeys.add(key);if(key&&isQuizMakeStorageKey(key)&&key!=='quiz-make-app-data-v1'&&!key.startsWith('quizMake:notes:')&&!key.startsWith('quizMake:image:')&&!isChunkInternal('localStorage',key))existingSettings.add(key);}
     const previousLearning=await readLearningValues(db);
+    const currentCare=previousLearning.get(COMPANION_CARE_KEY)?.raw??null;
+    if(sync&&companionSpendWouldRollback(currentCare,settings[COMPANION_CARE_KEY]??null))throw new Error('育成の消費記録を保護しました。育成の変更を確認し、統合した端末データを同期してください。');
+    if(!sync){const care=preserveCompanionBudgetRaw(currentCare,settings[COMPANION_CARE_KEY]??null);if(care!==null)settings[COMPANION_CARE_KEY]=care;}
+
     const allSettings=new Set([...existingSettings,...Object.keys(settings)]),learning=new Map(await Promise.all([...allSettings].filter(isLearningStorageKey).map(async key=>[key,{...await prepareLearningValue(key,settings[key]??null),...(previousLearning.get(key)?.nativeCleanup?{nativeCleanup:previousLearning.get(key)!.nativeCleanup}:{})}] as const)));
     const read=db.transaction(['categoryNotes','questionImageBlobs']),oldNoteKeys=read.objectStore('categoryNotes').getAllKeys(),oldImages=read.objectStore('questionImageBlobs').getAll();await new Promise<void>((r,j)=>{read.oncomplete=()=>r();read.onabort=()=>j(read.error);});
     const storedNoteKeys=oldNoteKeys.result.map(String);

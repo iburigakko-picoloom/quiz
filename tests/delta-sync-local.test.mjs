@@ -128,7 +128,9 @@ test('legacy completed marker without complete flag upgrades once and a changed 
   },whole:async()=>assert.fail('no unresolved legacy send')};
   const {prepareDeltaSync}=await import('../src/utils/deltaMigration.ts'),guards={assertCurrent:async()=>{},apply:op=>op({})};
   assert.equal((await prepareDeltaSync(db,connection,transport,guards)).status,'more');
-  assert.equal(await readMeta(db,'deltaCursor'),undefined);assert.equal(await readMeta(db,'deltaCheckpoint'),undefined);
+  assert.equal(await readMeta(db,'deltaCursor'),undefined);
+
+assert.equal(await readMeta(db,'deltaCheckpoint'),undefined);
   assert.equal(await prepareDeltaSync(db,connection,transport,guards),null);
   assert.equal(checkpoints,2);assert.ok(await readMeta(db,'deltaEnabled'));
 });
@@ -224,3 +226,30 @@ test('new material imports after migration completion are immediately transferab
   const pending=await read(db,'appOutbox',records.appRecordKey('indexedDbNotes',id));assert.equal(pending.transferReady,1);assert.ok(vault.parseBlobNote(pending.raw));assert.equal(await vault.unpackBlobNote(db,pending.raw),raw);
   assert.ok((await freezeDelta(db,connection,'device-a')).operations.some(op=>op.id===id));
 });
+
+ test('parallel companion spending preserves both snapshots and stops replay without rolling back balance', async()=>{
+  const {db}=await database();
+  const {createCompanionCare,creditCompanionAnswers,applyCompanionCareAction,COMPANION_CARE_KEY}=await import('../src/utils/companionCare.ts');
+  const base={...creditCompanionAnswers(createCompanionCare('2026-11-07'),Array.from({length:50},(_,i)=>({id:`budget-${i}`}))),friendship:40,peakFriendship:40};
+  const left=applyCompanionCareAction(base,{kind:'train',trickId:'spin'},'2026-11-07');
+  const right=applyCompanionCareAction(base,{kind:'train',trickId:'touch'},'2026-11-07');
+  assert.equal(left.answerBalance,right.answerBalance);assert.notEqual(left.spendEvents[0].id,right.spendEvents[0].id);
+  const key=records.appRecordKey('localStorage',COMPANION_CARE_KEY);
+  const local={key,collection:'localStorage',id:COMPANION_CARE_KEY,raw:JSON.stringify(left),position:0,serverRevision:1,localRevision:1};
+  const tx=db.transaction('appRecords','readwrite'),done=idbDone(tx);tx.objectStore('appRecords').put(local,key);await done;
+  records.rememberAppRecordSnapshot(db,await records.readAppRecordSnapshot(db));
+  const remote={key,collection:'localStorage',id:COMPANION_CARE_KEY,raw:JSON.stringify(right),position:0,revision:2};
+  for(let i=0;i<2;i++)await assert.rejects(applyDeltaRows(db,connection,[remote],2),/育成の変更/);
+  assert.equal((await read(db,'appRecords',key)).raw,local.raw);
+  const saved=await read(db,'appRecordConflicts',`companion:${key}:2`);
+  assert.equal(saved.local.raw,local.raw);assert.equal(saved.remote.raw,remote.raw);
+  assert.equal(await readMeta(db,'deltaCursor'),undefined);
+  const {mergeCompanionBudgets}=await import('../src/utils/companionCare.ts');
+  const merged=mergeCompanionBudgets(left,right),resolved=db.transaction(['appRecords','appRecordConflicts'],'readwrite'),resolvedDone=idbDone(resolved);
+  resolved.objectStore('appRecords').put({...local,raw:JSON.stringify(merged)},key);
+  resolved.objectStore('appRecordConflicts').put({...saved,resolvedAt:new Date().toISOString()},`companion:${key}:2`);await resolvedDone;
+  records.rememberAppRecordSnapshot(db,await records.readAppRecordSnapshot(db));
+  const applied=await applyDeltaRows(db,connection,[remote],2);assert.equal(applied.applied,true);
+  assert.equal((await read(db,'appRecords',key)).raw,JSON.stringify(merged));assert.equal((await readMeta(db,'deltaCursor')).revision,2);
+
+ });
