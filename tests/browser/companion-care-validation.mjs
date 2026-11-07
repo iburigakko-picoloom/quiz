@@ -74,11 +74,11 @@ try {
     await care.waitForFunction(() => !document.querySelector('.companion-care__primary')?.disabled);
   }
   assert.equal((await readCare(care)).friendship, 0.5); assert.equal((await readCare(care)).rewardedPets, 3);
-  await care.getByRole('tab', { name: 'おやつ' }).click();
+  await care.getByRole('tab', { name: '芸' }).click();
   assert.equal(await care.getByRole('button', {name:'くるりんを教える（おやつ1個）',exact:true}).isEnabled(), false);
   await care.getByRole('tab', {name:'ごはん',exact:true}).click();
   for(let i=0;i<6;i++){await care.getByRole('button',{name:'ごはんを1個あげる'}).click();await care.waitForFunction(()=>!document.querySelector('.companion-care__primary')?.disabled);}
-  await care.getByRole('tab', { name: 'おやつ' }).click();
+  await care.getByRole('tab', { name: '芸' }).click();
   assert.equal(await care.getByRole('button', { name: /くるりんを教える/ }).isEnabled(), true);
   await care.getByRole('button', { name: /おやすみ.*なかよし度80から/ }).click();
   assert.equal(await care.getByRole('button', { name: 'おやすみを教える（おやつ1個）', exact: true }).isEnabled(), false);
@@ -103,7 +103,7 @@ try {
   assert.equal(await care.getByRole('button', { name: '育成をリセット', exact: true }).count(), 0);
   const noRewards={...await readCare(care),food:0,treats:0,friendship:0};
   await care.evaluate(async value=>{const {saveSyncedLocalStorage}=await import('/quiz/src/utils/localStorageRecords.ts');const {COMPANION_CARE_KEY}=await import('/quiz/src/utils/companionCare.ts');await saveSyncedLocalStorage({[COMPANION_CARE_KEY]:JSON.stringify(value)});},noRewards);
-  await care.reload();await care.getByRole('button',{name:'ぽんのお世話をする'}).click();await care.getByRole('tab',{name:'おやつ'}).click();
+  await care.reload();await care.getByRole('button',{name:'ぽんのお世話をする'}).click();await care.getByRole('tab',{name:'芸'}).click();
   for(let i=0;i<3;i++){await care.getByRole('button',{name:'くるりんをお願い',exact:true}).click();await care.waitForFunction(()=>!document.querySelector('.companion-care__primary')?.disabled);}
   assert.deepEqual(await readCare(care),noRewards,'repeated learned tricks do not spend treats or change saved progress');
   assert.deepEqual(errors, []);

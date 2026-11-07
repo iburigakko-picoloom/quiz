@@ -94,7 +94,7 @@ try {
     await care.waitForFunction(() => !document.querySelector('.companion-care__primary')?.disabled);
   }
   await care.emulateMedia({ reducedMotion: 'no-preference' });
-  await care.getByRole('tab', { name: 'おやつ' }).click();
+  await care.getByRole('tab', { name: '芸' }).click();
   const train = care.getByRole('button', { name: /くるりんを教える/ });
   await train.click();
   await care.waitForTimeout(2200);

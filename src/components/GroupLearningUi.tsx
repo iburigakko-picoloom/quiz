@@ -1,3 +1,4 @@
+import { AccountAvatar } from './AccountAvatar';
 import type { ReactNode } from 'react';
 import '../library-interactions.css';
 import { FolderOutlineIcon, GroupIcon, HistoryIcon, ProfileIcon, StudyIcon, DocumentOutlineIcon, ChevronRightIcon } from './UiIcons';
@@ -8,9 +9,9 @@ export function GroupAvatar({ icon = 'group', accent = 'blue', photo }: { icon?:
   return <span className={`group-avatar group-avatar--${accent}`} aria-hidden="true">{photo?<img src={photo} alt=""/>:<Icon size={32} />}</span>;
 }
 
-export function MemberAvatar({ name, userId }: { name: string; userId: string }) {
+export function MemberAvatar({ name, userId, self = false }: { name: string; userId: string; self?: boolean }) {
   const hue = [...userId].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 5;
-  return <span className={`member-avatar member-avatar--${hue}`} role="img" aria-label={`${name}のアバター`}><ProfileIcon size={28} /></span>;
+  return <span className={`member-avatar member-avatar--${hue}`} role="img" aria-label={`${name}のアバター`}>{self ? <AccountAvatar userId={userId} /> : <ProfileIcon size={28} />}</span>;
 }
 
 export function LevelProgress({ levels, compact = false, label = '進捗', mockup=false, showCounts=true }: { levels: LevelCounts; compact?: boolean; label?: string; mockup?:boolean; showCounts?:boolean }) {
@@ -49,9 +50,9 @@ export function GroupEmpty({ children }: { children: ReactNode }) {
   return <p className="group-empty">{children}</p>;
 }
 
-export function ImportedMemberProgress({ members }: { members: { userId: string; name: string; levels: LevelCounts | null; status?: string; reflectedAt?: string | null }[] }) {
+export function ImportedMemberProgress({ members }: { members: { userId: string; name: string; self?: boolean; levels: LevelCounts | null; status?: string; reflectedAt?: string | null }[] }) {
   return <div className="group-progress-members">{members.map(member => <article className="group-progress-member" key={member.userId}>
-    <div className="group-progress-member__name"><MemberAvatar name={member.name} userId={member.userId} /><strong>{member.name}</strong></div>
+    <div className="group-progress-member__name"><MemberAvatar name={member.name} userId={member.userId} self={member.self} /><strong>{member.name}</strong></div>
     <div>{member.levels ? <><LevelProgress levels={member.levels} compact label={`${member.name}の進捗`} />{member.reflectedAt ? <small className="group-reflection-date">最終反映 {displayGroupDate(member.reflectedAt)}</small> : null}</> : <p className="group-muted">{member.status ?? '進捗は未共有です'}</p>}</div>
   </article>)}</div>;
 }

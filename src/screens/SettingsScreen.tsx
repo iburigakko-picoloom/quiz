@@ -13,7 +13,7 @@ import {
 import {
   cloudConfigured,
   deleteCloudAccount,
-  getCloudDisplayName,
+  getCloudAccountProfile,
   onCloudSessionSnapshot,
   sendMagicLink,
   signOutCloud,
@@ -50,6 +50,7 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
   const [authReady, setAuthReady] = useState(!cloudConfigured);
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [lineName, setLineName] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState('');
   const [accountError, setAccountError] = useState('');
@@ -65,15 +66,15 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
       setSession(value);
       setAuthReady(true);
       if (!value) {
-        setDisplayName('');
+        setDisplayName(''); setLineName('');
         return;
       }
       const fallback = value.user.email?.split('@')[0] ?? 'Quiz Make ユーザー';
       try {
-        const storedName = await getCloudDisplayName();
-        if (active && revision === sessionRevision) setDisplayName(storedName || fallback);
+        const profile = await getCloudAccountProfile(value.user.id);
+        if (active && revision === sessionRevision) { setDisplayName(profile.displayName); setLineName(profile.lineName); }
       } catch {
-        if (active && revision === sessionRevision) setDisplayName(fallback);
+        if (active && revision === sessionRevision) { setDisplayName(fallback); setLineName(''); }
       }
     };
     const unsubscribe = onCloudSessionSnapshot((value) => void applySession(value));
@@ -193,10 +194,11 @@ export function SettingsScreen({ page, onNavigate, onBack, onExport, onImportBac
                 <div className="settings-account__content"><strong>アカウントを確認中…</strong></div>
               ) : session ? (
                 <div className="settings-account__content">
-                  <strong>{session.user.email ?? 'ログイン中'}</strong>
+                  <strong>{displayName || 'ログイン中'}</strong>
                   <LineLoginButton key={session.user.id} link userId={session.user.id} />
                   <label className="settings-account__field"><span>共有時の表示名</span><input value={displayName} maxLength={40} onChange={(event) => setDisplayName(event.target.value)} /></label>
                   <div className="settings-account__actions">
+                    {lineName && lineName !== displayName ? <button type="button" disabled={accountBusy} onClick={() => setDisplayName(lineName)}>LINEの名前を使う</button> : null}
                     <button type="button" className="settings-account__primary" disabled={accountBusy || !displayName.trim()} onClick={() => void saveDisplayName()}>表示名を保存</button>
                     <button type="button" disabled={accountBusy} onClick={() => void logout()}>ログアウト</button>
                   </div>
