@@ -78,7 +78,7 @@ try {
   await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html?sourcePointer=1');
   await page.getByRole('tab',{name:'フォルダ',exact:true}).waitFor();
   await page.getByRole('tab',{name:'メンバー',exact:true}).click();
-  await page.getByRole('button',{name:'グループアイコンを変更'}).click();
+  await page.getByRole('button',{name:'グループの管理'}).click();
   await page.getByRole('button',{name:'教材',exact:true}).click();await page.getByRole('button',{name:'紫',exact:true}).click();await page.getByRole('button',{name:'アイコンを保存'}).click();await page.getByRole('dialog').waitFor({state:'hidden'});assert.equal(state.icon,'book');assert.equal(state.accent,'violet');
   await page.getByRole('tab',{name:/フォルダ/}).click();await page.getByRole('button',{name:'フォルダを追加'}).click();await page.getByRole('textbox',{name:'フォルダ名'}).fill('病理学');await page.getByRole('button',{name:'追加する',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});await page.getByRole('tab',{name:'フォルダ',exact:true}).waitFor();
   await page.locator('.group-folder-list .library-content-row__open').first().click();

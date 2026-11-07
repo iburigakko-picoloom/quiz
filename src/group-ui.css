@@ -265,3 +265,13 @@
 .group-material-card { width: 100%; text-align: left; color: inherit; cursor: pointer; }
 .group-material-card h3 { overflow-wrap: anywhere; }
 .group-material-card:focus-visible { outline: 3px solid var(--color-primary, #2563eb); outline-offset: 2px; }
+.group-member-stat-card { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(230px, 1.8fr); align-items: center; gap: 12px; padding: 16px; border: 1px solid #e1e6ed; border-radius: 14px; background: #fff; }
+.group-member-card__identity small { display: block; margin-top: 4px; }
+@media (max-width: 600px) { .group-member-stat-card { grid-template-columns: 1fr; } }
+.group-timeline__settings { margin: 0 0 14px; }
+.group-timeline__settings summary { color: var(--ui-accent, #2467bc); cursor: pointer; padding: 8px 0; }
+.group-timeline__settings[open] > button { margin: 6px 12px 6px 0; }
+.group-timeline__date { margin: 22px 0 8px; font-size: 14px; }
+.group-timeline__row { padding: 12px 0; border-bottom: 1px solid #e1e6ed; }
+.group-timeline__row time { display: block; margin: 4px 0; }
+.group-timeline__row p { margin: 6px 0 0; }

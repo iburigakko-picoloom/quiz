@@ -75,6 +75,7 @@ try {
   await page.getByRole('button',{name:'戻る',exact:true}).click();
   assert.equal(await page.getByRole('tab',{name:'概要',exact:true}).getAttribute('aria-selected'),'true');
   await page.getByRole('tab',{name:'タイムライン',exact:true}).click();
+  await page.getByText('共有設定・更新',{exact:true}).click();
   await page.getByRole('button',{name:'活動を共有する',exact:true}).click();
   await page.getByRole('button',{name:'同意して共有',exact:true}).click();
   await page.getByRole('button',{name:'活動共有を停止',exact:true}).waitFor();
@@ -96,7 +97,9 @@ try {
   await page.screenshot({path:'qa/phase1/import-390.png'});
   await page.getByRole('button',{name:'戻る',exact:true}).click();
   await page.getByRole('tab',{name:'メンバー',exact:true}).click();
-  assert.equal(await page.locator('.group-member-card').count(),6);
+  assert.equal(await page.locator('.group-member-card').count(),8);
+  assert.equal(await page.locator('.group-member-card').filter({hasText:'渡辺'}).count(),1);
+  assert.equal(await page.locator('.group-member-card dl').count(),0);
   await page.getByText('メンバーを管理',{exact:true}).click();
   assert.ok(await page.getByRole('button',{name:'メンバーから外す',exact:true}).count()>0);
   for(const width of [390,768]) {

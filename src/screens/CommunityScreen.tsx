@@ -7,7 +7,7 @@ import type { AppData, ProblemSetVisibility } from '../types';
 import { BackButton } from '../components/BackButton';
 import { PublicationMenu } from '../components/PublicationMenu';
 import { Layout } from '../components/Layout';
-import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
+import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, GroupIcon, SearchIcon, SettingsIcon } from '../components/UiIcons';
 import { GroupWorkspace, type GroupDetailTab } from '../components/GroupWorkspace';
 import {LibrarySkeleton} from '../components/LibrarySkeleton';
 import {createViewCache} from '../utils/viewCache';
@@ -857,7 +857,7 @@ export function CommunityScreen({
         <header className="community-screen__header">
           {isPrimaryRoot ? <span className="community-screen__header-spacer" aria-hidden="true" /> : <BackButton onClick={handleHeaderBack} label="戻る" />}
           <div><h1>{headerTitle}</h1></div>
-          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={openGroupSettings}>…</button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
+          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={openGroupSettings}><SettingsIcon size={21}/></button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
         </header>
 
         {!cloudConfigured ? <div className="community-notice community-notice--warning">共有機能の接続設定が未完了です。端末内の作成・学習機能はそのまま使えます。</div> : null}

@@ -6,13 +6,13 @@ import { importedLearning, levelPercentages, sortLearningMembers, type GroupLear
 import {groupStudyCandidates} from '../utils/groupStudySource';
 import { buildGroupLibrary, groupFolderSets, type GroupFolderCardData } from '../utils/groupLibrary';
 import type { MaterialProgress, GroupLearningSnapshot } from '../utils/groupLearningService';
-import { PlusIcon, SettingsIcon } from './UiIcons';
-import { GroupAvatar, GroupEmpty, LevelProgress, MemberAvatar, displayGroupDate } from './GroupLearningUi';
+import { ChevronRightIcon, PlusIcon } from './UiIcons';
+import { GroupEmpty, LevelProgress, MemberAvatar, displayGroupDate } from './GroupLearningUi';
 import {LibraryPane} from './LibraryPane';
 import {LibraryContentRow} from './LibraryContentRow';
 
 export type GroupDetailTab = 'timeline' | 'overview' | 'folders' | 'members';
-export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onSettings, onRefresh, onRemoveMember, onImportFolder,onManageFolder,onRemoveSet,busy,materials,onOpenProgress }: {
+export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onRefresh, onRemoveMember, onImportFolder,onManageFolder,onRemoveSet,busy,materials,onOpenProgress }: {
   data: AppData; group?: CloudGroup; sets: CloudProblemSet[]; members: CloudGroupMember[]; userId: string; snapshot: GroupLearningSnapshot | null;
   loading: boolean; error: string; tab: GroupDetailTab; onTab: (tab: GroupDetailTab) => void; folderTrail: string[]; onFolderTrail: (trail: string[]) => void;
   onOpenSet: (set: CloudProblemSet, location: string) => void; onAddSet: (folder: GroupFolderCardData) => void; onAddFolder: () => void; onSettings: () => void; onRefresh: () => void; onRemoveMember: (member: CloudGroupMember) => void; busy: boolean;
@@ -31,8 +31,6 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
     previousFolderKey.current=folderKey;
   }, [tab, folderKey]);
   const folders = useMemo(() => buildGroupLibrary(sets, snapshot), [sets, snapshot]);
-  const countFolders = (rows: GroupFolderCardData[]): number => rows.reduce((count, folder) => count + (folder.key === 'unfiled' ? 0 : 1) + countFolders(folder.children), 0);
-  const folderCount = countFolders(folders);
   const trail: GroupFolderCardData[] = [];
   let children = folders;
   for (const key of folderTrail) { const folder = children.find(f => f.key === key); if (!folder) break; trail.push(folder); children = folder.children; }
@@ -55,15 +53,6 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
     <div className="group-workspace__content">
       {error ? <div className="group-error" role="alert">{error}<button type="button" onClick={onRefresh}>再読み込み</button></div> : null}
       {loading ? <p className="group-muted" role="status">グループの集計を読み込み中…</p> : null}
-      {tab === 'members' ? <article className="group-summary group-panel">
-        <button type="button" className="group-summary__icon" aria-label="グループアイコンを変更" disabled={group?.role!=='owner' || busy} onClick={onSettings}><GroupAvatar photo={group?.photo} icon={snapshot?.icon ?? group?.icon} accent={snapshot?.accent ?? group?.accent} />{group?.role==='owner' ? <span className="group-summary__edit" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 5 5-13 13-5 1 1-5z"/><path d="m14 5 5 5"/></svg></span> : null}</button>
-        <nav className="group-summary__stats" aria-label="グループの情報">
-          <button type="button" className="library-tappable" onClick={()=>onTab('members')} aria-label={`${members.length}人のメンバーを見る`}><strong>{members.length}</strong><span>メンバー</span></button>
-          <button type="button" className="library-tappable" onClick={()=>{onFolderTrail([]);onTab('folders');}} aria-label={`${folderCount}個のフォルダを見る`}><strong>{folderCount}</strong><span>フォルダ</span></button>
-          <button type="button" className="library-tappable" onClick={()=>{onFolderTrail([]);onTab('folders');}} aria-label={`${sets.length}個の問題セットを見る`}><strong>{sets.length}</strong><span>セット</span></button>
-        </nav>
-        <button type="button" className="group-summary__settings library-tappable" onClick={onSettings} aria-label="グループ設定"><SettingsIcon size={21}/></button>
-      </article> : null}
       <section id="group-panel-overview" role="tabpanel" aria-labelledby="group-tab-overview" hidden={tab !== 'overview'}>
         <h2>教材ごとの学習状況</h2>
 
@@ -73,12 +62,10 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
           const local = candidates.find(row => row.id === remote?.ownCopyId) ?? candidates[0];
           const own = local && set.versionId ? importedLearning(data, local, set.id, set.versionId) : null;
           return <button type="button" className="group-panel group-material-card" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>
-            <h3>{set.title}</h3>
+            <h3>{set.title} <ChevronRightIcon size={18} aria-hidden="true" /></h3>
             <p>学習中 {remote ? `${remote.learners}人（共有中）` : '—'}</p>
             <p>自分の進捗：{own ? `回答済み ${own.answered} / ${own.total}問・回答率 ${Math.round(own.answered / own.total * 100)}%` : '—'}</p>
             {own ? <LevelProgress levels={own.levels} compact label="自分の理解度" /> : null}
-            <p>グループ全体の回答率：{remote?.total ? `${Math.round(remote.answered! / remote.total * 100)}%` : '—'}</p>
-            {remote?.levels ? <LevelProgress levels={remote.levels} compact label="グループ全体の理解度" /> : null}
             <small>自分の最終反映：{remote?.ownState === 'shared' ? displayGroupDate(remote.ownReflectedAt ?? '') : remote ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち'}[remote.ownState] ?? '—') : '取得待ち'}</small>
           </button>;
         })}</div>
@@ -100,11 +87,13 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         </LibraryPane>
       </section>
       <section id="group-panel-members" role="tabpanel" aria-labelledby="group-tab-members" hidden={tab !== 'members'}>
-        <div className="group-panel__heading group-list-heading"><h2>メンバー {members.length}</h2><div className="group-segment" aria-label="メンバーの並び順">{([['today', '今日'], ['week', '今週'], ['l3', 'L3']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>)}</div></div>
-        <div className="group-member-list">{sorted.map((member, i) => <article className="group-member-card" key={member.userId}>
+        <div className="group-panel__heading group-list-heading"><h2>メンバー {members.length}</h2></div>
+        <div className="group-member-list">{members.map(member => <article className="group-member-card" key={member.userId}><div className="group-member-card__identity"><MemberAvatar name={member.displayName} userId={member.userId} self={member.userId === userId}/><span><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong><small>{member.role === 'owner' ? 'オーナー' : member.role === 'admin' ? '管理者' : 'メンバー'}</small></span></div></article>)}</div>
+        <details><summary>共有された学習統計</summary><div className="group-segment" aria-label="メンバーの並び順">{([['today', '今日'], ['week', '今週'], ['l3', 'L3']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>)}</div>
+        <div className="group-member-list">{sorted.map((member, i) => <article className="group-member-stat-card" key={member.userId}>
           <div className="group-member-card__identity"><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} self={member.userId === userId} /><span><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong>{member.role === 'owner' ? <small className="group-owner-badge">オーナー</small> : null}</span></div>
           <dl className="group-member-card__stats"><div><dt>今日</dt><dd>{member.todayCount === null ? '—' : `${member.todayCount}問`}</dd></div><div><dt>今週</dt><dd>{member.weekCount === null ? '—' : `${member.weekCount}問`}</dd></div><div><dt>教材</dt><dd>{snapshot ? `${member.importedSetCount}セット` : '—'}</dd></div><div><dt>L3</dt><dd>{member.levels ? `${levelPercentages(member.levels)[3]}%` : '—'}</dd></div></dl>
-        </article>)}</div>
+        </article>)}</div></details>
         {canManage ? <details className="group-member-management"><summary>メンバーを管理</summary>{members.filter(member => member.role !== 'owner' && member.userId !== userId).map(member => <div key={member.userId}><span>{member.displayName}</span><button type="button" disabled={busy} onClick={() => onRemoveMember(member)}>メンバーから外す</button></div>)}</details> : null}
       </section>
     </div>
