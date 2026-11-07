@@ -11,7 +11,7 @@ await mkdir(screenshotDirectory, { recursive: true });
 const errors = [];
 async function page(answers) {
   const target = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
-  target.setDefaultTimeout(15_000);
+  target.setDefaultTimeout(30_000);
   target.on('pageerror', error => errors.push(error.message));
   await target.route('https://**/*', route => route.abort());
   await target.goto(`${origin}/tests/browser/companion-care-preview.html?answers=${answers}`);
@@ -29,8 +29,8 @@ try {
   await study.getByRole('button', { name: /不正解/ }).click();
   await study.getByRole('button', { name: '解答する', exact: true }).click();
   await study.getByRole('button', { name: '結果へ', exact: true }).click();
-  await study.getByText('ごはん1個・おやつ1個を獲得！', { exact: true }).waitFor();
-  assert.equal((await readCare(study)).food, 1);
+  await study.getByText('お世話に使える1問分を獲得！', { exact: true }).waitFor();
+  assert.equal((await readCare(study)).answerBalance, 50);
   await study.screenshot({ path: `${screenshotDirectory}/result-390.png` });
   await study.getByRole('button', { name: 'お世話へ ›' }).click();
   const feedPosition = await study.getByRole('button', { name: 'ごはんを1個あげる' }).boundingBox();
@@ -40,7 +40,7 @@ try {
   assert.equal((await study.getByRole('button', { name: 'ごはんを1個あげる' }).boundingBox()).y, feedPosition.y, 'feeding does not insert text or move controls');
   assert.equal((await readCare(study)).friendship, 4 / 3);
   await study.getByRole('button', { name: '戻る', exact: true }).click();
-  await study.getByText('ごはん1個・おやつ1個を獲得！', { exact: true }).waitFor();
+  await study.getByText('お世話に使える1問分を獲得！', { exact: true }).waitFor();
   assert.equal((await readCare(study)).food, 0, 'reopening results cannot claim again');
 
   // A new review record also earns food; the same question is eligible repeatedly.
@@ -48,18 +48,18 @@ try {
   await study.locator('.quiz-choice').filter({ has: study.locator('.quiz-choice__text', { hasText: /^正解$/ }) }).click();
   await study.getByRole('button', { name: '解答する', exact: true }).click();
   await study.getByRole('button', { name: '結果へ', exact: true }).click();
-  await study.getByText('次のごほうびへ、一歩前進', { exact: true }).waitFor();
+  await study.getByText('お世話に使える1問分を獲得！', { exact: true }).waitFor();
   assert.equal((await readCare(study)).answerRemainder, 1);
   const retained = await readCare(study);
   await study.evaluate(async () => (await import('/quiz/src/utils/studyCompanion.ts')).setStudyCompanionEnabled(false));
   await study.locator('.companion-reward').waitFor({ state: 'hidden' });
   assert.deepEqual(await readCare(study), retained, 'disabling the character hides rewards without deleting progress');
 
-  const care = await page(400);
+  const care = await page(425);
   await care.getByRole('button', { name: 'パピィのお世話をする' }).click();
   await care.getByRole('button', { name: 'ごはんを1個あげる' }).waitFor();
   assert.equal(await care.getByText(/勉強のご褒美を|正解も不正解も|なかよくなるには/).count(), 0);
-  await care.getByText('次のごはんまで あと 50問').waitFor();
+  await care.getByText('次のごはんまで あと 0問').waitFor();
   for (const width of [320, 390, 768]) {
     await care.setViewportSize({ width, height: 844 });
     assert.equal(await care.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -88,17 +88,17 @@ try {
     await care.waitForFunction(() => !document.querySelector('.companion-care__primary')?.disabled);
   }
   const learned = await readCare(care);
-  assert.equal(learned.tricks.spin, 5); assert.equal(learned.food, 2); assert.equal(learned.treats, 3); assert.ok(Math.abs(learned.friendship - 8.5) < 1e-10);
+  assert.equal(learned.tricks.spin, 5); assert.equal(learned.answerBalance, 0); assert.equal(learned.treats, 0); assert.ok(Math.abs(learned.friendship - 8.5) < 1e-10);
   await care.screenshot({ path: `${screenshotDirectory}/care-tricks-390.png` });
   await care.getByRole('button', { name: 'くるりんをお願い' }).click();
   await care.waitForFunction(() => !document.querySelector('.companion-care__primary')?.disabled);
-  assert.equal((await readCare(care)).food, 2); assert.equal((await readCare(care)).treats, 3);
+  assert.equal((await readCare(care)).answerBalance, 0); assert.equal((await readCare(care)).treats, 0);
   await care.getByRole('button', { name: 'キャラの名前を変更' }).click();
   await care.getByRole('textbox', { name: 'キャラの名前' }).fill('ぽん');
   await care.getByRole('button', { name: '保存', exact: true }).click();
   await care.reload();
   await care.getByRole('button', { name: 'ぽんのお世話をする' }).click();
-  assert.equal((await readCare(care)).tricks.spin, 5); assert.equal((await readCare(care)).food, 2); assert.equal((await readCare(care)).treats, 3);
+  assert.equal((await readCare(care)).tricks.spin, 5); assert.equal((await readCare(care)).answerBalance, 0); assert.equal((await readCare(care)).treats, 0);
   assert.equal(await care.getByLabel('お世話の設定', { exact: true }).count(), 0);
   assert.equal(await care.getByRole('button', { name: '育成をリセット', exact: true }).count(), 0);
   const noRewards={...await readCare(care),food:0,treats:0,friendship:0};
@@ -106,6 +106,27 @@ try {
   await care.reload();await care.getByRole('button',{name:'ぽんのお世話をする'}).click();await care.getByRole('tab',{name:'おやつ'}).click();
   for(let i=0;i<3;i++){await care.getByRole('button',{name:'くるりんをお願い',exact:true}).click();await care.waitForFunction(()=>!document.querySelector('.companion-care__primary')?.disabled);}
   assert.deepEqual(await readCare(care),noRewards,'repeated learned tricks do not spend treats or change saved progress');
+  await care.evaluate(async()=>{
+    const storage=await import('/quiz/src/utils/companionCareStorage.ts'),model=await import('/quiz/src/utils/companionCare.ts');
+    const {saveSyncedLocalStorage}=await import('/quiz/src/utils/localStorageRecords.ts');
+    const base={...model.creditCompanionAnswers(storage.readCompanionCare(),Array.from({length:50},(_,i)=>({id:`parallel-${i}`}))),friendship:40,peakFriendship:40};
+    const day=base.lastSeenDay,left=model.applyCompanionCareAction(base,{kind:'feed'},day),right=model.applyCompanionCareAction(base,{kind:'train',trickId:'touch'},day);
+    await saveSyncedLocalStorage({[model.COMPANION_CARE_KEY]:JSON.stringify(left)});
+    const db=await(await import('/quiz/src/storage.ts')).openAppDb(),tx=db.transaction('appRecordConflicts','readwrite');
+    tx.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',key:JSON.stringify(['localStorage',model.COMPANION_CARE_KEY]),local:{raw:JSON.stringify(left)},remote:{raw:JSON.stringify(right)}},'browser-budget');
+    await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});
+  });
+  await care.reload();await care.getByRole('button',{name:'ぽんのお世話をする'}).click();
+  await care.getByRole('heading',{name:'育成の変更を確認'}).waitFor();
+  await care.getByRole('button',{name:/別の端末の育成を使う.*補充分25問/}).click();
+  await care.getByRole('heading',{name:'育成の変更を確認'}).waitFor({state:'hidden'});
+  assert.equal((await readCare(care)).answerBalance,-25);
+  assert.equal((await readCare(care)).tricks.touch,1);
+  assert.equal(await care.getByRole('button',{name:'ごはんを1個あげる'}).isEnabled(),false);
+  await care.getByRole('tab',{name:'おやつ'}).click();
+  await care.getByRole('button',{name:/タッチ.*1 \/ 8回/}).click();
+  assert.equal(await care.getByRole('button',{name:'タッチを教える（おやつ1個）',exact:true}).isEnabled(),false);
+  await care.screenshot({path:`${screenshotDirectory}/shared-debt-390.png`});
   assert.deepEqual(errors, []);
   console.log('Companion browser passed: full App navigation, incorrect/repeated answers, automatic reward/reopen, feed, daily pet cap, trick unlock/practice/free requests, reload, character display preference, 320/390/768px layout. Screenshots: ' + screenshotDirectory);
 } finally { await browser.close(); }

@@ -1,3 +1,6 @@
+import { getCachedCloudAccountIdentity } from '../utils/cloudService';
+import type { LocalAccountIdentity } from '../utils/accountStorage';
+import { useDeviceRole } from '../hooks/useDeviceRole';
 import { Children, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
 import { isAccountWorkReloadApproved } from '../utils/accountWork';
@@ -56,11 +59,12 @@ interface QuizRunnerProps {
   onRemoveDetailedImage?: (questionId: string, imageId: string) => Promise<void>;
   onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onLinkMaterialBatch?: (setId: string, links: ReferenceLink[]) => Promise<void>;
+  onStudySessionEnd?: (answers: NonNullable<QuizResult['sessionAnswers']>, identity: LocalAccountIdentity | null) => void;
   onFinish: (result: QuizResult) => void;
 }
 
 type QuizWork = { questions: Question[]; readOnly: boolean; currentIndex: number; selectedIndexes: number[]; lastCorrect: boolean|null; hasAnswered: boolean; correctCount: number; wrongCount: number; addedReviewCount: number; sessionAnswers: NonNullable<QuizResult['sessionAnswers']>; presentation: {index:number;question:Question|undefined}|null; answerSaveState:'idle'|'saving'|'saved'|'error'; savedLevelLabel:string };
-export function QuizRunner({ data, title, subtitle, questions: incomingQuestions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizRunnerProps) {
+export function QuizRunner({ data, title, subtitle, questions: incomingQuestions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish, onStudySessionEnd }: QuizRunnerProps) {
   const workKey=`quiz:${setId??'multi'}:${mode}:${readOnly}`;
   const recovered=useRestoredAccountWork<QuizWork>(workKey);
   const [questions]=useState(recovered?.questions??incomingQuestions);
@@ -70,6 +74,24 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
   const [hasAnswered, setHasAnswered] = useState(recovered?.hasAnswered??false);
   const [correctCount, setCorrectCount] = useState(recovered?.correctCount??0);
   const sessionAnswersRef = useRef<NonNullable<QuizResult['sessionAnswers']>>(recovered?.sessionAnswers??[]);
+  const activityIdentity = useRef(getCachedCloudAccountIdentity());
+  const sessionEndRef = useRef(onStudySessionEnd); sessionEndRef.current = onStudySessionEnd;
+  const pendingAnswerSaveRef = useRef<Promise<unknown> | null>(null);
+  const activityEffectGeneration = useRef(0);
+  useEffect(() => {
+    const generation = ++activityEffectGeneration.current;
+    return () => {
+      const answers = [...sessionAnswersRef.current];
+      const callback = sessionEndRef.current;
+      const identity = activityIdentity.current;
+      if (readOnly || !answers.length) return;
+      // A back action can unmount while the durable answer write is still pending.
+      // Deferring also skips React's effect replay for a restored session.
+      void Promise.resolve(pendingAnswerSaveRef.current).catch(() => undefined).then(() => {
+        if (activityEffectGeneration.current === generation) callback?.(answers, identity);
+      });
+    };
+  }, [readOnly]);
   const submittedQuestionRef = useRef<string | null>(recovered?.hasAnswered ? questions[currentIndex]?.id??null : null);
   const [feedback, setFeedback] = useState<'correct' | 'relearned' | 'wrong' | null>(null);
   const [wrongCount, setWrongCount] = useState(recovered?.wrongCount??0);
@@ -89,7 +111,8 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
   const detailBlockedRef = useRef(false);
   const onDetailDirtyChange = useCallback((dirty: boolean) => { detailBlockedRef.current = dirty; }, []);
   const quizRunnerMountedRef = useRef(true);
-  const noteFeatureAvailable = ENABLE_TABLET_NOTES && !readOnly && Boolean(setId);
+  const contentReadOnly = useDeviceRole() === 'sub';
+  const noteFeatureAvailable = ENABLE_TABLET_NOTES && !readOnly && !contentReadOnly && Boolean(setId);
   const noteFeatureEnabled = noteFeatureAvailable;
   const noteAreaOpen = noteFeatureEnabled && noteOpen && isTabletLandscape;
 
@@ -310,6 +333,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
       setAnswerSaveState('error');
       setSavedLevelLabel(result.levelLabel ? `\u7aef\u672b\u306b\u672a\u4fdd\u5b58\u30fb${result.levelLabel}` : '\u7aef\u672b\u306b\u672a\u4fdd\u5b58');
     });
+    pendingAnswerSaveRef.current = result.savePromise;
     settleSave(result.savePromise);
     setCorrectCount((value) => value + (result.isCorrect ? 1 : 0));
     setWrongCount((value) => value + (result.isCorrect ? 0 : 1));
@@ -363,7 +387,9 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
     const answeredQuestionId = currentQuestion.id;
     setAnswerSaveState('saving');
     setSavedLevelLabel('\u4fdd\u5b58\u3092\u518d\u8a66\u884c\u4e2d\u2026');
-    void retrySave().then((saved) => {
+    const retryPromise = retrySave();
+    pendingAnswerSaveRef.current = retryPromise;
+    void retryPromise.then((saved) => {
       if (visibleQuestionIdRef.current !== answeredQuestionId) return;
       setAnswerSaveState(saved ? 'saved' : 'error');
       setSavedLevelLabel(saved ? '\u4fdd\u5b58\u6e08\u307f' : '\u7aef\u672b\u306b\u672a\u4fdd\u5b58');
@@ -487,7 +513,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
             imageIds={currentDetailedImageIds}
             savedLevelLabel={savedLevelLabel}
             answerSaveState={answerSaveState}
-            readOnly={readOnly}
+            readOnly={readOnly} contentReadOnly={contentReadOnly}
             isAmbiguous={progress?.isAmbiguous ?? false}
             isLast={currentIndex + 1 >= questions.length}
             state={answerSheetState}
@@ -670,7 +696,7 @@ function splitTextByPhrases(text: string, phrases: string[]) {
   return parts;
 }
 
-export function AnswerPanel({
+export function AnswerPanel({ contentReadOnly = false,
   guidePage,
   questionId,
   isCorrect,
@@ -706,6 +732,7 @@ export function AnswerPanel({
   imageIds: string[];
   savedLevelLabel: string;
   answerSaveState: 'idle' | 'saving' | 'saved' | 'error';
+  contentReadOnly?: boolean;
   readOnly: boolean;
   isAmbiguous: boolean;
   isLast: boolean;
@@ -1051,7 +1078,7 @@ export function AnswerPanel({
   };
 
 
-  const detailEditingDisabled = readOnly || answerSaveState !== 'saved';
+  const detailEditingDisabled = readOnly || contentReadOnly || answerSaveState !== 'saved';
 
 
   const answerPage = (

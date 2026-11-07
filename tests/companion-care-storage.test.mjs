@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
-import { COMPANION_CARE_KEY, COMPANION_CARE_EVENT } from '../src/utils/companionCare.ts';
+import { COMPANION_CARE_KEY, COMPANION_CARE_EVENT, companionFoodAvailable, companionTreatsAvailable } from '../src/utils/companionCare.ts';
 import { saveCompanionCare, readCompanionCare } from '../src/utils/companionCareStorage.ts';
 import { createEmptyAppData, saveAppData, openAppDb, loadAppDataAsync } from '../src/storage.ts';
 import { appRecordKey } from '../src/utils/appRecordStorage.ts';
@@ -28,10 +28,10 @@ const row = async (store, key) => { const tx = db.transaction(store), r = tx.obj
 
 test('food, remainder, duplicate witnesses and mastery persist in IDB and synchronized record with backup support', async () => {
   const care = await saveCompanionCare(logs(151), { visit: true, now });
-  assert.equal(care.food, 3); assert.equal(care.answerRemainder, 1);
+  assert.equal(companionFoodAvailable(care), 3); assert.equal(care.answerRemainder, 1);
   await saveSyncedLocalStorage({[COMPANION_CARE_KEY]: JSON.stringify({...care,friendship:40,peakFriendship:40})});
   const trained = await saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'spin' }, now });
-  assert.equal(trained.food, 3); assert.equal(trained.treats, 2); assert.equal(trained.tricks.spin, 1); assert.equal(trained.friendship, 40);
+  assert.equal(companionFoodAvailable(trained), 2); assert.equal(trained.answerBalance, 126); assert.equal(trained.tricks.spin, 1); assert.equal(trained.friendship, 40);
   assert.deepEqual(readCompanionCare(), trained);
   const raw = JSON.stringify(trained);
   assert.equal((await readLearningValues(db)).get(COMPANION_CARE_KEY).raw, raw);
@@ -66,14 +66,16 @@ test('aborted training retains food, treats, bond, mastery and outbox; retry spe
   assert.deepEqual(readCompanionCare(), before);
   assert.deepEqual(await row('appOutbox', appRecordKey('localStorage', COMPANION_CARE_KEY)), beforeOutbox);
   const next = await saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'spin' }, now });
-  assert.equal(next.food, before.food); assert.equal(next.treats, before.treats - 1); assert.equal(next.tricks.spin, before.tricks.spin + 1);
+  assert.equal(next.food, before.food); assert.equal(next.answerBalance, before.answerBalance - 25); assert.equal(next.tricks.spin, before.tricks.spin + 1);
 });
 
 test('concurrent training is serialized and cannot spend one treat twice', async () => {
-  const before = readCompanionCare(); assert.equal(before.treats, 1);
+  await saveCompanionCare(logs(151), { action: { kind: 'feed' }, now });
+  await saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'touch' }, now });
+  const before = readCompanionCare(); assert.equal(companionTreatsAvailable(before), 1);
   const results = await Promise.allSettled([saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'bow' }, now }), saveCompanionCare(logs(151), { action: { kind: 'train', trickId: 'bow' }, now })]);
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
-  assert.equal(readCompanionCare().food, before.food); assert.equal(readCompanionCare().treats, 0);
+  assert.equal(readCompanionCare().food, before.food); assert.equal(readCompanionCare().answerBalance, 1);
   assert.equal(readCompanionCare().friendship, before.friendship);
   assert.equal(accountLocalStorage.getItem(COMPANION_CARE_KEY), JSON.stringify(readCompanionCare()));
 });
@@ -84,10 +86,12 @@ test('automatic care waits for conflict selection, frozen uploads and navigation
   const meta = async (key, value) => { const tx = db.transaction('appRecordMeta', 'readwrite');
     if (value) tx.objectStore('appRecordMeta').put(value, key); else tx.objectStore('appRecordMeta').delete(key);
     await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error); }); };
-  for (const key of ['wholeConflict', 'wholeFrozen']) {
+  for (const key of ['wholeConflict', 'wholeFrozen', 'deltaFrozen']) {
     await meta(key, { pending: true });
     assert.deepEqual(await saveCompanionCare(logs(201), { automatic: true, visit: true, now: later }), before);
     assert.equal(await readUserEditGeneration(db), generation); assert.equal(getLocalDataRevision(), revision);
+    await assert.rejects(saveCompanionCare(logs(201), { action: { kind: 'feed' }, now: later }), /同期の確認/);
+    assert.deepEqual(readCompanionCare(), before);
     await meta(key, null);
   }
   setSyncInteractionProtected(true);
@@ -96,7 +100,7 @@ test('automatic care waits for conflict selection, frozen uploads and navigation
   assert.deepEqual(await saveCompanionCare(logs(201), { automatic: true, isCurrent: () => false, visit: true, now: later }), before);
   assert.equal(await readUserEditGeneration(db), generation);
   const resumed = await saveCompanionCare(logs(201), { automatic: true, isCurrent: () => true, visit: true, now: later });
-  assert.equal(resumed.food, before.food + 1); assert.equal(resumed.lastSeenDay, '2026-10-15');
+  assert.equal(resumed.answerBalance, before.answerBalance + 50); assert.equal(resumed.lastSeenDay, '2026-10-15');
   assert.equal(await readUserEditGeneration(db), generation + 1);
   await saveCompanionCare(logs(201), { automatic: true, visit: true, now: later });
   assert.equal(await readUserEditGeneration(db), generation + 1); assert.deepEqual(readCompanionCare(), resumed);
@@ -121,7 +125,7 @@ test('reset is atomic, keeps study data, and survives reload without rewarding p
   publishLearningStorage(new Map()); await replayLocalStorageProjections(db);
   assert.deepEqual(readCompanionCare(), reset);
   assert.deepEqual(await saveCompanionCare(logs(201), { now }), reset);
-  assert.equal((await saveCompanionCare(logs(251), { now })).food, 1);
+  assert.equal(companionFoodAvailable(await saveCompanionCare(logs(251), { now })), 1);
 });
 
 test('legacy migration is saved once through the normal sync path and defers while a source choice is pending', async () => {
@@ -138,10 +142,32 @@ test('legacy migration is saved once through the normal sync path and defers whi
   const clear = db.transaction('appRecordMeta', 'readwrite'); clear.objectStore('appRecordMeta').delete('wholeConflict');
   await new Promise((resolve, reject) => { clear.oncomplete = resolve; clear.onabort = () => reject(clear.error); });
   const migrated = await saveCompanionCare(logs(41), { automatic: true, now });
-  assert.equal(migrated.version, 3); assert.equal(migrated.food, 2); assert.equal(migrated.answerRemainder, 1);
+  assert.equal(migrated.version, 4); assert.equal(migrated.food, 2); assert.equal(migrated.answerRemainder, 1);
   assert.deepEqual(migrated.rewardBaseline, { answers: 40, awards: 2 });
   assert.equal((await row('appRecords', appRecordKey('localStorage', COMPANION_CARE_KEY))).raw, JSON.stringify(migrated));
   assert.equal(await readUserEditGeneration(db), generation + 1);
   await saveCompanionCare(logs(41), { automatic: true, now });
   assert.equal(await readUserEditGeneration(db), generation + 1);
+});
+
+test('explicit conflict recovery keeps chosen care and both spend ledgers, resumes, and backup restore cannot revive spent answers',async()=>{
+ const {createCompanionCare,creditCompanionAnswers,applyCompanionCareAction}=await import('../src/utils/companionCare.ts');
+ const {resolveCompanionBudgetConflict,readCompanionBudgetConflicts}=await import('../src/utils/companionBudgetRecovery.ts');
+ const {restoreFileBackup}=await import('../src/utils/backupPayload.ts');
+ const base={...creditCompanionAnswers(createCompanionCare('2026-10-14'),logs(50)),friendship:40,peakFriendship:40};
+ await saveSyncedLocalStorage({[COMPANION_CARE_KEY]:JSON.stringify(base)});
+ const backup=await createCompleteFileBackup(await exportQuizMakeData(),[]);
+ const left=applyCompanionCareAction(base,{kind:'feed'},'2026-10-14'),right=applyCompanionCareAction(base,{kind:'train',trickId:'spin'},'2026-10-14');
+ await saveSyncedLocalStorage({[COMPANION_CARE_KEY]:JSON.stringify(left)});
+ const tx=db.transaction('appRecordConflicts','readwrite');tx.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',local:{raw:JSON.stringify(left)},remote:{raw:JSON.stringify(right)}},'fixture-budget');
+ await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});
+ assert.equal((await readCompanionBudgetConflicts()).length,1);
+ await resolveCompanionBudgetConflict('fixture-budget','remote');
+ const merged=readCompanionCare();assert.equal(merged.answerBalance,-25);assert.equal(merged.tricks.spin,1);assert.equal(merged.spendEvents.length,2);
+ assert.equal((await readCompanionBudgetConflicts()).length,0);
+ Object.defineProperty(navigator,'storage',{value:{estimate:async()=>({quota:1024*1024*1024,usage:0})},configurable:true});
+ const restored=await restoreFileBackup(backup);assert.equal(restored.ok,true,restored.error);
+ assert.equal(readCompanionCare().answerBalance,-25);assert.equal(readCompanionCare().spendEvents.length,2);
+ const resumed=await saveCompanionCare([...logs(50),...Array.from({length:50},(_,i)=>({id:`repay-${i}`}))],{now});
+ assert.equal(resumed.answerBalance,25);
 });

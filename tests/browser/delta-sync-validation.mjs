@@ -6,15 +6,15 @@ import {createServer} from 'vite';
 import {createRecordProtocolDatabase} from '../helpers/record-protocol-db.mjs';
 import {normalizeAppData} from '../../src/utils/appDataValidation.ts';
 const pg=await createRecordProtocolDatabase();
-await pg.exec(await readFile(new URL('../../supabase/migrations/20261005154212_quiz_whole_commit.sql',import.meta.url),'utf8'));
-await pg.exec(await readFile(new URL('../../supabase/migrations/20261015232702_quiz_delta_sync.sql',import.meta.url),'utf8'));
-await pg.exec(await readFile(new URL('../../supabase/migrations/20261016094737_quiz_delta_resumable_finish.sql',import.meta.url),'utf8'));
+await pg.exec((await readFile(new URL('../../supabase/migrations/20261005154212_quiz_whole_commit.sql',import.meta.url),'utf8')).replace(/\r\n/g,'\n'));
+await pg.exec((await readFile(new URL('../../supabase/migrations/20261015232702_quiz_delta_sync.sql',import.meta.url),'utf8')).replace(/\r\n/g,'\n'));
+await pg.exec((await readFile(new URL('../../supabase/migrations/20261016094737_quiz_delta_resumable_finish.sql',import.meta.url),'utf8')).replace(/\r\n/g,'\n'));
 const stamp='2026-10-16T00:00:00Z',syncId='d'.repeat(36),connection={project:'https://fixture.invalid',userId:'owner',syncId};
 const data=normalizeAppData({version:1,folders:[{id:'f',name:'Fixture',createdAt:stamp,updatedAt:stamp}],problemSets:[{id:'s',folderId:'f',title:'Fixture',source:'',createdAt:stamp,updatedAt:stamp}],questions:[{id:'q',setId:'s',question:'Synthetic question',choices:['a','b','c','d'],answerIndex:0,explanation:'',createdAt:stamp,updatedAt:stamp}],progress:[],answerLogs:[]}).data;
 await pg.query('insert into public.quiz_sync_data(sync_id,data,updated_at,creator_hash) values($1,$2,$3,private.quiz_sync_actor_hash())',[syncId,JSON.stringify({version:1,localStorage:{'quiz-make-app-data-v1':JSON.stringify(data)},indexedDbNotes:{}}),stamp]);
 await pg.query('select public.quiz_sync_v2_open($1,$2)',[syncId,stamp]);
 let pushes=0;const requests=[];
-const server=await createServer({server:{host:'127.0.0.1',port:5196,strictPort:true,watch:{ignored:['**/tmp/**']}},plugins:[{name:'delta-fixture',configureServer(server){server.middlewares.use('/fixture-delta',async(req,res)=>{
+const server=await createServer({server:{host:'127.0.0.1',port:Number(process.env.QUIZ_DELTA_PORT??5196),strictPort:true,watch:{ignored:['**/tmp/**']}},plugins:[{name:'delta-fixture',configureServer(server){server.middlewares.use('/fixture-delta',async(req,res)=>{
   // Decode across network chunks so a split UTF-8 character is not replaced.
   try{req.setEncoding('utf8');let raw='';for await(const part of req)raw+=part;const body=JSON.parse(raw);requests.push({action:body.action,bytes:Buffer.byteLength(raw),hasDataUrl:raw.includes('data:application/pdf')});if(body.action==='push')pushes++;
     await new Promise(r=>setTimeout(r,50));const result=(await pg.query('select public.quiz_delta_sync($1,$2,$3) result',[syncId,body.action,JSON.stringify(body.request??{})])).rows[0].result;
@@ -26,7 +26,8 @@ let browser;
 try{
   browser=await engines[engine].launch({headless:true,...(engine==='chromium'?{channel:'chrome'}:{})});
   const contexts=await Promise.all([browser.newContext(),browser.newContext()]),pages=await Promise.all(contexts.map(c=>c.newPage())),errors=[];
-  for(const page of pages){page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.text().startsWith('fixture:')||m.type()==='error')console.log(m.text());});await page.goto('http://127.0.0.1:5196/quiz/tests/browser/answer-save.html');
+  for(const page of pages){page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.text().startsWith('fixture:')||m.type()==='error')console.log(m.text());});await page.goto(`http://127.0.0.1:${process.env.QUIZ_DELTA_PORT??5196}/quiz/tests/browser/answer-save.html`);
+    await page.evaluate(role=>localStorage.setItem('quizMakeDeviceRole:v1',role),pages.indexOf(page)===0?'main':'sub');
     await page.evaluate(async({data,connection})=>{
       window.fixture={connection,data};const storage=await import('/quiz/src/storage.ts'),vault=await import('/quiz/src/utils/blobVault.ts'),delta=await import('/quiz/src/utils/deltaSync.ts');
       if(!await storage.saveAppDataAsync(data))throw Error('seed failed');const db=await storage.openAppDb();
@@ -84,6 +85,30 @@ try{
   assert.deepEqual(retry,{lost:true,answers:11,count:11});assert.equal(pushes-beforePushes,1);
   assert.ok(requests.slice(begin).every(r=>!r.hasDataUrl&&r.bytes<65536));assert.deepEqual(errors,[]);
   const report={engine,...sample,p95Ms:[...sample.samples].sort((a,b)=>a-b)[9],remote,retry,duplicatePushes:pushes-beforePushes-1,maxRequestBytes:Math.max(...requests.slice(begin).map(r=>r.bytes)),network:'local PostgreSQL fixture, 50 ms added per request',errors};
+  const roleChange=await pages[1].evaluate(async()=>{
+    const {setDeviceRole}=await import('/quiz/src/utils/deviceRoleRuntime.ts'),{publishAccountSyncState}=await import('/quiz/src/utils/accountSync.ts'),storage=await import('/quiz/src/storage.ts'),vault=await import('/quiz/src/utils/blobVault.ts'),roles=await import('/quiz/src/utils/deviceRole.ts');
+    publishAccountSyncState({phase:'ready',syncId:window.fixture.connection.syncId});
+    const db=window.fixture.db,before=JSON.stringify(await storage.loadAppDataAsync());
+    await vault.writeMeta(db,'recordSyncConnection',window.fixture.connection);
+    await vault.writeMeta(db,'blobMigrationError',{message:'synthetic unfinished migration'});
+    let blocked=false;try{await setDeviceRole('main');}catch{blocked=true;}
+    if(!blocked||roles.readDeviceRole()!=='sub')throw Error('migration did not protect role');
+    const tx=db.transaction('appRecordMeta','readwrite');tx.objectStore('appRecordMeta').delete('blobMigrationError');await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=j;});
+    const blockedReasons=[];
+    for(const [key,value] of [['wholeConflict',{connection:window.fixture.connection}],['deltaFrozen',{synthetic:true}],['deltaPull',{synthetic:true}]]){
+      await vault.writeMeta(db,key,value);
+      let rejected=false;try{await setDeviceRole('main');}catch{rejected=true;}
+      if(!rejected||roles.readDeviceRole()!=='sub')throw Error('role ignored '+key);
+      blockedReasons.push(key);const cleanup=db.transaction('appRecordMeta','readwrite');cleanup.objectStore('appRecordMeta').delete(key);await new Promise((r,j)=>{cleanup.oncomplete=r;cleanup.onabort=j;});
+    }
+    await setDeviceRole('main');
+    if(before!==JSON.stringify(await storage.loadAppDataAsync()))throw Error('role switch changed learning data');
+    const {isQuizMakeStorageKey}=await import('/quiz/src/utils/syncService.ts');
+    if(isQuizMakeStorageKey(roles.DEVICE_ROLE_KEY))throw Error('role leaked into backup');
+    return {blockedMigration:blocked,blockedReasons,role:roles.readDeviceRole(),dataUnchanged:true};
+  });
+  assert.equal(await pages[0].evaluate(()=>localStorage.getItem('quizMakeDeviceRole:v1')),'main');
+  report.roleChange=roleChange;
   const staged=await pages[1].evaluate(async()=>{
     const f=window.fixture,storage=await import('/quiz/src/storage.ts'),records=await import('/quiz/src/utils/appRecordStorage.ts'),delta=await import('/quiz/src/utils/deltaSync.ts'),vault=await import('/quiz/src/utils/blobVault.ts');
     const data=await storage.loadAppDataAsync();data.folders[0].name='大きな送信'.repeat(60000);await records.saveAppRecords(f.db,data,new Date().toISOString());

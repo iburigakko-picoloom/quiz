@@ -1,3 +1,4 @@
+import { useDeviceRole } from '../hooks/useDeviceRole';
 import { useMemo, useState } from 'react';
 import type { AppData, Question } from '../types';
 import { BackButton } from '../components/BackButton';
@@ -72,6 +73,7 @@ export function ProblemSetDetailScreen({
   const questions = useMemo(() => getQuestionsBySet(data, setId), [data, setId]);
   const progressById = useMemo(() => indexProgress(data.progress), [data.progress]);
   const allReviewQuestions = useMemo(() => getReviewQuestions(data, questions), [data, questions, day]);
+  const isMainDevice = useDeviceRole() === 'main';
   const [startCategory, setStartCategory] = useState<CategoryFilter>('all');
   const [reviewFilter, setReviewFilter] = useState<ReviewLevelFilter>('all');
   const [completionBusy, setCompletionBusy] = useState(false);
@@ -138,7 +140,7 @@ export function ProblemSetDetailScreen({
   return (
     <Layout>
       <div className="quiz-detail quiz-detail--reference">
-        <DetailHeader title={problemSet.title} onBack={onBack} onEdit={onEdit} onCopy={onCopy} onShare={onShare} />
+        <DetailHeader title={problemSet.title} onBack={onBack} onEdit={isMainDevice ? onEdit : undefined} onCopy={isMainDevice ? onCopy : undefined} onShare={isMainDevice ? onShare : undefined} />
 
         <div className="quiz-detail__content-grid">
           <div className="quiz-detail__main-column">
@@ -235,7 +237,7 @@ export function ProblemSetDetailScreen({
             </section>
             <section className="quiz-detail__body">
               <div className="quiz-detail__entry-grid">
-                <button type="button" className="quiz-detail__list-entry" disabled={!onOpenMaterials} onClick={onOpenMaterials}><BookIcon size={26}/><strong>資料</strong><b aria-hidden="true">›</b></button>
+                <button type="button" className="quiz-detail__list-entry" disabled={!onOpenMaterials || !isMainDevice} onClick={onOpenMaterials}><BookIcon size={26}/><strong>資料</strong><b aria-hidden="true">›</b></button>
                 <button type="button" className="quiz-detail__list-entry" onClick={onOpenProblemList}><DocumentOutlineIcon size={26}/><strong>問題一覧</strong><b aria-hidden="true">›</b></button>
                 <button type="button" className="quiz-detail__list-entry" onClick={onCreatePlan}><CalendarIcon size={26}/><strong>学習計画</strong><b aria-hidden="true">›</b></button>
                 <button type="button" className="quiz-detail__list-entry" onClick={onOpenNoteList}><NoteIcon size={26}/><strong>追加解説・メモ</strong><b aria-hidden="true">›</b></button>

@@ -1,3 +1,4 @@
+import { COMPANION_CARE_KEY, companionSpendWouldRollback, createCompanionCare, parseCompanionCare } from './companionCare';
 import { isCategoryNotesRecoveryRequired } from './noteStorage';
 import { appRecordKey, readCurrentAppRecordSnapshot as readAppRecordSnapshot, readAppOutbox, type AppRecord } from './appRecordStorage';
 import { acknowledgeRecordPushBatch, bindRecordSyncConnection, getPendingRecordPushBatch, releaseRejectedRecordPushBatch, type RecordPushAcknowledgement, type RecordSyncConnection } from './recordSyncOutbox';
@@ -205,6 +206,21 @@ export async function runWholeRecordSync(db:IDBDatabase,connection:RecordSyncCon
     else if(prior&&JSON.stringify({...prior,choice:undefined,preferSelected:undefined})===JSON.stringify(shown))selected=prior.choice;
     else await putWholeMeta(db,'wholeConflict',shown);
     if(!selected)return {status:'conflict',conflicts:[],uploaded:0,downloaded};
+  }
+  if(incoming){
+    const key=appRecordKey('localStorage',COMPANION_CARE_KEY),local=source.snapshot.records.get(key),remoteCare=incoming.find(row=>row.key===key);
+    const selectedRemote=decision==='download'||selected==='remote';
+    const losesSpend=selectedRemote?companionSpendWouldRollback(local?.raw??null,remoteCare?.raw??null):companionSpendWouldRollback(remoteCare?.raw??null,local?.raw??null);
+    if(losesSpend){
+      const empty=JSON.stringify(createCompanionCare(parseCompanionCare((local?.raw??remoteCare?.raw)!).lastSeenDay));
+      const preservedLocal=local?.raw?local:{key,collection:'localStorage' as const,id:COMPANION_CARE_KEY,raw:empty,position:0,serverRevision:0,localRevision:0};
+      const preservedRemote=remoteCare?.raw?remoteCare:{key,collection:'localStorage' as const,id:COMPANION_CARE_KEY,raw:empty,position:0,revision:remote.revision};
+      const tx=db.transaction('appRecordConflicts','readwrite');
+      tx.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',connection,key,local:preservedLocal,remote:preservedRemote,
+        conflict:{connection,key,local:preservedLocal,remote:preservedRemote,operationId:null},archivedAt:new Date().toISOString()},`companion:${key}:${remote.revision}`);
+      await new Promise<void>((r,j)=>{tx.oncomplete=()=>r();tx.onabort=()=>j(tx.error);});
+      throw new Error('育成の変更を確認してください。統合後はこの端末のデータを選んで同期してください。');
+    }
   }
   if(preparationError&&selected!=='remote')throw preparationError;
   const preferSelected=Boolean(selected&&priority&&guards.archiveOriginals);

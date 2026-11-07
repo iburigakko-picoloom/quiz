@@ -128,3 +128,34 @@
 .materials-file-picker[aria-disabled="true"] { opacity:.4; }
 .materials-file-picker:focus-within { outline:2px solid #305da3; outline-offset:2px; }
 .materials-menu > div .materials-file-picker { border:0; padding:10px 12px; }
+.materials-panel { container-type:inline-size; }
+.materials-controls .materials-list-toggle { padding:4px; min-width:32px; flex:0 0 32px; }
+.materials-view-tabs { display:flex; gap:4px; padding:4px 8px; border-bottom:1px solid #e2e5e9; flex-shrink:0; }
+.materials-view-tabs button { border:0; min-height:36px; padding:5px 14px; }
+.materials-view-tabs button[aria-selected=true] { color:white; background:#305894; }
+.materials-workspace { display:flex; position:relative; flex:1; min-height:0; overflow:hidden; }
+.materials-workspace > .materials-content { min-width:0; }
+.materials-content[hidden] { display:none; }
+.materials-navigator { flex:0 0 260px; width:260px; max-width:calc(100% - 32px); overflow:auto; overscroll-behavior:contain; box-sizing:border-box; padding:12px; border-right:1px solid #d5dce4; background:white; z-index:4; }
+.materials-navigator header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.materials-navigator h2,.materials-related h2 { font-size:16px; margin:4px 0 12px; }
+.materials-navigator label { display:block; margin:12px 0 6px; font-size:14px; }
+.materials-navigator input { box-sizing:border-box; width:100%; min-width:0; padding:8px; border:1px solid #bdcbdc; border-radius:8px; color:inherit; font:inherit; }
+.materials-navigator__list,.materials-navigator__results { list-style:none; margin:12px 0; padding:0; }
+.materials-navigator li + li { margin-top:6px; }
+.materials-navigator li button { width:100%; text-align:left; overflow-wrap:anywhere; display:grid; gap:6px; }
+.materials-navigator li button[aria-current=true] { border-color:#305894; background:#edf3fc; }
+.materials-navigator li span { font-size:13px; line-height:1.5; }
+.materials-navigator__search { display:flex; gap:4px; }
+.materials-navigator__search button { flex-shrink:0; }
+.materials-navigator p { font-size:14px; overflow-wrap:anywhere; }
+.materials-related { flex:1; min-width:0; overflow:auto; padding:16px; }
+.materials-related article { border:1px solid #d5dce4; border-radius:10px; padding:12px; margin-bottom:12px; }
+.materials-related summary { cursor:pointer; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
+.materials-related article > button { margin-top:12px; }
+@container (max-width: 650px) {
+  .materials-navigator { position:absolute; inset:0 auto 0 0; width:min(300px,calc(100% - 32px)); box-shadow:4px 0 16px #17304225; }
+  .materials-controls { flex-wrap:wrap; }
+  .materials-controls .materials-picker,.materials-controls .materials-title { min-width:72px; }
+  .materials-controls .materials-pagination { margin-left:auto; }
+}

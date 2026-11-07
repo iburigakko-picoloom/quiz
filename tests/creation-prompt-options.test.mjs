@@ -61,8 +61,8 @@ test('memo practice has its own source section and keeps question output format'
   const context = JSON.stringify([{疑問:['AとBの違い'],元の問題:'元問題'}]);
   const prompt = buildSimpleCreationPrompt('復習問題', {choiceCount:5,questionCount:12,allowMultiple:true}, context);
   assert.ok(prompt.includes(context));
-  assert.ok(prompt.includes('条件・具体例を変えて'));
-  assert.ok(prompt.includes('メモの誤解を正解として採用しない'));
+  assert.match(prompt, /条件[や・]具体例を変えて/);
+  assert.match(prompt, /誤りや根拠の不明な断定を正解として採用しない/);
   assert.ok(prompt.includes('問題作成用のquestions形式'));
   assert.ok(!buildSimpleCreationPrompt('普通の問題').includes('【苦手メモからの問題化】'));
 });

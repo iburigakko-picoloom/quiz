@@ -2,7 +2,7 @@ import type { QuizResult } from '../types';
 import { Layout } from '../components/Layout';
 import { ProblemSetIcon } from '../components/UiIcons';
 import { StudyCompanion } from '../components/StudyCompanion';
-import { COMPANION_BALANCE, companionSessionFood, companionSessionTreats, type CompanionCare } from '../utils/companionCare';
+import { companionSessionAnswers, type CompanionCare } from '../utils/companionCare';
 import './ResultScreen.css';
 
 export function ResultScreen({ result, returnLabel, onReturn, onRetry, onRetryWrong, onOpenAnswers, companionCare, companionEnabled = true, companionError, onRetryReward, onOpenCompanion, groupReflectionError, onRetryGroupReflection }: {
@@ -19,9 +19,7 @@ export function ResultScreen({ result, returnLabel, onReturn, onRetry, onRetryWr
   const answerIds = (result.sessionAnswers ?? []).flatMap(answer => answer.answerLogId ? [answer.answerLogId] : []);
   const credited = new Set(companionCare?.creditedAnswerIds);
   const rewardReady = Boolean(companionCare) && answerIds.every(id => credited.has(id));
-  const foodEarned = companionCare ? companionSessionFood(companionCare, answerIds) : 0;
-  const treatsEarned = companionCare ? companionSessionTreats(companionCare, answerIds) : 0;
-  const rewards = [foodEarned ? `ごはん${foodEarned}個` : '', treatsEarned ? `おやつ${treatsEarned}個` : ''].filter(Boolean).join('・');
+  const answersEarned = companionCare ? companionSessionAnswers(companionCare, answerIds) : 0;
   return <Layout><main className="library-page qm-result">
     <header className="library-page__header"><h1>学習結果</h1><button onClick={onReturn} aria-label="閉じる">×</button></header>
     <p className="qm-result-title">{result.title}</p>
@@ -32,7 +30,7 @@ export function ResultScreen({ result, returnLabel, onReturn, onRetry, onRetryWr
     {groupReflectionError && <div className="qm-banner" role="status"><p>{groupReflectionError}</p><button type="button" onClick={() => void onRetryGroupReflection?.()}>グループの進捗を再反映</button></div>}
     {companionEnabled && answerIds.length > 0 && <div className="companion-reward" role="status" aria-live="polite">
       {companionError ? <><p>{companionError}</p><button type="button" onClick={() => void onRetryReward()}>ごほうびの獲得を再確認</button></>
-        : !rewardReady ? <p>ごほうびを集計中…</p> : <><span className="companion-reward__icon" aria-hidden="true">◡</span><p><strong>{rewards ? `${rewards}を獲得！` : '次のごほうびへ、一歩前進'}</strong><small>次のごはん・おやつまで あと{COMPANION_BALANCE.answersPerFood - companionCare!.answerRemainder}問</small></p><button type="button" onClick={onOpenCompanion}>お世話へ ›</button></>}
+        : !rewardReady ? <p>ごほうびを集計中…</p> : <><span className="companion-reward__icon" aria-hidden="true">◡</span><p><strong>{answersEarned ? `お世話に使える${answersEarned}問分を獲得！` : 'お世話の記録に反映済み'}</strong></p><button type="button" onClick={onOpenCompanion}>お世話へ ›</button></>}
     </div>}
     <StudyCompanion scene="result" answered={result.answered} correct={result.correct} care={companionCare} />
     <button className="qm-primary" onClick={canRetryWrong ? onRetryWrong : onReturn}>{canRetryWrong ? `間違えた${result.wrong}問を解く` : returnText}</button>

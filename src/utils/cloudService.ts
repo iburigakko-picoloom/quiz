@@ -1,3 +1,4 @@
+import { resolveAccountProfile, ACCOUNT_PROFILE_EVENT } from './accountProfile';
 import {isGroupPhoto} from './groupPhoto';
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
 import { CloudSessionReadError, verifiedCloudAccess, watchCloudSession, type CloudAccessTokenResult } from './cloudAuthAccess';
@@ -276,16 +277,23 @@ export async function updateCloudDisplayName(displayName: string): Promise<void>
   const client = requireCloudClient();
   const { error } = await client.rpc('set_profile_display_name', { p_display_name: displayName.trim() });
   if (error) throw new Error(toFriendlyCloudError(error.message));
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(ACCOUNT_PROFILE_EVENT));
+}
+
+export async function getCloudAccountProfile(expectedUserId?: string) {
+  // Session listeners run while the SDK holds its auth lock. Defer auth reads.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const client = requireCloudClient();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError || !auth.user || (expectedUserId && auth.user.id !== expectedUserId)) throw new Error('アカウントが変更されています。');
+  const { data, error } = await client.from('quiz_profiles').select('display_name').eq('user_id', auth.user.id).maybeSingle();
+  if (error) throw new Error(toFriendlyCloudError(error.message));
+  if ((await getCloudSession())?.user.id !== auth.user.id) throw new Error('アカウントが変更されています。');
+  return resolveAccountProfile(auth.user, data?.display_name, lineAuthProvider);
 }
 
 export async function getCloudDisplayName(): Promise<string> {
-  const client = requireCloudClient();
-  const { data, error } = await client
-    .from('quiz_profiles')
-    .select('display_name')
-    .maybeSingle();
-  if (error) throw new Error(toFriendlyCloudError(error.message));
-  return String(data?.display_name ?? '');
+  return (await getCloudAccountProfile()).displayName;
 }
 
 export async function publishLocalProblemSet(params:LocalPublicationOptions & {operationId?:string;onProgress?:(value:PublicationProgress)=>void}):Promise<CloudPublishResult> {
@@ -456,7 +464,7 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
-export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_photo' | 'quiz_group_learning_place' | 'manage_quiz_group_library' | 'quiz_manage_group_folder', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
+export async function groupProgressRpc(name: 'quiz_group_activity_read' | 'quiz_group_activity_consent' | 'quiz_group_activity_destinations' | 'quiz_group_activity_publish' | 'quiz_group_material_progress' | 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_photo' | 'quiz_group_learning_place' | 'manage_quiz_group_library' | 'quiz_manage_group_folder', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
   const access = await getCloudAccessToken();
   if (!access.ok || access.userId !== expectedUserId) throw new Error('アカウントが変更されています。開き直してください。');
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);

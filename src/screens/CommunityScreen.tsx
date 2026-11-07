@@ -1,3 +1,4 @@
+import { registerScreenBack } from '../utils/screenBack';
 import {prepareGroupPhoto} from '../utils/groupPhoto';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -198,6 +199,12 @@ export function CommunityScreen({
   const cloudAddSets = groupSets.filter(set => addCloudIds.includes(set.id));
   const addSelectionCount = addSource === 'group' ? cloudAddSets.length : addSets.length;
   const [directSet, setDirectSet] = useState<CloudProblemSet | null>(null);
+  const [progressDetail, setProgressDetail] = useState(false);
+  useEffect(() => {
+    if (!initialGroupId) return;
+    if (directSet) return registerScreenBack(() => setDirectSet(null));
+    if (groupDetailTab === 'folders' && groupFolderTrail.length) return registerScreenBack(() => setGroupFolderTrail(trail => trail.slice(0, -1)));
+  }, [directSet, initialGroupId, groupDetailTab, groupFolderTrail.length]);
   const [directSetLocation, setDirectSetLocation] = useState('');
   const [detailBackTab, setDetailBackTab] = useState<'discover' | 'groups'>('discover');
   const [newGroupName, setNewGroupName] = useState('');
@@ -587,13 +594,14 @@ export function CommunityScreen({
       setCopyGroupFolder(null);setCopyGroupNotice(`「${folder.name}」を${plan.imported.length}セット、ホームに取り込みました。`);
     }catch(reason){setCopyError(getErrorMessage(reason));}finally{copyBusyRef.current=false;setBusy(false);}
   };
-  const openSharedDetail = async (summary: CloudProblemSet, backTab: 'discover' | 'groups', location = '') => {
+  const openSharedDetail = async (summary: CloudProblemSet, backTab: 'discover' | 'groups', location = '', progress = false) => {
     const viewer = session?.user.id ?? '';
     setBusy(true);
     setError('');
     try {
       const detail = await getSharedProblemSet(summary.id);
       if (sessionUserId.current !== viewer) return;
+      setProgressDetail(progress);
       setDirectSet(detail);
       setDirectSetLocation(location);
       setDetailBackTab(backTab);
@@ -859,21 +867,22 @@ export function CommunityScreen({
         {!addTarget&&!shareLocalSetId?<PublicationJobs jobs={visiblePublicationJobs.slice(-10)} onRetry={id=>void publication.retry(id)} compact/>:null}
 
         <main className="community-screen__body">
-          {directSet ? <div className="community-detail-toolbar">
+          {directSet && !progressDetail ? <div className="community-detail-toolbar">
             {!isGroupSetDetail && !shareToken ? <button type="button" onClick={() => { setDirectSet(null); setTab(detailBackTab); }}>‹ 一覧へ戻る</button> : <span />}
             {directSet.ownerId === session?.user.id ? <div><PublicationMenu title={directSet.title} busy={busy} onRemove={() => requestRemove([directSet], directSet.title)} /></div> : null}
           </div> : null}
           {isGroupDetail ? (
             <LibraryPane viewKey={isGroupSetDetail&&directSet?directSet.id:'workspace'} depth={isGroupSetDetail?2:1}>
             {isGroupSetDetail && directSet ? (
-              <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onOpenSource={ownedSource?()=>onOpenLocalSet(ownedSource.id):undefined} onReport={() => setReportTarget(directSet)} progress={session ? <GroupProgress key={`${selectedGroupId}:${directSet.id}:${directSet.versionId}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} onChanged={() => setGroupLearningRevision(n => n + 1)} /> : undefined} />
+              progressDetail && session ? <><h2>{directSet.title}</h2><p className="group-breadcrumb">{selectedGroup?.name ?? 'グループ'}</p><GroupProgress key={`${selectedGroupId}:${directSet.id}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} summary={groupLearning.materials?.find(row=>row.setId===directSet.id)} onChanged={() => setGroupLearningRevision(n => n + 1)} /></> :
+              <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onOpenSource={ownedSource?()=>onOpenLocalSet(ownedSource.id):undefined} onReport={() => setReportTarget(directSet)} />
             ) : (
               <section className="community-section community-group-detail">
                 {!authReady ? <LibrarySkeleton label="グループを読み込み中"/> : !session ? (
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
-                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onManageFolder={folder => { setManagedFolder(folder); setManagedName(folder.name); setConfirmFolderDelete(false); setManagementError(''); }} onRemoveSet={set => { setManagedSet(set); setManagementError(''); }} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
+                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace materials={groupLearning.materials} onOpenProgress={set => void openSharedDetail(set, 'groups', '', true)} data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onManageFolder={folder => { setManagedFolder(folder); setManagedName(folder.name); setConfirmFolderDelete(false); setManagementError(''); }} onRemoveSet={set => { setManagedSet(set); setManagementError(''); }} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
                   </>
                 )}
               </section>

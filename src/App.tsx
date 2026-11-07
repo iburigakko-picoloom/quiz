@@ -1,3 +1,7 @@
+import { queueCompletedStudy, retryStudyActivities } from './utils/groupActivityService';
+import { useDeviceRole } from './hooks/useDeviceRole';
+import { assertMainDevice, isContentChange, DEVICE_ROLE_WORK_LOCK } from './utils/deviceRole';
+import { tryScreenBack } from './utils/screenBack';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { accountLocalStorage as localStorage } from './utils/accountStorage';
 import type { AppData, AppScreen, Folder, ProblemSet, Question, QuizResult, QuizSession, MaterialReference } from './types';
@@ -97,6 +101,7 @@ import { SYNC_ORIGINALS_FORMAT } from './utils/syncOriginalBackup';
 import { SyncProtocolError } from './utils/syncInterruption';
 import {
   initializeCloudNativeAuth,
+  onCloudSessionSnapshot,
   getCloudSession,
   getSharedProblemSet,
   listMyGroups,
@@ -121,6 +126,8 @@ type PendingBackupImport = (
   | { kind: 'sync'; payload: SyncPayload; summary: SyncPayloadSummary; file?: FileBackup }
   | { kind: 'legacy'; data: AppData }) & { sourceCreatedAt?: string };
 export default function App() {
+  const deviceRole = useDeviceRole();
+  const [roleWorkReady, setRoleWorkReady] = useState('');
   const recovered = useRestoredAccountWork<{ screen: AppScreen; pendingBackupImport: PendingBackupImport | null; createDraftDirty: boolean }>('app');
   const initialScreen = useRef<AppScreen>(recovered?.screen ?? (lineLinkReturn ? { name: 'settings', page: 'account' } : { name: 'home' }));
   const [data, setData] = useState<AppData>(() => createEmptyAppData());
@@ -346,7 +353,7 @@ export default function App() {
       if (backupExitStateRef.current.busy) { window.history.pushState({ quizMake: true }, ''); return; }
       if (backupExitStateRef.current.pending) { setPendingBackupImport(null); window.history.pushState({ quizMake: true }, ''); return; }
       if ((screenRef.current.name === 'sync' || (screenRef.current.name === 'settings' && screenRef.current.page === 'backups')) && syncExitGuardRef.current && !syncExitGuardRef.current()) { window.history.pushState({ quizMake: true }, ''); return; }
-      if (tryCloseTransientDialog()) { window.history.pushState({ quizMake: true }, ''); return; }
+      if (tryCloseTransientDialog() || tryScreenBack()) { window.history.pushState({ quizMake: true }, ''); return; }
       if (autoImportBusyRef.current) {
         window.history.pushState({ quizMake: true }, '');
         return;
@@ -404,17 +411,35 @@ export default function App() {
     return () => window.removeEventListener('quiz-make-sw-update', handleUpdate);
   }, []);
 
+  const roleEditorScreen = ['createProblemSet', 'import', 'questionEdit', 'detailedAnswer', 'noteDetail', 'noteList', 'planEditor', 'quiz', 'quizSession'].includes(screen.name);
+  const roleWorkKey = roleEditorScreen ? getScreenKey(screen) : protectedWorkReason ? `${getScreenKey(screen)}:${protectedWorkReason}` : '';
+  useEffect(() => {
+    if (!roleWorkKey || !navigator.locks) return;
+    let release: (() => void) | undefined;
+    let closed = false;
+    void navigator.locks.request(DEVICE_ROLE_WORK_LOCK, { mode: 'shared' }, async () => {
+      if (closed) return;
+      setRoleWorkReady(roleWorkKey);
+      await new Promise<void>(resolve => { release = resolve; });
+    });
+    return () => { closed = true; release?.(); setRoleWorkReady(''); };
+  }, [roleWorkKey]);
+
   const commitData = async (nextData: AppData): Promise<boolean> => {
     if (libraryMutationBusyRef.current) {
       setStorageError('削除処理が完了するまでお待ちください。');
       return false;
     }
     const previous = dataRef.current;
+    const contentChange = isContentChange(previous, nextData);
+    if (contentChange) {
+      try { assertMainDevice(); } catch (error) { setStorageError((error as Error).message); return false; }
+    }
     const revision = dataRevisionRef.current + 1;
     dataRevisionRef.current = revision;
     dataRef.current = nextData;
     setData(nextData);
-    const saveResult = await saveAppDataResult(nextData);
+    const saveResult = await saveAppDataResult(nextData, { assertBeforeSave: contentChange ? assertMainDevice : undefined });
     const saved = saveResult.ok;
     if (saved) {
       durableDataRef.current = nextData;
@@ -430,18 +455,22 @@ export default function App() {
     return saved;
   };
 
-  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange, materialReferenceQuestionIds?: readonly string[],materialRecords?:Record<string,string>): Promise<boolean> => {
+  const persistThenCommitData = async (nextData: AppData, questionImages: readonly PreparedQuestionImageCopy[] = [], answerChange?: AnswerSaveChange, materialReferenceQuestionIds?: readonly string[],materialRecords?:Record<string,string>, receivingBackup = false): Promise<boolean> => {
     if (libraryMutationBusyRef.current) {
       setStorageError('削除処理が完了するまでお待ちください。');
       return false;
     }
     const previous = dataRef.current;
+    const contentChange = !receivingBackup && isContentChange(previous, nextData);
+    if (contentChange) {
+      try { assertMainDevice(); } catch (error) { setStorageError((error as Error).message); return false; }
+    }
     const revision = dataRevisionRef.current + 1;
     dataRevisionRef.current = revision;
     // Reserve the next snapshot immediately. Any action taken while this durable
     // save is pending will now build on top of it instead of an older snapshot.
     dataRef.current = nextData;
-    const saveResult = await saveAppDataResult(nextData, { questionImages, answerChange, materialReferenceQuestionIds,materialRecords });
+    const saveResult = await saveAppDataResult(nextData, { questionImages, answerChange, materialReferenceQuestionIds,materialRecords, assertBeforeSave: contentChange ? assertMainDevice : undefined });
     const saved = saveResult.ok;
     if (!saved) {
       if (dataRevisionRef.current === revision) {
@@ -515,7 +544,7 @@ export default function App() {
   };
 
   const goBackTo = (next: AppScreen) => {
-    if (tryCloseTransientDialog()) return;
+    if (tryCloseTransientDialog() || tryScreenBack()) return;
     if (screenRef.current.name === 'import' && importExitGuardRef.current) { void importExitGuardRef.current(() => performBackNavigation(next)); return; }
     const exitReason = getProtectedExitReason(screenRef.current, createDraftDirtyRef.current);
     if (exitReason) {
@@ -657,6 +686,7 @@ export default function App() {
     setLibraryMutationBusy(true);
     try {
       const result = await persistLibraryDeletion({
+        assertAllowed: assertMainDevice,
         buildPlan: (currentData) => ({
           nextData: deleteFolder(currentData, folderId),
           problemSetIds: currentData.problemSets
@@ -679,6 +709,7 @@ export default function App() {
     setDeletingProblemSetId(setId);
     try {
       const result = await persistLibraryDeletion({
+        assertAllowed: assertMainDevice,
         buildPlan: (currentData) => ({
           nextData: deleteProblemSet(currentData, setId),
           problemSetIds: [setId],
@@ -1043,18 +1074,21 @@ export default function App() {
   };
 
   const handleCopySharedProblemSet = async (sharedSet: CloudProblemSet, targetFolderId: string,token=''): Promise<string | null> => {
+    assertMainDevice();
     const [hydrated]=await hydratePublishedMaterials([sharedSet],token);
     const plan=planPublicImport(dataRef.current,[{...hydrated,standalonePublic:false,tags:[]}],{targetId:targetFolderId});
     if(!await persistThenCommitData(plan.data,[],undefined,undefined,plan.materialRecords))return null;
     return plan.imported[0].localId;
   };
   const handleImportPublicLibrary=async(sets:PublicSet[],options:Parameters<typeof planPublicImport>[2])=>{
+    assertMainDevice();
     const hydrated=await hydratePublishedMaterials(sets);
     const plan=planPublicImport(dataRef.current,hydrated,options);
     if(!await persistThenCommitData(plan.data,[],undefined,undefined,plan.materialRecords))throw new Error('取り込みを端末に保存できませんでした。元のデータは保持しています。');
     return plan;
   };
   const handleImportGroupFolder=async(folder:import('./utils/groupLibrary').GroupFolderCardData,sets:CloudProblemSet[],groupId:string)=>{
+    assertMainDevice();
     const hydrated=await hydratePublishedMaterials(sets),plan=planGroupImport(dataRef.current,folder,hydrated,groupId);
     if(!await persistThenCommitData(plan.data,[],undefined,undefined,plan.materialRecords))throw new Error('取り込みを端末に保存できませんでした。元のデータは保持しています。');
     return plan;
@@ -1175,6 +1209,7 @@ export default function App() {
   };
 
   const handleAddDetailedImage = async (questionId: string, file: Blob, imageId?: string, originalQuestion?: string): Promise<void> => {
+    assertMainDevice();
     const currentQuestion = dataRef.current.questions.find(question => question.id === questionId);
     if (!currentQuestion || (originalQuestion !== undefined && currentQuestion.question !== originalQuestion)) {
       throw new Error('画像の追加先が変更または削除されています。問題を確認してから追加してください。');
@@ -1373,7 +1408,7 @@ export default function App() {
     if (target.kind === 'legacy') {
       try { await saveBackupPayload(await exportQuizMakeRecoveryData(), 'before-import'); }
       catch { setBackupImportError('復元用バックアップを保存できないため、読み込みを中止しました。'); setBackupImportBusy(false); return; }
-      const saved = await persistThenCommitData(target.data);
+      const saved = await persistThenCommitData(target.data, [], undefined, undefined, undefined, true);
       if (!saved) {
         setBackupImportError('バックアップを端末へ保存できませんでした。現在の画面を閉じず、空き容量や保存設定を確認してください。');
         setBackupImportBusy(false);
@@ -1416,6 +1451,14 @@ export default function App() {
     setStorageLoadError('');
     replaceScreen({ name: 'backupComplete', folderCount: loaded.folders.length, setCount: loaded.problemSets.length, questionCount: loaded.questions.length });
   };
+  useEffect(() => {
+    const send = () => { void retryStudyActivities().catch(()=>undefined); };
+    let authTimer:number|undefined;
+    const stop=onCloudSessionSnapshot(()=>{window.clearTimeout(authTimer);authTimer=window.setTimeout(send,0);});
+    send(); window.addEventListener('online',send); window.addEventListener('focus',send);
+    return () => { stop();window.clearTimeout(authTimer);window.removeEventListener('online',send); window.removeEventListener('focus',send); };
+  }, []);
+
   const handleStartQuizSession = (session: QuizSession) => {
     navigate({ name: 'quizSession', session });
   };
@@ -1487,6 +1530,7 @@ export default function App() {
     }
     navigate({ name: 'result', result: nextResult });
     void reflectResultGroupLearning(nextResult);
+
   };
 
   const handleRetry = (result: QuizResult) => {
@@ -1818,6 +1862,7 @@ export default function App() {
           onRemoveDetailedImage={handleRemoveDetailedImage}
           onLinkMaterialPage={handleLinkMaterialPage}
           onLinkMaterialBatch={handleLinkMaterialBatch}
+          onStudySessionEnd={(sessionAnswers,identity) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
           onFinish={handleFinish}
         />
       </Suspense>
@@ -1843,6 +1888,7 @@ export default function App() {
           onRemoveDetailedImage={screen.session.isPreview ? undefined : handleRemoveDetailedImage}
           onLinkMaterialPage={screen.session.isPreview ? undefined : handleLinkMaterialPage}
           onLinkMaterialBatch={screen.session.isPreview ? undefined : handleLinkMaterialBatch}
+          onStudySessionEnd={(sessionAnswers,identity) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
           onFinish={handleFinish}
         />
       </Suspense>
@@ -1853,7 +1899,7 @@ export default function App() {
       <ResultScreen
         result={screen.result}
         groupReflectionError={groupReflectionError}
-        onRetryGroupReflection={() => reflectResultGroupLearning(screen.result)}
+        onRetryGroupReflection={async () => { await reflectResultGroupLearning(screen.result); await queueCompletedStudy(durableDataRef.current,screen.result).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
         companionCare={companion.care}
         companionEnabled={companion.enabled}
         companionError={companion.error}
@@ -1922,14 +1968,14 @@ export default function App() {
         autoImportReady={autoImportEligibleRef.current && !libraryMutationBusy && !autoImportBusy} onAutoImport={handleAutoImport}
         onRecordApply={applyRecordImport} />
       {autoImportBusy && <div className="quiz-sync-applying" role="status" aria-live="polite">クラウドの更新を反映中…</div>}
-      <SharedImageReceiver data={data} onReceive={()=>setReceivingSharedImage(true)} onClose={()=>setReceivingSharedImage(false)} onOpenQuestion={questionId=>{
+      {deviceRole === 'main' && <SharedImageReceiver data={data} onReceive={()=>setReceivingSharedImage(true)} onClose={()=>setReceivingSharedImage(false)} onOpenQuestion={questionId=>{
         const current = screenRef.current;
         if (getActiveImageTarget() === questionId) return;
         if (current.name === 'detailedAnswer' && current.questionId === questionId) return;
         navigate({name:'detailedAnswer',questionId,backScreen:current});
       }} onSave={async (questionId,originalQuestion,image,shareId)=>{
         await handleAddDetailedImage(questionId,image,shareId,originalQuestion);
-      }}/>
+      }}/>}
       <WelcomeGuide active={!guideReturn && screen.name === 'home' && !waitingWorker && !storageError && !receivingSharedImage} onStartGuide={() => { setGuideReturn('home'); navigatePrimary('home'); }} />
       {guideReturn && <UsageGuide onNavigate={navigatePrimary} onClose={() => { navigatePrimary(guideReturn); setGuideReturn(null); }} />}
       <div inert={autoImportBusy} key={getScreenKey(screen)} className={`quiz-screen-transition quiz-screen-transition--${transitionDirection}`}>
@@ -1938,7 +1984,9 @@ export default function App() {
             {getScreenLoadingMessage(screen)}
           </div>
         )}>
-          {content}
+          {deviceRole === 'sub' && ['createProblemSet', 'import', 'questionEdit', 'detailedAnswer', 'noteDetail', 'noteList', 'planEditor'].includes(screen.name)
+            ? <main className="sync-screen"><h1>メイン端末で編集</h1><button className="sync-button" onClick={() => navigate({ name: 'sync' })}>端末の設定</button><button className="sync-button" onClick={() => navigatePrimary('home')}>ホームに戻る</button></main>
+            : roleEditorScreen && navigator.locks && roleWorkReady !== roleWorkKey ? <div role="status">保存状態を確認中…</div> : content}
         </Suspense>
       </div>
       {getPrimaryNavItem(screen) && !autoImportBusy ? (
