@@ -15,14 +15,15 @@ const data:AppData={version:1,folders:[{id:'f',name:'教材',createdAt:stamp,upd
  {id:'q1',setId:'local',question:'未登録の問題',choices:['A','B','C','D'],answerIndex:0,answerText:'A',explanation:'',sourcePage:'p.1',category:'',difficulty:'basic',createdAt:stamp,updatedAt:stamp},
  {id:'q2',setId:'local',question:'既存の別セット参照',choices:['A','B','C','D'],answerIndex:0,answerText:'A',explanation:'',sourcePage:'p.1',category:'',difficulty:'basic',createdAt:stamp,updatedAt:stamp,materialReferences:[{materialId:'linked',pageId:'linked-page'}]},
 ],progress:[],answerLogs:[]};
+const navigationMode=new URLSearchParams(location.search).has('navigation');
 const libraryMode=new URLSearchParams(location.search).has('library');
 if(libraryMode)data.questions[0].sourcePage='';
 async function seed(){
- const doc=await PDFDocument.create();doc.addPage([200,280]);const bytes=await doc.save(),pdf='data:application/pdf;base64,'+btoa(String.fromCharCode(...bytes));
+ const doc=await PDFDocument.create();const first=doc.addPage([200,280]);if(navigationMode){first.drawText('Alpha lesson',{x:15,y:230,size:16});doc.addPage([200,280]).drawText('Beta lesson',{x:15,y:230,size:16});data.questions[0].materialReferences=[{materialId:'attached',pageId:'attached-page'}];}const bytes=await doc.save(),pdf='data:application/pdf;base64,'+btoa(String.fromCharCode(...bytes));
  await saveAppDataAsync(data);
- for(const [setId,materials] of [['local',[['attached','脳神経.pdf']]],['other',[['linked','循環器資料.pdf'],['unrelated','別セットの無関係なPDF.pdf']]]] as const){
-  await saveCategoryNoteRaw(materialIndexKey(setId),JSON.stringify({kind:'quiz-material-index',version:1,problemSetId:setId,updatedAt:stamp,materials:materials.map(([id,title])=>({id,title,pages:[{id:`${id}-page`,kind:'pdf',pdfPage:1}]}))}));
-  for(const [id] of materials)await saveCategoryNoteRaw(materialFileKey(setId,id),JSON.stringify({kind:'quiz-material-file',version:1,materialId:id,updatedAt:stamp,dataUrl:pdf}));
+ for(const [setId,materials] of [['local',navigationMode?[['attached','脳神経.pdf'],['scan','スキャン資料.pdf']]:[['attached','脳神経.pdf']]],['other',[['linked','循環器資料.pdf'],['unrelated','別セットの無関係なPDF.pdf']]]] as const){
+  await saveCategoryNoteRaw(materialIndexKey(setId),JSON.stringify({kind:'quiz-material-index',version:1,problemSetId:setId,updatedAt:stamp,materials:materials.map(([id,title])=>({id,title,pages:navigationMode&&id==='attached'?[{id:`${id}-page`,kind:'pdf',pdfPage:1},{id:'attached-second',kind:'pdf',pdfPage:2}]:[{id:`${id}-page`,kind:'pdf',pdfPage:1}]}))}));
+  for(const [id] of materials)await saveCategoryNoteRaw(materialFileKey(setId,id),JSON.stringify({kind:'quiz-material-file',version:1,materialId:id,updatedAt:stamp,dataUrl:id==='scan'?'data:application/pdf;base64,'+btoa(String.fromCharCode(...await (async()=>{const scan=await PDFDocument.create();scan.addPage([200,280]).drawRectangle({x:20,y:20,width:100,height:180});return scan.save();})())):pdf}));
  }
  const ink=JSON.stringify({dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',updatedAt:stamp});
  await saveCategoryNoteRaw(`quizMake:notes:other:${annotationCategory('linked','linked-page')}`,ink);

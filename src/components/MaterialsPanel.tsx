@@ -1,5 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import type { MaterialReference } from '../types';
+import type { MaterialReference, Question } from '../types';
+import { MaterialNavigator, MaterialRelatedQuestions } from './MaterialNavigator';
+import { relatedMaterialQuestions } from '../utils/materialSearch';
 import { ActionMenu } from './ActionMenu';
 import { ConfirmDialog } from './ConfirmDialog';
 import { CategoryNotePanel, type CategoryNotePanelHandle, type NoteToolSettings } from './CategoryNoteDrawer';
@@ -10,8 +12,10 @@ import { boundedNoteScale } from './noteGestures';
 import { insertMaterialPage, moveMaterialPage, MAX_MATERIAL_PDF_BYTES, MAX_MATERIAL_PAGES, MATERIAL_PDF_SIZE_ERROR, MATERIAL_PAGE_COUNT_ERROR, type MaterialIndex, type MaterialPage, type StudyMaterial } from '../utils/materialModel';
 import './MaterialsPanel.css';
 
-interface Props { setId: string; setIds?: string[]; reference?: MaterialReference; referenceRequest?: number; onClose?: () => void; onAdjustReferences?: (materialId?: string, pageId?: string) => void; questionReferences?: MaterialReference[]; onOpenReference?: (reference: MaterialReference) => void; onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void> }
-export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(function MaterialsPanel({ setId, setIds, reference, referenceRequest, onClose, onAdjustReferences, questionReferences, onOpenReference, onLinkPage }, ref) {
+interface Props { questions?: Question[]; setId: string; setIds?: string[]; reference?: MaterialReference; referenceRequest?: number; onClose?: () => void; onAdjustReferences?: (materialId?: string, pageId?: string) => void; questionReferences?: MaterialReference[]; onOpenReference?: (reference: MaterialReference) => void; onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void> }
+export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(function MaterialsPanel({ questions = [], setId, setIds, reference, referenceRequest, onClose, onAdjustReferences, questionReferences, onOpenReference, onLinkPage }, ref) {
+  const [navigatorOpen, setNavigatorOpen] = useState(false);
+  const [view, setView] = useState<'material' | 'questions'>('material');
   const [index, setIndex] = useState<MaterialIndex | null>(null);
   const [ownerId, setOwnerId] = useState(setId);
   const [materialId, setMaterialId] = useState('');
@@ -68,7 +72,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     panel.current?.resetPageSlide?.(false);
   }, []);
   const captureTransition = (direction = 1, distance = 1) => {
-    if (memoOpen) return;
+    if (memoOpen || view !== 'material') return;
     const area = contentRef.current?.querySelector<HTMLElement>('.category-note-canvas-area');
     const layer = transitionLayer.current;
     if (!area || !layer) return;
@@ -160,7 +164,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     const delta = reference && material?.id === reference.materialId ? material.pages.findIndex(item => item.id === reference.pageId) - pageIndex : 1;
     if (!reference || reference.materialId !== displayed?.materialId || reference.pageId !== displayed?.page.id) captureTransition(delta < 0 ? -1 : 1, Math.abs(delta));
     else clearTransition(); // Returning to the already-painted page cancels a pending departure.
-    setIndex(null); setError('');
+    setIndex(null); setError(''); setView('material');
     void (async () => {
       let found = await loadMaterials(setId);
       if (reference && !found.materials.some(item => item.id === reference.materialId)) {
@@ -239,8 +243,19 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   };
   const goToPage = (id: string) => run(async () => {
     if (!material || id === pageId) return;
-    captureTransition(material.pages.findIndex(item => item.id === id) < pageIndex ? -1 : 1);
+    if (view === 'material') captureTransition(material.pages.findIndex(item => item.id === id) < pageIndex ? -1 : 1);
+    else clearTransition();
     setPageId(id);
+  });
+  const selectMaterial = (id: string) => run(async () => {
+    const selected = visibleMaterials.find(item => item.id === id);
+    if (!selected) return;
+    if (id !== materialId) { captureTransition(); setMaterialId(id); setPageId(selected.pages[0]?.id ?? ''); }
+    setView('material'); setNavigatorOpen(false);
+  });
+  const openRelatedReference = (target: MaterialReference) => run(async () => {
+    clearTransition(); setView('material'); setNavigatorOpen(false);
+    if (target.pageId !== pageId) setPageId(target.pageId);
   });
   const addBlank = (after: boolean) => run(async () => {
     if (!material) return;
@@ -282,10 +297,11 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   });
   return <section className="materials-panel" aria-label="資料" aria-busy={busy}>
     <div className="materials-controls">
+      <button type="button" className="materials-list-toggle" aria-label="資料一覧を開閉" aria-expanded={navigatorOpen} disabled={busy} onClick={()=>setNavigatorOpen(open=>!open)}>☰</button>
       {index && visibleMaterials.length > 0 && (visibleMaterials.length > 1 || !material) ? <select className="materials-picker" aria-label="資料を切り替え" disabled={memoOpen || busy || pagePending || transitioning} value={materialId} onChange={event => { const value = event.target.value; run(async () => { captureTransition(); setMaterialId(value); setPageId(visibleMaterials.find(item => item.id === value)?.pages[0]?.id ?? ''); }); }}>
         {!material ? <option value="" disabled hidden>資料を選ぶ</option> : null}{visibleMaterials.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
       </select> : <span className="materials-title" title={material?.title}>{material?.title ?? (index ? '資料' : '読み込み中…')}</span>}
-      <button type="button" className="materials-memo-button" aria-pressed={memoOpen} disabled={busy || (!memoOpen && (pagePending || transitioning))} onClick={() => void run(async () => { clearTransition(); setMemoPage(value => ({ ...value, ready: false })); setMemoOpen(value => !value); })}>メモ</button>
+      <button type="button" className="materials-memo-button" aria-pressed={memoOpen} disabled={busy || (!memoOpen && (pagePending || transitioning))} onClick={() => void run(async () => { clearTransition(); setView('material'); setMemoPage(value => ({ ...value, ready: false })); setMemoOpen(value => !value); })}>メモ</button>
       {memoOpen ? <div className="materials-pagination">
         <button aria-label="前のページ" disabled={busy || !memoPage.ready || memoPage.index === 0} onClick={() => panel.current?.goToPage?.(memoPage.index - 1)}>‹</button>
         <select aria-label="ページ" value={memoPage.index} disabled={busy || !memoPage.ready} onChange={event => { const next = Number(event.target.value); panel.current?.goToPage?.(next); }}>{[0, 1, 2].map(i => <option key={i} value={i}>p{i + 1}</option>)}</select>
@@ -307,6 +323,10 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
       {onClose ? <button className="materials-close" type="button" aria-label="資料を閉じる" title="資料を閉じる" disabled={busy} onClick={() => run(async () => onClose())}>×</button> : null}
       <input ref={photoInput} hidden type="file" accept="image/*" multiple onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; if (files.length) void addPhotos(files); }} />
     </div>
+    <div className="materials-view-tabs" role="tablist" aria-label="資料の表示">
+      <button type="button" role="tab" aria-selected={view==='material'} disabled={busy} onClick={()=>void run(async()=>{setView('material');})}>資料</button>
+      <button type="button" role="tab" aria-selected={view==='questions'} disabled={busy || memoOpen || pagePending || transitioning} onClick={()=>void run(async()=>{clearTransition();setView('questions');})}>関連問題 {relatedMaterialQuestions(questions,materialId,pageId).length}</button>
+    </div>
     {error ? <p className="materials-error" role="alert">{error}</p> : null}
     <ConfirmDialog open={deleteConfirm} title="この資料を削除しますか？" message={`「${material?.title ?? ''}」のPDF・ページ・書き込みを削除します。問題や解答履歴は残ります。参照中の場合は、先に参照を解除してください。`} onCancel={() => setDeleteConfirm(false)} onConfirm={() => {
       setDeleteConfirm(false);
@@ -317,9 +337,13 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
         setIndex(next); setMaterialId(next.materials[0]?.id ?? ''); setPageId(next.materials[0]?.pages[0]?.id ?? '');
       });
     }} />
-    <div ref={contentRef} className={`materials-content${!memoOpen && (pagePending || (transitioning && !transitionReady)) ? ' is-page-loading' : ''}`} aria-busy={!memoOpen && (pagePending || (transitioning && !transitionReady))} onPointerDownCapture={() => { if (transitionReadyRef.current) clearTransition(); }}>
+    <div className="materials-workspace">
+      {navigatorOpen ? <MaterialNavigator materials={visibleMaterials} material={material} ownerId={ownerId} disabled={busy || memoOpen || pagePending || transitioning} onSelect={id=>void selectMaterial(id)} onPage={id=>{void goToPage(id).then(ok=>{if(ok){setView('material');setNavigatorOpen(false);}});}} onClose={()=>setNavigatorOpen(false)} /> : null}
+    <div ref={contentRef} hidden={view!=='material'} className={`materials-content${!memoOpen && (pagePending || (transitioning && !transitionReady)) ? ' is-page-loading' : ''}`} aria-busy={!memoOpen && (pagePending || (transitioning && !transitionReady))} onPointerDownCapture={() => { if (transitionReadyRef.current) clearTransition(); }}>
       {memoOpen ? <CategoryNotePanel key={`memo-${setId}`} ref={panel} problemSetId={setId} category="__scratch_memo_v1" scratchMemo singlePage initialTools={tools.current} onToolsChange={rememberTools} onPageStateChange={rememberMemoPage} /> : displayed ? <CategoryNotePanel key={`${displayed.materialId}-${displayed.page.id}`} ref={panel} materialImagePage={JSON.stringify([displayed.ownerId, displayed.materialId, displayed.page.id])} initialScale={boundedNoteScale(viewScale.current)} onScaleChange={rememberScale} initialTools={tools.current} onToolsChange={rememberTools} problemSetId={displayed.ownerId} category={annotationCategory(displayed.materialId, displayed.page.id)} singlePage backgroundUrl={displayed.url} pageAspect={displayed.aspect} onReady={finishTransition} onUnavailable={clearTransition} pageNavigation={{ hasPrevious: !pagePending && !transitioning && pageIndex > 0, hasNext: !pagePending && !transitioning && pageIndex < (material?.pages.length ?? 0) - 1, previous: neighbours.pageId === displayed.page.id ? neighbours.previous : undefined, next: neighbours.pageId === displayed.page.id ? neighbours.next : undefined, onNavigate: delta => { const next = material?.pages[pageIndex + delta]; return next ? goToPage(next.id) : Promise.resolve(false); } }} /> : <div className="materials-empty"><p>{page ? '資料を読み込み中…' : '資料を見ながら、書き込もう。'}</p>{!page ? <div className="materials-empty__actions"><label className="materials-file-picker" aria-disabled={!index || busy}>PDFを追加<input type="file" aria-label="PDFを追加" accept="application/pdf,.pdf" disabled={!index || busy} onChange={selectPdf} /></label><button disabled={!index || busy} onClick={() => photoInput.current?.click()}>写真を追加</button></div> : null}<small>PDFは1ファイル100MB・2000ページまで。</small></div>}
       <div ref={transitionLayer} className="materials-transition-cover" aria-hidden="true" inert />
+    </div>
+    {view==='questions' ? <MaterialRelatedQuestions questions={questions} materialId={materialId} pageId={pageId} disabled={busy} onReference={target=>void openRelatedReference(target)} /> : null}
     </div>
   </section>;
 });
