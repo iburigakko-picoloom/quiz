@@ -27,6 +27,7 @@ import {
   type PendingQuestionSaveDecision,
 } from './createProblemSetSave';
 import './CreateProblemSetScreen.css';
+import { registerScreenBack } from '../utils/screenBack';
 import { buildSimpleCreationPrompt, buildMemoQuestionPrompt, applyCreationConditions } from '../utils/simpleCreationPrompt';
 import { loadMaterials } from '../utils/materialStorage';
 import { materialReferencePrompt, type StudyMaterial } from '../utils/materialModel';
@@ -68,7 +69,7 @@ interface CreateProblemSetScreenProps {
   onBack?: () => void;
 }
 
-type CreationView = 'methods' | 'manual' | 'bulk' | 'chatgpt' | 'copy' | 'other' | 'notes' | 'memo-questions';
+type CreationView = 'methods' | 'manual' | 'bulk' | 'chatgpt' | 'copy' | 'other' | 'clipboard' | 'json' | 'notes' | 'memo-questions';
 
 interface SetMeta {
   folderId: string;
@@ -84,7 +85,7 @@ type CreateWork = {
   view: CreationView; notesPurpose: 'questions'|'answer'; meta: SetMeta; originalMeta: SetMeta;
   drafts: BulkQuestionDraft[]; initialDrafts: BulkQuestionDraft[]; deletedDrafts: DraftDeletion<BulkQuestionDraft>[];
   questionEditor: BulkQuestionDraft; editingIndex: number|null; pasteText: string; sourceSetId?: string;
-  creationRequest: string; memoContext: string; aiStep: 1|2; aiMethod: 'simple'|'material'|'past-exam';
+  creationRequest: string; memoContext: string; aiStep: 1|2; aiMethod: 'simple'|'material'|'past-exam'|null; aiStage?: 1|2|3;
   referenceMaterialId: string; choiceCount: 4|5; questionCount: string; allowMultiple: boolean;
   pendingMethod: CreationView|null; pendingQuestionSave: PendingManualQuestion|null; editingBaseline: string|null;
 };
@@ -111,7 +112,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const [creationRequest, setCreationRequest] = useState(recovered?.creationRequest ?? '');
   const [memoContext, setMemoContext] = useState(recovered?.memoContext ?? '');
   const [aiStep, setAiStep] = useState<1 | 2>(recovered?.aiStep ?? 1);
-  const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam'>(recovered?.aiMethod ?? 'simple');
+  const [aiMethod, setAiMethod] = useState<'simple' | 'material' | 'past-exam' | null>(recovered?.aiMethod ?? null);
+  const [aiStage, setAiStage] = useState<1|2|3>(recovered?.aiStage ?? 1);
   const [registeredMaterials, setRegisteredMaterials] = useState<{ setTitle: string; material: StudyMaterial }[]>([]);
   const [referenceMaterialId, setReferenceMaterialId] = useState(recovered?.referenceMaterialId ?? '');
   const [materialsError, setMaterialsError] = useState('');
@@ -136,7 +138,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const initialMetaRef = useRef(recovered?.originalMeta ?? meta);
   const activeMethodRef = useRef<CreationView | null>(editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : null);
   const copiedTemplateTimerRef = useRef<number | null>(null);
-  useAccountWork(workKey, () => ({ view, notesPurpose, meta, originalMeta:initialMetaRef.current, drafts, initialDrafts:initialDraftsRef.current, deletedDrafts, questionEditor, editingIndex, pasteText, sourceSetId, creationRequest, memoContext, aiStep, aiMethod, referenceMaterialId, choiceCount, questionCount, allowMultiple, pendingMethod, pendingQuestionSave, editingBaseline:editingBaseline.current }), async () => { if(busy||saveInFlightRef.current)throw new Error('教材の読み込み・保存完了を待っています。'); });
+  useAccountWork(workKey, () => ({ view, notesPurpose, meta, originalMeta:initialMetaRef.current, drafts, initialDrafts:initialDraftsRef.current, deletedDrafts, questionEditor, editingIndex, pasteText, sourceSetId, creationRequest, memoContext, aiStep, aiMethod, aiStage, referenceMaterialId, choiceCount, questionCount, allowMultiple, pendingMethod, pendingQuestionSave, editingBaseline:editingBaseline.current }), async () => { if(busy||saveInFlightRef.current)throw new Error('教材の読み込み・保存完了を待っています。'); });
 
   useEffect(() => () => {
     if (copiedTemplateTimerRef.current !== null) window.clearTimeout(copiedTemplateTimerRef.current);
@@ -166,7 +168,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     ? 'copy'
     : view === 'chatgpt' || view === 'memo-questions'
       ? 'chatgpt'
-      : view === 'bulk'
+      : view === 'bulk' || view === 'clipboard' || view === 'json'
         ? 'bulk'
       : 'manual';
 
@@ -201,6 +203,9 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     setCreationRequest('');
     setMemoContext('');
     setAiStep(1);
+    setAiMethod(null);
+    setAiStage(1);
+    setReferenceMaterialId('');
     setSourceSetId(undefined);
     setError('');
     setView(next);
@@ -218,6 +223,29 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
       return;
     }
     resetAndStartMethod(next);
+  };
+
+  const backWithinCreation = () => {
+    if (view === 'memo-questions') { goTo('notes'); return; }
+    if (view === 'notes' && notesBackRef.current?.()) return;
+    if (view === 'chatgpt' && aiStep === 2) { setAiStep(1); return; }
+    if (view === 'chatgpt' && aiStage > 1) { setAiStage(stage => stage === 3 ? 2 : 1); return; }
+    if (view === 'chatgpt' && aiMethod) { setAiMethod(null); return; }
+    if ((startWithAi || startWithExplanationImport) && onBack) onBack(); else goTo('methods');
+  };
+  useEffect(() => {
+    if (editingProblemSet || copySetId || view === 'methods') return;
+    const internal = view === 'chatgpt' ? aiStep === 2 || aiStage > 1 || Boolean(aiMethod) || !startWithAi : !startWithExplanationImport;
+    if (internal) return registerScreenBack(backWithinCreation);
+  }, [view, aiStep, aiStage, aiMethod, editingProblemSet, copySetId, startWithAi, startWithExplanationImport]);
+  const pasteClipboard = async () => {
+    try { const text = await readClipboardText(); if (!text.trim()) throw new Error('クリップボードが空です。'); setPasteText(text); setDrafts([]); setError(''); }
+    catch (reason) { setError(reason instanceof Error && reason.message === 'クリップボードが空です。' ? reason.message : '入力欄を長押しして貼り付けてください。'); }
+  };
+  const showPrompt = () => {
+    const count = questionCount.trim() === '' ? undefined : Number(questionCount);
+    if (aiMethod !== 'past-exam' && count !== undefined && (!Number.isInteger(count) || count < 1 || count > 2000)) { setError('問題数は空欄にするか、1〜2000の整数で入力してください。'); return; }
+    setError(''); setAiStage(3);
   };
 
   const addOrUpdateQuestion = () => {
@@ -291,6 +319,9 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
       if (result.value.questions.some(q => q.choices.length !== 5 || !q.distractors?.length || q.shuffleChoices !== true)) { setError('5択・追加誤答候補・shuffleChoices:trueが必要です。プロンプトの条件に合わせてAIに修正してもらってください。'); return; }
       setMeta(current => ({ ...current, title: current.title.trim() ? current.title : result.value.setTitle }));
     }
+    const json = validateImportJson(importText);
+    if ((view === 'json' || view === 'chatgpt') && !json.ok) { setError('問題セットのJSONを読み取れませんでした。内容を確認してください。'); return; }
+    if (json.ok) setMeta(current => ({ ...current, title: current.title.trim() ? current.title : json.value.setTitle, source: current.source || json.value.source || '' }));
     const generated = parseGeneratedContent(importText);
     if (generated.questions.length === 0) {
       setError('問題を読み取れませんでした。問題文、選択肢、正解を分けて入力してください。');
@@ -482,8 +513,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             onBack ? <BackButton onClick={onBack} label="前の画面へ戻る" /> : null
           ) : (
             <BackButton
-              onClick={(editingProblemSet || copySetId) && onBack ? onBack : () => { if(view === 'memo-questions') { goTo('notes'); return; } if(view === 'notes' && notesBackRef.current?.()) return; if(view === 'chatgpt' && aiStep === 2) setAiStep(1); else if((startWithAi || startWithExplanationImport) && onBack) onBack(); else goTo('methods'); }}
-              label={view === 'notes' ? '戻る' : editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && aiStep === 2 ? 'ステップ1へ戻る' : startWithAi ? '前の画面へ戻る' : '作成方法へ戻る'}
+              onClick={(editingProblemSet || copySetId) && onBack ? onBack : backWithinCreation}
+              label={view === 'notes' ? '戻る' : editingProblemSet || copySetId ? '問題セットへ戻る' : view === 'chatgpt' && (aiStep === 2 || aiStage > 1 || aiMethod) ? '前の手順へ戻る' : startWithAi ? '前の画面へ戻る' : '作成方法へ戻る'}
             />
           )}
           <div>
@@ -517,7 +548,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
           </div>
         ) : null}
 
-        {(view === 'bulk' || view === 'chatgpt' || view === 'memo-questions') ? (
+        {(view === 'bulk' || view === 'clipboard' || view === 'json' || view === 'chatgpt' || view === 'memo-questions') ? (
           <div className="create-set__flow">
             {view === 'memo-questions' ? <section className="create-set__memo-workspace">
               <div className="create-set__memo-tools">
@@ -536,36 +567,48 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               </nav>
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
-              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '自分で作る'], ['material', '資料から作る'], ['past-exam', '過去問から作る']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => setAiMethod(method)}>{label}</button>)}<span className="create-set__method-indicator" aria-hidden="true" style={{ transform: `translateX(calc(${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 100}% + ${['simple', 'material', 'past-exam'].indexOf(aiMethod) * 6}px))` }} /></nav>
-              {aiMethod !== 'past-exam' ? <div className="create-set__generation-options">
-                <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{ transform: `translateX(${choiceCount === 5 ? 100 : 0}%)` }} />{([4, 5] as const).map((count) => <button type="button" key={count} aria-pressed={choiceCount === count} onClick={() => setChoiceCount(count)}>{count}択</button>)}</div></fieldset>
-                <label>問題数（任意）<input type="number" min={1} max={2000} step={1} inputMode="numeric" placeholder="未指定" value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /></label>
-                <label className="create-set__multiple-option"><span>複数回答</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} /></span></label>
-              </div> : null}
-              <article className="create-set__ai-method" hidden={aiMethod !== 'simple'}>
-                {memoContext ? <details><summary>苦手メモを参照中</summary><button type="button" onClick={()=>setMemoContext('')}>参照を外す</button></details> : null}
-                <label className="create-set__field"><span>作りたい問題集</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={(event) => setCreationRequest(event.target.value)} /></label>
-                <button type="button" className="create-set__ai-copy" disabled={!creationRequest.trim()} onClick={() => void copyPromptTemplate('simple')}><CopyIcon size={18} />{copiedTemplate === 'simple' ? 'コピーしました' : '依頼文をコピー'}</button>
-              </article>
-              <article className="create-set__ai-method" hidden={aiMethod !== 'material'}>
-                <label className="create-set__field"><span>参照資料（任意）</span><select value={referenceMaterialId} onChange={event => setReferenceMaterialId(event.target.value)}><option value="">紐づけない</option>{registeredMaterials.map(({ setTitle, material }) => <option key={material.id} value={material.id}>{setTitle} · {material.title}</option>)}</select></label>
-                <small>問題セットの「資料」でPDFを登録すると、問題から参照ページを開けます。同じPDFをAIに添付してください。</small>
-                {materialsError ? <p role="alert">{materialsError}</p> : null}
-                <PdfPromptFlow pdfLabel="資料PDF" copied={copiedTemplate === 'material'} onCopy={() => void copyPromptTemplate('material')} onNext={() => setAiStep(2)} />
-              </article>
-              <article className="create-set__ai-method" hidden={aiMethod !== 'past-exam'}>
-                <PdfPromptFlow pdfLabel="過去問PDF" copied={copiedTemplate === 'past-exam'} onCopy={() => void copyPromptTemplate('past-exam')} onNext={() => setAiStep(2)} />
-              </article>
-              {aiMethod === 'simple' ? <button type="button" className="create-set__primary" onClick={() => setAiStep(2)}>ステップ2へ <ChevronRightIcon size={18} /></button> : null}
+              <h2>1. 作成方法</h2>
+              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '指示から作成'], ['material', '資料から作成'], ['past-exam', '過去問から作成']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => { setAiMethod(method); setAiStage(1); setError(''); }}>{label}</button>)}</nav>
+              {aiMethod ? <section className="create-set__ai-stage">
+                <h2>2. {aiMethod === 'simple' ? '作りたい問題' : aiMethod === 'material' ? '資料を選ぶ' : '過去問を用意'}</h2>
+                {aiMethod === 'simple' ? <>
+                  {memoContext ? <details><summary>苦手メモを参照中</summary><button type="button" onClick={()=>setMemoContext('')}>参照を外す</button></details> : null}
+                  <label className="create-set__field"><span>作りたい問題集</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={event=>{setCreationRequest(event.target.value);setAiStage(1);}} /></label>
+                </> : <>
+                  <p className="create-set__external-pdf">外部の生成AIに{aiMethod === 'material' ? '資料PDF' : '過去問PDF'}を添付</p>
+                  {aiMethod === 'material' ? <label className="create-set__field"><span>登録済み資料との紐づけ（任意）</span><select value={referenceMaterialId} onChange={event=>setReferenceMaterialId(event.target.value)}><option value="">紐づけない</option>{registeredMaterials.map(({setTitle,material})=><option key={material.id} value={material.id}>{setTitle} · {material.title}</option>)}</select></label> : null}
+                  {materialsError && aiMethod === 'material' ? <p role="alert">{materialsError}</p> : null}
+                </>}
+                {aiStage === 1 ? <button type="button" className="create-set__primary" disabled={aiMethod === 'simple' && !creationRequest.trim()} onClick={()=>setAiStage(2)}>条件を設定 <ChevronRightIcon size={18}/></button> : null}
+              </section> : null}
+              {aiMethod && aiStage >= 2 ? <section className="create-set__ai-stage">
+                <h2>3. 作成条件</h2>
+                {aiMethod !== 'past-exam' ? <div className="create-set__generation-options">
+                  <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{transform:`translateX(${choiceCount===5?100:0}%)`}} />{([4,5] as const).map(count=><button type="button" key={count} aria-pressed={choiceCount===count} onClick={()=>{setChoiceCount(count);setAiStage(2);}}>{count}択</button>)}</div></fieldset>
+                  <label>問題数（任意）<input type="number" min={1} max={2000} step={1} inputMode="numeric" placeholder="未指定" value={questionCount} onChange={event=>{setQuestionCount(event.target.value);setAiStage(2);}} /></label>
+                  <label className="create-set__multiple-option"><span>複数回答</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={event=>{setAllowMultiple(event.target.checked);setAiStage(2);}} /></span></label>
+                </div> : <p>原文の選択肢・正解数を維持</p>}
+                {aiStage === 2 ? <button type="button" className="create-set__primary" onClick={showPrompt}>依頼文を作成 <ChevronRightIcon size={18}/></button> : null}
+              </section> : null}
+              {aiMethod && aiStage === 3 ? <section className="create-set__ai-stage">
+                <h2>4. 生成AIへ依頼</h2>
+                {aiMethod === 'simple' ? <>
+                  <button type="button" className="create-set__ai-copy" onClick={()=>void copyPromptTemplate('simple')}><CopyIcon size={18}/>{copiedTemplate==='simple'?'コピーしました':'依頼文をコピー'}</button>
+                  <p>外部の生成AIに貼り付け</p>
+                  <button type="button" className="create-set__primary" onClick={()=>setAiStep(2)}>JSONを取り込む <ChevronRightIcon size={18}/></button>
+                </> : <PdfPromptFlow pdfLabel={aiMethod==='material'?'資料PDF':'過去問PDF'} copied={copiedTemplate===aiMethod} onCopy={()=>void copyPromptTemplate(aiMethod)} onNext={()=>setAiStep(2)} />}
+              </section> : null}
             </section> : null}
             {(view !== 'chatgpt' || aiStep === 2) && (view !== 'memo-questions' || reviewedDrafts.length > 0) ? <>
             <SetMetaFields data={data} value={meta} onChange={next => { setMeta(next); setError(''); }} />
             {view !== 'memo-questions' ? <section className="create-set__panel">
-              <h2>{view === 'chatgpt' ? 'JSONを取り込む' : '複数の問題'}</h2>
+              <h2>{view === 'chatgpt' || view === 'json' ? 'JSONを取り込む' : 'クリップボードから取り込む'}</h2>
               <input ref={jsonFileRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importJsonFile(file); }} />
+              {view !== 'json' ? <button type="button" className="create-set__ai-copy" disabled={busy} onClick={()=>void pasteClipboard()}>クリップボードから貼り付け</button> : null}
               <button type="button" className="create-set__ai-copy" disabled={busy} onClick={() => jsonFileRef.current?.click()}><DocumentOutlineIcon size={18} />{busy ? '読み込み中…' : 'JSONファイルを選ぶ'}</button>
-              <textarea className="create-set__paste" value={pasteText} onChange={(event) => setPasteText(event.target.value)} aria-label={view === 'chatgpt' ? '問題セットJSON' : '問題の貼り付け欄'} />
-              <button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' ? 'JSONを読み取る' : '読み取って確認'}</button>
+              <textarea className="create-set__paste" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setDrafts([]); }} aria-label={view === 'chatgpt' || view === 'json' ? '問題セットJSON' : '問題の貼り付け欄'} />
+              <button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' || view === 'json' ? 'JSONを読み取る' : '読み取って確認'}</button>
+              {view === 'json' ? <details className="create-set__secondary-menu"><summary>その他のJSON形式</summary><button type="button" className="create-set__text-button" onClick={openLegacyImport}>従来の問題セットファイルを取り込む</button></details> : null}
             </section> : null}
             {reviewedDrafts.length > 0 ? (
               <section className="create-set__review" aria-label="読み取り結果">
@@ -771,19 +814,22 @@ function PendingQuestionSaveDialog({
 }
 
 function MethodChooser({ onSelect }: { onSelect: (view: CreationView, purpose?: 'questions'|'answer') => void }) {
-  const groups: Array<{title:string;methods:Array<{view:CreationView;purpose?:'questions'|'answer';title:string;icon:React.ReactNode}>}> = [
-    {title:'問題を作成',methods:[
-      {view:'chatgpt',title: '生成AIで作る',icon: <AiCreationIcon />},
-      {view:'notes',purpose:'questions',title:'メモから作る',icon: <WeaknessMemoIcon />},
-      {view:'manual',title:'手入力で作る',icon: <DocumentOutlineIcon />},
-      {view:'bulk',title:'まとめて貼り付ける',icon: <CopyIcon />},
-      {view:'other',title:'教材JSONを取り込む',icon: <DocumentOutlineIcon />},
-    ]},
-    {title:'解説を作成',methods:[
-      {view:'notes',purpose:'answer',title:'メモから追加解説を作る',icon: <MemoExplanationIcon />},
-    ]},
-  ];
-  return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">{groups.map(group=><section className="create-set__purpose-group" key={group.title}><h2>{group.title}</h2>{group.methods.map((method) => <button key={method.title} data-guide={method.view === 'chatgpt' ? 'create-ai' : method.purpose === 'answer' ? 'create-explanation' : 'create-memo'} type="button" className="create-set__method" onClick={() => onSelect(method.view,method.purpose)}><span className="create-set__method-icon">{method.icon}</span><span><strong>{method.title}</strong></span><ChevronRightIcon /></button>)}</section>)}
+  const item = (view: CreationView, title: string, icon: React.ReactNode, purpose?: 'questions'|'answer') => <button key={title} data-guide={view==='chatgpt'?'create-ai':purpose==='answer'?'create-explanation':'create-memo'} type="button" className="create-set__method" onClick={()=>onSelect(view,purpose)}><span className="create-set__method-icon">{icon}</span><strong>{title}</strong><ChevronRightIcon/></button>;
+  return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">
+    <section className="create-set__purpose-group"><h2>作成</h2>
+      {item('chatgpt','生成AIで作る',<AiCreationIcon/>)}
+      {item('manual','手入力で作る',<DocumentOutlineIcon/>)}
+      <details className="create-set__secondary-menu"><summary>その他の作成方法</summary>
+        {item('notes','メモから問題を作る',<WeaknessMemoIcon/>,'questions')}
+        {item('copy','問題セットのコピー',<CopyIcon/>)}
+      </details>
+    </section>
+    <section className="create-set__purpose-group"><h2>とりこみ</h2>
+      {item('clipboard','クリップボードから取り込む',<CopyIcon/>)}
+      {item('json','JSONファイルから取り込む',<DocumentOutlineIcon/>)}
+      <details className="create-set__secondary-menu"><summary>まとめて貼り付ける</summary>{item('bulk','テキスト・CSVから取り込む',<CopyIcon/>)}</details>
+    </section>
+    <section className="create-set__purpose-group">{item('notes','メモから追加解説を作る',<MemoExplanationIcon/>,'answer')}</section>
   </section>;
 }
 
@@ -937,7 +983,8 @@ function getViewTitle(view: CreationView, sourceSetId?: string) {
   if (view === 'memo-questions') return '回答から問題を作る';
   if (view === 'methods') return '作成';
   if (view === 'manual') return sourceSetId ? 'コピーを編集' : '問題を編集';
-  if (view === 'bulk') return 'CSVを確認';
+  if (view === 'bulk' || view === 'clipboard') return 'クリップボードから取り込む';
+  if (view === 'json') return 'JSONファイルから取り込む';
   if (view === 'chatgpt') return '生成AIで作る';
   if (view === 'notes') return '苦手メモ';
   if (view === 'copy') return 'コピー元を選ぶ';
