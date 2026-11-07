@@ -613,6 +613,6 @@
 .quiz-home--materials-active .quiz-home__materials { padding: 16px 16px calc(var(--primary-nav-height) + var(--safe-bottom) + 16px); }
 .quiz-home__materials-search { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px; border: 1px solid #dce5ef; border-radius: 6px; color: #71849a; }
 .quiz-home__materials-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: #173042; font: inherit; }
-.quiz-home--plans button.quiz-home__material-row { gap: 12px; padding: 14px 0; }
+.quiz-home--plans button.quiz-home__material-row { gap: 12px; min-height: 87px; padding: 14px 0; }
 .quiz-home__material-row > .quiz-home__material-icon { display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; background: #edf3fc; border-radius: 5px; }
 .quiz-home__material-row > .quiz-home__material-details { flex: 1; }
