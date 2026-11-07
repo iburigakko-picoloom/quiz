@@ -1,4 +1,5 @@
 import { StorageBreakdown } from '../components/StorageBreakdown';
+import { DeviceRoleSettings } from '../components/DeviceRoleSettings';
 import {webStorageUsage} from '../utils/webStorageUsage';
 import { accountLocalStorage as localStorage, accountStorageEventKey } from '../utils/accountStorage';
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
@@ -79,6 +80,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
   const [lastState, setLastState] = useState<LastSyncState>(() => getLastSyncState());
   const [busy, setBusy] = useState(false);
   const [childBusy, setChildBusy] = useState(false);
+  const [roleChanging, setRoleChanging] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [localPage, setLocalPage] = useState<SyncScreenPage>();
   const currentPage = page ?? localPage;
@@ -117,7 +119,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
     expectedRemoteUpdatedAt: string;
   } | null>(null);
 
-  const interactionProtected = busy || childBusy || diagnosticBusy || loginBusy || reviewOpen || replacementOpen || syncId.trim() !== activeSyncId || Boolean(pairingCodeInput || issuedPairingCode) || Boolean(pendingCloudImport || pendingCloudOverwrite || pendingCloudDelete || pendingGeneratedSyncId || pendingConnectSyncId);
+  const interactionProtected = busy || childBusy || roleChanging || diagnosticBusy || loginBusy || reviewOpen || replacementOpen || syncId.trim() !== activeSyncId || Boolean(pairingCodeInput || issuedPairingCode) || Boolean(pendingCloudImport || pendingCloudOverwrite || pendingCloudDelete || pendingGeneratedSyncId || pendingConnectSyncId);
   useLayoutEffect(() => {
     setSyncInteractionProtected(interactionProtected);
     onProtectionChange?.(interactionProtected);
@@ -982,13 +984,13 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
   };
 
   const goToPage = (next: SyncScreenPage) => {
-    if (busy || childBusy || diagnosticBusy || loginBusy || reviewOpen) return;
+    if (busy || childBusy || roleChanging || diagnosticBusy || loginBusy || reviewOpen) return;
     setMessage(''); setError('');
     if (onNavigatePage) onNavigatePage(next);
     else { setSyncId(activeSyncId); setPairingCodeInput(''); setIssuedPairingCode(null); setReplacementOpen(false); setLocalPage(next); }
   };
   const canLeave = () => {
-    if (busy || childBusy || diagnosticBusy || loginBusy) return false;
+    if (busy || childBusy || roleChanging || diagnosticBusy || loginBusy) return false;
     if (reviewOpen) { setReviewOpen(false); return false; }
     if (pendingCloudImport || pendingCloudOverwrite || pendingCloudDelete || pendingGeneratedSyncId || pendingConnectSyncId) {
       setPendingCloudImport(null); setPendingCloudOverwrite(null); setPendingCloudDelete(null);
@@ -1016,7 +1018,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
   return (
     <div className="sync-screen sync-screen--simple" data-sync-page={currentPage ?? 'main'}>
       <header className="sync-screen__header">
-        <BackButton onClick={back} label="戻る" className="sync-screen__back" disabled={busy || childBusy || diagnosticBusy || loginBusy} />
+        <BackButton onClick={back} label="戻る" className="sync-screen__back" disabled={busy || childBusy || roleChanging || diagnosticBusy || loginBusy} />
         <div className="sync-screen__header-text"><h1>{pageTitle}</h1></div>
       </header>
       <main className="sync-screen__body sync-screen__body--single">
@@ -1075,6 +1077,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
           </nav>
         </> : null}
         {currentPage === 'settings' ? <>
+          <DeviceRoleSettings disabled={interactionProtected} onBusyChange={setRoleChanging}/>
           {configured && authenticated ? (
             <div className="sync-account-line" role="status">
               <span>ログイン中</span>
