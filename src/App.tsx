@@ -1,3 +1,4 @@
+import { tryScreenBack } from './utils/screenBack';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { accountLocalStorage as localStorage } from './utils/accountStorage';
 import type { AppData, AppScreen, Folder, ProblemSet, Question, QuizResult, QuizSession, MaterialReference } from './types';
@@ -346,7 +347,7 @@ export default function App() {
       if (backupExitStateRef.current.busy) { window.history.pushState({ quizMake: true }, ''); return; }
       if (backupExitStateRef.current.pending) { setPendingBackupImport(null); window.history.pushState({ quizMake: true }, ''); return; }
       if ((screenRef.current.name === 'sync' || (screenRef.current.name === 'settings' && screenRef.current.page === 'backups')) && syncExitGuardRef.current && !syncExitGuardRef.current()) { window.history.pushState({ quizMake: true }, ''); return; }
-      if (tryCloseTransientDialog()) { window.history.pushState({ quizMake: true }, ''); return; }
+      if (tryCloseTransientDialog() || tryScreenBack()) { window.history.pushState({ quizMake: true }, ''); return; }
       if (autoImportBusyRef.current) {
         window.history.pushState({ quizMake: true }, '');
         return;
@@ -515,7 +516,7 @@ export default function App() {
   };
 
   const goBackTo = (next: AppScreen) => {
-    if (tryCloseTransientDialog()) return;
+    if (tryCloseTransientDialog() || tryScreenBack()) return;
     if (screenRef.current.name === 'import' && importExitGuardRef.current) { void importExitGuardRef.current(() => performBackNavigation(next)); return; }
     const exitReason = getProtectedExitReason(screenRef.current, createDraftDirtyRef.current);
     if (exitReason) {

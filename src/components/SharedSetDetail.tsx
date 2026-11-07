@@ -1,10 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import type { CloudProblemSet,CloudQuestion } from '../utils/cloudService';
 import { displayGroupDate, GroupEmpty } from './GroupLearningUi';
 import { FolderOutlineIcon, GroupIcon, HistoryIcon, ProblemSetIcon } from './UiIcons';
 
-export function SharedSetDetail({ set, location, busy, onCopy, onOpenSource, onReport, progress }: {
-  set: CloudProblemSet; location: string; busy: boolean; progress?: ReactNode;
+export function SharedSetDetail({ set, location, busy, onCopy, onOpenSource, onReport }: {
+  set: CloudProblemSet; location: string; busy: boolean;
   onCopy: () => void; onOpenSource?: () => void; onReport: () => void;
 }) {
   return <section className="group-set-detail" aria-label="問題セット詳細">
@@ -15,7 +15,6 @@ export function SharedSetDetail({ set, location, busy, onCopy, onOpenSource, onR
       <button type="button" className="group-primary group-import-button" disabled={busy} onClick={onOpenSource??onCopy}>{onOpenSource?'共有元を開く':'取り込む'}</button>
     </article>
     <SharedQuestionPreview questions={set.questions??[]} showTags={false}/>
-    {progress}
     <div className="group-detail-minor-actions"><button type="button" className="group-text-link" disabled={busy} onClick={onReport}>誤りを報告</button></div>
   </section>;
 }

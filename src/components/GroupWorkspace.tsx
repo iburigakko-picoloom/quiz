@@ -1,53 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppData } from '../types';
-import { indexProgress } from '../utils/quiz';
 import type { CloudGroup, CloudGroupMember, CloudProblemSet } from '../utils/cloudService';
-import {getSharedProblemSet} from '../utils/cloudService';
-import { importedLearning, levelPercentages, sortLearningMembers, sumLevels, type GroupLearningMember, type LevelCounts } from '../utils/groupLearning';
+import { importedLearning, levelPercentages, sortLearningMembers, type GroupLearningMember } from '../utils/groupLearning';
 import {groupStudyCandidates} from '../utils/groupStudySource';
 import { buildGroupLibrary, groupFolderSets, type GroupFolderCardData } from '../utils/groupLibrary';
-import type { GroupLearningSnapshot } from '../utils/groupLearningService';
-import { ChevronRightIcon, PlusIcon, SettingsIcon } from './UiIcons';
+import type { MaterialProgress, GroupLearningSnapshot } from '../utils/groupLearningService';
+import { PlusIcon, SettingsIcon } from './UiIcons';
 import { GroupAvatar, GroupEmpty, LevelProgress, MemberAvatar, displayGroupDate } from './GroupLearningUi';
 import {LibraryPane} from './LibraryPane';
 import {LibraryContentRow} from './LibraryContentRow';
 
-export type GroupDetailTab = 'overview' | 'folders' | 'members';
-export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onSettings, onRefresh, onRemoveMember, onImportFolder,onManageFolder,onRemoveSet,busy }: {
+export type GroupDetailTab = 'timeline' | 'overview' | 'folders' | 'members';
+export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onSettings, onRefresh, onRemoveMember, onImportFolder,onManageFolder,onRemoveSet,busy,materials,onOpenProgress }: {
   data: AppData; group?: CloudGroup; sets: CloudProblemSet[]; members: CloudGroupMember[]; userId: string; snapshot: GroupLearningSnapshot | null;
   loading: boolean; error: string; tab: GroupDetailTab; onTab: (tab: GroupDetailTab) => void; folderTrail: string[]; onFolderTrail: (trail: string[]) => void;
   onOpenSet: (set: CloudProblemSet, location: string) => void; onAddSet: (folder: GroupFolderCardData) => void; onAddFolder: () => void; onSettings: () => void; onRefresh: () => void; onRemoveMember: (member: CloudGroupMember) => void; busy: boolean;
+  materials?: MaterialProgress[]; onOpenProgress?: (set: CloudProblemSet) => void;
   onImportFolder?: (folder:GroupFolderCardData)=>void;
   onManageFolder?: (folder:GroupFolderCardData)=>void;
   onRemoveSet?: (set:CloudProblemSet)=>void;
 }) {
-  const [scope, setScope] = useState<'all' | 'self'>('all');
   const [sort, setSort] = useState<'today' | 'week' | 'l3'>('today');
-  const [sourceSnapshots,setSourceSnapshots]=useState<Map<string,CloudProblemSet>>(new Map());
-  const [sourceError,setSourceError]=useState('');
-  const neededSources=sets.filter(shared=>{
-    const local=data.problemSets.find(s=>shared.ownerId===userId&&s.id===shared.localSetId&&s.cloudSetId===shared.id);
-    const cached=sourceSnapshots.get(shared.id);
-    return local&&!shared.questions?.length&&(!local.publicationSource?.manifest||local.publicationSource.versionId!==shared.versionId)&&!(cached?.ownerId===userId&&cached.localSetId===local.id&&cached.versionId===shared.versionId);
-  });
-  const sourceKey=neededSources.map(s=>`${s.id}:${s.versionId}`).join('|');
-  useEffect(()=>{
-    let active=true;setSourceError('');
-    if(scope!=='self'||!sourceKey)return()=>{active=false;};
-    // Only originals lacking a compact manifest need this read. Fetch them
-    // sequentially; these immutable snapshots remain in memory and never sync.
-    void (async()=>{
-      const fetched:CloudProblemSet[]=[];
-      for(const shared of neededSources){
-        const detail=await getSharedProblemSet(shared.id);
-        if(!active)return;
-        if(detail.ownerId!==userId||detail.localSetId!==shared.localSetId||detail.versionId!==shared.versionId||!detail.questions?.length)throw new Error('共有元の公開版が更新されています。一覧を再読み込みしてください。');
-        groupStudyCandidates(data,detail,userId);fetched.push(detail);
-      }
-      if(active)setSourceSnapshots(old=>new Map([...old,...fetched.map(s=>[s.id,s] as const)]));
-    })().catch(reason=>{if(active)setSourceError(reason instanceof Error?reason.message:'共有元の公開版を確認できません。一覧を再読み込みしてください。');});
-    return()=>{active=false;};
-  },[scope,sourceKey,userId,group?.id,sets]);
   const workspaceRef = useRef<HTMLElement>(null);
   const folderKey = folderTrail.join('|');
   const previousFolderKey=useRef(folderKey);
@@ -67,39 +40,21 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
   const folderActions = (folder: GroupFolderCardData) => folder.key !== 'unfiled' && onManageFolder && (canManage || folder.createdBy === userId)
     ? <button type="button" className="group-library-menu" aria-label={`${folder.name}の管理`} disabled={busy || loading || !snapshot} onClick={() => onManageFolder(folder)}>…</button> : null;
   const learningMembers: GroupLearningMember[] = snapshot?.members ?? members.map(member => ({ ...member, levels: null, todayCount: null, weekCount: null, importedSetCount: 0, sharedSetCount: 0 }));
-  const sorted = sortLearningMembers(learningMembers, sort);
-  const groupLevels = sumLevels(learningMembers.flatMap(member => member.levels ? [member.levels] : []));
-  const localLevels = useMemo(() => {
-    const chosen = new Map<string, typeof data.problemSets[number]>();
-    for(const shared of sets){const cached=sourceSnapshots.get(shared.id);const detail=cached?.ownerId===userId&&cached.localSetId===shared.localSetId&&cached.versionId===shared.versionId?cached:shared;const candidate=groupStudyCandidates(data,detail,userId,false)[0];if(candidate)chosen.set(shared.id,candidate);}
-    const questionsBySet = new Map<string, AppData['questions']>();
-    for (const question of data.questions) {
-      const questions = questionsBySet.get(question.setId) ?? [];
-      questions.push(question); questionsBySet.set(question.setId, questions);
-    }
-    const progressById = indexProgress(data.progress);
-    return sumLevels([...chosen.entries()].flatMap(([publishedId,copy]) => {
-      const questions = questionsBySet.get(copy.id) ?? [];
-      const aggregate = importedLearning({ ...data, questions, progress: questions.flatMap(question => { const p = progressById.get(question.id); return p ? [p] : []; }), answerLogs: [] }, copy, publishedId, copy.publicationSource?.setId===publishedId?copy.publicationSource.versionId:copy.sourceVersionId ?? '');
-      return aggregate ? [aggregate.levels] : [];
-    }));
-  }, [data, sets,userId,sourceSnapshots]);
-  const levels = scope === 'self' ? localLevels : groupLevels;
-  const rankable = sortLearningMembers(learningMembers, 'today').filter(member => member.todayCount !== null);
+  const sorted = sortLearningMembers(learningMembers.filter(member => member.levels !== null && member.sharedSetCount > 0), sort);
   const renderFolder = (folder: GroupFolderCardData, parent = folderTrail) => {
     const contents = groupFolderSets(folder);
     return <LibraryContentRow key={folder.key} title={folder.name} folder sets={contents.length} questions={contents.reduce((sum,set)=>sum+set.questionCount,0)} disabled={busy} onOpen={()=>{onTab('folders');onFolderTrail([...parent,folder.key]);}} actions={folderActions(folder)}/>;
   };
   return <section ref={workspaceRef} className="group-workspace" aria-label="グループ詳細">
-    <div className="group-workspace__tabs" role="tablist" aria-label="グループの表示">{([['overview', '概要'], ['folders', `フォルダ ${folderCount}`], ['members', `メンバー ${members.length}`]] as const).map(([value, label]) => <button type="button" id={`group-tab-${value}`} key={value} role="tab" aria-selected={tab === value} aria-controls={`group-panel-${value}`} tabIndex={tab === value ? 0 : -1} onKeyDown={event => {
-      const tabs: GroupDetailTab[] = ['overview', 'folders', 'members']; const i = tabs.indexOf(value);
-      const next = event.key === 'ArrowRight' ? tabs[(i + 1) % 3] : event.key === 'ArrowLeft' ? tabs[(i + 2) % 3] : event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[2] : null;
+    <div className="group-workspace__tabs" role="tablist" aria-label="グループの表示">{([['timeline', 'タイムライン'], ['folders', 'フォルダ'], ['members', 'メンバー'], ['overview', '概要']] as const).map(([value, label]) => <button type="button" id={`group-tab-${value}`} key={value} role="tab" aria-selected={tab === value} aria-controls={`group-panel-${value}`} tabIndex={tab === value ? 0 : -1} onKeyDown={event => {
+      const tabs: GroupDetailTab[] = ['timeline', 'folders', 'members', 'overview']; const i = tabs.indexOf(value);
+      const next = event.key === 'ArrowRight' ? tabs[(i + 1) % 4] : event.key === 'ArrowLeft' ? tabs[(i + 3) % 4] : event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[3] : null;
       if (next) { event.preventDefault(); onTab(next); document.getElementById(`group-tab-${next}`)?.focus(); }
     }} onClick={() => onTab(value)}>{label}</button>)}</div>
     <div className="group-workspace__content">
       {error ? <div className="group-error" role="alert">{error}<button type="button" onClick={onRefresh}>再読み込み</button></div> : null}
       {loading ? <p className="group-muted" role="status">グループの集計を読み込み中…</p> : null}
-      {tab !== 'folders' ? <article className="group-summary group-panel">
+      {tab === 'members' ? <article className="group-summary group-panel">
         <button type="button" className="group-summary__icon" aria-label="グループアイコンを変更" disabled={group?.role!=='owner' || busy} onClick={onSettings}><GroupAvatar photo={group?.photo} icon={snapshot?.icon ?? group?.icon} accent={snapshot?.accent ?? group?.accent} />{group?.role==='owner' ? <span className="group-summary__edit" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 5 5-13 13-5 1 1-5z"/><path d="m14 5 5 5"/></svg></span> : null}</button>
         <nav className="group-summary__stats" aria-label="グループの情報">
           <button type="button" className="library-tappable" onClick={()=>onTab('members')} aria-label={`${members.length}人のメンバーを見る`}><strong>{members.length}</strong><span>メンバー</span></button>
@@ -109,12 +64,29 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         <button type="button" className="group-summary__settings library-tappable" onClick={onSettings} aria-label="グループ設定"><SettingsIcon size={21}/></button>
       </article> : null}
       <section id="group-panel-overview" role="tabpanel" aria-labelledby="group-tab-overview" hidden={tab !== 'overview'}>
-        <article className="group-panel group-overview-progress"><div className="group-panel__heading"><h2>学習の進捗</h2><div className="group-segment" aria-label="進捗の対象">{([['all', '全体'], ['self', '自分']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{label}</button>)}</div></div>
-          {scope==='self'&&neededSources.length ? sourceError ? <p className="group-error" role="alert">{sourceError}</p> : <p role="status" className="group-muted">共有元の公開版を確認中…</p> : levels.some(n => n > 0) ? <LevelProgress levels={levels} /> : <GroupEmpty>{scope === 'self' ? '教材を学習すると、ここで進捗を確認できます。' : '進捗はまだ共有されていません。'}</GroupEmpty>}
-        </article>
-        {rankable.length?<article className="group-panel"><div className="group-panel__heading"><h2>今日の解答数</h2><button type="button" className="group-text-link" onClick={() => { setSort('today'); onTab('members'); }}>すべて見る<ChevronRightIcon size={17} /></button></div>
-          {rankable.slice(0, 3).map((member, i) => <div className="group-ranking" key={member.userId}><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} /><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong><b>{member.todayCount}問</b></div>)}
-        </article>:null}
+        <h2>教材ごとの学習状況</h2>
+        <p className="group-muted">グループ全体は進捗を共有しているメンバーの現在の公開版のみ集計します。</p>
+        <div className="group-material-list">{sets.map(set => {
+          const remote = materials?.find(row => row.setId === set.id && row.versionId === set.versionId);
+          const candidates = groupStudyCandidates(data, set, userId);
+          const local = candidates.find(row => row.id === remote?.ownCopyId) ?? candidates[0];
+          const own = local && set.versionId ? importedLearning(data, local, set.id, set.versionId) : null;
+          return <button type="button" className="group-panel group-material-card" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>
+            <h3>{set.title}</h3>
+            <p>学習中 {remote ? `${remote.learners}人（共有中）` : '—'}</p>
+            <p>自分の進捗：{own ? `回答済み ${own.answered} / ${own.total}問・回答率 ${Math.round(own.answered / own.total * 100)}%` : '詳細で公開版・端末の教材を確認'}</p>
+            {own ? <LevelProgress levels={own.levels} compact label="自分の理解度" /> : null}
+            <p>グループ全体の回答率：{remote?.total ? `${Math.round(remote.answered! / remote.total * 100)}%` : '—'}</p>
+            {remote?.levels ? <LevelProgress levels={remote.levels} compact label="グループ全体の理解度" /> : null}
+            <small>自分の最終反映：{remote?.ownState === 'shared' ? displayGroupDate(remote.ownReflectedAt ?? '') : remote ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち'}[remote.ownState] ?? '—') : '取得待ち'}</small>
+          </button>;
+        })}</div>
+        {!sets.length && !loading ? <GroupEmpty>共有教材はまだありません。</GroupEmpty> : null}
+      </section>
+      <section id="group-panel-timeline" role="tabpanel" aria-labelledby="group-tab-timeline" hidden={tab !== 'timeline'}>
+        <h2>タイムライン</h2>
+        <GroupEmpty>学習セッションの活動共有は準備中です。教材の進捗は以下から確認できます。</GroupEmpty>
+        {sets.map(set => <button type="button" className="group-secondary" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>{set.title}の進捗</button>)}
       </section>
       <section id="group-panel-folders" role="tabpanel" aria-labelledby="group-tab-folders" hidden={tab !== 'folders'}>
         <LibraryPane viewKey={folderKey} depth={folderTrail.length}>

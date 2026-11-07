@@ -43,3 +43,28 @@ export async function readGroupLearning(groupId: string, userId: string): Promis
     }),
   };
 }
+
+export interface MaterialProgress {
+  setId: string; versionId: string | null; learners: number; answered: number | null; total: number | null;
+  levels: LevelCounts | null; reflectedAt: string | null; todayCount: number | null; weekCount: number | null;
+  ownEnabled: boolean; ownCopyId: string | null; ownState: string; ownReflectedAt: string | null;
+}
+export function parseMaterialProgress(value: unknown): MaterialProgress[] {
+  if (!Array.isArray(value)) throw new Error('教材別の集計を確認できません。');
+  const count = (v: unknown): number | null => {
+    if (v === null) return null;
+    if (!Number.isSafeInteger(v) || Number(v) < 0) throw new Error('教材別の集計が不正です。');
+    return Number(v);
+  };
+  return value.map(row => {
+    const levels = parseLevels(row.levels), answered = count(row.answered), total = count(row.total);
+    if (!row.set_id || typeof row.own_enabled !== 'boolean' || !['shared','not_shared','update_pending','reflection_pending'].includes(row.own_state)
+      || (answered !== null && (total === null || answered > total)) || (levels && levels.reduce((a,b)=>a+b,0) !== total)) throw new Error('教材別の集計が不正です。');
+    return { setId: row.set_id, versionId: row.version_id, learners: count(row.learners) ?? 0, answered, total, levels,
+      reflectedAt: row.reflected_at, todayCount: count(row.today_count), weekCount: count(row.week_count),
+      ownEnabled: row.own_enabled, ownCopyId: row.own_copy_id, ownState: row.own_state, ownReflectedAt: row.own_reflected_at };
+  });
+}
+export async function readMaterialProgress(groupId: string, userId: string) {
+  return parseMaterialProgress(await groupProgressRpc('quiz_group_material_progress', { p_group_id: groupId }, userId));
+}

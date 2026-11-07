@@ -258,3 +258,10 @@
 .group-sharing-toggle [aria-checked="true"] .group-sharing-toggle__track { background:#3478d4; }
 .group-sharing-toggle [aria-checked="true"] .group-sharing-toggle__track > span { transform:translateX(18px); }
 .group-sharing-toggle button:focus-visible { outline:2px solid #3478d4; outline-offset:3px; border-radius:8px; }
+
+.group-workspace__tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.group-workspace__tabs button { min-width: 0; padding-inline: 6px; }
+.group-material-list { display: grid; gap: 12px; }
+.group-material-card { width: 100%; text-align: left; color: inherit; cursor: pointer; }
+.group-material-card h3 { overflow-wrap: anywhere; }
+.group-material-card:focus-visible { outline: 3px solid var(--color-primary, #2563eb); outline-offset: 2px; }

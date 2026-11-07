@@ -36,7 +36,7 @@ export function usePublicationQueue(userId:string,onPublished:(id:string,result:
         const fullSource=publicationSourceFromSnapshot(shared,userId,job.localSetId,groupIds,true);
         const learningData=applyPublishedSource(currentData.current,job.localSetId,{...result,visibility:shared.visibility},fullSource,new Date().toISOString());
         const original=learningData.problemSets.find(set=>set.id===job.localSetId)!;
-        await reflectGroupSourceLearning(learningData,original,userId,groupIds,(name,args)=>groupProgressRpc(name,args,userId),{initialize:true});
+        await reflectGroupSourceLearning(learningData,original,userId,groupIds,(name,args)=>groupProgressRpc(name,args,userId));
       }
     };
     queueRef.current=queue;const update=()=>setState({scope,jobs:queue!.jobs,running:queue!.running,revision:queue!.revision,error:queue!.error});const stop=queue.subscribe(update);update();

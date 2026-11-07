@@ -239,3 +239,39 @@ test('client publication reflection shares preexisting owner learning through th
   await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,owner]);
   await assert.rejects(reflectGroupSourceLearning(data,local,owner,[g],rpc,{initialize:true}),/not authorized/);
 });
+
+
+test('material batch aggregates honor consent, generation, version, membership and unlinking without modifying storage', async () => {
+  await pg.exec(await readFile(new URL('../supabase/migrations/20261107133651_group_material_progress.sql',import.meta.url),'utf8'));
+  const g='10000000-0000-4000-8000-000000000099';
+  await actor(owner);
+  await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'Batch']);
+  await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[g,owner,member]);
+  const source=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'batch',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
+  const batch=()=>call('quiz_group_material_progress',[g],['uuid']);
+  await pg.exec('set role anon'); await assert.rejects(batch(),/permission denied/); await pg.exec('reset role');
+  await pg.exec('set role authenticated');
+  await actor(outsider); await assert.rejects(batch(),/not authorized/);
+  await actor(member); assert.equal((await batch())[0].learners,0);
+  const c=await call('quiz_group_progress_consent',[g,source.id,true,'copy',source.version_id,null],['uuid','uuid','boolean','text','uuid','uuid']);
+  await call('quiz_group_learning_update',[g,source.id,c.generation,'copy',source.version_id,3,[1,1,1,1],2,5,period.day,period.week],['uuid','uuid','uuid','text','uuid','integer','integer[]','integer','integer','date','date']);
+  let row=(await batch())[0]; assert.equal(row.answered,3); assert.equal(row.total,4); assert.deepEqual(row.levels,[1,1,1,1]); assert.equal(row.today_count,2); assert.equal(row.own_state,'shared');
+  await actor(owner);row=(await batch())[0];assert.equal(row.learners,1);assert.equal(row.own_state,'not_shared');assert.equal(row.own_copy_id,null);
+  await pg.exec('reset role');
+  const stored=(await pg.query('select * from private.quiz_group_progress_summaries where group_id=$1',[g])).rows;
+  await batch(); assert.deepEqual((await pg.query('select * from private.quiz_group_progress_summaries where group_id=$1',[g])).rows,stored);
+  await pg.query("update private.quiz_group_progress_summaries set activity_day=activity_day-1,activity_week_start=activity_week_start-7 where group_id=$1",[g]);
+  row=(await batch())[0];assert.equal(row.today_count,null);assert.equal(row.week_count,null);
+  await actor(member);await call('quiz_group_progress_consent',[g,source.id,false,null,null,c.generation],['uuid','uuid','boolean','text','uuid','uuid']);
+  assert.equal((await batch())[0].levels,null);
+  const c2=await call('quiz_group_progress_consent',[g,source.id,true,'copy',source.version_id,(await batch())[0].generation ?? (await call('quiz_group_learning_set_read',[g,source.id],['uuid','uuid'])).own.generation],['uuid','uuid','boolean','text','uuid','uuid']);
+  assert.equal((await batch())[0].learners,0);
+  await call('quiz_group_learning_update',[g,source.id,c2.generation,'copy',source.version_id,3,[1,1,1,1],2,5,period.day,period.week],['uuid','uuid','uuid','text','uuid','integer','integer[]','integer','integer','date','date']);
+  await actor(owner);
+  await pg.query('update public.shared_problem_sets set current_version_id=null where id=$1',[source.id]);
+  assert.equal((await batch())[0].learners,0);
+  await actor(member);assert.equal((await batch())[0].own_state,'update_pending');
+  await pg.query('update public.shared_problem_sets set current_version_id=$2 where id=$1',[source.id,source.version_id]);
+  await actor(owner);await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,member]);assert.equal((await batch())[0].learners,0);
+  await pg.query('delete from public.quiz_group_problem_sets where group_id=$1',[g]);assert.deepEqual(await batch(),[]);
+});

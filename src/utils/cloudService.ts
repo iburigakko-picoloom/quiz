@@ -456,7 +456,7 @@ export async function removeCloudGroupMember(groupId: string, userId: string): P
   if (error) throw new Error(toFriendlyCloudError(error.message));
 }
 
-export async function groupProgressRpc(name: 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_photo' | 'quiz_group_learning_place' | 'manage_quiz_group_library' | 'quiz_manage_group_folder', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
+export async function groupProgressRpc(name: 'quiz_group_material_progress' | 'quiz_group_progress_read' | 'quiz_group_progress_consent' | 'quiz_group_progress_update' | 'quiz_group_learning_read' | 'quiz_group_learning_set_read' | 'quiz_group_learning_update' | 'quiz_group_learning_icon' | 'quiz_group_photo' | 'quiz_group_learning_place' | 'manage_quiz_group_library' | 'quiz_manage_group_folder', params: Record<string, unknown>, expectedUserId: string): Promise<unknown> {
   const access = await getCloudAccessToken();
   if (!access.ok || access.userId !== expectedUserId) throw new Error('アカウントが変更されています。開き直してください。');
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
