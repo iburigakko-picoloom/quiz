@@ -43,6 +43,7 @@ try {
     else if(name==='quiz_group_learning_read') result=snapshot();
     else if(name==='quiz_group_material_progress') result=batch();
     else if(name==='quiz_group_member_material_progress') {if(args.p_member_id==='ito'&&failMemberOnce){failMemberOnce=false;await route.fulfill({status:503,body:'offline'});return;}if(args.p_member_id==='yamada')await slowMember;const show=['sato','yamada'].includes(args.p_member_id);result=sets.map((set,i)=>({set_id:set.id,version_id:set.versionId,state:show&&i===0?'shared':'not_shared',answered:show&&i===0?3:null,total:show&&i===0?45:null,levels:show&&i===0?[42,1,1,1]:null,reflected_at:show&&i===0?new Date().toISOString():null}));}
+    else if(name==='quiz_group_material_activity_history') result={state:'ready',entries:[{id:'1',user_id:'sato',display_name:'佐藤',finished_at:new Date().toISOString(),answered:3}]};
     else if(name==='quiz_group_activity_read') result={enabled:activityEnabled,generation:activityEnabled?'generation':null,entries:(manyActivities?Array.from({length:65},(_,i)=>({id:String(65-i),user_id:'sato',display_name:'佐藤',set_id:'set-0',title:`心不全 ${65-i}`,finished_at:new Date().toISOString(),answered:3})):[{id:'1',user_id:'sato',display_name:'佐藤',set_id:'set-0',title:'心不全',finished_at:new Date().toISOString(),answered:3}]).filter(row=>!args.p_before||Number(row.id)<Number(args.p_before)).slice(0,50)};
     else if(name==='quiz_group_activity_consent'){activityEnabled=args.p_enabled;result=true;}
     else if(name==='quiz_group_activity_destinations')result=activityEnabled?[{group_id:'preview-group',generation:'generation',enabled_at:'2026-01-01T00:00:00Z'}]:[];
@@ -87,6 +88,7 @@ try {
   await page.screenshot({path:'qa/phase1/overview-390.png'});
   await page.locator('.group-material-card').first().click();
   await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
+  await page.getByRole('region',{name:'この教材の学習記録'}).getByText('3問を解答').waitFor();
   await page.getByText('グループ全体',{exact:true}).click();
   await page.getByText('回答済み 3 / 45問・回答率 7%',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'取り込む',exact:true}).count(),0);
