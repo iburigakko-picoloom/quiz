@@ -50,6 +50,7 @@ let consent,folder;
 
 await pg.exec('alter table public.quiz_group_problem_sets add column shared_at timestamptz not null default now(); create unique index problem_set_copies_actor_unique on public.problem_set_copies(set_id,actor_id) where actor_id is not null; create unique index problem_set_copies_installation_unique on public.problem_set_copies(set_id,installation_id);');
 await pg.exec(await readFile(new URL('../supabase/migrations/20261107150102_group_session_timeline.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261107175320_group_material_history.sql',import.meta.url),'utf8'));
 const feed=()=>call('quiz_group_activity_read',[group,null],['uuid','bigint']);
 const activityConsent=(enabled,generation=null)=>call('quiz_group_activity_consent',[group,enabled,generation],['uuid','boolean','uuid']);
 const destinations=()=>call('quiz_group_activity_destinations',[published.id],['uuid']);
@@ -100,4 +101,25 @@ test('timeline requires separate consent, has idempotent sessions, and never exp
  await actor(owner);assert.equal((await feed()).entries.length,0);
  await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'member')",[group,member]);
  await actor(member);assert.equal((await feed()).enabled,false);assert.equal((await feed()).entries.length,0);
+});
+
+test('material history respects consent, current publication, membership and cursor',async()=>{
+ const g='10000000-0000-4000-8000-000000000097';await actor(owner);
+ await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'History']);
+ await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[g,owner,member]);
+ const shared=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'history-group',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
+ const history=(version=shared.version_id,before=null)=>call('quiz_group_material_activity_history',[g,shared.id,version,before],['uuid','uuid','uuid','bigint']);
+ const setConsent=(enabled,generation)=>call('quiz_group_activity_consent',[g,enabled,generation],['uuid','boolean','uuid']);
+ const read=()=>call('quiz_group_activity_read',[g,null],['uuid','bigint']);
+ await pg.exec('set role anon');await assert.rejects(history(),/permission denied/);await pg.exec('reset role');
+ await actor(outsider);await pg.exec('set role authenticated');await assert.rejects(history(),/not authorized/);
+ await actor(member);assert.deepEqual((await history()).entries,[]);await setConsent(true,null);const generation=(await read()).generation;
+ await call('record_problem_set_copy',[shared.id,'30000000-0000-4000-8000-000000000001','copy'],['uuid','uuid','text']);
+ const time=new Date(Date.now()+1000).toISOString();
+ assert.equal(await call('quiz_group_activity_publish',[g,generation,'b'.repeat(64),shared.id,shared.version_id,'copy',time,time,1],['uuid','uuid','text','uuid','uuid','text','timestamptz','timestamptz','integer']),true);
+ const items=(await history()).entries;assert.equal(items.length,1);assert.equal(items[0].answered,1);assert.deepEqual(Object.keys(items[0]).sort(),['id','user_id','display_name','finished_at','answered'].sort());
+ assert.equal((await history('40000000-0000-4000-8000-000000000001')).state,'update_pending');assert.deepEqual((await history(shared.version_id,items[0].id)).entries,[]);
+ await setConsent(false,generation);assert.deepEqual((await history()).entries,[]);const disabled=(await read()).generation;await setConsent(true,disabled);assert.deepEqual((await history()).entries,[]);
+ await pg.exec('reset role');await actor(owner);await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,member]);await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'member')",[g,member]);assert.deepEqual((await history()).entries,[]);
+ await pg.query('delete from public.quiz_group_problem_sets where group_id=$1 and set_id=$2',[g,shared.id]);await assert.rejects(history(),/not authorized/);
 });
