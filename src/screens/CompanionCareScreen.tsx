@@ -77,7 +77,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
     {!care && !error && <p className="companion-care__loading" role="status">お世話の記録を読み込み中…</p>}
     <div className="companion-care__controls">
       <div className="companion-care__tabs" role="tablist" aria-label="お世話の種類">
-        {([{ id: 'feed', icon: '◡', label: 'ごはん' }, { id: 'pet', icon: '♡', label: 'なでる' }, { id: 'tricks', icon: '☆', label: 'おやつ' }] as const).map(item => <button key={item.id} id={`care-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`care-panel-${item.id}`} onClick={() => setTab(item.id)}><span aria-hidden="true">{item.icon}</span>{item.label}</button>)}
+        {([{ id: 'feed', icon: '◡', label: 'ごはん' }, { id: 'pet', icon: '♡', label: 'なでる' }, { id: 'tricks', icon: '☆', label: '芸' }] as const).map(item => <button key={item.id} id={`care-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`care-panel-${item.id}`} onClick={() => setTab(item.id)}><span aria-hidden="true">{item.icon}</span>{item.label}</button>)}
       </div>
       <section className="companion-care__panel" id={`care-panel-${tab}`} role="tabpanel" aria-labelledby={`care-tab-${tab}`}>
         {tab === 'feed' && <>

@@ -1,3 +1,4 @@
+import { resolveAccountProfile, ACCOUNT_PROFILE_EVENT } from './accountProfile';
 import {isGroupPhoto} from './groupPhoto';
 import { createClient, type AuthChangeEvent, type Session } from '@supabase/supabase-js';
 import { CloudSessionReadError, verifiedCloudAccess, watchCloudSession, type CloudAccessTokenResult } from './cloudAuthAccess';
@@ -276,16 +277,23 @@ export async function updateCloudDisplayName(displayName: string): Promise<void>
   const client = requireCloudClient();
   const { error } = await client.rpc('set_profile_display_name', { p_display_name: displayName.trim() });
   if (error) throw new Error(toFriendlyCloudError(error.message));
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(ACCOUNT_PROFILE_EVENT));
+}
+
+export async function getCloudAccountProfile(expectedUserId?: string) {
+  // Session listeners run while the SDK holds its auth lock. Defer auth reads.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const client = requireCloudClient();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError || !auth.user || (expectedUserId && auth.user.id !== expectedUserId)) throw new Error('アカウントが変更されています。');
+  const { data, error } = await client.from('quiz_profiles').select('display_name').eq('user_id', auth.user.id).maybeSingle();
+  if (error) throw new Error(toFriendlyCloudError(error.message));
+  if ((await getCloudSession())?.user.id !== auth.user.id) throw new Error('アカウントが変更されています。');
+  return resolveAccountProfile(auth.user, data?.display_name, lineAuthProvider);
 }
 
 export async function getCloudDisplayName(): Promise<string> {
-  const client = requireCloudClient();
-  const { data, error } = await client
-    .from('quiz_profiles')
-    .select('display_name')
-    .maybeSingle();
-  if (error) throw new Error(toFriendlyCloudError(error.message));
-  return String(data?.display_name ?? '');
+  return (await getCloudAccountProfile()).displayName;
 }
 
 export async function publishLocalProblemSet(params:LocalPublicationOptions & {operationId?:string;onProgress?:(value:PublicationProgress)=>void}):Promise<CloudPublishResult> {
