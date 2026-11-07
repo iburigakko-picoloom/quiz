@@ -12,7 +12,7 @@ try {
  page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://**/*',r=>r.abort());
  await page.goto('http://127.0.0.1:5199/quiz/tests/browser/materials-scope-preview.html');
- const ready=()=>page.locator('.category-note-canvas[aria-disabled="false"]').waitFor();
+ const ready=()=>page.locator('.materials-content > .category-note-panel .category-note-canvas[aria-disabled="false"]').waitFor();
  const menu=async name=>{await page.getByLabel('資料の操作',{exact:true}).click();await page.getByRole('button',{name,exact:true}).click();};
  const dialog=page.getByRole('dialog');
  const refs=()=>page.evaluate(async()=>{const {loadAppDataAsync}=await import('/quiz/src/storage.ts');return (await loadAppDataAsync()).questions.find(q=>q.id==='q1').materialReferences??[];});

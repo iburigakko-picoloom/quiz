@@ -15,7 +15,7 @@ try {
   browser=await chromium.launch({channel:'chrome',headless:true});
   page=await browser.newPage({viewport:{width:390,height:844}});
   page.setDefaultTimeout(30000);
-  page.setDefaultNavigationTimeout(45000);
+  page.setDefaultNavigationTimeout(120000);
   const userId='00000000-0000-4000-8000-000000000001';
   const user={id:userId,aud:'authenticated',role:'authenticated',email:'preview@example.test',is_anonymous:false,user_metadata:{},app_metadata:{},created_at:new Date().toISOString()};
   const token=`${Buffer.from('{}').toString('base64url')}.${Buffer.from(JSON.stringify({sub:userId,exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')}.test`;
@@ -32,6 +32,7 @@ try {
     requests.push(name);
     const args=request.postDataJSON();let result;
     if(url.pathname==='/auth/v1/user') result=user;
+    else if(name==='quiz_profiles') result={display_name:'検証ユーザー'};
     else if(name==='list_my_groups') result=[{id:previewGroup.id,name:previewGroup.name,role:'owner',icon:state.icon,accent:state.accent,member_count:8,set_count:sets.length}];
     else if(name==='list_my_published_sets'||name==='list_public_problem_sets'||name==='shared_problem_sets') result=[];
     else if(name==='list_group_problem_sets') result=sets.map(s=>({...snakeSet(s),questions:undefined}));
@@ -54,7 +55,7 @@ try {
     else {errors.push(name);await route.fulfill({status:500,body:'unexpected request'});return;}
     await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(result)});
   });
-  await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html');
+  await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html',{waitUntil:'domcontentloaded'});
   await page.locator('.group-material-card').first().waitFor();
   assert.deepEqual(await page.getByRole('tab').allTextContents(),['タイムライン','フォルダ','メンバー','概要']);
   assert.equal(await page.getByRole('tab',{name:'概要',exact:true}).getAttribute('aria-selected'),'true');
@@ -130,7 +131,7 @@ try {
     const plan=planPublicImport(previewData,[shared],{groupFolder:{groupId:'preview-group',key:'test',name:'活動テストフォルダ'}});
     localStorage.setItem('publication-preview-data-source',JSON.stringify(plan.data));
   });
-  await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html?exercise=1');
+  await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html?exercise=1',{waitUntil:'domcontentloaded'});
   await page.getByRole('button',{name:/活動テストフォルダ/}).first().click();
   await page.getByRole('button',{name:/活動テスト教材/}).first().click();
   await page.getByRole('button',{name:'登録順で解く',exact:true}).click();

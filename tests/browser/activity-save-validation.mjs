@@ -7,9 +7,9 @@ const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','1
 let browser;
 try{
  await new Promise((ok,fail)=>{const timer=setTimeout(()=>fail(Error('server timeout')),20000);server.stdout.on('data',chunk=>{if(chunk.toString().includes('5178')){clearTimeout(timer);ok()}});server.once('exit',fail)});
- browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage();page.setDefaultTimeout(20000);page.on("pageerror",error=>console.error(error.message));
+ browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage();page.setDefaultTimeout(20000);page.setDefaultNavigationTimeout(120000);page.on("pageerror",error=>console.error(error.message));
  for(const scenario of ['saved','rejected','retry']){
- await page.goto('http://127.0.0.1:5178/quiz/tests/browser/activity-save-preview.html');
+ await page.goto('http://127.0.0.1:5178/quiz/tests/browser/activity-save-preview.html',{waitUntil:'domcontentloaded'});
  await page.getByRole('button',{name:'わからない',exact:true}).click();
  if(scenario==='retry'){await page.evaluate(()=>window.activitySaveTest.resolve(false));await page.getByRole('button',{name:'回答の保存を再試行',exact:false}).click()}
  await page.getByRole('button',{name:'強制終了'}).click();

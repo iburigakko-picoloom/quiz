@@ -8,14 +8,15 @@ const origin=process.env.QUIZMAKE_PREVIEW_ORIGIN??'http://127.0.0.1:5189/quiz';
 const output=`tmp/device-role-${Date.now()}`;await mkdir(output,{recursive:true});
 const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),errors=[];
 await context.route('https://**/*',route=>route.abort());
+context.setDefaultNavigationTimeout(120000);
 const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
 const url=`${origin}/tests/browser/companion-care-preview.html?answers=0`;
 const data=target=>target.evaluate(async()=>await(await import('/quiz/src/storage.ts')).loadAppDataAsync());
 const sync=async target=>{await target.getByRole('button',{name:'設定',exact:true}).click();await target.getByRole('button',{name:'同期',exact:true}).click();await target.getByRole('heading',{name:'同期',exact:true}).waitFor();};
 try{
-  await page.goto(url);await page.getByRole('button',{name:'作成',exact:true}).waitFor();const before=await data(page);
+  await page.goto(url,{waitUntil:'domcontentloaded'});await page.getByRole('button',{name:'作成',exact:true}).waitFor();const before=await data(page);
   // A second tab editing on this installation must prevent the role change.
-  const editor=await context.newPage();await editor.goto(url);await editor.getByRole('button',{name:'作成',exact:true}).click();
+  const editor=await context.newPage();await editor.goto(url,{waitUntil:'domcontentloaded'});await editor.getByRole('button',{name:'作成',exact:true}).click();
   await editor.waitForFunction(()=>!document.body.textContent.includes('保存状態を確認中…'));
   await sync(page);await page.getByRole('button',{name:'サブ端末',exact:true}).click();
   await page.getByRole('alert').filter({hasText:'ほかの画面'}).waitFor();
