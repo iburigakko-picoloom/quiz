@@ -11,10 +11,11 @@ import type { ReferenceLink } from '../utils/referenceLinking';
 interface NoteListScreenProps {
   data: AppData; setId: string; onBack: () => void; initialCategory?: string; initialReference?: MaterialReference;
   onOpenQuestions?: () => void;
+  onOpenQuestion?: (questionId: string, reference: MaterialReference) => void;
   onLinkBatch?: (links: ReferenceLink[]) => Promise<void>;
   registerExitGuard?: (guard: ((proceed: () => void) => Promise<boolean>) | null) => void;
 }
-export function NoteListScreen({ data, setId, onBack, onOpenQuestions, registerExitGuard, onLinkBatch, initialReference }: NoteListScreenProps) {
+export function NoteListScreen({ data, setId, onBack, onOpenQuestions, onOpenQuestion, registerExitGuard, onLinkBatch, initialReference }: NoteListScreenProps) {
   const panel = useRef<CategoryNotePanelHandle>(null);
   const [error, setError] = useState('');
   const [linkDialog,setLinkDialog]=useState<{materialId?:string;pageId?:string}|null>(null);
@@ -28,7 +29,7 @@ export function NoteListScreen({ data, setId, onBack, onOpenQuestions, registerE
     <header><BackButton onClick={() => void transition(onBack)} /><h1>{data.problemSets.find(set => set.id === setId)?.title ?? '資料'}</h1>
     {onOpenQuestions ? <button onClick={() => void transition(onOpenQuestions)}>問題一覧</button> : null}</header>
     {error ? <p role="alert">{error}</p> : null}
-    <MaterialsPanel ref={panel} setId={setId} questions={data.questions} setIds={initialReference ? [setId] : data.problemSets.map(set => set.id)} reference={initialReference} onAdjustReferences={onLinkBatch?(materialId,pageId)=>setLinkDialog({materialId,pageId}):undefined} />
+    <MaterialsPanel ref={panel} setId={setId} questions={data.questions} setIds={initialReference ? [setId] : data.problemSets.map(set => set.id)} reference={initialReference} onOpenQuestion={onOpenQuestion} onAdjustReferences={onLinkBatch?(materialId,pageId)=>setLinkDialog({materialId,pageId}):undefined} />
     {linkDialog&&onLinkBatch?<ReferenceLinkDialog setId={setId} questions={data.questions.filter(q=>q.setId===setId)} initialMaterialId={linkDialog.materialId} initialPageId={linkDialog.pageId} onSave={onLinkBatch} onClose={()=>setLinkDialog(null)}/>:null}
   </main></Layout>;
 }

@@ -159,3 +159,11 @@
   .materials-controls .materials-picker,.materials-controls .materials-title { min-width:72px; }
   .materials-controls .materials-pagination { margin-left:auto; }
 }
+.materials-navigator__tabs { display: flex; gap: 4px; border-bottom: 1px solid #e1e6ed; margin-bottom: 12px; }
+.materials-navigator__tabs button { flex: 1; min-height: 44px; border: 0; background: transparent; font: inherit; color: #44576c; }
+.materials-navigator__tabs button[aria-selected=true] { color: #2859a6; border-bottom: 2px solid #2859a6; font-weight: 700; }
+.materials-navigator__pages { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.materials-navigator__page { min-width: 0; padding: 6px; border: 1px solid #e1e6ed; border-radius: 6px; background: #fff; color: #173042; }
+.materials-navigator__page[aria-current=page] { border: 2px solid #2859a6; }
+.materials-navigator__page img,.materials-navigator__page-placeholder { display: block; width: 100%; aspect-ratio: 210 / 297; object-fit: contain; background: #f7f9fc; }
+.materials-navigator__page > span:last-child { display: block; padding-top: 4px; }
