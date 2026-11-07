@@ -5,23 +5,41 @@ import type { CloudGroup, CloudGroupMember, CloudProblemSet } from '../utils/clo
 import { importedLearning, levelPercentages, sortLearningMembers, type GroupLearningMember } from '../utils/groupLearning';
 import {groupStudyCandidates} from '../utils/groupStudySource';
 import { buildGroupLibrary, groupFolderSets, type GroupFolderCardData } from '../utils/groupLibrary';
-import type { MaterialProgress, GroupLearningSnapshot } from '../utils/groupLearningService';
+import { readMemberMaterialProgress, type MemberMaterialProgress, type MaterialProgress, type GroupLearningSnapshot } from '../utils/groupLearningService';
+import { watchGroupProgress } from '../utils/groupReflectionQueue';
 import { ChevronRightIcon, PlusIcon } from './UiIcons';
 import { GroupEmpty, LevelProgress, MemberAvatar, displayGroupDate } from './GroupLearningUi';
 import {LibraryPane} from './LibraryPane';
 import {LibraryContentRow} from './LibraryContentRow';
 
 export type GroupDetailTab = 'timeline' | 'overview' | 'folders' | 'members';
-export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onRefresh, onRemoveMember, onImportFolder,onManageFolder,onRemoveSet,busy,materials,onOpenProgress }: {
+export function GroupWorkspace({ data, group, sets, members, userId, snapshot, loading, error, tab, onTab, folderTrail, onFolderTrail, onOpenSet, onAddSet, onAddFolder, onRefresh, onRemoveMember, onImportFolder,onManageFolder,onRemoveSet,busy,materials,onOpenProgress,overviewMemberId,onOverviewMemberChange }: {
   data: AppData; group?: CloudGroup; sets: CloudProblemSet[]; members: CloudGroupMember[]; userId: string; snapshot: GroupLearningSnapshot | null;
   loading: boolean; error: string; tab: GroupDetailTab; onTab: (tab: GroupDetailTab) => void; folderTrail: string[]; onFolderTrail: (trail: string[]) => void;
   onOpenSet: (set: CloudProblemSet, location: string) => void; onAddSet: (folder: GroupFolderCardData) => void; onAddFolder: () => void; onSettings: () => void; onRefresh: () => void; onRemoveMember: (member: CloudGroupMember) => void; busy: boolean;
   materials?: MaterialProgress[]; onOpenProgress?: (set: CloudProblemSet) => void;
+  overviewMemberId?:string; onOverviewMemberChange?:(id:string)=>void;
   onImportFolder?: (folder:GroupFolderCardData)=>void;
   onManageFolder?: (folder:GroupFolderCardData)=>void;
   onRemoveSet?: (set:CloudProblemSet)=>void;
 }) {
   const [sort, setSort] = useState<'today' | 'week' | 'l3'>('today');
+  const [localMember,setLocalMember]=useState('');
+  const selectedMember=overviewMemberId || localMember || userId;
+  const [memberResult,setMemberResult]=useState<{groupId:string;memberId:string;rows:MemberMaterialProgress[]}|null>(null);
+  const [memberError,setMemberError]=useState('');
+  const [memberAttempt,setMemberAttempt]=useState(0);
+  const memberRequest=useRef(0);
+  const selectedIsMember=selectedMember===userId||members.some(member=>member.userId===selectedMember);
+  useEffect(()=>{if(members.length&&!selectedIsMember){if(onOverviewMemberChange)onOverviewMemberChange(userId);else setLocalMember(userId);}},[members,selectedIsMember,userId,onOverviewMemberChange]);
+  useEffect(()=>{
+    if(tab!=='overview'||!group?.id||selectedMember===userId||!selectedIsMember)return;
+    let active=true;const groupId=group.id;
+    const refresh=()=>{const request=++memberRequest.current;void readMemberMaterialProgress(groupId,selectedMember,userId).then(rows=>{if(active&&request===memberRequest.current){setMemberResult({groupId,memberId:selectedMember,rows});setMemberError('');}}).catch(()=>{if(active&&request===memberRequest.current){setMemberResult(null);setMemberError('進捗を読み込めません。再読み込みしてください。');}});};
+    setMemberError('');refresh();const stop=watchGroupProgress(refresh);
+    return()=>{active=false;memberRequest.current++;stop();};
+  },[group?.id,selectedMember,userId,tab,selectedIsMember,memberAttempt]);
+  const selectedRows=selectedIsMember && memberResult && memberResult.groupId===group?.id && memberResult.memberId===selectedMember ? memberResult.rows : null;
   const workspaceRef = useRef<HTMLElement>(null);
   const folderKey = folderTrail.join('|');
   const previousFolderKey=useRef(folderKey);
@@ -55,18 +73,20 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
       {loading ? <p className="group-muted" role="status">グループの集計を読み込み中…</p> : null}
       <section id="group-panel-overview" role="tabpanel" aria-labelledby="group-tab-overview" hidden={tab !== 'overview'}>
         <h2>教材ごとの学習状況</h2>
+        <label className="group-overview-member">メンバー<select aria-label="表示するメンバー" value={selectedMember} onChange={event=>{setMemberError('');if(onOverviewMemberChange)onOverviewMemberChange(event.target.value);else setLocalMember(event.target.value);}}><option value={userId}>自分</option>{members.filter(member=>member.userId!==userId).map(member=><option key={member.userId} value={member.userId}>{member.displayName}</option>)}</select></label>
+        {selectedMember!==userId && memberError ? <p role="alert" className="group-error">{memberError} <button type="button" onClick={()=>setMemberAttempt(value=>value+1)}>再試行</button></p> : null}
 
         <div className="group-material-list">{sets.map(set => {
           const remote = materials?.find(row => row.setId === set.id && row.versionId === set.versionId);
-          const candidates = groupStudyCandidates(data, set, userId);
+          const candidates = selectedMember===userId ? groupStudyCandidates(data, set, userId) : [];
           const local = candidates.find(row => row.id === remote?.ownCopyId) ?? candidates[0];
           const own = local && set.versionId ? importedLearning(data, local, set.id, set.versionId) : null;
+          const selected = selectedMember===userId ? null : selectedRows?.find(row=>row.setId===set.id && row.versionId===set.versionId);
+          const state = selected?.state;
+          const shown = selectedMember===userId ? own : state==='shared' ? selected : null;
           return <button type="button" className="group-panel group-material-card" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>
             <h3>{set.title} <ChevronRightIcon size={18} aria-hidden="true" /></h3>
-            <p>学習中 {remote ? `${remote.learners}人（共有中）` : '—'}</p>
-            <p>自分の進捗：{own ? `回答済み ${own.answered} / ${own.total}問・回答率 ${Math.round(own.answered / own.total * 100)}%` : '—'}</p>
-            {own ? <LevelProgress levels={own.levels} compact label="自分の理解度" /> : null}
-            <small>自分の最終反映：{remote?.ownState === 'shared' ? displayGroupDate(remote.ownReflectedAt ?? '') : remote ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち'}[remote.ownState] ?? '—') : '取得待ち'}</small>
+            {shown && shown.answered!==null && shown.total ? <><p>回答済み {shown.answered} / {shown.total}問・回答率 {Math.round(shown.answered / shown.total * 100)}%</p>{shown.levels ? <LevelProgress levels={shown.levels} compact label="理解度" showCounts={false}/> : null}</> : <p>{selectedMember===userId ? candidates.length ? '公開版の進捗を確認できません' : '未取り込み' : memberError ? '取得できません' : !selectedRows ? '取得中…' : state ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち',shared:'反映待ち'}[state]) : '公開版の更新待ち'}</p>}
           </button>;
         })}</div>
         {!sets.length && !loading ? <GroupEmpty>共有教材はまだありません。</GroupEmpty> : null}
