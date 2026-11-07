@@ -1,3 +1,4 @@
+import { GroupTimeline } from './GroupTimeline';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppData } from '../types';
 import type { CloudGroup, CloudGroupMember, CloudProblemSet } from '../utils/cloudService';
@@ -65,7 +66,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
       </article> : null}
       <section id="group-panel-overview" role="tabpanel" aria-labelledby="group-tab-overview" hidden={tab !== 'overview'}>
         <h2>教材ごとの学習状況</h2>
-        <p className="group-muted">グループ全体は進捗を共有しているメンバーの現在の公開版のみ集計します。</p>
+
         <div className="group-material-list">{sets.map(set => {
           const remote = materials?.find(row => row.setId === set.id && row.versionId === set.versionId);
           const candidates = groupStudyCandidates(data, set, userId);
@@ -74,7 +75,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
           return <button type="button" className="group-panel group-material-card" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>
             <h3>{set.title}</h3>
             <p>学習中 {remote ? `${remote.learners}人（共有中）` : '—'}</p>
-            <p>自分の進捗：{own ? `回答済み ${own.answered} / ${own.total}問・回答率 ${Math.round(own.answered / own.total * 100)}%` : '詳細で公開版・端末の教材を確認'}</p>
+            <p>自分の進捗：{own ? `回答済み ${own.answered} / ${own.total}問・回答率 ${Math.round(own.answered / own.total * 100)}%` : '—'}</p>
             {own ? <LevelProgress levels={own.levels} compact label="自分の理解度" /> : null}
             <p>グループ全体の回答率：{remote?.total ? `${Math.round(remote.answered! / remote.total * 100)}%` : '—'}</p>
             {remote?.levels ? <LevelProgress levels={remote.levels} compact label="グループ全体の理解度" /> : null}
@@ -84,9 +85,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         {!sets.length && !loading ? <GroupEmpty>共有教材はまだありません。</GroupEmpty> : null}
       </section>
       <section id="group-panel-timeline" role="tabpanel" aria-labelledby="group-tab-timeline" hidden={tab !== 'timeline'}>
-        <h2>タイムライン</h2>
-        <GroupEmpty>学習セッションの活動共有は準備中です。教材の進捗は以下から確認できます。</GroupEmpty>
-        {sets.map(set => <button type="button" className="group-secondary" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>{set.title}の進捗</button>)}
+        {tab === 'timeline' && group ? <GroupTimeline groupId={group.id} userId={userId} sets={sets} onOpenProgress={onOpenProgress}/> : null}
       </section>
       <section id="group-panel-folders" role="tabpanel" aria-labelledby="group-tab-folders" hidden={tab !== 'folders'}>
         <LibraryPane viewKey={folderKey} depth={folderTrail.length}>

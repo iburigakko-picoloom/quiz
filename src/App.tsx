@@ -1,3 +1,4 @@
+import { queueCompletedStudy, retryStudyActivities } from './utils/groupActivityService';
 import { tryScreenBack } from './utils/screenBack';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { accountLocalStorage as localStorage } from './utils/accountStorage';
@@ -98,6 +99,7 @@ import { SYNC_ORIGINALS_FORMAT } from './utils/syncOriginalBackup';
 import { SyncProtocolError } from './utils/syncInterruption';
 import {
   initializeCloudNativeAuth,
+  onCloudSessionSnapshot,
   getCloudSession,
   getSharedProblemSet,
   listMyGroups,
@@ -1417,6 +1419,14 @@ export default function App() {
     setStorageLoadError('');
     replaceScreen({ name: 'backupComplete', folderCount: loaded.folders.length, setCount: loaded.problemSets.length, questionCount: loaded.questions.length });
   };
+  useEffect(() => {
+    const send = () => { void retryStudyActivities().catch(()=>undefined); };
+    let authTimer:number|undefined;
+    const stop=onCloudSessionSnapshot(()=>{window.clearTimeout(authTimer);authTimer=window.setTimeout(send,0);});
+    send(); window.addEventListener('online',send); window.addEventListener('focus',send);
+    return () => { stop();window.clearTimeout(authTimer);window.removeEventListener('online',send); window.removeEventListener('focus',send); };
+  }, []);
+
   const handleStartQuizSession = (session: QuizSession) => {
     navigate({ name: 'quizSession', session });
   };
@@ -1488,6 +1498,7 @@ export default function App() {
     }
     navigate({ name: 'result', result: nextResult });
     void reflectResultGroupLearning(nextResult);
+
   };
 
   const handleRetry = (result: QuizResult) => {
@@ -1819,6 +1830,7 @@ export default function App() {
           onRemoveDetailedImage={handleRemoveDetailedImage}
           onLinkMaterialPage={handleLinkMaterialPage}
           onLinkMaterialBatch={handleLinkMaterialBatch}
+          onStudySessionEnd={(sessionAnswers,identity) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
           onFinish={handleFinish}
         />
       </Suspense>
@@ -1844,6 +1856,7 @@ export default function App() {
           onRemoveDetailedImage={screen.session.isPreview ? undefined : handleRemoveDetailedImage}
           onLinkMaterialPage={screen.session.isPreview ? undefined : handleLinkMaterialPage}
           onLinkMaterialBatch={screen.session.isPreview ? undefined : handleLinkMaterialBatch}
+          onStudySessionEnd={(sessionAnswers,identity) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
           onFinish={handleFinish}
         />
       </Suspense>
@@ -1854,7 +1867,7 @@ export default function App() {
       <ResultScreen
         result={screen.result}
         groupReflectionError={groupReflectionError}
-        onRetryGroupReflection={() => reflectResultGroupLearning(screen.result)}
+        onRetryGroupReflection={async () => { await reflectResultGroupLearning(screen.result); await queueCompletedStudy(durableDataRef.current,screen.result).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
         companionCare={companion.care}
         companionEnabled={companion.enabled}
         companionError={companion.error}

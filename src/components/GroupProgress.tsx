@@ -74,12 +74,12 @@ export function GroupProgress({ data, groupId, set, userId, onClose, onChanged, 
     {levels ? <LevelProgress levels={levels} label="理解度" /> : <GroupEmpty>現在の公開版で確認できる進捗はありません。</GroupEmpty>}
     <h3>今日・今週の学習状況</h3>
     <p>今日：{(scope==='self' ? own?.todayCount : currentSummary?.todayCount) ?? '未反映'} ／ 今週：{(scope==='self' ? own?.weekCount : currentSummary?.weekCount) ?? '未反映'}（解答回数・日本時間）</p>
-    <p className="group-muted">グループ全体は共有中の現在の公開版のみ集計します。未反映は0問として扱いません。</p>
+
     <h3>メンバー別の学習進捗</h3>
     <ImportedMemberProgress members={visibleMembers.map(member => ({ userId: member.user_id, self: member.user_id === userId, name: member.user_id === userId ? 'あなた' : member.display_name, levels: member.state === 'shared' ? member.levels : null, reflectedAt: member.reflected_at, status: member.state === 'shared' ? '反映待ち' : { not_shared: '未共有', update_pending: '更新待ち', reflection_pending: '反映待ち' }[member.state] }))} />
     {snapshot && !visibleMembers.length ? <GroupEmpty>共有できる進捗はまだありません。</GroupEmpty> : !snapshot && !error ? <p role="status" className="group-muted">進捗を読み込み中…</p> : null}
     <h3>進捗の共有設定</h3>
-    <p className="group-muted">ONにすると回答済み問題数・理解度・解答回数をこのグループに共有します。回答内容は送信しません。</p>
+    <p>回答済み問題数・理解度・解答回数をこのグループに共有します。</p>
     <div className="group-sharing-toggle">
       <span>進捗を共有</span>
       <button type="button" role="switch" aria-label="進捗を共有" aria-checked={snapshot?.own.enabled ?? false} disabled={busy || !snapshot || (!snapshot.own.enabled && (!copyId || !set.versionId))} onClick={() => void run(() => consent(!snapshot?.own.enabled))}>
