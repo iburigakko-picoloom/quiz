@@ -1,5 +1,6 @@
 import { getCachedCloudAccountIdentity } from '../utils/cloudService';
 import type { LocalAccountIdentity } from '../utils/accountStorage';
+import { useDeviceRole } from '../hooks/useDeviceRole';
 import { Children, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
 import { isAccountWorkReloadApproved } from '../utils/accountWork';
@@ -110,7 +111,8 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
   const detailBlockedRef = useRef(false);
   const onDetailDirtyChange = useCallback((dirty: boolean) => { detailBlockedRef.current = dirty; }, []);
   const quizRunnerMountedRef = useRef(true);
-  const noteFeatureAvailable = ENABLE_TABLET_NOTES && !readOnly && Boolean(setId);
+  const contentReadOnly = useDeviceRole() === 'sub';
+  const noteFeatureAvailable = ENABLE_TABLET_NOTES && !readOnly && !contentReadOnly && Boolean(setId);
   const noteFeatureEnabled = noteFeatureAvailable;
   const noteAreaOpen = noteFeatureEnabled && noteOpen && isTabletLandscape;
 
@@ -511,7 +513,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
             imageIds={currentDetailedImageIds}
             savedLevelLabel={savedLevelLabel}
             answerSaveState={answerSaveState}
-            readOnly={readOnly}
+            readOnly={readOnly} contentReadOnly={contentReadOnly}
             isAmbiguous={progress?.isAmbiguous ?? false}
             isLast={currentIndex + 1 >= questions.length}
             state={answerSheetState}
@@ -694,7 +696,7 @@ function splitTextByPhrases(text: string, phrases: string[]) {
   return parts;
 }
 
-export function AnswerPanel({
+export function AnswerPanel({ contentReadOnly = false,
   guidePage,
   questionId,
   isCorrect,
@@ -730,6 +732,7 @@ export function AnswerPanel({
   imageIds: string[];
   savedLevelLabel: string;
   answerSaveState: 'idle' | 'saving' | 'saved' | 'error';
+  contentReadOnly?: boolean;
   readOnly: boolean;
   isAmbiguous: boolean;
   isLast: boolean;
@@ -1075,7 +1078,7 @@ export function AnswerPanel({
   };
 
 
-  const detailEditingDisabled = readOnly || answerSaveState !== 'saved';
+  const detailEditingDisabled = readOnly || contentReadOnly || answerSaveState !== 'saved';
 
 
   const answerPage = (

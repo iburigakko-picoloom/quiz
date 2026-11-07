@@ -119,7 +119,7 @@ export function saveAppData(data: AppData): Promise<boolean> {
 }
 
 /** A per-call result keeps concurrent saves' failure reasons separate. */
-export async function saveAppDataResult(data: AppData, options: { questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[]; materialRecords?:Record<string,string> } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
+export async function saveAppDataResult(data: AppData, options: { assertBeforeSave?: () => void; questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[]; materialRecords?:Record<string,string> } = {}): Promise<{ ok: true } | { ok: false; failure: AppSaveFailure }> {
   let failure: AppSaveFailure | undefined;
   const saved = await saveAppDataAsync(data, { ...options, onFailure: value => { failure = value; } });
   return saved ? { ok: true } : { ok: false, failure: failure ?? appSaveFailure([{ stage: 'indexeddb', error: new Error() }]) };
@@ -138,14 +138,14 @@ export function establishCurrentAppDataAuthority(): boolean {
 
 export async function saveAppDataAsync(
   data: AppData,
-  options: { coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[]; materialRecords?:Record<string,string> } = {},
+  options: { assertBeforeSave?: () => void; coordinationLockHeld?: boolean; onFailure?: (failure: AppSaveFailure) => void; questionImages?: readonly PreparedQuestionImageCopy[]; answerChange?: AnswerSaveChange; materialReferenceQuestionIds?: readonly string[]; materialRecords?:Record<string,string> } = {},
 ): Promise<boolean> {
-  if (options.coordinationLockHeld) return saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds,options.materialRecords);
+  if (options.coordinationLockHeld) { options.assertBeforeSave?.(); return saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds,options.materialRecords); }
   const queuedSave = appSaveQueue
     .catch(() => true)
     .then(async () => {
       try {
-        return await withCoordinatedDataMutation(Object.keys(options.materialRecords??{}).length?['app','notes']:['app'], () => saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds,options.materialRecords));
+        return await withCoordinatedDataMutation(Object.keys(options.materialRecords??{}).length?['app','notes']:['app'], () => { options.assertBeforeSave?.(); return saveAppDataNow(data, options.onFailure, options.questionImages, options.answerChange, options.materialReferenceQuestionIds,options.materialRecords); });
       } catch (error) {
         console.error('Refused to overwrite app data changed in another tab.', error);
         try { options.onFailure?.(appSaveFailure([{ stage: 'coordination', error }])); } catch { /* Informational only. */ }

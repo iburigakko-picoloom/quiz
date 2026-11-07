@@ -30,6 +30,7 @@ export interface LibraryDeletionPlan {
 }
 
 interface LibraryDeletionRequest {
+  assertAllowed?: () => void;
   buildPlan: (currentData: AppData) => LibraryDeletionPlan;
   deleteAllNotes?: boolean;
 }
@@ -100,6 +101,7 @@ export async function persistLibraryDeletion(
     if (!appReady) return { ok: false, reason: 'app-save-failed' };
 
     return await dependencies.coordinate(async () => {
+      request.assertAllowed?.();
       // Another same-origin operation may have imported newer data while this
       // deletion was waiting for the shared lock. Build the deletion from the
       // durable snapshot read inside the lock, never from stale React state.

@@ -1,3 +1,4 @@
+import { useDeviceRole } from '../hooks/useDeviceRole';
 import { PlusIcon, GroupIcon, HomeIcon, SearchIcon, SettingsIcon } from './UiIcons';
 import './PrimaryBottomNav.css';
 
@@ -22,15 +23,17 @@ const items: Array<{
 ];
 
 export function PrimaryBottomNav({ active, onSelect }: PrimaryBottomNavProps) {
+  const role = useDeviceRole();
+  const visibleItems = items.filter(item => role === 'main' || item.id !== 'create');
   return (
     <nav className="primary-bottom-nav" aria-label="メインメニュー">
-      <div className="primary-bottom-nav__inner">
+      <div className="primary-bottom-nav__inner" style={{ gridTemplateColumns: `repeat(${visibleItems.length}, 1fr)` }}>
         <div
           className="primary-bottom-nav__indicator"
           aria-hidden="true"
-          style={{ transform: `translateX(${items.findIndex((item) => item.id === active) * 100}%)` }}
+          style={{ width: `calc((100% - 2 * var(--nav-inline-padding)) / ${visibleItems.length})`, transform: `translateX(${visibleItems.findIndex((item) => item.id === active) * 100}%)` }}
         ><span /></div>
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const Icon = item.icon;
           const selected = item.id === active;
           return (
