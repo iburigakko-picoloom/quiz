@@ -39,7 +39,7 @@
 
 ## DB・公開手順
 
-追加: `20261107133651_group_material_progress.sql`
+追加: `20261107150053_group_material_progress.sql`
 
 - `quiz_private.group_material_progress(uuid)`: private集計表を読むため既存方式のsecurity definerを使用。空search_path、auth.uidと現メンバー確認、現グループ教材relation、同意enabled、generation、version、現メンバーの照合を必須とする。
 - `public.quiz_group_material_progress(uuid)`: security invokerの公開ラッパー。PUBLIC/anonの実行権限を剥奪、authenticatedのみに許可。

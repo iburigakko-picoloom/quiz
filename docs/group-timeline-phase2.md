@@ -13,7 +13,7 @@
 
 ## DB
 
-`20261107135907_group_session_timeline.sql` は追加のみ。
+`20261107150102_group_session_timeline.sql` は追加のみ。
 
 - private.quiz_group_activity_consent: グループ/利用者単位のenabled・generation・enabled_at。
 - private.quiz_group_activity: セッション別の最小集計。group/user/set/eventのunique制約で同期・再送を重複させない。

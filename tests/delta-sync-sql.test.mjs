@@ -5,15 +5,17 @@ import { randomUUID, createHash } from 'node:crypto';
 import { createRecordProtocolDatabase } from './helpers/record-protocol-db.mjs';
 const pg = await createRecordProtocolDatabase(); after(() => pg.close());
 await pg.exec('create role service_role');
-await pg.exec(await readFile(new URL('../supabase/migrations/20261005154212_quiz_whole_commit.sql', import.meta.url), 'utf8'));
-await pg.exec(await readFile(new URL('../supabase/migrations/20261007105000_quiz_whole_finish_typed_rows.sql', import.meta.url), 'utf8'));
+// pg_get_functiondef uses LF; normalize checkout line endings before SQL text patches.
+const readMigration = async path => (await readFile(path, 'utf8')).replace(/\r\n/g, '\n');
+await pg.exec(await readMigration(new URL('../supabase/migrations/20261005154212_quiz_whole_commit.sql', import.meta.url)));
+await pg.exec(await readMigration(new URL('../supabase/migrations/20261007105000_quiz_whole_finish_typed_rows.sql', import.meta.url)));
 await pg.exec("create schema auth; create function auth.uid() returns uuid language sql as $$select case when coalesce(current_setting('test.actor',true),'')='' then null else md5(current_setting('test.actor'))::uuid end$$; grant usage on schema auth to authenticated;");
-for(const name of ['20261007165623_quiz_answer_sync_optimization','20261012003104_sync_timeout_bounded_work','20261012021630_sync_finish_stream_changes','20261015024034_sync_concurrent_staging_and_finish_budget'])await pg.exec(await readFile(new URL(`../supabase/migrations/${name}.sql`,import.meta.url),'utf8'));
-await pg.exec(await readFile(new URL('../supabase/migrations/20261015232702_quiz_delta_sync.sql', import.meta.url), 'utf8'));
+for(const name of ['20261007165623_quiz_answer_sync_optimization','20261012003104_sync_timeout_bounded_work','20261012021630_sync_finish_stream_changes','20261015024034_sync_concurrent_staging_and_finish_budget'])await pg.exec(await readMigration(new URL(`../supabase/migrations/${name}.sql`,import.meta.url)));
+await pg.exec(await readMigration(new URL('../supabase/migrations/20261015232702_quiz_delta_sync.sql', import.meta.url)));
 const functionPermissions=async()=> (await pg.query("select prosecdef,proconfig,proacl from pg_proc where oid='private.quiz_delta_sync(text,text,jsonb)'::regprocedure")).rows;
 const beforeResumePermissions=await functionPermissions();
 const resumeMigration=await readFile(new URL('../supabase/migrations/20261016094737_quiz_delta_resumable_finish.sql', import.meta.url), 'utf8');
-await pg.exec(resumeMigration);
+await pg.exec(resumeMigration.replace(/\r\n/g, '\n'));
 test('the exact resumable migration preserves function security and execution permissions',async()=>{
   assert.deepEqual(await functionPermissions(),beforeResumePermissions);
   console.log('VERIFIED_RESUME_MIGRATION_SHA256',createHash('sha256').update(resumeMigration).digest('hex'));

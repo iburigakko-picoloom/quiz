@@ -242,7 +242,7 @@ test('client publication reflection shares preexisting owner learning through th
 
 
 test('material batch aggregates honor consent, generation, version, membership and unlinking without modifying storage', async () => {
-  await pg.exec(await readFile(new URL('../supabase/migrations/20261107133651_group_material_progress.sql',import.meta.url),'utf8'));
+  await pg.exec(await readFile(new URL('../supabase/migrations/20261107150053_group_material_progress.sql',import.meta.url),'utf8'));
   const g='10000000-0000-4000-8000-000000000099';
   await actor(owner);
   await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'Batch']);
