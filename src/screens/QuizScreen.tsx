@@ -1,3 +1,4 @@
+import type { LocalAccountIdentity } from '../utils/accountStorage';
 import { useState } from 'react';
 import type { ReferenceLink } from '../utils/referenceLinking';
 import type { AppData, Question, QuizMode, QuizResult, MaterialReference } from '../types';
@@ -16,10 +17,11 @@ interface QuizScreenProps {
   onRemoveDetailedImage?: (questionId: string, imageId: string) => Promise<void>;
   onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onLinkMaterialBatch?: (setId: string, links: ReferenceLink[]) => Promise<void>;
+  onStudySessionEnd?: (answers: NonNullable<QuizResult['sessionAnswers']>, identity: LocalAccountIdentity | null) => void;
   onFinish: (result: QuizResult) => void;
 }
 
-export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish }: QuizScreenProps) {
+export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish, onStudySessionEnd }: QuizScreenProps) {
   const problemSet = data.problemSets.find((set) => set.id === setId);
   const allQuestions = getQuestionsBySet(data, setId);
   const [sessionQuestions] = useState<Question[]>(() => (mode === 'random' ? shuffleArray(allQuestions) : allQuestions));
@@ -45,6 +47,7 @@ export function QuizScreen({ data, setId, mode, onBack, onAnswer, onToggleAmbigu
       onRemoveDetailedImage={onRemoveDetailedImage}
       onLinkMaterialPage={onLinkMaterialPage}
       onLinkMaterialBatch={onLinkMaterialBatch}
+      onStudySessionEnd={onStudySessionEnd}
       onFinish={onFinish}
     />
   );
