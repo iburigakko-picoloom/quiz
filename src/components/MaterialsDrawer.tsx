@@ -112,7 +112,7 @@ export const MaterialsDrawer = forwardRef<MaterialsDrawerHandle, {
       onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } if (open) void close(); else void openAt(); }}><span aria-hidden="true">{open ? '›' : '‹'}</span><span className="materials-edge-tab__label">資料</span></button>
     <aside ref={drawer} className={`materials-drawer${open ? ' is-open' : ''}${dragging ? ' is-dragging' : ''}`} aria-label="資料ビューア" aria-hidden={!open} inert={!open}>
       {error ? <p role="alert">{error}</p> : null}
-      {open || keepPanel ? <MaterialsPanel ref={panel} setId={problemSetId} setIds={setIds} reference={reference} referenceRequest={referenceRequest} questionReferences={references} onOpenReference={target => void openAt(target)} onLinkPage={onLinkPage} onAdjustReferences={onLinkBatch ? (materialId,pageId) => setLinkDialog({ materialId,pageId }) : undefined} onClose={() => void close()} /> : null}
+      {open || keepPanel ? <MaterialsPanel ref={panel} setId={problemSetId} questions={questions} setIds={setIds} reference={reference} referenceRequest={referenceRequest} questionReferences={references} onOpenReference={target => void openAt(target)} onLinkPage={onLinkPage} onAdjustReferences={onLinkBatch ? (materialId,pageId) => setLinkDialog({ materialId,pageId }) : undefined} onClose={() => void close()} /> : null}
     </aside></>, document.body)}
   </>;
 });

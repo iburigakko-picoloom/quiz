@@ -28,7 +28,7 @@ export function NoteListScreen({ data, setId, onBack, onOpenQuestions, registerE
     <header><BackButton onClick={() => void transition(onBack)} /><h1>{data.problemSets.find(set => set.id === setId)?.title ?? '資料'}</h1>
     {onOpenQuestions ? <button onClick={() => void transition(onOpenQuestions)}>問題一覧</button> : null}</header>
     {error ? <p role="alert">{error}</p> : null}
-    <MaterialsPanel ref={panel} setId={setId} setIds={data.problemSets.map(set => set.id)} onAdjustReferences={onLinkBatch?(materialId,pageId)=>setLinkDialog({materialId,pageId}):undefined} />
+    <MaterialsPanel ref={panel} setId={setId} questions={data.questions} setIds={data.problemSets.map(set => set.id)} onAdjustReferences={onLinkBatch?(materialId,pageId)=>setLinkDialog({materialId,pageId}):undefined} />
     {linkDialog&&onLinkBatch?<ReferenceLinkDialog setId={setId} questions={data.questions.filter(q=>q.setId===setId)} initialMaterialId={linkDialog.materialId} initialPageId={linkDialog.pageId} onSave={onLinkBatch} onClose={()=>setLinkDialog(null)}/>:null}
   </main></Layout>;
 }
