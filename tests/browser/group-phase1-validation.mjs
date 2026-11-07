@@ -65,10 +65,11 @@ try {
   await page.screenshot({path:'qa/phase1/overview-390.png'});
   await page.locator('.group-material-card').first().click();
   await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
-  await page.getByRole('button',{name:'グループ全体',exact:true}).click();
+  await page.getByText('グループ全体',{exact:true}).click();
   await page.getByText('回答済み 3 / 45問・回答率 7%',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'取り込む',exact:true}).count(),0);
-  assert.equal(await page.getByText('非共有の利用者',{exact:true}).count(),0);
+  assert.equal(await page.getByText('非共有の利用者',{exact:true}).count(),1);
+  assert.equal(await page.locator('.group-progress-member').filter({hasText:'非共有の利用者'}).getByText('未共有',{exact:true}).count(),1);
   assert.equal(await page.getByRole('switch').getAttribute('aria-checked'),'false');
   assert.equal(requests.filter(n=>n==='quiz_group_progress_consent').length,0);
   await page.screenshot({path:'qa/phase1/progress-390.png'});

@@ -2,14 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { AppData } from '../types';
 import { groupProgressRpc, onCloudAuthStateChange, type CloudProblemSet } from '../utils/cloudService';
 import { commonVersionProgress, type GroupProgressSnapshot } from '../utils/groupProgress';
-import { importedLearning, sumLevels } from '../utils/groupLearning';
+import { importedLearning, levelPercentages, sumLevels } from '../utils/groupLearning';
 import { groupStudyCandidates } from '../utils/groupStudySource';
 import { parseLearningSet, type MaterialProgress, type LearningSetSnapshot } from '../utils/groupLearningService';
 import { GroupEmpty, ImportedMemberProgress, LevelProgress } from './GroupLearningUi';
 import { watchGroupProgress } from '../utils/groupReflectionQueue';
 
 export function GroupProgress({ data, groupId, set, userId, onClose, onChanged, summary }: { data: AppData; groupId: string; set: CloudProblemSet; userId: string; summary?: MaterialProgress; onClose?: () => void; onChanged?: () => void }) {
-  const [scope, setScope] = useState<'self' | 'all'>('self');
   const [snapshot, setSnapshot] = useState<LearningSetSnapshot | null>(null);
   const [copyId, setCopyId] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const alive = useRef(true); const action = useRef(false);
@@ -61,23 +60,25 @@ export function GroupProgress({ data, groupId, set, userId, onClose, onChanged, 
   const local = copies.find(copy => copy.id === copyId);
   const own = local && set.versionId ? importedLearning(data, local, set.id, set.versionId) : null;
   const shared = visibleMembers;
-  const answered = scope === 'self' ? own?.answered : shared.length ? shared.reduce((n,m)=>n+(m.answered ?? 0),0) : null;
-  const total = scope === 'self' ? own?.total : shared.length ? shared.reduce((n,m)=>n+(m.total ?? 0),0) : null;
-  const levels = scope === 'self' ? own?.levels : shared.length && shared.every(m=>m.levels) ? sumLevels(shared.flatMap(m=>m.levels?[m.levels]:[])) : null;
+  const answered = shared.length && shared.every(m=>m.answered!==null) ? shared.reduce((n,m)=>n+m.answered!,0) : null;
+  const total = shared.length && shared.every(m=>m.total!==null) ? shared.reduce((n,m)=>n+m.total!,0) : null;
+  const levels = shared.length && shared.every(m=>m.levels) ? sumLevels(shared.flatMap(m=>m.levels?[m.levels]:[])) : null;
   const currentSummary = summary?.versionId === set.versionId ? summary : undefined;
   return <section className="group-panel group-set-progress" aria-label="メンバーの進捗">
     <div className="group-panel__heading"><h2>教材の進捗</h2>{onClose ? <button type="button" className="group-text-link" onClick={onClose}>閉じる</button> : null}</div>
     {error ? <p role="alert" className="group-error">{error}</p> : null}
-    <div className="group-segment" aria-label="進捗の対象">{([['self','自分'],['all','グループ全体']] as const).map(([value,label])=><button type="button" key={value} aria-pressed={scope===value} onClick={()=>setScope(value)}>{label}</button>)}</div>
+    <h3>自分の進捗</h3>
     {copies.length > 1 ? <label>自分の教材<select value={copyId} onChange={event=>setCopyId(event.target.value)}>{copies.map(copy=><option key={copy.id} value={copy.id}>{copy.title}</option>)}</select></label> : null}
-    <p>回答済み {answered ?? '—'} / {total ?? '—'}問・回答率 {total ? `${Math.round((answered ?? 0)/total*100)}%` : '—'}</p>
-    {levels ? <LevelProgress levels={levels} label="理解度" /> : <GroupEmpty>現在の公開版で確認できる進捗はありません。</GroupEmpty>}
+    <div className="group-own-progress-metrics"><p>回答済み <strong>{own?.answered ?? '—'}</strong> / {own?.total ?? '—'}問</p><p>Level 3 <strong>{own?.total && own.levels ? `${levelPercentages(own.levels)[3]}%` : '—'}</strong></p></div>
+    {own?.levels ? <LevelProgress levels={own.levels} label="自分の理解度" /> : <GroupEmpty>現在の公開版で確認できる進捗はありません。</GroupEmpty>}
     <h3>今日・今週の学習状況</h3>
-    <p>今日：{(scope==='self' ? own?.todayCount : currentSummary?.todayCount) ?? '未反映'} ／ 今週：{(scope==='self' ? own?.weekCount : currentSummary?.weekCount) ?? '未反映'}（解答回数・日本時間）</p>
+    <p>今日：{own?.todayCount ?? '未反映'} ／ 今週：{own?.weekCount ?? '未反映'}</p>
 
-    <h3>メンバー別の学習進捗</h3>
-    <ImportedMemberProgress members={visibleMembers.map(member => ({ userId: member.user_id, self: member.user_id === userId, name: member.user_id === userId ? 'あなた' : member.display_name, levels: member.state === 'shared' ? member.levels : null, reflectedAt: member.reflected_at, status: member.state === 'shared' ? '反映待ち' : { not_shared: '未共有', update_pending: '更新待ち', reflection_pending: '反映待ち' }[member.state] }))} />
-    {snapshot && !visibleMembers.length ? <GroupEmpty>共有できる進捗はまだありません。</GroupEmpty> : !snapshot && !error ? <p role="status" className="group-muted">進捗を読み込み中…</p> : null}
+    <h3>メンバーの進捗</h3>
+    <ImportedMemberProgress members={(snapshot?.members ?? []).map(member => ({ userId: member.user_id, self: member.user_id === userId, name: member.user_id === userId ? 'あなた' : member.display_name, levels: member.state === 'shared' ? member.levels : null, reflectedAt: member.state === 'shared' ? member.reflected_at : null, status: member.state === 'shared' ? '反映待ち' : { not_shared: '未共有', update_pending: '更新待ち', reflection_pending: '反映待ち' }[member.state] }))} />
+    {snapshot && !snapshot.members.length ? <GroupEmpty>メンバーの進捗はまだありません。</GroupEmpty> : !snapshot && !error ? <p role="status" className="group-muted">進捗を読み込み中…</p> : null}
+    <details><summary>グループ全体</summary><p>回答済み {answered ?? '—'} / {total ?? '—'}問・回答率 {total && answered !== null ? `${Math.round(answered/total*100)}%` : '—'}</p>{levels ? <LevelProgress levels={levels} label="グループ全体の理解度" /> : null}<p>今日：{currentSummary?.todayCount ?? '未反映'} ／ 今週：{currentSummary?.weekCount ?? '未反映'}</p></details>
+    <h3>この教材の学習記録</h3><p>教材ごとの学習記録はまだ表示できません。</p>
     <h3>進捗の共有設定</h3>
     <p>回答済み問題数・理解度・解答回数をこのグループに共有します。</p>
     <div className="group-sharing-toggle">

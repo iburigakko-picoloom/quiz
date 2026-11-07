@@ -275,3 +275,6 @@
 .group-timeline__row { padding: 12px 0; border-bottom: 1px solid #e1e6ed; }
 .group-timeline__row time { display: block; margin: 4px 0; }
 .group-timeline__row p { margin: 6px 0 0; }
+.group-own-progress-metrics { display: flex; flex-wrap: wrap; gap: 12px 28px; }
+.group-own-progress-metrics p { margin: 4px 0 12px; }
+.group-own-progress-metrics strong { font-size: 1.5rem; }
