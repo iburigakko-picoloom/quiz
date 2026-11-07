@@ -1,3 +1,4 @@
+import { useDeviceRole } from '../hooks/useDeviceRole';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AppData, Folder } from '../types';
@@ -45,6 +46,7 @@ export function HomeScreen({
   companionCare,
   onSave,
 }: HomeScreenProps) {
+  const isMainDevice = useDeviceRole() === 'main';
   const [folderName, setFolderName] = useState('');
   const { summary, day } = useStudyRecord(data.answerLogs);
   const [query, setQuery] = useState('');
@@ -72,15 +74,15 @@ export function HomeScreen({
 
         <div className="quiz-home__content">
         <section className="quiz-home__library" aria-label="学習フォルダ">
-          <div className="quiz-home__section-heading"><h2>学習フォルダ</h2><button type="button" className="quiz-home__search-entry" onClick={onOpenSearch}>教材検索</button><HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} /></div>
+          <div className="quiz-home__section-heading"><h2>学習フォルダ</h2><button type="button" className="quiz-home__search-entry" onClick={onOpenSearch}>教材検索</button>{isMainDevice && <HomeCircleButton icon="add" label="フォルダを追加" onClick={() => setCreateOpen(true)} />}</div>
           <details className="quiz-home__folder-options"><summary>検索・並び替え{query ? ` · ${query}` : sort === 'name' ? ' · 名前順' : ''}</summary><div className="quiz-home__folder-tools"><input type="search" aria-label="フォルダを検索" placeholder="フォルダを検索" value={query} onChange={e => setQuery(e.target.value)} /><select aria-label="フォルダの並び順" value={sort} onChange={e => setSort(e.target.value)}><option value="recent">更新順</option><option value="name">名前順</option></select></div></details>
 
         <section className="quiz-home__folder-list" aria-label="フォルダ一覧">
           {folders.length === 0 && !query ? (
             <div className="quiz-home__empty">
               <div className="quiz-home__empty-icon" aria-hidden="true"><PlusIcon size={24} /></div>
-              <h2>学習フォルダを作りましょう</h2>
-              <div className="quiz-home__empty-actions">
+              <h2>{isMainDevice ? '学習フォルダを作りましょう' : '同期から教材を受信できます'}</h2>
+              <div className="quiz-home__empty-actions" hidden={!isMainDevice}>
                 <button type="button" onClick={onCreateSample}>サンプルで試す</button>
                 <button type="button" className="quiz-home__empty-secondary" onClick={() => setCreateOpen(true)}>自分のフォルダを作る</button>
               </div>

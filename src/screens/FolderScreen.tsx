@@ -1,3 +1,4 @@
+import { useDeviceRole } from '../hooks/useDeviceRole';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AppData, Folder, ProblemSet } from '../types';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -34,6 +35,7 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
   const requested = view.folderById.get(folderId);
   const parentId = requested?.parentFolderId ?? folderId;
   const folder = view.folderById.get(parentId);
+  const isMainDevice = useDeviceRole() === 'main';
   const [expanded, setExpanded] = useState<string | null>(() => requested?.parentFolderId ? folderId : folderNavigation.get(parentId)?.expanded ?? null);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -67,13 +69,13 @@ export function FolderScreen({ data, folderId, onBack, onCreateProblemSet, onOpe
     <div className="quiz-folder" ref={rootRef}>
     <header className="quiz-folder__header">
       <BackButton onClick={onBack} /><h1 className="quiz-folder__title">{folder.name}</h1>
-      <ActionMenu className="library-actions library-header-add">
+      {isMainDevice && <ActionMenu className="library-actions library-header-add">
         <summary aria-label="追加"><PlusIcon size={22} /></summary>
         <div className="library-actions__body">
           <button type="button" disabled={Boolean(deletingProblemSetId)} onClick={() => setAdding(true)}>子フォルダを追加</button>
           <button type="button" disabled={Boolean(deletingProblemSetId)} onClick={() => onCreateProblemSet(parentId)}>ここに問題セットを追加</button>
         </div>
-      </ActionMenu>
+      </ActionMenu>}
     </header>
     {adding ? <form className="library-form" onSubmit={async (event) => {
       event.preventDefault(); if (busy || deletingProblemSetId || !name.trim()) return;
