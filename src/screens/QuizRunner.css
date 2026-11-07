@@ -1,0 +1,4 @@
+.quiz-related-question-dialog { width: min(100%, 760px); max-width: 100%; height: min(100dvh, 900px); max-height: 100dvh; padding: 0; border: 0; border-radius: 12px; background: white; }
+.quiz-related-question-dialog::backdrop { background: rgb(13 25 40 / .55); }
+.quiz-related-question-dialog .app-layout { height: 100%; }
+@media (max-width: 600px) { .quiz-related-question-dialog { width: 100%; height: 100dvh; border-radius: 0; } }

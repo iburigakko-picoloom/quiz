@@ -12,6 +12,9 @@ import remarkGfm from 'remark-gfm';
 import type { AppData, Question, QuizResult, MaterialReference } from '../types';
 import { BackButton } from '../components/BackButton';
 import { MaterialsDrawer, type MaterialsDrawerHandle } from '../components/MaterialsDrawer';
+import { QuestionDetailScreen } from './QuestionDetailScreen';
+import { registerTransientDialog } from '../utils/transientDialog';
+import './QuizRunner.css';
 import type { ReferenceLink } from '../utils/referenceLinking';
 import { runAfterSuccessfulNoteFlush } from '../components/noteExitGuard';
 import { Layout } from '../components/Layout';
@@ -105,6 +108,14 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
   const [materialLauncherTarget, setMaterialLauncherTarget] = useState<HTMLSpanElement | null>(null);
   const [isTabletLandscape, setIsTabletLandscape] = useState(false);
   const [noteDrawerMounted, setNoteDrawerMounted] = useState(false);
+  const [relatedQuestionId,setRelatedQuestionId]=useState<string|null>(null);
+  const relatedDialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{
+    if(!relatedQuestionId)return;
+    const dialog=relatedDialog.current;dialog?.showModal();
+    const unregister=registerTransientDialog(()=>setRelatedQuestionId(null));
+    return()=>{unregister();if(dialog?.open)dialog.close();};
+  },[relatedQuestionId]);
   const [noteTransitionError, setNoteTransitionError] = useState('');
   const noteDrawerRef = useRef<MaterialsDrawerHandle>(null);
   const noteTransitionRef = useRef(false);
@@ -416,11 +427,13 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
             onLinkBatch={onLinkMaterialBatch ? links => onLinkMaterialBatch(setId, links) : undefined}
             references={(data.questions.find(question => question.id === currentQuestion.id) ?? currentQuestion).materialReferences}
             onLinkPage={onLinkMaterialPage ? (reference, linked) => onLinkMaterialPage(currentQuestion.id, reference, linked) : undefined}
+            onOpenQuestion={questionId=>setRelatedQuestionId(questionId)}
             launcherTarget={materialLauncherTarget}
             open={noteOpen}
             onOpenChange={setNoteOpen}
           />
         ) : null}
+        {relatedQuestionId ? createPortal(<dialog ref={relatedDialog} className="quiz-related-question-dialog" aria-label="関連問題の詳細" onCancel={event=>{event.preventDefault();setRelatedQuestionId(null);}}><QuestionDetailScreen data={data} questionId={relatedQuestionId} readOnly onBack={()=>setRelatedQuestionId(null)} onEdit={()=>{}} onDetail={()=>{}} onNote={()=>{}}/></dialog>,document.body) : null}
         {noteTransitionError ? (
           <div role="alert" className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-center text-sm font-bold text-red-800">
             {noteTransitionError}
