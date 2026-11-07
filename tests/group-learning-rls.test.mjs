@@ -39,6 +39,7 @@ let published=await call('publish_problem_set_versioned',[JSON.stringify(payload
 await pg.exec(await readFile(new URL('../supabase/migrations/20261008142626_group_learning_ui.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261009110331_group_library_counts.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261012052313_group_folder_management.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261107172840_group_member_material_progress.sql',import.meta.url),'utf8'));
 const period=(await pg.query(`select (now() at time zone 'Asia/Tokyo')::date::text as "day",date_trunc('week',now() at time zone 'Asia/Tokyo')::date::text as "week"`)).rows[0];
 const read=()=>call('quiz_group_learning_read',[group,period.day,period.week],['uuid','date','date']);
 const setRead=()=>call('quiz_group_learning_set_read',[group,published.id],['uuid','uuid']);
@@ -274,4 +275,36 @@ test('material batch aggregates honor consent, generation, version, membership a
   await pg.query('update public.shared_problem_sets set current_version_id=$2 where id=$1',[source.id,source.version_id]);
   await actor(owner);await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,member]);assert.equal((await batch())[0].learners,0);
   await pg.query('delete from public.quiz_group_problem_sets where group_id=$1',[g]);assert.deepEqual(await batch(),[]);
+});
+
+// The member/material batch is independent of the aggregated overview RPC.
+test('member material batch exposes only current, consented progress to current group members',async()=>{
+  const g='10000000-0000-4000-8000-000000000098';await actor(owner);
+  await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'Member batch']);
+  await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[g,owner,member]);
+  const first=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'member-batch-1',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
+  const second=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'member-batch-2',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
+  const batch=target=>call('quiz_group_member_material_progress',[g,target],['uuid','uuid']);
+  await pg.exec('set role anon');await assert.rejects(batch(member),/permission denied/);await pg.exec('reset role');
+  await pg.exec('set role authenticated');
+  await actor(outsider);await assert.rejects(batch(member),/not authorized/);
+  await actor(owner);await assert.rejects(batch(outsider),/not authorized/);
+  let rows=await batch(member);assert.equal(rows.length,2);assert.ok(rows.every(row=>row.state==='not_shared'&&row.answered===null&&row.total===null&&row.levels===null&&row.reflected_at===null));
+  await actor(member);
+  const c=await call('quiz_group_progress_consent',[g,first.id,true,'member-copy',first.version_id,null],['uuid','uuid','boolean','text','uuid','uuid']);
+  await actor(owner);rows=await batch(member);assert.equal(rows.find(row=>row.set_id===first.id).state,'reflection_pending');assert.equal(rows.find(row=>row.set_id===first.id).answered,null);
+  await actor(member);await call('quiz_group_learning_update',[g,first.id,c.generation,'member-copy',first.version_id,3,[1,1,1,1],2,5,period.day,period.week],['uuid','uuid','uuid','text','uuid','integer','integer[]','integer','integer','date','date']);
+  await actor(owner);rows=await batch(member);const shared=rows.find(row=>row.set_id===first.id);assert.equal(shared.state,'shared');assert.equal(shared.answered,3);assert.equal(shared.total,4);assert.deepEqual(shared.levels,[1,1,1,1]);assert.ok(shared.reflected_at);assert.equal(rows.find(row=>row.set_id===second.id).state,'not_shared');
+  await actor(member);await call('quiz_group_progress_consent',[g,first.id,false,null,null,c.generation],['uuid','uuid','boolean','text','uuid','uuid']);
+  await actor(owner);rows=await batch(member);const stopped=rows.find(row=>row.set_id===first.id);assert.equal(stopped.state,'not_shared');assert.equal(stopped.answered,null);assert.equal(stopped.levels,null);assert.equal(stopped.reflected_at,null);
+  await actor(member);const own=await call('quiz_group_learning_set_read',[g,first.id],['uuid','uuid']);
+  const c2=await call('quiz_group_progress_consent',[g,first.id,true,'member-copy',first.version_id,own.own.generation],['uuid','uuid','boolean','text','uuid','uuid']);
+  await actor(owner);assert.equal((await batch(member)).find(row=>row.set_id===first.id).state,'reflection_pending');
+  await actor(member);await call('quiz_group_learning_update',[g,first.id,c2.generation,'member-copy',first.version_id,3,[1,1,1,1],2,5,period.day,period.week],['uuid','uuid','uuid','text','uuid','integer','integer[]','integer','integer','date','date']);
+  await pg.exec('reset role');await pg.query('update public.shared_problem_sets set current_version_id=null where id=$1',[first.id]);
+  await actor(owner);const stale=(await batch(member)).find(row=>row.set_id===first.id);assert.equal(stale.state,'update_pending');assert.equal(stale.answered,null);assert.equal(stale.levels,null);
+  await pg.query('update public.shared_problem_sets set current_version_id=$2 where id=$1',[first.id,first.version_id]);
+  const oldRows=(await pg.query('select * from private.quiz_group_progress_summaries where group_id=$1',[g])).rows;await batch(member);assert.deepEqual((await pg.query('select * from private.quiz_group_progress_summaries where group_id=$1',[g])).rows,oldRows);
+  await pg.query('delete from public.quiz_group_problem_sets where group_id=$1 and set_id=$2',[g,second.id]);assert.equal((await batch(member)).length,1);
+  await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,member]);await assert.rejects(batch(member),/not authorized/);
 });

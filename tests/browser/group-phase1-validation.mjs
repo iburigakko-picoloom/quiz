@@ -10,6 +10,9 @@ const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','1
 let browser,page;
 const requests=[];
 const errors=[];
+let releaseSlowMember;
+const slowMember = new Promise(resolve => { releaseSlowMember=resolve; });
+let failMemberOnce=true;
 try {
   await new Promise((resolveReady,reject)=>{const timeout=setTimeout(()=>reject(new Error('Test server timed out')),15000);server.stdout.on('data',chunk=>{if(chunk.toString().includes('5175')){clearTimeout(timeout);resolveReady();}});server.once('exit',code=>{clearTimeout(timeout);reject(new Error(`Test server exited: ${code}`));});});
   browser=await chromium.launch({channel:'chrome',headless:true});
@@ -39,6 +42,7 @@ try {
     else if(name==='list_quiz_group_members') result=state.members.map(m=>({user_id:m.userId,display_name:m.displayName,role:m.role}));
     else if(name==='quiz_group_learning_read') result=snapshot();
     else if(name==='quiz_group_material_progress') result=batch();
+    else if(name==='quiz_group_member_material_progress') {if(args.p_member_id==='ito'&&failMemberOnce){failMemberOnce=false;await route.fulfill({status:503,body:'offline'});return;}if(args.p_member_id==='yamada')await slowMember;const show=['sato','yamada'].includes(args.p_member_id);result=sets.map((set,i)=>({set_id:set.id,version_id:set.versionId,state:show&&i===0?'shared':'not_shared',answered:show&&i===0?3:null,total:show&&i===0?45:null,levels:show&&i===0?[42,1,1,1]:null,reflected_at:show&&i===0?new Date().toISOString():null}));}
     else if(name==='quiz_group_activity_read') result={enabled:activityEnabled,generation:activityEnabled?'generation':null,entries:(manyActivities?Array.from({length:65},(_,i)=>({id:String(65-i),user_id:'sato',display_name:'佐藤',set_id:'set-0',title:`心不全 ${65-i}`,finished_at:new Date().toISOString(),answered:3})):[{id:'1',user_id:'sato',display_name:'佐藤',set_id:'set-0',title:'心不全',finished_at:new Date().toISOString(),answered:3}]).filter(row=>!args.p_before||Number(row.id)<Number(args.p_before)).slice(0,50)};
     else if(name==='quiz_group_activity_consent'){activityEnabled=args.p_enabled;result=true;}
     else if(name==='quiz_group_activity_destinations')result=activityEnabled?[{group_id:'preview-group',generation:'generation',enabled_at:'2026-01-01T00:00:00Z'}]:[];
@@ -61,6 +65,24 @@ try {
   assert.equal(await page.getByRole('tab',{name:'概要',exact:true}).getAttribute('aria-selected'),'true');
   assert.equal(requests.filter(n=>n==='quiz_group_material_progress').length,1);
   assert.equal(requests.filter(n=>n==='get_shared_problem_set_versioned').length,0);
+  await page.getByLabel('表示するメンバー').selectOption('sato');
+  await page.locator('.group-material-card').first().getByText('回答済み 3 / 45問・回答率 7%',{exact:true}).waitFor();
+  assert.equal(requests.filter(n=>n==='quiz_group_member_material_progress').length,1,'one batch for all materials');
+  await page.locator('.group-material-card').first().click();
+  await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
+  await page.getByRole('button',{name:'戻る',exact:true}).click();
+  await page.getByLabel('表示するメンバー').waitFor();
+  assert.equal(await page.getByLabel('表示するメンバー').inputValue(),'sato','selection survives detail');
+  const slowRequest=page.waitForRequest(request=>request.url().endsWith('/rpc/quiz_group_member_material_progress')&&request.postDataJSON()?.p_member_id==='yamada');
+  await page.getByLabel('表示するメンバー').selectOption('yamada');await slowRequest;
+  await page.getByLabel('表示するメンバー').selectOption('watanabe');
+  await page.locator('.group-material-card').first().getByText('未共有',{exact:true}).waitFor();
+  const lateResponse=page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_member_material_progress')&&response.request().postDataJSON()?.p_member_id==='yamada');releaseSlowMember();await lateResponse;
+  assert.equal(await page.locator('.group-material-card').first().getByText(/回答済み/).count(),0,'private values are not shown');
+  await page.getByLabel('表示するメンバー').selectOption('ito');
+  await page.getByRole('alert').getByRole('button',{name:'再試行'}).click();
+  await page.locator('.group-material-card').first().getByText('未共有',{exact:true}).waitFor();
+  await page.getByLabel('表示するメンバー').selectOption('00000000-0000-4000-8000-000000000001');
   await mkdir('qa/phase1',{recursive:true});
   await page.screenshot({path:'qa/phase1/overview-390.png'});
   await page.locator('.group-material-card').first().click();

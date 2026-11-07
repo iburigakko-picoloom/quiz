@@ -278,3 +278,5 @@
 .group-own-progress-metrics { display: flex; flex-wrap: wrap; gap: 12px 28px; }
 .group-own-progress-metrics p { margin: 4px 0 12px; }
 .group-own-progress-metrics strong { font-size: 1.5rem; }
+.group-overview-member { display: flex; align-items: center; gap: 10px; margin: 12px 0 16px; }
+.group-overview-member select { min-height: 44px; max-width: 100%; padding: 8px 12px; border: 1px solid #dce5ef; border-radius: 9px; background: white; color: #173042; font: inherit; }

@@ -129,6 +129,8 @@ export function CommunityScreen({
   const [groupsLoading, setGroupsLoading] = useState(true);
   const [groupsReady, setGroupsReady] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId ?? '');
+  const [overviewMemberId, setOverviewMemberId] = useState('');
+  useEffect(()=>setOverviewMemberId(''),[selectedGroupId,session?.user.id]);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState('');
   const renameLock = useRef(false);
@@ -882,7 +884,7 @@ export function CommunityScreen({
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
-                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace materials={groupLearning.materials} onOpenProgress={set => void openSharedDetail(set, 'groups', '', true)} data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onManageFolder={folder => { setManagedFolder(folder); setManagedName(folder.name); setConfirmFolderDelete(false); setManagementError(''); }} onRemoveSet={set => { setManagedSet(set); setManagementError(''); }} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
+                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace materials={groupLearning.materials} overviewMemberId={overviewMemberId || session.user.id} onOverviewMemberChange={setOverviewMemberId} onOpenProgress={set => void openSharedDetail(set, 'groups', '', true)} data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onManageFolder={folder => { setManagedFolder(folder); setManagedName(folder.name); setConfirmFolderDelete(false); setManagementError(''); }} onRemoveSet={set => { setManagedSet(set); setManagementError(''); }} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
                   </>
                 )}
               </section>
