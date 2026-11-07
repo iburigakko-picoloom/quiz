@@ -16,28 +16,24 @@ try {
  await fresh();
  assert.equal(await page.getByRole('heading',{name:'とりこみ',exact:true}).count(),1);
  for(const name of ['生成AIで作る','手入力で作る','クリップボードから取り込む','JSONファイルから取り込む','メモから追加解説を作る'])assert.equal(await page.getByRole('button',{name,exact:true}).count(),1);
- await page.getByText('その他の作成方法',{exact:true}).click();
- assert.equal(await page.getByRole('button',{name:'メモから問題を作る',exact:true}).count(),1);
- await page.getByRole('button',{name:'問題セットのコピー',exact:true}).click();
- await page.getByRole('button',{name:/元の問題セット/}).click();
+ assert.equal(await page.getByText('その他の作成方法',{exact:true}).count(),0);
+ await page.goto(url+'?copy=set',{waitUntil:'domcontentloaded'});
  await page.getByRole('button',{name:'1問を保存',exact:true}).click();
  let saved=JSON.parse(await page.locator('body').getAttribute('data-saved'));assert.equal(saved.sourceSetId,'set');assert.deepEqual(saved.questions[0].answerIndexes,[0,1]);assert.equal(saved.questions[0].sourcePage,'p.2');
  await fresh();await page.getByRole('button',{name:'生成AIで作る',exact:true}).click();
  assert.equal(await page.getByLabel('作りたい問題集').count(),0);
  await page.getByRole('button',{name:'指示から作成',exact:true}).click();
  await page.getByLabel('作りたい問題集').fill('循環器の復習');
- assert.equal(await page.getByLabel('問題数（任意）').count(),0);
- await page.getByRole('button',{name:'条件を設定',exact:false}).click();
- await page.getByLabel('問題数（任意）').fill('0');await page.getByRole('button',{name:'依頼文を作成',exact:false}).click();await page.getByRole('alert').filter({hasText:'1〜2000'}).waitFor();
+ await page.getByLabel('問題数（任意）').fill('0');await page.getByRole('button',{name:'依頼文をコピー',exact:true}).click();await page.getByRole('alert').filter({hasText:'1〜2000'}).waitFor();
  await page.getByLabel('問題数（任意）').fill('12');await page.getByRole('button',{name:'5択',exact:true}).click();await page.getByLabel('複数回答',{exact:true}).check();
- await page.getByRole('button',{name:'依頼文を作成',exact:false}).click();await page.getByRole('button',{name:'依頼文をコピー',exact:true}).click();
+ await page.getByRole('button',{name:'依頼文をコピー',exact:true}).click();
  let prompt=await page.evaluate(()=>navigator.clipboard.readText());assert.ok(prompt.includes('循環器の復習'));assert.ok(prompt.includes('12'));assert.ok(prompt.includes('answerIndexes'));
  await mkdir('qa/phase3',{recursive:true});await page.screenshot({path:'qa/phase3/ai-390.png',fullPage:true});
  await page.getByRole('button',{name:'JSONを取り込む',exact:true}).click();await page.getByLabel('問題セットJSON').waitFor();
  assert.equal(await page.evaluate(async()=>{const {tryScreenBack}=await import('/quiz/src/utils/screenBack.ts');return tryScreenBack();}),true);
  await page.getByRole('heading',{name:'4. 生成AIへ依頼'}).waitFor();
  for(const name of ['資料から作成','過去問から作成']) {
-  await page.getByRole('button',{name,exact:true}).click();await page.getByRole('button',{name:'条件を設定',exact:false}).click();await page.getByRole('button',{name:'依頼文を作成',exact:false}).click();
+  await page.getByRole('button',{name,exact:true}).click();
   await page.getByRole('button',{name:'プロンプトをコピー',exact:true}).click();prompt=await page.evaluate(()=>navigator.clipboard.readText());assert.ok(prompt.includes('questions'));assert.equal(await page.locator('input[type=file]').count(),0);
  }
  const content=JSON.stringify({setTitle:'取り込み教材',source:'授業資料',questions:[{question:'正しいものを選ぶ',choices:['A','B','C','D'],answerIndexes:[0,1],explanation:'解説',sourcePage:'p.2',category:'基礎'}]});
@@ -51,8 +47,9 @@ try {
  await page.locator('input[type=file]').setInputFiles({name:'quiz.json',mimeType:'application/json',buffer:Buffer.from(content)});await page.getByRole('region',{name:'読み取り結果'}).waitFor();
  await page.getByRole('button',{name:'1問を保存',exact:true}).click();saved=JSON.parse(await page.locator('body').getAttribute('data-saved'));assert.equal(saved.title,'取り込み教材');assert.deepEqual(saved.questions[0].answerIndexes,[0,1]);
  await page.screenshot({path:'qa/phase3/import-390.png',fullPage:true});
- await fresh();await page.getByRole('button',{name:'JSONファイルから取り込む',exact:true}).click();await page.getByText('その他のJSON形式',{exact:true}).click();await page.getByRole('button',{name:'従来の問題セットファイルを取り込む',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-legacy')).folderId,'folder');
- await fresh();await page.getByText('まとめて貼り付ける',{exact:true}).click();await page.getByRole('button',{name:'テキスト・CSVから取り込む',exact:true}).click();await page.getByLabel('問題の貼り付け欄').waitFor();
+ await fresh();await page.getByRole('button',{name:'JSONファイルから取り込む',exact:true}).click();await page.getByText('複数ファイル・その他のJSON形式',{exact:true}).click();await page.getByRole('button',{name:'従来の問題セットファイルを取り込む',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-legacy')).folderId,'folder');
+ await fresh();await page.getByRole('button',{name:'クリップボードから取り込む',exact:true}).click();await page.getByText('テキスト・CSVから取り込む',{exact:true}).click();await page.getByRole('button',{name:'テキスト・CSVを入力',exact:true}).click();await page.getByLabel('問題の貼り付け欄').waitFor();
+ await fresh();await page.getByRole('button',{name:'生成AIで作る',exact:true}).click();await page.getByRole('button',{name:'メモから作成',exact:true}).click();await page.getByRole('heading',{name:'メモから問題を作る',exact:true}).waitFor();
  await fresh();await page.getByRole('button',{name:'手入力で作る',exact:true}).click();await page.getByLabel('問題文').fill('手入力の問題');await page.getByLabel('問題セット名').fill('手入力教材');for(let i=1;i<=4;i++)await page.getByLabel('選択肢 '+i,{exact:true}).fill('選択肢'+i);await page.getByLabel('1番を正解にする').check();await page.getByRole('button',{name:'追加して次の問題へ'}).click();await page.getByRole('button',{name:'1問を保存',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-saved')).questions.length,1);
  await fresh();await page.getByRole('button',{name:'メモから追加解説を作る',exact:true}).click();await page.getByRole('heading',{name:'メモから追加解説を作る',exact:true}).waitFor();
  for(const width of [320,390,768]) {await fresh();await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:`qa/phase3/chooser-${width}.png`});}

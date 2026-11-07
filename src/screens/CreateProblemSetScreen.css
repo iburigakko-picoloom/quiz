@@ -197,3 +197,7 @@
 .create-set__ai-stage > .create-set__primary { display: flex; align-items: center; gap: 8px; }
 .create-set__ai-stage p { color: #173042; font-size: 1rem; }
 .create-set__method-tabs button[aria-pressed=true] { background: #fff; box-shadow: 0 1px 4px #17203314; }
+.create-set__method-tabs { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.create-set__import-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.create-set__import-tabs button { flex: 1; min-height: 44px; border: 1px solid #dce5ef; border-radius: 8px; background: white; color: #2859a6; font: inherit; }
+.create-set__import-tabs button[aria-pressed=true] { background: #edf3fc; font-weight: 700; }
