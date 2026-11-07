@@ -1,3 +1,4 @@
+import { COMPANION_CARE_KEY, companionSpendWouldRollback } from './companionCare';
 import { APP_COLLECTIONS, appRecordKey, materializeAppRecords, readCurrentAppRecordSnapshot, rememberAppRecordSnapshot, rememberAppRecordData, type AppOutboxOperation, type AppRecord, type AppRecordState } from './appRecordStorage';
 import { bindRecordSyncConnection, sameRecordSyncConnection, type RecordSyncConnection } from './recordSyncOutbox';
 import type { RecordSyncGuards, RecordSyncOutcome } from './recordSyncEngine';
@@ -141,6 +142,24 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
   const before = await readCurrentAppRecordSnapshot(db); if (!before) throw new Error('端末の保存状態を確認できません。');
   const read = db.transaction('appOutbox', 'readonly'), readDone = idbDone(read);
   const pending = new Map((await idbResult<AppOutboxOperation[]>(read.objectStore('appOutbox').getAll())).map(op => [op.key, op])); await readDone;
+  // Keep both originals before stopping a conflicting currency replacement.
+  for (const remote of rows) {
+    if (remote.collection !== 'localStorage' || remote.id !== COMPANION_CARE_KEY) continue;
+    const local = before.records.get(remote.key);
+    if (!local || local.serverRevision >= remote.revision || !companionSpendWouldRollback(local.raw, remote.raw)) continue;
+    if (pending.has(remote.key) && !companionSpendWouldRollback(remote.raw, local.raw)) continue;
+    const conflictId=`companion:${remote.key}:${remote.revision}`;
+    const archivedRead=db.transaction('appRecordConflicts'), archivedDone=idbDone(archivedRead);
+    const archived=await idbResult<{resolvedAt?:string;remote?:{raw:string|null}}|undefined>(archivedRead.objectStore('appRecordConflicts').get(conflictId));await archivedDone;
+    if(archived?.resolvedAt && archived.remote?.raw===remote.raw && !companionSpendWouldRollback(remote.raw,local.raw)) {
+      rows=rows.filter(row=>row!==remote);continue;
+    }
+    const tx = db.transaction('appRecordConflicts', 'readwrite'), done = idbDone(tx);
+    tx.objectStore('appRecordConflicts').put({ kind: 'companion-budget-conflict', connection,
+      key: remote.key, local, remote, conflict: {connection,key:remote.key,local,remote,operationId:null}, archivedAt: new Date().toISOString() }, `companion:${remote.key}:${remote.revision}`);
+    await done;
+    throw new Error('育成の変更が別の端末と重なっています。両方の記録を保持し、お世話と同期を停止しました。');
+  }
   const released: AppOutboxOperation[] = [], candidates: Array<{ local: AppOutboxOperation; remote: RemoteRecordChange }> = [];
   if (checkpoint) for (const remote of rows) {
     const op = pending.get(remote.key);

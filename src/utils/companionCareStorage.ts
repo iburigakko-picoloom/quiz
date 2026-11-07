@@ -32,18 +32,21 @@ export async function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], 
     const day = studyDay(options.now ?? new Date(), getStudyTimeZone());
     const previousRaw = accountLocalStorage.getItem(COMPANION_CARE_KEY);
     const previous = previousRaw === null ? null : parseCompanionCare(previousRaw);
-    if (options.automatic) {
+    if (options.automatic || options.action) {
       // Daily visits and answer reconciliation can wait while the user chooses
       // a source or a frozen upload is pending. Check after acquiring the lock:
       // a home-screen effect may have queued before navigation to sync.
       let pending = false;
       if (typeof indexedDB !== 'undefined') {
-        const db = await openAppDb(), tx = db.transaction('appRecordMeta'), meta = tx.objectStore('appRecordMeta');
-        const conflict = meta.get('wholeConflict'), frozen = meta.get('wholeFrozen');
+        const db = await openAppDb(), tx = db.transaction(['appRecordMeta', 'appRecordConflicts']), meta = tx.objectStore('appRecordMeta');
+        const conflict = meta.get('wholeConflict'), frozen = meta.get('wholeFrozen'), deltaFrozen = meta.get('deltaFrozen');
+        const records = tx.objectStore('appRecordConflicts').getAll();
         await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); });
-        pending = Boolean(conflict.result || frozen.result);
+        pending = Boolean(conflict.result || frozen.result || deltaFrozen.result || records.result.some(record => !record.resolvedAt && record.kind !== 'reviewed-recovery-original' &&
+          (record.conflict?.key ?? record.key ?? record.local?.key) === JSON.stringify(['localStorage', COMPANION_CARE_KEY])));
       }
       assertOwner();
+      if (options.action && (pending || isSyncInteractionProtected())) throw new Error('同期の確認が終わってから、お世話を再開してください。');
       if (pending || isSyncInteractionProtected() || options.isCurrent?.() === false) return previous;
     }
     let next = refreshCompanionDay(creditCompanionAnswers(previous ?? createCompanionCare(day), logs), day, options.visit);

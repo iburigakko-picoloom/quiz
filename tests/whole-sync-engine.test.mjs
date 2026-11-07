@@ -289,3 +289,38 @@ test('missing material repair bypasses same-head fast paths, restarts comparison
   assert.ok(['done','more','conflict'].includes((await runWholeRecordSync(db,connection,transport,exact)).status));assert.equal(attempts,1);
   assert.deepEqual(await storage.loadAppDataAsync(),before);assert.equal(await readWholeMeta(db,'wholeConflict',connection),undefined);
 });
+
+test('whole source selection cannot erase a parallel companion spend; explicit budget recovery keeps both and uploads',async()=>{
+ const {createCompanionCare,creditCompanionAnswers,applyCompanionCareAction,COMPANION_CARE_KEY}=await import('../src/utils/companionCare.ts');
+ const {readCompanionBudgetConflicts,resolveCompanionBudgetConflict}=await import('../src/utils/companionBudgetRecovery.ts');
+ const {readCompanionCare}=await import('../src/utils/companionCareStorage.ts');
+ const {readMeta,writeMeta}=await import('../src/utils/blobVault.ts');const archiveIndex=await readMeta(db,'wholeRecoveryIndexV1');if(archiveIndex)await writeMeta(db,'wholeRecoveryIndexV1',{...archiveIndex,budgetBytes:1024*1024*1024});
+ const base={...creditCompanionAnswers(createCompanionCare('2026-10-14'),Array.from({length:50},(_,i)=>({id:`whole-care-${i}`}))),friendship:40,peakFriendship:40};
+ const local=applyCompanionCareAction(base,{kind:'feed'},'2026-10-14'),remote=applyCompanionCareAction(base,{kind:'train',trickId:'spin'},'2026-10-14');
+ await saveSyncedLocalStorage({[COMPANION_CARE_KEY]:JSON.stringify(local)});
+ const key=records.appRecordKey('localStorage',COMPANION_CARE_KEY);
+ await remoteReplace('Companion cloud',[{key,collection:'localStorage',id:COMPANION_CARE_KEY,raw:JSON.stringify(remote),position:0}]);
+ assert.equal((await run()).status,'conflict');
+ await chooseWholeConflict(db,connection,await readWholeMeta(db,'wholeConflict',connection),'remote');
+ await assert.rejects(run(),/育成の変更/);
+ assert.deepEqual(readCompanionCare(),local);
+ const conflicts=await readCompanionBudgetConflicts();assert.equal(conflicts.length,1);
+ await resolveCompanionBudgetConflict(conflicts[0].id,'remote');assert.equal(readCompanionCare().answerBalance,-25);
+ assert.equal((await run()).status,'conflict');
+ await chooseWholeConflict(db,connection,await readWholeMeta(db,'wholeConflict',connection),'local');
+ assert.equal((await run()).status,'more');assert.equal((await run()).status,'done');
+ assert.equal(readCompanionCare().spendEvents.length,2);
+});
+
+test('whole local selection with a missing companion key still protects remote consumption',async()=>{
+ const {createCompanionCare,creditCompanionAnswers,applyCompanionCareAction,COMPANION_CARE_KEY}=await import('../src/utils/companionCare.ts');
+ const base={...creditCompanionAnswers(createCompanionCare('2026-10-14'),Array.from({length:50},(_,i)=>({id:`missing-care-${i}`}))),friendship:40,peakFriendship:40};
+ const remote=applyCompanionCareAction(base,{kind:'feed'},'2026-10-14');
+ await saveSyncedLocalStorage({[COMPANION_CARE_KEY]:null});
+ const key=records.appRecordKey('localStorage',COMPANION_CARE_KEY);
+ await remoteReplace('Remote spent',[{key,collection:'localStorage',id:COMPANION_CARE_KEY,raw:JSON.stringify(remote),position:0}]);
+ assert.equal((await run()).status,'conflict');await chooseWholeConflict(db,connection,await readWholeMeta(db,'wholeConflict',connection),'local');
+ await assert.rejects(run(),/育成の変更/);
+ const {readCompanionBudgetConflicts}=await import('../src/utils/companionBudgetRecovery.ts');
+ assert.ok((await readCompanionBudgetConflicts()).some(row=>JSON.parse(row.remote).spendEvents[0]?.id===remote.spendEvents[0].id));
+});

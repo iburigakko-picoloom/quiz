@@ -1,3 +1,4 @@
+import { CompanionBudgetRecovery } from './CompanionBudgetRecovery';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { openAppDb } from '../storage';
 import { getCloudSession, onCloudAuthStateChange } from '../utils/cloudService';
@@ -52,6 +53,7 @@ export function RecordConflictRecovery({ onCreated, onBusyChange }: { onCreated:
     finally { lock.current = false; setBusy(false); }
   };
   return <section className="record-recovery">
+    <CompanionBudgetRecovery onResolved={onCreated} />
     <h2>同期で残した原本</h2>
     {error ? <div role="alert"><p>復旧用の原本を確認できません。原本は保持しています。</p><button onClick={() => setAttempt(n => n + 1)}>再試行</button><details><summary>詳細</summary>{error}</details></div> : null}
     {message ? <p role="status">{message}</p> : null}
