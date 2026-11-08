@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { CompanionCharacter, companionActivityMessage, type CompanionMotion, type CompanionActivity } from '../../src/components/CompanionCharacter';
+import { prepareCompanionMotion } from '../../src/components/companionFrames';
 import { COMPANION_IDLE_CLIPS, companionMotionDuration } from '../../src/utils/companionAnimation';
 import type { CompanionAction } from '../../src/utils/companionAnimation';
 import { COMPANION_TRICKS } from '../../src/utils/companionCare';
@@ -13,8 +14,9 @@ function Preview() {
   const [activity, setActivity] = useState<CompanionActivity>('sit');
   const [awkward, setAwkward] = useState(false);
   const timer = useRef<number | undefined>(undefined);
-  const trigger = (kind: CompanionAction) => {
+  const trigger = async (kind: CompanionAction) => {
     window.clearTimeout(timer.current);
+    await prepareCompanionMotion(kind);
     setMotion({ id: Date.now(), kind, awkward });
     timer.current = window.setTimeout(() => setMotion(null), companionMotionDuration(kind, awkward) + 700);
   };

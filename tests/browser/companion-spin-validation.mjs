@@ -21,7 +21,7 @@ try {
   await page.route('https://**/*', route => route.abort());
   let releaseSpin;
   const spinGate = new Promise(resolve => { releaseSpin = resolve; });
-  await page.route('**/frames-v3/spin-smooth.webp*', async route => { if (route.request().resourceType() === 'image') await spinGate; await route.continue(); });
+  await page.route('**/frames-v3/spin-step-v1.png*', async route => { if (route.request().resourceType() === 'image') await spinGate; await route.continue(); });
   await page.goto('http://127.0.0.1:5198/quiz/tests/browser/companion-animation-preview.html', { waitUntil: 'domcontentloaded' });
   const canvas = page.locator('canvas[data-renderer="full-body-frames"]');
   await canvas.waitFor();
@@ -38,29 +38,30 @@ try {
   await page.waitForTimeout(450);
   assert.ok((await canvas.getAttribute('data-cel')).startsWith('idle:'), 'loading keeps the last complete drawing');
   releaseSpin();
-  await page.waitForFunction(() => document.querySelector('canvas').dataset.cel?.startsWith('spinSmooth:'));
-  await page.waitForTimeout(1700);
-  const samples = await page.evaluate(() => window.spinSamples.filter(sample => sample.cel?.startsWith('spinSmooth:')));
-  assert.equal(samples[0].cel, 'spinSmooth:0', 'a late image starts at the first pose');
-  const moving = samples.filter(sample => Number(sample.cel.split(':')[1]) < 30);
-  let changed = 0;
-  for (let i = 1; i < moving.length; i++) if (moving[i].cel !== moving[i - 1].cel || moving[i].blend !== moving[i - 1].blend) changed++;
-  const changedFraction = changed / (moving.length - 1);
+  await page.waitForFunction(() => document.querySelector('canvas').dataset.cel?.startsWith('spinStep:'));
+  try { await page.waitForFunction(() => document.querySelector('canvas').dataset.cel === 'spinStep:15', null, { timeout: 8000 }); }
+  catch (error) { console.log(JSON.stringify({ observed: await page.evaluate(() => [...new Set(window.spinSamples.map(sample => sample.cel))]), current: await canvas.getAttribute('data-cel') })); throw error; }
+  const samples = await page.evaluate(() => window.spinSamples.filter(sample => sample.cel?.startsWith('spinStep:')));
+  assert.equal(samples[0].cel, 'spinStep:0', 'a late image starts at the first pose');
+  const moving = samples.filter(sample => Number(sample.cel.split(':')[1]) < 15);
+  const heldFraction = moving.filter(sample => sample.blend === 0).length / moving.length;
   await writeFile(`${output}/samples.json`, JSON.stringify(samples));
-  console.log(JSON.stringify({ output, movingFrames: moving.length, changedFraction, firstCel: samples[0]?.cel, lastCel: samples.at(-1)?.cel }));
+  console.log(JSON.stringify({ output, movingFrames: moving.length, heldFraction, firstCel: samples[0]?.cel, lastCel: samples.at(-1)?.cel }));
   assert.ok(moving.length >= 25, 'collect enough real animation frames, including 30 Hz WebKit');
-  assert.ok(changedFraction >= .9, `moving on ${changedFraction * 100}% of display ticks`);
-  assert.ok(samples.some(sample => sample.cel === 'spinSmooth:31'), 'the entire turn finishes after loading');
+  assert.ok(heldFraction >= .65, 'keep single, readable paw positions for most of each step');
+  assert.equal(new Set(samples.map(sample => sample.cel)).size, 16, 'all stepping poses are shown');
+  assert.ok(samples.some(sample => sample.cel === 'spinStep:15'), 'the entire turn finishes after loading');
   await page.screenshot({ path: `${output}/spin-complete.png` });
 
   // Mid-transition artwork for visual review of body opacity and registration.
   const strip = await page.evaluate(async () => {
     const { loadCompanionSheet, drawCompanionFrame } = await import('/quiz/src/components/companionFrames.ts');
-    const image = await loadCompanionSheet('spinSmooth');
-    const sheet = document.createElement('canvas'); sheet.width = 352 * 5; sheet.height = 352 * 3;
+    const image = await loadCompanionSheet('spinStep');
+    const sheet = document.createElement('canvas'); sheet.width = 352 * 4; sheet.height = 352 * 4;
+    sheet.getContext('2d').fillStyle = '#fff'; sheet.getContext('2d').fillRect(0, 0, sheet.width, sheet.height);
     const cel = document.createElement('canvas'); cel.width = cel.height = 352;
-    for (let i = 0; i < 32; i++) {
-      drawCompanionFrame(cel.getContext('2d'), image, i, 352, 352, { sheet: 'spinSmooth' });
+    for (let i = 0; i < 16; i++) {
+      drawCompanionFrame(cel.getContext('2d'), image, i, 352, 352, { sheet: 'spinStep' });
       const data = cel.getContext('2d').getImageData(0, 0, 352, 352).data;
       let count = 0, left = 352, right = 0, top = 352, bottom = 0;
       for (let y = 0; y < 352; y++) for (let x = 0; x < 352; x++) {
@@ -71,13 +72,13 @@ try {
       }
       if (count < 2000 || left <= 1 || right >= 350 || top <= 1 || bottom >= 350) throw new Error(`Missing/cropped spin cel ${i}: ${left},${top},${right},${bottom}`);
     }
-    for (let i = 0; i < 15; i++) {
-      drawCompanionFrame(cel.getContext('2d'), image, i * 2, 352, 352, { sheet: 'spinSmooth', nextIndex: i * 2 + 1, mix: .5 });
-      sheet.getContext('2d').drawImage(cel, i % 5 * 352, Math.floor(i / 5) * 352);
+    for (let i = 0; i < 16; i++) {
+      drawCompanionFrame(cel.getContext('2d'), image, i, 352, 352, { sheet: 'spinStep' });
+      sheet.getContext('2d').drawImage(cel, i % 4 * 352, Math.floor(i / 4) * 352);
     }
     return sheet.toDataURL();
   });
-  await writeFile(`${output}/spin-midpoints.png`, Buffer.from(strip.split(',')[1], 'base64'));
+  await writeFile(`${output}/spin-poses.png`, Buffer.from(strip.split(',')[1], 'base64'));
 
   // The actual care flow must wait for decoding before starting the reward timer.
   const care = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'no-preference' });
@@ -85,8 +86,20 @@ try {
   await care.route('https://**/*', route => route.abort());
   let releaseCare;
   const careGate = new Promise(resolve => { releaseCare = resolve; });
-  await care.route('**/frames-v3/spin-smooth.webp*', async route => { if (route.request().resourceType() === 'image') await careGate; await route.continue(); });
+  await care.route('**/frames-v3/spin-step-v1.png*', async route => { if (route.request().resourceType() === 'image') await careGate; await route.continue(); });
   await care.goto('http://127.0.0.1:5198/quiz/tests/browser/companion-care-preview.html?answers=160', { waitUntil: 'domcontentloaded' });
+  await care.getByRole('button', { name: 'パピィのお世話をする' }).waitFor();
+  await care.evaluate(async () => {
+    const { createCompanionCare, COMPANION_CARE_KEY } = await import('/quiz/src/utils/companionCare.ts');
+    const { studyDay } = await import('/quiz/src/utils/studyPlans.ts');
+    const { getStudyTimeZone } = await import('/quiz/src/utils/studyPlanStorage.ts');
+    const { saveSyncedLocalStorage } = await import('/quiz/src/utils/localStorageRecords.ts');
+    const { withCoordinatedDataMutation } = await import('/quiz/src/utils/dataCoordination.ts');
+    const value = createCompanionCare(studyDay(new Date(), getStudyTimeZone()));
+    value.friendship = value.peakFriendship = 8;
+    await withCoordinatedDataMutation(['app'], () => saveSyncedLocalStorage({ [COMPANION_CARE_KEY]: JSON.stringify(value) }));
+  });
+  await care.reload({ waitUntil: 'domcontentloaded' });
   await care.getByRole('button', { name: 'パピィのお世話をする' }).click();
   await care.emulateMedia({ reducedMotion: 'reduce' });
   for (let i = 0; i < 2; i++) {
@@ -105,7 +118,7 @@ try {
   const spinStart = Date.now();
   await care.locator('canvas[data-activity="feed"]').waitFor();
   const spinDuration = Date.now() - spinStart;
-  assert.ok(spinDuration >= 1800, 'practice plays a full turn before its reward');
+  assert.ok(spinDuration >= 2300, 'practice plays a full turn before its reward');
   await care.screenshot({ path: `${output}/care-reward.png` });
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -115,7 +128,7 @@ try {
   await page.waitForTimeout(300);
   assert.equal(await canvas.evaluate(canvas => canvas.toDataURL()), reducedA, 'reduced motion stays still');
   assert.deepEqual(errors, []);
-  const report = { engine, movingFrames: moving.length, changedFraction, firstCel: samples[0].cel, lastCel: samples.at(-1).cel, spinDuration, errors };
+  const report = { engine, movingFrames: moving.length, heldFraction, firstCel: samples[0].cel, lastCel: samples.at(-1).cel, spinDuration, errors };
   await writeFile(`${output}/verified.json`, JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...report, output }));
 } finally { await browser.close(); await server.close(); }

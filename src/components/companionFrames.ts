@@ -3,6 +3,7 @@ import scratch from '../assets/companion/frames-v3/scratch.webp';
 import sleep from '../assets/companion/frames-v3/sleep.webp';
 import spin from '../assets/companion/frames-v3/spin.webp';
 import spinSmooth from '../assets/companion/frames-v3/spin-smooth.webp';
+import spinStep from '../assets/companion/frames-v3/spin-step-v1.png';
 import touch from '../assets/companion/frames-v3/touch.webp';
 import bow from '../assets/companion/frames-v3/bow.webp';
 import roll from '../assets/companion/frames-v3/roll.webp';
@@ -10,7 +11,7 @@ import care from '../assets/companion/frames-v3/care.webp';
 import { companionFrame, type CompanionAction, type CompanionSheet } from '../utils/companionAnimation';
 import { companionFrameOffset, companionSheetLayout } from '../utils/companionFrameLayout';
 
-const sources: Record<CompanionSheet, string> = { idle, scratch, sleep, spin, spinSmooth, touch, bow, roll, care };
+const sources: Record<CompanionSheet, string> = { idle, scratch, sleep, spin, spinSmooth, spinStep, touch, bow, roll, care };
 const images = new Map<CompanionSheet, Promise<HTMLImageElement>>();
 export function loadCompanionSheet(sheet: CompanionSheet): Promise<HTMLImageElement> {
   const cached = images.get(sheet);
@@ -59,8 +60,10 @@ export function drawCompanionFrame(ctx: CanvasRenderingContext2D, image: HTMLIma
     if (weight <= 0) return;
     const offset = companionFrameOffset(sheet, frame);
     const { columns } = companionSheetLayout(sheet);
+    const cellWidth = asset.naturalWidth / columns;
+    const cellHeight = asset.naturalHeight / Math.ceil(companionSheetLayout(sheet).frames / columns);
     ctx.globalAlpha = weight;
-    ctx.drawImage(asset, (frame % columns) * 352, Math.floor(frame / columns) * 352, 352, 352,
+    ctx.drawImage(asset, (frame % columns) * cellWidth, Math.floor(frame / columns) * cellHeight, cellWidth, cellHeight,
       (width - size) / 2 + offset.x * scale, (height - size) / 2 + offset.y * scale, size, size);
   };
   const entrance = options.from ? Math.max(0, Math.min(1, options.entrance ?? 1)) : 1;
