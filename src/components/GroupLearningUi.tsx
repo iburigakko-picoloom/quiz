@@ -52,7 +52,7 @@ export function GroupEmpty({ children }: { children: ReactNode }) {
 
 export function ImportedMemberProgress({ members }: { members: { userId: string; name: string; self?: boolean; levels: LevelCounts | null; status?: string; reflectedAt?: string | null }[] }) {
   return <div className="group-progress-members">{members.map(member => <article className="group-progress-member" key={member.userId}>
-    <div className="group-progress-member__name"><MemberAvatar name={member.name} userId={member.userId} self={member.self} /><strong>{member.name}</strong></div>
-    <div>{member.levels ? <><LevelProgress levels={member.levels} compact label={`${member.name}の進捗`} />{member.reflectedAt ? <small className="group-reflection-date">最終反映 {displayGroupDate(member.reflectedAt)}</small> : null}</> : <p className="group-muted">{member.status ?? '進捗は未共有です'}</p>}</div>
+    <div className="group-progress-member__name"><MemberAvatar name={member.name} userId={member.userId} self={member.self} /><strong>{member.name}</strong>{member.levels ? <span>Level 3 · {member.levels[3]} / {member.levels.reduce((sum,n)=>sum+n,0)}問</span> : <span>{member.status ?? '未共有'}</span>}</div>
+    {member.levels ? <div><LevelProgress levels={member.levels} compact label={`${member.name}の進捗`} />{member.reflectedAt ? <small className="group-reflection-date">最終反映 {displayGroupDate(member.reflectedAt)}</small> : null}</div> : null}
   </article>)}</div>;
 }
