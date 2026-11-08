@@ -88,14 +88,12 @@ try {
   await page.locator('.group-material-card').first().getByText('未共有',{exact:true}).waitFor();
   await page.getByLabel('表示するメンバー').selectOption('00000000-0000-4000-8000-000000000001');
   await mkdir('qa/phase1',{recursive:true});
-  await page.screenshot({path:'qa/phase1/overview-390.png'});
-  await page.setViewportSize({width:768,height:844});
-  await page.screenshot({path:'qa/phase1/overview-768.png'});
+  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.locator('.group-workspace__tabs').evaluate(node=>[...node.querySelectorAll('button')].every(button=>button.scrollWidth<=button.clientWidth&&getComputedStyle(button).whiteSpace==='nowrap')),true,'group tab labels fit on one line');assert.equal(await page.locator('.group-material-list').evaluate(node=>{const cards=[...node.querySelectorAll('.group-material-card')].map(card=>card.getBoundingClientRect());return cards.every((card,index)=>index===0||card.top-cards[index-1].bottom>=10);}),true,'material cards have spacing');await page.screenshot({path:`qa/phase1/overview-${width}.png`});}
   await page.setViewportSize({width:390,height:844});
   await page.locator('.group-material-card').first().click();
   await page.getByRole('heading',{name:'自分の進捗',exact:true}).waitFor();
   await page.getByRole('region',{name:'この教材の学習記録'}).getByText('3問を解答').waitFor();
-  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);if(width>=390)await page.screenshot({path:`qa/phase1/progress-${width}.png`});}
+  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.equal(await page.locator('.group-set-progress').evaluate(node=>{const sections=[...node.querySelectorAll('.group-progress-section')].map(section=>section.getBoundingClientRect());return sections.every((section,index)=>index===0||section.top-sections[index-1].bottom>=12);}),true,'progress sections have spacing');assert.ok(await page.locator('.group-reflection-date').evaluate(node=>parseFloat(getComputedStyle(node).fontSize))>=12,'reflection state is readable');await page.screenshot({path:`qa/phase1/progress-${width}.png`});}
   await page.setViewportSize({width:390,height:844});
   await page.getByText('グループ全体',{exact:true}).click();
   await page.getByText('回答済み 3 / 45問・回答率 7%',{exact:true}).waitFor();

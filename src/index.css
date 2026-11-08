@@ -704,6 +704,7 @@ button:disabled {
   width: min(100%, 720px);
   margin-right: auto;
   margin-left: auto;
+  gap: 12px;
 }
 
 .quiz-runner__unknown-button,

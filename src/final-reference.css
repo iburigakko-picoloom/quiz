@@ -1,6 +1,6 @@
 /* App styles derived from the 2026-09-07 reference, not its demo phone shell. */
 /* Approved creation mock A: quiet lists and a compact two-step workflow. */
-.create-set .create-set__header--notes { grid-template-columns: 48px minmax(0, 1fr) 44px; }
+.create-set .create-set__header--notes { grid-template-columns: 48px minmax(0, 1fr); }
 .create-set .create-set__add-note { width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: #305da3; font-size: 28px; }
 .create-set .create-set__flow { width: min(calc(100% - 40px), 600px); }
 .create-set .create-set__flow--ai { width: min(calc(100% - 32px), 760px); gap: 0; }

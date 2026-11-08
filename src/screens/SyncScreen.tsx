@@ -1174,7 +1174,6 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
           </> : null}
         </> : null}
         {currentPage === 'recovery' ? <>
-          <p className="sync-help">同期先の変更やデータの置き換えが必要なときに使います。普段の同期には操作不要です。</p>
           {onOpenBackups ? null : <button type="button" className="sync-button sync-button--secondary" onClick={handleDownloadBackup} disabled={busy}><DownloadIcon size={18} />JSONバックアップを保存</button>}
           {hasLegacyConnection ? <div className="sync-legacy" role="status">
             <strong>旧形式の同期IDがあります</strong>

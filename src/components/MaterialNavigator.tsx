@@ -81,11 +81,11 @@ export function MaterialRelatedQuestions({questions, materialId, pageId, disable
   const filtered = related.filter(question=>normalizedMaterialText([question.question,...question.choices].join(' ')).includes(normalizedMaterialText(query)));
   return <section className="materials-related" aria-label="現在のページの関連問題">
     <h2>関連問題 {related.length}問</h2>
-    {related.length ? <label>関連問題を検索<input type="search" value={query} onChange={event=>setQuery(event.target.value)}/></label> : null}
+    {related.length ? <label className="materials-related__search"><span>関連問題を検索</span><input type="search" placeholder="関連問題を検索" value={query} onChange={event=>setQuery(event.target.value)}/></label> : null}
     {!related.length ? <p>このページに関連する問題はありません</p> : !filtered.length ? <p>該当する問題はありません</p> : filtered.map(question=><article key={question.id}>
       <details><summary>{question.question}</summary><ol>{question.choices.map((choice,index)=><li key={index}>{choice}</li>)}</ol></details>
-      {onOpenQuestion ? <button type="button" disabled={disabled} onClick={()=>onOpenQuestion(question.id,{materialId,pageId})}>問題の詳細へ</button> : null}
-      <button type="button" disabled={disabled} onClick={()=>onReference({materialId,pageId})}>参照PDFページへ</button>
+      <div className="materials-related__actions">{onOpenQuestion ? <button type="button" disabled={disabled} onClick={()=>onOpenQuestion(question.id,{materialId,pageId})}>問題の詳細へ</button> : null}
+      <button type="button" disabled={disabled} onClick={()=>onReference({materialId,pageId})}>参照PDFページへ</button></div>
     </article>)}
   </section>;
 }

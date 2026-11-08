@@ -150,7 +150,7 @@
 .group-sharing-controls__actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
 .group-sharing-controls__actions button { min-height: 40px; padding: 8px 12px; border: 1px solid #dce3ed; border-radius: 8px; background: #fff; color: #2d5eaa; font-size: 12px; }
 .group-progress-reload { margin-top: 10px; }
-.group-reflection-date { display: block; margin-top: 4px; color: #8a95a4; font-size: 9px; }
+.group-reflection-date { display: block; margin-top: 8px; color: #52677d; font-size: 12px; }
 .group-detail-minor-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .group-icon-picker { display: grid; justify-items: center; gap: 14px; padding: 16px; border: 1px solid #e3e8ef; border-radius: 14px; }
 .group-icon-picker h3 { justify-self: start; margin: 0; font-size: 14px; }
@@ -261,7 +261,8 @@
 .group-sharing-toggle button:focus-visible { outline:2px solid #3478d4; outline-offset:3px; border-radius:8px; }
 
 .group-workspace__tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.group-workspace__tabs button { min-width: 0; padding-inline: 6px; }
+.group-workspace__tabs button { min-width: 0; padding-inline: 6px; white-space: nowrap; }
+@media (max-width: 400px) { .group-workspace__tabs button { padding-inline: 2px; font-size: 12px; } }
 .group-workspace__content:has(#group-panel-overview:not([hidden])) { background: #f5f7fb; padding: 16px; }
 .group-overview-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
 .group-overview-heading h2 { margin: 0; font-size: 16px; line-height: 1.5; }

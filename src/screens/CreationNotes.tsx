@@ -73,7 +73,7 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
     {copyFallback && copyText ? <ClipboardCopyFallback text={copyText} onCopied={()=>{setCopyFallback(false);setMessage('依頼文をコピーしました');}} /> : null}
     {view==='list'?<>
         {data.problemSets.filter(s=>visibleNotes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId&&q.setId===s.id))).map(s=>{const ns=visibleNotes.filter(n=>data.questions.some(q=>q.id===n.questionId&&q.setId===s.id));return <button type="button" key={s.id} className="weakness-row" onClick={()=>chooseAll(s.id)}><ProblemSetIcon size={32}/><span><strong>{s.title}</strong><small>{purpose==='questions'?`回答済み ${ns.length}件`:`未解説 ${ns.filter(n=>n.body.trim()&&n.resolvedBody!==n.body).length} · 解説あり ${ns.filter(n=>n.resolvedBody===n.body&&n.body.trim()).length}`}</small></span><ChevronRightIcon/></button>;})}
-        {!visibleNotes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-muted">{purpose==='questions'?'回答済みのメモはありません。先にAIの回答を取り込んでください。':'学習中に残した疑問がここにまとまります。'}</p>:null}
+        {!visibleNotes.some(n=>n.questionId&&data.questions.some(q=>q.id===n.questionId))?<p className="weakness-empty">{purpose==='questions'?'回答済みのメモはありません。先にAIの回答を取り込んでください。':'メモはありません。'}</p>:null}
       {purpose==='answer'?<div className="weakness-import-dock"><button type="button" className="weakness-import-card" onClick={()=>{setSetId('');setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button></div>:null}
     </>:null}
     {view==='set'?<>
@@ -88,7 +88,6 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
       <h3>解説に含めるもの</h3>
       {([['比較表',tables,setTables],['図・画像の依頼',images,setImages],['具体例',examples,setExamples]] as const).map(([label,value,set])=><label className="weakness-row" key={label}><span>{label}</span><input type="checkbox" checked={value} onChange={e=>set(e.target.checked)}/></label>)}
       <details><summary>選んだメモ　{selected.length}件</summary>{notes.filter(n=>selected.includes(n.id)).map(n=><p key={n.id}>{n.body}</p>)}</details>
-      <p className="weakness-muted">生成された画像は、回答の取り込み後に添付できます。</p>
       <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={busy} onClick={()=>void copy()}>{busy?'コピー中…':'依頼文をコピー'}</button></div>
       <button type="button" className="weakness-import-card" disabled={busy} onClick={()=>{setStage('paste');go('import');}}><span>AIの回答を取り込む</span><ChevronRightIcon size={20}/></button>
     </>:null}
@@ -97,7 +96,6 @@ export function CreationNotes({ data, purpose, onApplyBatch, onSaveDetail, onDir
       {stage==='paste'?<><button type="button" className="weakness-text" onClick={async()=>{try{setPaste(await readClipboardText());setBatch(null);}catch{setError('回答欄へ直接貼り付けてください。');}}}>クリップボードから貼り付け</button><textarea aria-label="AIの解説JSON" value={paste} onChange={e=>{setPaste(e.target.value);setBatch(null);}}/><div className="weakness-actions"><button type="button" className="weakness-button" onClick={parse} disabled={!paste.trim()||busy}>読み取る</button></div></>:batch?<>
         <p className="weakness-status">{batch.replies.length}件を確認{batch.replies.length<batch.request.targets.length?`（依頼${batch.request.targets.length}件のうち）`:''}</p>
         {batch.replies.map(r=><details key={r.targetId}><summary>{batch.request.targets.find(t=>t.targetId===r.targetId)?.title}</summary><ExplanationReader text={r.body}/></details>)}
-        <p className="weakness-muted">既存の解説・画像は残し、追加の解説を追記します。</p>
         <div className="weakness-actions"><button type="button" className="weakness-primary" disabled={busy} onClick={()=>void apply()}>{busy?'保存中…':`確認して${batch.replies.length}件を反映`}</button></div>
       </>:null}
     </>:null}
