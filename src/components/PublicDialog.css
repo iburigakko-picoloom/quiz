@@ -1,0 +1,13 @@
+.public-dialog-backdrop { position: fixed; inset: 0; z-index: 180; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: #18344b66; }
+.public-dialog { width: min(100%, 470px); max-height: calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow: auto; box-sizing: border-box; padding: 20px; border-radius: 16px; background: white; color: #18303f; }
+.public-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.public-dialog > header h2 { margin: 0; font-size: 20px; }
+.public-dialog > header button { border: 0; background: none; font-size: 26px; }
+.group-manual-dialog > header button { display: grid; flex: 0 0 44px; place-items: center; width: 44px; height: 44px; border: 1px solid #2859a6; border-radius: 50%; background: white; color: #2859a6; }
+.group-manual-dialog .public-form { display: grid; gap: 17px; margin-top: 20px; }
+.group-manual-dialog .public-form label { display: grid; gap: 7px; font-weight: 600; }
+.group-manual-dialog .public-form input { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; border: 1px solid #d9e1e9; border-radius: 7px; padding: 10px; font: inherit; color: inherit; background: white; }
+.group-manual-dialog .public-form p { margin: 0; line-height: 1.7; }
+.group-manual-dialog .public-form .group-primary { min-height: 46px; border: 1px solid #2859a6; border-radius: 7px; background: #2859a6; color: white; font: inherit; font-weight: 700; }
+.group-manual-dialog .public-form .group-secondary { min-height: 44px; border: 1px solid #ccd8e6; border-radius: 7px; background: white; color: #2859a6; font: inherit; }
+.group-manual-dialog .public-form button:disabled { opacity: .5; }
