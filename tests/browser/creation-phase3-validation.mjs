@@ -43,6 +43,8 @@ try {
  }
  const content=JSON.stringify({setTitle:'取り込み教材',source:'授業資料',questions:[{question:'正しいものを選ぶ',choices:['A','B','C','D'],answerIndexes:[0,1],explanation:'解説',sourcePage:'p.2',category:'基礎'}]});
  await fresh();await page.getByRole('button',{name:'クリップボードから取り込む',exact:true}).click();
+ await page.getByLabel('問題の貼り付け欄').fill('保持中の入力');await page.getByRole('button',{name:'ファイル',exact:true}).click();await page.getByRole('button',{name:'JSONファイルを選ぶ',exact:true}).waitFor();assert.equal(await page.getByLabel('問題の貼り付け欄').count(),0);
+ await page.evaluate(()=>window.restoreCreationTestWork());await page.getByRole('button',{name:'JSONファイルを選ぶ',exact:true}).waitFor();await page.getByRole('button',{name:'貼り付け',exact:true}).click();assert.equal(await page.getByLabel('問題の貼り付け欄').inputValue(),'保持中の入力');
  await page.evaluate(text=>navigator.clipboard.writeText(text),content);await page.getByRole('button',{name:'クリップボードから貼り付け',exact:true}).click();
  await page.getByRole('button',{name:'読み取って確認',exact:true}).click();await page.getByRole('region',{name:'読み取り結果'}).waitFor();
  assert.equal(await page.locator('body').getAttribute('data-saved'),null);
