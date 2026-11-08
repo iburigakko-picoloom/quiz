@@ -14,7 +14,7 @@ try {
  const url='http://127.0.0.1:5183/quiz/tests/browser/creation-phase3-preview.html';
  const fresh=()=>page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
  await fresh();
- assert.equal(await page.getByRole('heading',{name:'とりこみ',exact:true}).count(),1);
+ assert.equal(await page.getByRole('heading',{name:'② とりこみ',exact:true}).count(),1);
  for(const name of ['生成AIで作る','手入力で作る','クリップボードから取り込む','JSONファイルから取り込む','メモから追加解説を作る'])assert.equal(await page.getByRole('button',{name,exact:true}).count(),1);
  assert.equal(await page.getByText('その他の作成方法',{exact:true}).count(),0);
  await page.goto(url+'?copy=set',{waitUntil:'domcontentloaded'});
