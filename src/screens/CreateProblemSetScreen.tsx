@@ -809,11 +809,11 @@ function PendingQuestionSaveDialog({
 function MethodChooser({ onSelect }: { onSelect: (view: CreationView, purpose?: 'questions'|'answer') => void }) {
   const item = (view: CreationView, title: string, icon: React.ReactNode, purpose?: 'questions'|'answer') => <button key={title} data-guide={view==='chatgpt'?'create-ai':purpose==='answer'?'create-explanation':'create-memo'} type="button" className="create-set__method" onClick={()=>onSelect(view,purpose)}><span className="create-set__method-icon">{icon}</span><strong>{title}</strong><ChevronRightIcon/></button>;
   return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">
-    <section className="create-set__purpose-group"><h2>作成</h2>
+    <section className="create-set__purpose-group"><h2>① 作成</h2>
       {item('chatgpt','生成AIで作る',<AiCreationIcon/>)}
       {item('manual','手入力で作る',<DocumentOutlineIcon/>)}
     </section>
-    <section className="create-set__purpose-group"><h2>とりこみ</h2>
+    <section className="create-set__purpose-group"><h2>② とりこみ</h2>
       {item('clipboard','クリップボードから取り込む',<CopyIcon/>)}
       {item('json','JSONファイルから取り込む',<DocumentOutlineIcon/>)}
     </section>
