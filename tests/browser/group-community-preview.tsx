@@ -11,6 +11,7 @@ import App from '../../src/App';
 import {saveAppDataResult} from '../../src/storage';
 import {AccountStorageSession,activateAccountStorage,accountLocalStorage,accountNamespace} from '../../src/utils/accountStorage';
 import {writeAccountSyncMarker} from '../../src/utils/accountSync';
+import {captureAccountWork,restoreAccountWork} from '../../src/utils/accountWork';
 import '../../src/index.css';
 import '../../src/ui-spec.css';
 import '../../src/final-reference.css';
@@ -53,6 +54,9 @@ async function mount() {
     if (!saved || !(await saveAppDataResult(saved)).ok) throw new Error('学習テストの合成データを保存できませんでした。');
     accountLocalStorage.setItem('quiz-make-welcome-v1', 'done');
     createRoot(document.getElementById('root')!).render(<App/>);
-  } else createRoot(document.getElementById('root')!).render(enabled?<Preview/>:<p>この画面は隔離したブラウザテスト専用です。</p>);
+  } else {
+    let root=createRoot(document.getElementById('root')!);const render=()=>root.render(enabled?<Preview/>:<p>この画面は隔離したブラウザテスト専用です。</p>);render();
+    Object.assign(window,{restoreGroupTestWork(){const identity={project:import.meta.env.VITE_SUPABASE_URL,userId:'00000000-0000-4000-8000-000000000001'};const session=new AccountStorageSession(localStorage,{identity,namespace:accountNamespace(identity),legacyUnclaimed:false});const saved=captureAccountWork(session);root.unmount();restoreAccountWork(saved,session);root=createRoot(document.getElementById('root')!);render();}});
+  }
 }
 void mount();
