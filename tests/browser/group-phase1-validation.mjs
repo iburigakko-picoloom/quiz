@@ -112,6 +112,9 @@ try {
   await page.getByRole('button',{name:'同意して共有',exact:true}).click();
   await page.getByRole('button',{name:'活動共有を停止',exact:true}).waitFor();
   assert.equal(activityEnabled,true);
+  await page.getByText('共有設定・更新',{exact:true}).click();
+  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);if(width>=390)await page.screenshot({path:`qa/phase1/timeline-${width}.png`});}
+  await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'学習を記録',exact:true}).click();const manual=page.getByRole('dialog',{name:'フォルダ外の学習を記録'});
   for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);const box=await manual.boundingBox();assert.ok(box&&box.x>=0&&box.x+box.width<=width);if(width===390||width===768)await page.screenshot({path:`qa/phase1/manual-${width}.png`});}await page.setViewportSize({width:390,height:844});
   await manual.getByLabel('学習した内容').fill('講義ノート');
@@ -131,7 +134,7 @@ try {
   await page.getByRole('button',{name:'学習を記録',exact:true}).click();await page.getByRole('button',{name:'同意して共有',exact:true}).click();await page.getByRole('button',{name:'活動共有を停止',exact:true}).waitFor();
   await page.getByRole('button',{name:'演習時間を共有する',exact:true}).click();assert.equal(timeEnabled,false);await page.getByRole('button',{name:'同意して時間を共有',exact:true}).click();await page.getByRole('button',{name:'演習時間の共有を停止',exact:true}).waitFor();assert.equal(timeEnabled,true);await page.getByText(/8秒/).first().waitFor();
   await page.getByRole('button',{name:'演習時間の共有を停止',exact:true}).click();await page.getByRole('button',{name:'演習時間を共有する',exact:true}).waitFor();assert.equal(timeEnabled,false);assert.equal(await page.getByText(/8秒/).count(),0);await page.getByRole('button',{name:'演習時間を共有する',exact:true}).click();await page.getByRole('button',{name:'同意して時間を共有',exact:true}).click();await page.getByRole('button',{name:'演習時間の共有を停止',exact:true}).waitFor();
-  await page.screenshot({path:'qa/phase1/timeline-390.png'});
+  await page.screenshot({path:'qa/phase1/timeline-with-settings-390.png'});
   await page.getByRole('button',{name:'心不全',exact:true}).click();
   await page.getByRole('heading',{name:'自分の進捗',exact:true}).waitFor();
   // Exercise the exact handler used by Android/app back and browser popstate.
@@ -151,6 +154,8 @@ try {
   assert.equal(await page.locator('.group-member-card').count(),8);
   assert.equal(await page.locator('.group-member-card').filter({hasText:'渡辺'}).count(),1);
   assert.equal(await page.locator('.group-member-card dl').count(),0);
+  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);if(width>=390)await page.screenshot({path:`qa/phase1/members-${width}.png`});}
+  await page.setViewportSize({width:390,height:844});
   await page.getByText('メンバーを管理',{exact:true}).click();
   assert.ok(await page.getByRole('button',{name:'メンバーから外す',exact:true}).count()>0);
   for(const width of [390,768]) {
