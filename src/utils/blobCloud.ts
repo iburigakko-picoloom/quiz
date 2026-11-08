@@ -4,6 +4,7 @@ import { getAccountStorageSession } from './accountStorage';
 import { openAppDb } from '../storage';
 import { getContentBlob, idbDone, idbResult, putContentBlob, type BlobRef, type BlobMeta } from './blobVault';
 import { downloadContentParts, uploadContentParts } from './contentParts';
+import { requiredQuestionImageHashes } from './learningMediaScope';
 export const CONTENT_BUCKET = 'quiz-content-blobs';
 async function access() {
   const config = getRemoteSyncConfig(), token = await getCloudAccessToken();
@@ -35,7 +36,11 @@ export function startBlobTransfers(db: IDBDatabase, assertCurrent: () => Promise
   const task = (async () => {
     const tx = db.transaction('contentBlobJobs', 'readonly'), done = idbDone(tx);
     const refs = await idbResult<BlobRef[]>(tx.objectStore('contentBlobJobs').getAll()); await done;
+    const requiredImages = await requiredQuestionImageHashes(db);
     for (const ref of refs) {
+      // Keep local originals and queued recovery evidence, but transfer only
+      // images still referenced by a current question or its explanation.
+      if (!requiredImages.has(ref.sha256)) continue;
       await assertCurrent(); const { config, token } = await access();
       const blob = await getContentBlob(db, ref); if (!blob) throw new Error('未送信の本文が見つかりません。');
       await uploadContentParts(ref, blob, async (part, bytes) => {
