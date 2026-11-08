@@ -267,14 +267,27 @@
 .group-material-card:focus-visible { outline: 3px solid var(--color-primary, #2563eb); outline-offset: 2px; }
 .group-member-stat-card { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(230px, 1.8fr); align-items: center; gap: 12px; padding: 16px; border: 1px solid #e1e6ed; border-radius: 14px; background: #fff; }
 .group-member-card__identity small { display: block; margin-top: 4px; }
+.group-workspace__content:has(#group-panel-members:not([hidden])) { background: #f5f7fb; padding: 16px; }
+.group-member-panel { padding: 18px; }
+.group-member-panel h2 { margin: 0 0 8px; }
+.group-member-panel .group-member-list { gap: 0; }
+.group-member-panel .group-member-card { display: block; padding: 12px 0; border: 0; border-bottom: 1px solid #e1e6ed; border-radius: 0; }
+.group-member-panel .group-member-card:last-child { border-bottom: 0; }
+.group-member-card__role { margin-left: auto; padding: 4px 7px; border-radius: 4px; background: #edf2f7; color: #52677d; font-size: 12px; }
 @media (max-width: 600px) { .group-member-stat-card { grid-template-columns: 1fr; } }
 .group-timeline__settings { margin: 0 0 14px; }
 .group-timeline__settings summary { color: var(--ui-accent, #2467bc); cursor: pointer; padding: 8px 0; }
 .group-timeline__settings[open] > button { margin: 6px 12px 6px 0; }
-.group-timeline__date { margin: 22px 0 8px; font-size: 14px; }
+.group-timeline__date { margin: 8px 0 12px; font-size: 13px; }
 .group-timeline__row { padding: 12px 0; border-bottom: 1px solid #e1e6ed; }
-.group-timeline__row time { display: block; margin: 4px 0; }
-.group-timeline__row p { margin: 6px 0 0; }
+.group-timeline__identity { display: flex; align-items: center; gap: 10px; }
+.group-timeline__identity strong { font-size: 14px; }
+.group-timeline__identity time { margin-left: auto; font-size: 12px; }
+.group-timeline__entry-content { margin: 10px 0 0 48px; }
+.group-timeline__target { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid #dce5ef; border-radius: 6px; background: white; color: #2859a6; text-align: left; }
+.group-timeline__target strong { flex: 1; min-width: 0; color: #173042; overflow-wrap: anywhere; }
+.group-timeline__target > svg { flex: none; }
+.group-timeline__row p { margin: 10px 0 0; font-size: 13px; }
 .group-own-progress-metrics { display: flex; flex-wrap: wrap; gap: 12px 28px; }
 .group-own-progress-metrics p { margin: 4px 0 12px; }
 .group-own-progress-metrics strong { font-size: 1.5rem; }
