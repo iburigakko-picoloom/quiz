@@ -3,13 +3,13 @@ import scratch from '../assets/companion/frames-v3/scratch.webp';
 import sleep from '../assets/companion/frames-v3/sleep.webp';
 import spin from '../assets/companion/frames-v3/spin.webp';
 import spinSmooth from '../assets/companion/frames-v3/spin-smooth.webp';
-import spinStep from '../assets/companion/frames-v3/spin-step-v1.png';
+import spinStep from '../assets/companion/frames-v3/spin-step-v2.png';
 import touch from '../assets/companion/frames-v3/touch.webp';
 import bow from '../assets/companion/frames-v3/bow.webp';
 import roll from '../assets/companion/frames-v3/roll.webp';
 import care from '../assets/companion/frames-v3/care.webp';
 import { companionFrame, type CompanionAction, type CompanionSheet } from '../utils/companionAnimation';
-import { companionFrameOffset, companionSheetLayout } from '../utils/companionFrameLayout';
+import { COMPANION_GROUND_Y, companionFrameOffset, companionSheetLayout } from '../utils/companionFrameLayout';
 
 const sources: Record<CompanionSheet, string> = { idle, scratch, sleep, spin, spinSmooth, spinStep, touch, bow, roll, care };
 const images = new Map<CompanionSheet, Promise<HTMLImageElement>>();
@@ -62,9 +62,14 @@ export function drawCompanionFrame(ctx: CanvasRenderingContext2D, image: HTMLIma
     const { columns } = companionSheetLayout(sheet);
     const cellWidth = asset.naturalWidth / columns;
     const cellHeight = asset.naturalHeight / Math.ceil(companionSheetLayout(sheet).frames / columns);
+    // The stepping drawings occupy more of each cell than the original idle
+    // artwork. Scale the whole dog around its paws to avoid a size jump.
+    const celScale = sheet === 'spinStep' ? 0.87 : 1;
+    const celSize = size * celScale;
     ctx.globalAlpha = weight;
     ctx.drawImage(asset, (frame % columns) * cellWidth, Math.floor(frame / columns) * cellHeight, cellWidth, cellHeight,
-      (width - size) / 2 + offset.x * scale, (height - size) / 2 + offset.y * scale, size, size);
+      (width - size) / 2 + (size - celSize) / 2 + offset.x * scale * celScale,
+      (height - size) / 2 + COMPANION_GROUND_Y * scale * (1 - celScale) + offset.y * scale * celScale, celSize, celSize);
   };
   const entrance = options.from ? Math.max(0, Math.min(1, options.entrance ?? 1)) : 1;
   const mix = Math.max(0, Math.min(1, options.mix ?? 0));
