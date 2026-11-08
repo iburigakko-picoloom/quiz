@@ -93,7 +93,7 @@ type CreateWork = {
   creationRequest: string; memoContext: string; aiStep: 1|2; aiMethod: 'simple'|'material'|'past-exam'|null; aiStage?: 1|2|3;
   referenceMaterialId: string; choiceCount: 4|5; questionCount: string; allowMultiple: boolean;
   pendingMethod: CreationView|null; pendingQuestionSave: PendingManualQuestion|null; editingBaseline: string|null;
-  batch?: BatchImport | null; batchOpen?: boolean;
+  batch?: BatchImport | null; batchOpen?: boolean; importMode?: 'paste'|'file';
 };
 type BatchImport = { sessionKey: string; target: LegacyImportTarget; files: File[]; draft?: ImportDraft };
 
@@ -104,8 +104,9 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const editingBaseline = useRef(recovered?.editingBaseline ?? (editingProblemSet ? JSON.stringify({ set:editingProblemSet, questions:data.questions.filter(q=>q.setId===editSetId) }) : null));
   const initialDraftsRef = useRef<BulkQuestionDraft[]>(recovered?.initialDrafts ?? createDraftsFromProblemSet(data, editingProblemSet));
   const [view, setView] = useState<CreationView>(recovered?.view ?? (startWithExplanationImport ? 'notes' : editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods'));
-  const [importMode, setImportMode] = useState<'paste'|'file'>(recovered?.view === 'json' ? 'file' : 'paste');
-  useEffect(()=>{if(view==='json')setImportMode('file');else if(view==='clipboard'||view==='chatgpt')setImportMode('paste');},[view]);
+  const [importMode, setImportMode] = useState<'paste'|'file'>(recovered?.importMode ?? (recovered?.view === 'json' ? 'file' : 'paste'));
+  const importModeView = useRef(view);
+  useEffect(()=>{if(importModeView.current===view)return;importModeView.current=view;if(view==='json')setImportMode('file');else if(view==='clipboard'||view==='chatgpt')setImportMode('paste');},[view]);
   const [notesPurpose, setNotesPurpose] = useState<'questions'|'answer'>(recovered?.notesPurpose ?? 'answer');
   const [meta, setMeta] = useState<SetMeta>(() => recovered?.meta ?? createInitialMeta(data, initialFolderId, editingProblemSet));
   const [drafts, setDrafts] = useState<BulkQuestionDraft[]>(() => recovered?.drafts ?? initialDraftsRef.current);
@@ -156,7 +157,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const initialMetaRef = useRef(recovered?.originalMeta ?? meta);
   const activeMethodRef = useRef<CreationView | null>(editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : null);
   const copiedTemplateTimerRef = useRef<number | null>(null);
-  useAccountWork(workKey, () => ({ view, notesPurpose, meta, originalMeta:initialMetaRef.current, drafts, initialDrafts:initialDraftsRef.current, deletedDrafts, questionEditor, editingIndex, pasteText, sourceSetId, creationRequest, memoContext, aiStep, aiMethod, aiStage, referenceMaterialId, choiceCount, questionCount, allowMultiple, pendingMethod, pendingQuestionSave, editingBaseline:editingBaseline.current, batch: batch ? { ...batch, draft: readImportSession(batch.sessionKey) } : null, batchOpen }), async () => { if(busy||saveInFlightRef.current)throw new Error('教材の読み込み・保存完了を待っています。'); });
+  useAccountWork(workKey, () => ({ view, notesPurpose, meta, originalMeta:initialMetaRef.current, drafts, initialDrafts:initialDraftsRef.current, deletedDrafts, questionEditor, editingIndex, pasteText, sourceSetId, creationRequest, memoContext, aiStep, aiMethod, aiStage, referenceMaterialId, choiceCount, questionCount, allowMultiple, pendingMethod, pendingQuestionSave, editingBaseline:editingBaseline.current, batch: batch ? { ...batch, draft: readImportSession(batch.sessionKey) } : null, batchOpen, importMode }), async () => { if(busy||saveInFlightRef.current)throw new Error('教材の読み込み・保存完了を待っています。'); });
 
   useEffect(() => () => {
     if (copiedTemplateTimerRef.current !== null) window.clearTimeout(copiedTemplateTimerRef.current);
@@ -635,8 +636,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             {view !== 'memo-questions' ? <section className="create-set__panel">
               <h2>{view === 'chatgpt' || view === 'json' ? 'JSONを取り込む' : 'クリップボードから取り込む'}</h2>
               <input ref={jsonFileRef} type="file" accept=".json,application/json" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; selectJsonFiles(files); }} />
-              {view === 'chatgpt' || view === 'json' ? <div className="create-set__import-tabs" aria-label="JSONの取り込み方法"><button type="button" aria-pressed={importMode==='paste'} onClick={()=>setImportMode('paste')}>貼り付け</button><button type="button" aria-pressed={importMode==='file'} onClick={()=>setImportMode('file')}>ファイル</button></div> : null}
-              {(view !== 'chatgpt' && view !== 'json') || importMode==='paste' ? <><button type="button" className="create-set__ai-copy" disabled={busy} onClick={()=>void pasteClipboard()}>クリップボードから貼り付け</button><textarea className="create-set__paste" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setDrafts([]); }} aria-label={view === 'chatgpt' || view === 'json' ? '問題セットJSON' : '問題の貼り付け欄'} /><button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' || view === 'json' ? 'JSONを読み取る' : '読み取って確認'}</button></> : <><button type="button" className="create-set__ai-copy" disabled={busy} onClick={() => batch ? setBatchOpen(true) : jsonFileRef.current?.click()}><DocumentOutlineIcon size={18} />{batch ? '複数ファイルの取り込みを再開' : busy ? '読み込み中…' : 'JSONファイルを選ぶ'}</button>{batch ? <button type="button" className="create-set__text-button" onClick={discardBatch}>取り込みを取り消す</button> : null}<details className="create-set__secondary-menu"><summary>その他のJSON形式</summary><button type="button" className="create-set__text-button" onClick={openLegacyImport}>従来の問題セットファイルを取り込む</button></details></>}
+              {view === 'chatgpt' || view === 'json' || view === 'clipboard' ? <div className="create-set__import-tabs" aria-label="取り込み方法"><button type="button" aria-pressed={importMode==='paste'} onClick={()=>setImportMode('paste')}>貼り付け</button><button type="button" aria-pressed={importMode==='file'} onClick={()=>setImportMode('file')}>ファイル</button></div> : null}
+              {(view !== 'chatgpt' && view !== 'json' && view !== 'clipboard') || importMode==='paste' ? <><button type="button" className="create-set__ai-copy" disabled={busy} onClick={()=>void pasteClipboard()}>クリップボードから貼り付け</button><textarea className="create-set__paste" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setDrafts([]); }} aria-label={view === 'chatgpt' || view === 'json' ? '問題セットJSON' : '問題の貼り付け欄'} /><button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' || view === 'json' ? 'JSONを読み取る' : '読み取って確認'}</button></> : <><button type="button" className="create-set__ai-copy" disabled={busy} onClick={() => batch ? setBatchOpen(true) : jsonFileRef.current?.click()}><DocumentOutlineIcon size={18} />{batch ? '複数ファイルの取り込みを再開' : busy ? '読み込み中…' : 'JSONファイルを選ぶ'}</button>{batch ? <button type="button" className="create-set__text-button" onClick={discardBatch}>取り込みを取り消す</button> : null}<details className="create-set__secondary-menu"><summary>その他のJSON形式</summary><button type="button" className="create-set__text-button" onClick={openLegacyImport}>従来の問題セットファイルを取り込む</button></details></>}
               {view === 'clipboard' ? <details className="create-set__secondary-menu"><summary>テキスト・CSVから取り込む</summary><button type="button" className="create-set__text-button" onClick={()=>startMethod('bulk')}>テキスト・CSVを入力</button></details> : null}
             </section> : null}
             {reviewedDrafts.length > 0 ? (
