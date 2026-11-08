@@ -92,7 +92,7 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         {!sets.length && !loading ? <GroupEmpty>共有教材はまだありません。</GroupEmpty> : null}
       </section>
       <section id="group-panel-timeline" role="tabpanel" aria-labelledby="group-tab-timeline" hidden={tab !== 'timeline'}>
-        {tab === 'timeline' && group ? <GroupTimeline groupId={group.id} userId={userId} sets={sets} onOpenProgress={onOpenProgress}/> : null}
+        {tab === 'timeline' && group ? <GroupTimeline groupId={group.id} groupName={group.name} userId={userId} sets={sets} onOpenProgress={onOpenProgress}/> : null}
       </section>
       <section id="group-panel-folders" role="tabpanel" aria-labelledby="group-tab-folders" hidden={tab !== 'folders'}>
         <LibraryPane viewKey={folderKey} depth={folderTrail.length}>

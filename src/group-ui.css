@@ -280,3 +280,7 @@
 .group-own-progress-metrics strong { font-size: 1.5rem; }
 .group-overview-member { display: flex; align-items: center; gap: 10px; margin: 12px 0 16px; }
 .group-overview-member select { min-height: 44px; max-width: 100%; padding: 8px 12px; border: 1px solid #dce5ef; border-radius: 9px; background: white; color: #173042; font: inherit; }
+.group-timeline__compose { display: flex; justify-content: flex-end; margin: 18px 0; }
+.group-timeline__compose button { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid #ccd8e6; border-radius: 50%; color: #2859a6; background: #fff; }
+.group-timeline__compose button:disabled { opacity: .45; }
+.group-manual__numbers { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }

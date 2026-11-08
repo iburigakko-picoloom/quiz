@@ -28,7 +28,7 @@ try {
   const snakeSet=set=>({id:set.id,local_set_id:set.localSetId,owner_id:set.ownerId==='you'?userId:set.ownerId,author_name:set.authorName,title:set.title,description:set.description,subject:set.subject,audience:set.audience,difficulty:set.difficulty,creation_method:set.creationMethod,source:set.source,visibility:set.visibility,question_count:set.questionCount,add_count:set.addCount,import_count:set.importCount,published_at:set.publishedAt,updated_at:set.updatedAt,version_id:set.versionId,folder_path:set.folderPath??[],questions:set.questions?.map((q,i)=>({position:i,logical_id:q.logicalId,content_revision:'preview',question:q.question,choices:q.choices,answer_indexes:q.answerIndexes,answer_text:q.answerText,explanation:q.explanation,detailed_explanation:q.detailedExplanation,source_page:q.sourcePage,category:q.category,difficulty:q.difficulty}))});
   const snapshot=()=>({icon:state.icon,accent:state.accent,folders:state.folders.map(f=>({id:f.id,name:f.name,parent_folder_id:f.parentId,created_by:f.createdBy,creator_name:f.creatorName,created_at:f.createdAt,updated_at:f.updatedAt,import_count:f.importCount})),placements:state.placements.map(p=>({set_id:p.setId,group_folder_id:p.folderId})),members:state.members.map(m=>({user_id:m.userId,display_name:m.displayName,role:m.role,levels:m.levels,today_count:m.todayCount,week_count:m.weekCount,imported_set_count:m.importedSetCount,shared_set_count:m.sharedSetCount}))});
   const mutations=[];const uploads=new Map();const sourceConsents=new Map();page.on('pageerror',error=>errors.push(error.message));
-  let activityEnabled=false,failActivity=true,manyActivities=false; const postedActivities=new Map();
+  let activityEnabled=false,failActivity=true,manyActivities=false,failManual=true,denyManual=false; const postedActivities=new Map(),manualPosts=new Map(),manualAttempts=[];
   const batch = () => sets.map(set=>({set_id:set.id,version_id:set.versionId,learners:1,answered:3,total:45,levels:[42,1,1,1],reflected_at:new Date().toISOString(),today_count:2,week_count:5,own_enabled:false,own_copy_id:null,own_state:'not_shared',own_reflected_at:null}));
   await page.route('https://group-preview.example.test/**',async route=>{
     const request=route.request(),url=new URL(request.url()),name=url.pathname.split('/').at(-1);
@@ -45,6 +45,8 @@ try {
     else if(name==='quiz_group_member_material_progress') {if(args.p_member_id==='ito'&&failMemberOnce){failMemberOnce=false;await route.fulfill({status:503,body:'offline'});return;}if(args.p_member_id==='yamada')await slowMember;const show=['sato','yamada'].includes(args.p_member_id);result=sets.map((set,i)=>({set_id:set.id,version_id:set.versionId,state:show&&i===0?'shared':'not_shared',answered:show&&i===0?3:null,total:show&&i===0?45:null,levels:show&&i===0?[42,1,1,1]:null,reflected_at:show&&i===0?new Date().toISOString():null}));}
     else if(name==='quiz_group_material_activity_history') result={state:'ready',entries:[{id:'1',user_id:'sato',display_name:'佐藤',finished_at:new Date().toISOString(),answered:3}]};
     else if(name==='quiz_group_activity_read') result={enabled:activityEnabled,generation:activityEnabled?'generation':null,entries:(manyActivities?Array.from({length:65},(_,i)=>({id:String(65-i),user_id:'sato',display_name:'佐藤',set_id:'set-0',title:`心不全 ${65-i}`,finished_at:new Date().toISOString(),answered:3})):[{id:'1',user_id:'sato',display_name:'佐藤',set_id:'set-0',title:'心不全',finished_at:new Date().toISOString(),answered:3}]).filter(row=>!args.p_before||Number(row.id)<Number(args.p_before)).slice(0,50)};
+    else if(name==='quiz_group_activity_read_v2') result={enabled:activityEnabled,generation:activityEnabled?'generation':null,entries:(manyActivities?Array.from({length:65},(_,i)=>({id:String(65-i),user_id:'sato',display_name:'佐藤',set_id:'set-0',title:`心不全 ${65-i}`,finished_at:new Date().toISOString(),answered:3,kind:'session',minutes:null})):[...(activityEnabled?[...manualPosts.values()]:[]),{id:'1',user_id:'sato',display_name:'佐藤',set_id:'set-0',title:'心不全',finished_at:new Date().toISOString(),answered:3,kind:'session',minutes:null}]).filter(row=>!args.p_before||Number(row.id)<Number(args.p_before)).slice(0,50)};
+    else if(name==='quiz_group_manual_activity_publish'){manualAttempts.push(args);if(denyManual){result=false;}else if(failManual){failManual=false;await route.fulfill({status:503,body:'offline'});return;}if(!denyManual){assert.deepEqual(Object.keys(args).sort(),['p_group_id','p_generation','p_event_id','p_title','p_answered','p_minutes','p_finished_at'].sort());manualPosts.set(args.p_event_id,{id:'1000',kind:'manual',user_id:userId,display_name:'検証ユーザー',set_id:null,title:args.p_title,finished_at:args.p_finished_at,answered:args.p_answered,minutes:args.p_minutes});result=true;}}
     else if(name==='quiz_group_activity_consent'){activityEnabled=args.p_enabled;result=true;}
     else if(name==='quiz_group_activity_destinations')result=activityEnabled?[{group_id:'preview-group',generation:'generation',enabled_at:'2026-01-01T00:00:00Z'}]:[];
     else if(name==='record_problem_set_copy')result=true;
@@ -105,6 +107,23 @@ try {
   await page.getByRole('button',{name:'同意して共有',exact:true}).click();
   await page.getByRole('button',{name:'活動共有を停止',exact:true}).waitFor();
   assert.equal(activityEnabled,true);
+  await page.getByRole('button',{name:'学習を記録',exact:true}).click();const manual=page.getByRole('dialog',{name:'フォルダ外の学習を記録'});
+  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);const box=await manual.boundingBox();assert.ok(box&&box.x>=0&&box.x+box.width<=width);if(width===390||width===768)await page.screenshot({path:`qa/phase1/manual-${width}.png`});}await page.setViewportSize({width:390,height:844});
+  await manual.getByLabel('学習した内容').fill('講義ノート');
+  for(let i=0;i<2;i++){page.once('dialog',dialog=>dialog.dismiss());assert.equal(await page.evaluate(async()=>{const {tryCloseTransientDialog}=await import('/quiz/src/utils/transientDialog.ts');return tryCloseTransientDialog();}),true);await manual.waitFor();}
+  await manual.getByLabel('問題数（任意）').fill('12');await manual.getByLabel('時間（分）').fill('25');
+  await page.evaluate(()=>window.restoreGroupTestWork());await page.getByRole('tab',{name:'タイムライン',exact:true}).click();await manual.waitFor();assert.equal(await manual.getByLabel('学習した内容').inputValue(),'講義ノート');assert.equal(await manual.getByLabel('時間（分）').inputValue(),'25');await manual.getByRole('button',{name:'確認する'}).click();
+  assert.equal(manualAttempts.length,0,'no post before explicit confirmation');await manual.getByRole('button',{name:'グループに共有して記録'}).click();
+  await page.getByText('端末に保存しました。接続後に送信します。').waitFor();assert.equal(manualPosts.size,0);await page.getByText('送信待ち',{exact:true}).waitFor();
+  if(!await page.locator('.group-timeline__settings').evaluate(node=>node.open))await page.getByText('共有設定・更新',{exact:true}).click();
+  const manualSent=page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_manual_activity_publish')&&response.status()===200);await page.getByRole('button',{name:'更新・送信を再試行'}).click();await manualSent;await page.locator('.group-timeline__row').filter({hasText:'講義ノート'}).waitFor();assert.equal(manualPosts.size,1);assert.equal(manualAttempts.length,2);assert.equal(manualAttempts[0].p_event_id,manualAttempts[1].p_event_id);assert.equal(manualAttempts[1].p_minutes,25);assert.equal(manualAttempts[1].p_answered,12);
+  assert.equal(await page.getByRole('button',{name:'講義ノート',exact:true}).count(),0);
+  failManual=true;await page.getByRole('button',{name:'学習を記録',exact:true}).click();await manual.getByLabel('学習した内容').fill('送信待ち削除');await manual.getByLabel('時間（分）').fill('3');await manual.getByRole('button',{name:'確認する'}).click();await manual.getByRole('button',{name:'グループに共有して記録'}).click();
+  await page.getByRole('button',{name:'端末の送信待ちを削除'}).waitFor();page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'端末の送信待ちを削除'}).click();await page.getByRole('button',{name:'端末の送信待ちを削除'}).waitFor({state:'hidden'});assert.equal(manualPosts.size,1);
+  denyManual=true;await page.getByRole('button',{name:'学習を記録',exact:true}).click();await manual.getByLabel('学習した内容').fill('共有停止テスト');await manual.getByLabel('時間（分）').fill('5');await manual.getByRole('button',{name:'確認する'}).click();await manual.getByRole('button',{name:'グループに共有して記録'}).click();
+  await page.getByText('共有設定が変わったため送信できませんでした。',{exact:true}).first().waitFor();await page.getByRole('button',{name:'記録を取り消す'}).waitFor();page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'記録を取り消す'}).click();await page.getByRole('button',{name:'記録を取り消す'}).waitFor({state:'hidden'});denyManual=false;
+  await page.getByRole('button',{name:'活動共有を停止',exact:true}).click();await page.getByRole('button',{name:'活動を共有する',exact:true}).waitFor();assert.equal(await page.locator('.group-timeline__row').filter({hasText:'講義ノート'}).count(),0);
+  await page.getByRole('button',{name:'学習を記録',exact:true}).click();await page.getByRole('button',{name:'同意して共有',exact:true}).click();await page.getByRole('button',{name:'活動共有を停止',exact:true}).waitFor();
   await page.screenshot({path:'qa/phase1/timeline-390.png'});
   await page.getByRole('button',{name:'心不全',exact:true}).click();
   await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
@@ -136,7 +155,7 @@ try {
   await page.getByRole('button',{name:'もっと見る',exact:true}).click();
   await page.waitForFunction(()=>document.querySelectorAll('.group-timeline article').length===65);
   await page.evaluate(()=>window.dispatchEvent(new Event('quizmake:group-activity-updated')));
-  await page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_activity_read')&&response.request().postDataJSON()?.p_before==='16');
+  await page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_activity_read_v2')&&response.request().postDataJSON()?.p_before==='16');
   assert.equal(await page.locator('.group-timeline article').count(),65,'refresh preserves loaded history pages');
   manyActivities=false;
   const submitSession=()=>page.evaluate(async()=>{
@@ -194,4 +213,4 @@ try {
 
   assert.deepEqual(errors,[]);
   console.log('PASS: 4 tabs, overview default, constant RPC reads, progress/import separation, consent OFF, private member filtering, both return origins, app back handler and real browser history/popstate origins, mobile/tablet widths, durable activity retry and session deduplication.');
-} finally {await browser?.close();server.kill();}
+} catch(error) {if(page)console.error(await page.locator('body').innerText());console.error(errors);throw error;} finally {await browser?.close();server.kill();}

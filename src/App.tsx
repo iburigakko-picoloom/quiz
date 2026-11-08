@@ -1,4 +1,5 @@
 import { queueCompletedStudy, retryStudyActivities } from './utils/groupActivityService';
+import { retryManualActivities } from './utils/groupManualActivityService';
 import { useDeviceRole } from './hooks/useDeviceRole';
 import { assertMainDevice, isContentChange, DEVICE_ROLE_WORK_LOCK } from './utils/deviceRole';
 import { tryScreenBack } from './utils/screenBack';
@@ -1453,7 +1454,7 @@ export default function App() {
     replaceScreen({ name: 'backupComplete', folderCount: loaded.folders.length, setCount: loaded.problemSets.length, questionCount: loaded.questions.length });
   };
   useEffect(() => {
-    const send = () => { void retryStudyActivities().catch(()=>undefined); };
+    const send = () => { void retryStudyActivities().catch(()=>undefined); void retryManualActivities().catch(()=>undefined); };
     let authTimer:number|undefined;
     const stop=onCloudSessionSnapshot(()=>{window.clearTimeout(authTimer);authTimer=window.setTimeout(send,0);});
     send(); window.addEventListener('online',send); window.addEventListener('focus',send);
