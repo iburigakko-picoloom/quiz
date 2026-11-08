@@ -583,7 +583,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
         ) : null}
 
         {(view === 'bulk' || view === 'clipboard' || view === 'json' || view === 'chatgpt' || view === 'memo-questions') ? (
-          <div className="create-set__flow">
+          <div className={`create-set__flow${view === 'chatgpt' ? ' create-set__flow--ai' : ''}`}>
             {view === 'memo-questions' ? <section className="create-set__memo-workspace">
               <div className="create-set__memo-tools">
                 <button type="button" className="create-set__ai-copy" disabled={busy} onClick={async()=>{try{await writeClipboardText(buildMemoQuestionPrompt(memoContext));setCopiedTemplate('simple');setError('');}catch{setError('コピーできませんでした。もう一度お試しください。');}}}>{copiedTemplate==='simple'?'コピーしました':'プロンプトをコピー'}</button>
@@ -601,29 +601,28 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               </nav>
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
-              <h2>1. 作成方法</h2>
-              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '指示から作成'], ['material', '資料から作成'], ['past-exam', '過去問から作成']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => { setAiMethod(method); setAiStage(1); setError(''); }}>{label}</button>)}<button type="button" onClick={()=>{setNotesPurpose('questions');goTo('notes');}}>メモから作成</button></nav>
-              {aiMethod ? <section className="create-set__ai-stage">
-                <h2>2. {aiMethod === 'simple' ? '作りたい問題' : aiMethod === 'material' ? '資料を選ぶ' : '過去問を用意'}</h2>
+              <h2>何から作りますか？</h2>
+              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '指示'], ['material', '資料'], ['past-exam', '過去問']] as const).map(([method, label]) => <button type="button" key={method} aria-label={`${label}から作成`} aria-pressed={aiMethod === method} onClick={() => { if(aiMethod!==method)setAiStage(1); setAiMethod(method); setError(''); }}>{label}</button>)}<button type="button" aria-label="メモから作成" onClick={()=>{setNotesPurpose('questions');goTo('notes');}}>メモ</button></nav>
+              {aiMethod && aiMethod !== 'past-exam' ? <section className="create-set__ai-stage create-set__ai-choice">
+                <h2>選択肢数</h2>
+                <div className="create-set__choice-buttons">{([4,5] as const).map(count=><button type="button" key={count} aria-pressed={aiStage>1 && choiceCount===count} onClick={()=>{setChoiceCount(count);setAiStage(2);}}>{count}択</button>)}</div>
+              </section> : null}
+              {aiMethod && (aiMethod === 'past-exam' || aiStage > 1) ? <section className="create-set__ai-stage">
+                {aiMethod !== 'past-exam' ? <div className="create-set__generation-options create-set__generation-options--simple">
+                  <label>問題数（任意）<input type="number" min={1} max={2000} step={1} inputMode="numeric" placeholder="未指定" value={questionCount} onChange={event=>setQuestionCount(event.target.value)} /></label>
+                  <label className="create-set__multiple-option"><span>複数回答</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={event=>setAllowMultiple(event.target.checked)} /></span></label>
+                </div> : null}
                 {aiMethod === 'simple' ? <>
                   {memoContext ? <details><summary>苦手メモを参照中</summary><button type="button" onClick={()=>setMemoContext('')}>参照を外す</button></details> : null}
-                  <label className="create-set__field"><span>作りたい問題集</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={event=>{setCreationRequest(event.target.value);setAiStage(1);}} /></label>
+                  <label className="create-set__field"><span>作りたい問題集</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={event=>setCreationRequest(event.target.value)} /></label>
                 </> : <>
                   <p className="create-set__external-pdf">外部の生成AIに{aiMethod === 'material' ? '資料PDF' : '過去問PDF'}を添付</p>
                   {aiMethod === 'material' ? <label className="create-set__field"><span>登録済み資料との紐づけ（任意）</span><select value={referenceMaterialId} onChange={event=>setReferenceMaterialId(event.target.value)}><option value="">紐づけない</option>{registeredMaterials.map(({setTitle,material})=><option key={material.id} value={material.id}>{setTitle} · {material.title}</option>)}</select></label> : null}
                   {materialsError && aiMethod === 'material' ? <p role="alert">{materialsError}</p> : null}
                 </>}
               </section> : null}
-              {aiMethod && (aiMethod !== 'simple' || creationRequest.trim()) ? <section className="create-set__ai-stage">
-                <h2>3. 作成条件</h2>
-                {aiMethod !== 'past-exam' ? <div className="create-set__generation-options">
-                  <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{transform:`translateX(${choiceCount===5?100:0}%)`}} />{([4,5] as const).map(count=><button type="button" key={count} aria-pressed={choiceCount===count} onClick={()=>{setChoiceCount(count);setAiStage(2);}}>{count}択</button>)}</div></fieldset>
-                  <label>問題数（任意）<input type="number" min={1} max={2000} step={1} inputMode="numeric" placeholder="未指定" value={questionCount} onChange={event=>{setQuestionCount(event.target.value);setAiStage(2);}} /></label>
-                  <label className="create-set__multiple-option"><span>複数回答</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={event=>{setAllowMultiple(event.target.checked);setAiStage(2);}} /></span></label>
-                </div> : <p>原文の選択肢・正解数を維持</p>}
-              </section> : null}
-              {aiMethod && (aiMethod !== 'simple' || creationRequest.trim()) ? <section className="create-set__ai-stage">
-                <h2>4. 生成AIへ依頼</h2>
+              {aiMethod && (aiMethod === 'past-exam' || aiStage > 1) && (aiMethod !== 'simple' || creationRequest.trim()) ? <section className="create-set__ai-stage">
+                <h2>生成AIへ依頼</h2>
                 {aiMethod === 'simple' ? <>
                   <button type="button" className="create-set__ai-copy" onClick={()=>void copyPromptTemplate('simple')}><CopyIcon size={18}/>{copiedTemplate==='simple'?'コピーしました':'依頼文をコピー'}</button>
                   <p>外部の生成AIに貼り付け</p>

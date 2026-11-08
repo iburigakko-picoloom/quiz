@@ -23,17 +23,22 @@ try {
  await fresh();await page.getByRole('button',{name:'生成AIで作る',exact:true}).click();
  assert.equal(await page.getByLabel('作りたい問題集').count(),0);
  await page.getByRole('button',{name:'指示から作成',exact:true}).click();
+ assert.equal(await page.getByLabel('作りたい問題集').count(),0);
+ await page.getByRole('button',{name:'5択',exact:true}).click();
  await page.getByLabel('作りたい問題集').fill('循環器の復習');
  await page.getByLabel('問題数（任意）').fill('0');await page.getByRole('button',{name:'依頼文をコピー',exact:true}).click();await page.getByRole('alert').filter({hasText:'1〜2000'}).waitFor();
- await page.getByLabel('問題数（任意）').fill('12');await page.getByRole('button',{name:'5択',exact:true}).click();await page.getByLabel('複数回答',{exact:true}).check();
+ await page.getByLabel('問題数（任意）').fill('12');await page.getByLabel('複数回答',{exact:true}).check();
+ await page.evaluate(()=>window.restoreCreationTestWork());
+ await page.getByLabel('作りたい問題集').waitFor();assert.equal(await page.getByLabel('作りたい問題集').inputValue(),'循環器の復習');assert.equal(await page.getByLabel('問題数（任意）').inputValue(),'12');assert.equal(await page.getByRole('button',{name:'5択',exact:true}).getAttribute('aria-pressed'),'true');assert.equal(await page.getByLabel('複数回答',{exact:true}).isChecked(),true);
  await page.getByRole('button',{name:'依頼文をコピー',exact:true}).click();
  let prompt=await page.evaluate(()=>navigator.clipboard.readText());assert.ok(prompt.includes('循環器の復習'));assert.ok(prompt.includes('12'));assert.ok(prompt.includes('answerIndexes'));
  await mkdir('qa/phase3',{recursive:true});await page.screenshot({path:'qa/phase3/ai-390.png',fullPage:true});
  await page.getByRole('button',{name:'JSONを取り込む',exact:true}).click();await page.getByLabel('問題セットJSON').waitFor();
  assert.equal(await page.evaluate(async()=>{const {tryScreenBack}=await import('/quiz/src/utils/screenBack.ts');return tryScreenBack();}),true);
- await page.getByRole('heading',{name:'4. 生成AIへ依頼'}).waitFor();
+ await page.getByRole('heading',{name:'生成AIへ依頼'}).waitFor();
  for(const name of ['資料から作成','過去問から作成']) {
   await page.getByRole('button',{name,exact:true}).click();
+  if(name==='資料から作成')await page.getByRole('button',{name:'4択',exact:true}).click();
   await page.getByRole('button',{name:'プロンプトをコピー',exact:true}).click();prompt=await page.evaluate(()=>navigator.clipboard.readText());assert.ok(prompt.includes('questions'));assert.equal(await page.locator('input[type=file]').count(),0);
  }
  const content=JSON.stringify({setTitle:'取り込み教材',source:'授業資料',questions:[{question:'正しいものを選ぶ',choices:['A','B','C','D'],answerIndexes:[0,1],explanation:'解説',sourcePage:'p.2',category:'基礎'}]});
