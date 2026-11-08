@@ -21,7 +21,7 @@ try {
   await page.route('https://**/*', route => route.abort());
   let releaseSpin;
   const spinGate = new Promise(resolve => { releaseSpin = resolve; });
-  await page.route('**/frames-v3/spin-step-v1.png*', async route => { if (route.request().resourceType() === 'image') await spinGate; await route.continue(); });
+  await page.route('**/frames-v3/spin-step-v2.png*', async route => { if (route.request().resourceType() === 'image') await spinGate; await route.continue(); });
   await page.goto('http://127.0.0.1:5198/quiz/tests/browser/companion-animation-preview.html', { waitUntil: 'domcontentloaded' });
   const canvas = page.locator('canvas[data-renderer="full-body-frames"]');
   await canvas.waitFor();
@@ -86,7 +86,7 @@ try {
   await care.route('https://**/*', route => route.abort());
   let releaseCare;
   const careGate = new Promise(resolve => { releaseCare = resolve; });
-  await care.route('**/frames-v3/spin-step-v1.png*', async route => { if (route.request().resourceType() === 'image') await careGate; await route.continue(); });
+  await care.route('**/frames-v3/spin-step-v2.png*', async route => { if (route.request().resourceType() === 'image') await careGate; await route.continue(); });
   await care.goto('http://127.0.0.1:5198/quiz/tests/browser/companion-care-preview.html?answers=160', { waitUntil: 'domcontentloaded' });
   await care.getByRole('button', { name: 'パピィのお世話をする' }).waitFor();
   await care.evaluate(async () => {
