@@ -261,9 +261,19 @@
 
 .group-workspace__tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .group-workspace__tabs button { min-width: 0; padding-inline: 6px; }
+.group-workspace__content:has(#group-panel-overview:not([hidden])) { background: #f5f7fb; padding: 16px; }
+.group-overview-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.group-overview-heading h2 { margin: 0; font-size: 16px; line-height: 1.5; }
 .group-material-list { display: grid; gap: 12px; }
-.group-material-card { width: 100%; text-align: left; color: inherit; cursor: pointer; }
-.group-material-card h3 { overflow-wrap: anywhere; }
+.group-material-card { width: 100%; margin: 0; padding: 16px; text-align: left; color: inherit; cursor: pointer; }
+.group-material-card h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.group-material-card h3 > span:nth-child(2) { flex: 1; min-width: 0; }
+.group-material-card h3 > svg { flex: none; color: #8493a6; }
+.group-material-card__icon { display: grid; place-items: center; flex: 0 0 32px; height: 32px; border-radius: 6px; color: #6f839a; background: #edf3fa; }
+.group-material-card p { margin: 14px 0 0; font-size: 13px; }
+.group-material-card .level-progress { margin-top: 12px; }
+.group-material-card .level-progress__legend { display: none; }
+.group-material-card__caption { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; }
 .group-material-card:focus-visible { outline: 3px solid var(--color-primary, #2563eb); outline-offset: 2px; }
 .group-member-stat-card { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(230px, 1.8fr); align-items: center; gap: 12px; padding: 16px; border: 1px solid #e1e6ed; border-radius: 14px; background: #fff; }
 .group-member-card__identity small { display: block; margin-top: 4px; }
@@ -278,5 +288,5 @@
 .group-own-progress-metrics { display: flex; flex-wrap: wrap; gap: 12px 28px; }
 .group-own-progress-metrics p { margin: 4px 0 12px; }
 .group-own-progress-metrics strong { font-size: 1.5rem; }
-.group-overview-member { display: flex; align-items: center; gap: 10px; margin: 12px 0 16px; }
-.group-overview-member select { min-height: 44px; max-width: 100%; padding: 8px 12px; border: 1px solid #dce5ef; border-radius: 9px; background: white; color: #173042; font: inherit; }
+.group-overview-member { display: flex; align-items: center; margin: 0; }
+.group-overview-member select { min-height: 40px; max-width: 100%; padding: 8px 12px; border: 1px solid #dce5ef; border-radius: 6px; background: white; color: #173042; font: inherit; }

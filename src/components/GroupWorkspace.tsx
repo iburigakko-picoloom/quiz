@@ -7,7 +7,7 @@ import {groupStudyCandidates} from '../utils/groupStudySource';
 import { buildGroupLibrary, groupFolderSets, type GroupFolderCardData } from '../utils/groupLibrary';
 import { readMemberMaterialProgress, type MemberMaterialProgress, type MaterialProgress, type GroupLearningSnapshot } from '../utils/groupLearningService';
 import { watchGroupProgress } from '../utils/groupReflectionQueue';
-import { ChevronRightIcon, PlusIcon } from './UiIcons';
+import { ChevronRightIcon, DocumentOutlineIcon, PlusIcon } from './UiIcons';
 import { GroupEmpty, LevelProgress, MemberAvatar, displayGroupDate } from './GroupLearningUi';
 import {LibraryPane} from './LibraryPane';
 import {LibraryContentRow} from './LibraryContentRow';
@@ -72,8 +72,8 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
       {error ? <div className="group-error" role="alert">{error}<button type="button" onClick={onRefresh}>再読み込み</button></div> : null}
       {loading ? <p className="group-muted" role="status">グループの集計を読み込み中…</p> : null}
       <section id="group-panel-overview" role="tabpanel" aria-labelledby="group-tab-overview" hidden={tab !== 'overview'}>
-        <h2>教材ごとの学習状況</h2>
-        <label className="group-overview-member">メンバー<select aria-label="表示するメンバー" value={selectedMember} onChange={event=>{setMemberError('');if(onOverviewMemberChange)onOverviewMemberChange(event.target.value);else setLocalMember(event.target.value);}}><option value={userId}>自分</option>{members.filter(member=>member.userId!==userId).map(member=><option key={member.userId} value={member.userId}>{member.displayName}</option>)}</select></label>
+        <div className="group-overview-heading"><h2>教材ごとの進捗</h2>
+        <label className="group-overview-member"><select aria-label="表示するメンバー" value={selectedMember} onChange={event=>{setMemberError('');if(onOverviewMemberChange)onOverviewMemberChange(event.target.value);else setLocalMember(event.target.value);}}><option value={userId}>自分</option>{members.filter(member=>member.userId!==userId).map(member=><option key={member.userId} value={member.userId}>{member.displayName}</option>)}</select></label></div>
         {selectedMember!==userId && memberError ? <p role="alert" className="group-error">{memberError} <button type="button" onClick={()=>setMemberAttempt(value=>value+1)}>再試行</button></p> : null}
 
         <div className="group-material-list">{sets.map(set => {
@@ -85,8 +85,8 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
           const state = selected?.state;
           const shown = selectedMember===userId ? own : state==='shared' ? selected : null;
           return <button type="button" className="group-panel group-material-card" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>
-            <h3>{set.title} <ChevronRightIcon size={18} aria-hidden="true" /></h3>
-            {shown && shown.answered!==null && shown.total ? <><p>回答済み {shown.answered} / {shown.total}問・回答率 {Math.round(shown.answered / shown.total * 100)}%</p>{shown.levels ? <LevelProgress levels={shown.levels} compact label="理解度" showCounts={false}/> : null}</> : <p>{selectedMember===userId ? candidates.length ? '公開版の進捗を確認できません' : '未取り込み' : memberError ? '取得できません' : !selectedRows ? '取得中…' : state ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち',shared:'反映待ち'}[state]) : '公開版の更新待ち'}</p>}
+            <h3><span className="group-material-card__icon"><DocumentOutlineIcon size={18} aria-hidden="true" /></span><span>{set.title}</span><ChevronRightIcon size={18} aria-hidden="true" /></h3>
+            {shown && shown.answered!==null && shown.total ? <><p>回答済み {shown.answered} / {shown.total}問・回答率 {Math.round(shown.answered / shown.total * 100)}%</p>{shown.levels ? <><LevelProgress levels={shown.levels} compact label="理解度" showCounts={false}/><div className="group-material-card__caption"><span>Level 0–3</span><span>Level 3 · {shown.levels[3]}問</span></div></> : null}</> : <p>{selectedMember===userId ? candidates.length ? '公開版の進捗を確認できません' : '未取り込み' : memberError ? '取得できません' : !selectedRows ? '取得中…' : state ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち',shared:'反映待ち'}[state]) : '公開版の更新待ち'}</p>}
           </button>;
         })}</div>
         {!sets.length && !loading ? <GroupEmpty>共有教材はまだありません。</GroupEmpty> : null}
