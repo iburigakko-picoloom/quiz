@@ -47,11 +47,30 @@ try {
  await page.locator('input[type=file]').setInputFiles({name:'quiz.json',mimeType:'application/json',buffer:Buffer.from(content)});await page.getByRole('region',{name:'読み取り結果'}).waitFor();
  await page.getByRole('button',{name:'1問を保存',exact:true}).click();saved=JSON.parse(await page.locator('body').getAttribute('data-saved'));assert.equal(saved.title,'取り込み教材');assert.deepEqual(saved.questions[0].answerIndexes,[0,1]);
  await page.screenshot({path:'qa/phase3/import-390.png',fullPage:true});
- await fresh();await page.getByRole('button',{name:'JSONファイルから取り込む',exact:true}).click();await page.getByText('複数ファイル・その他のJSON形式',{exact:true}).click();await page.getByRole('button',{name:'従来の問題セットファイルを取り込む',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-legacy')).folderId,'folder');
+ await fresh();await page.getByRole('button',{name:'JSONファイルから取り込む',exact:true}).click();await page.getByText('その他のJSON形式',{exact:true}).click();await page.getByRole('button',{name:'従来の問題セットファイルを取り込む',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-legacy')).folderId,'folder');
+ await fresh();await page.getByRole('button',{name:'JSONファイルから取り込む',exact:true}).click();
+ await page.locator('input[type=file]').setInputFiles({name:'original.json',mimeType:'application/json',buffer:Buffer.from(content)});await page.getByRole('region',{name:'読み取り結果'}).waitFor();
+ const second=JSON.stringify({...JSON.parse(content),setTitle:'失敗教材'});
+ await page.locator('input[type=file]').setInputFiles([{name:'one.json',mimeType:'application/json',buffer:Buffer.from(content)},{name:'two.json',mimeType:'application/json',buffer:Buffer.from(second)}]);
+ await page.getByText('取り込み予定：2件').waitFor();
+ assert.equal(await page.getByLabel('JSON貼り付け欄').count(),0);
+ assert.equal(await page.evaluate(async()=>{const {tryScreenBack}=await import('/quiz/src/utils/screenBack.ts');return tryScreenBack();}),true);
+ await page.getByRole('region',{name:'読み取り結果'}).waitFor();await page.getByRole('button',{name:'1問を保存',exact:true}).click();await page.getByRole('alert').filter({hasText:'複数ファイルの取り込みを完了'}).waitFor();assert.equal(await page.locator('body').getAttribute('data-saved'),null);
+ await page.getByRole('button',{name:'複数ファイルの取り込みを再開'}).click();await page.getByText('取り込み予定：2件').waitFor();
+ await page.evaluate(()=>{document.body.dataset.pauseBatch='yes';});await page.getByRole('button',{name:'取り込む',exact:true}).click();await page.waitForFunction(()=>document.body.dataset.batchWaiting==='yes');
+ assert.equal(await page.evaluate(async()=>{const {tryScreenBack}=await import('/quiz/src/utils/screenBack.ts');return tryScreenBack();}),true);await page.getByRole('button',{name:'中断して戻る',exact:true}).click();await page.getByRole('button',{name:'今の1件を保存中…'}).waitFor();
+ await page.evaluate(()=>window.releaseBatch());await page.getByRole('button',{name:'複数ファイルの取り込みを再開'}).waitFor();await page.getByRole('button',{name:'複数ファイルの取り込みを再開'}).click();await page.getByText('取り込み予定：1件').waitFor();
+ await page.getByRole('button',{name:'残りを取り込む',exact:true}).click();await page.getByText('失敗：1件').waitFor();assert.equal(await page.getByText('取り込み予定：1件').count(),1);
+ await page.evaluate(()=>window.restoreCreationTestWork());await page.getByText('取り込み予定：1件').waitFor();await page.getByText('保存済み：1件。再開時は未保存の項目だけ取り込みます。').waitFor();
+ assert.equal(await page.evaluate(async()=>{const {tryScreenBack}=await import('/quiz/src/utils/screenBack.ts');return tryScreenBack();}),true);await page.getByRole('button',{name:'複数ファイルの取り込みを再開'}).waitFor();
+ await page.evaluate(()=>window.restoreCreationTestWork());await page.getByRole('button',{name:'複数ファイルの取り込みを再開'}).click();await page.getByText('取り込み予定：1件').waitFor();
+ await page.getByRole('button',{name:'残りを取り込む',exact:true}).click();await page.getByText('失敗：0件').waitFor();
+ const attempts=JSON.parse(await page.locator('body').getAttribute('data-batch-attempts'));assert.deepEqual(attempts.map(item=>item.title),['取り込み教材','失敗教材','失敗教材']);assert.ok(attempts.every(item=>item.target.folderId==='folder'));
+ await page.getByRole('button',{name:'作成画面へ戻る'}).click();await page.getByRole('region',{name:'読み取り結果'}).waitFor();assert.equal((await page.getByLabel('問題セット名').inputValue()),'取り込み教材');
  await fresh();await page.getByRole('button',{name:'クリップボードから取り込む',exact:true}).click();await page.getByText('テキスト・CSVから取り込む',{exact:true}).click();await page.getByRole('button',{name:'テキスト・CSVを入力',exact:true}).click();await page.getByLabel('問題の貼り付け欄').waitFor();
  await fresh();await page.getByRole('button',{name:'生成AIで作る',exact:true}).click();await page.getByRole('button',{name:'メモから作成',exact:true}).click();await page.getByRole('heading',{name:'メモから問題を作る',exact:true}).waitFor();
  await fresh();await page.getByRole('button',{name:'手入力で作る',exact:true}).click();await page.getByLabel('問題文').fill('手入力の問題');await page.getByLabel('問題セット名').fill('手入力教材');for(let i=1;i<=4;i++)await page.getByLabel('選択肢 '+i,{exact:true}).fill('選択肢'+i);await page.getByLabel('1番を正解にする').check();await page.getByRole('button',{name:'追加して次の問題へ'}).click();await page.getByRole('button',{name:'1問を保存',exact:true}).click();assert.equal(JSON.parse(await page.locator('body').getAttribute('data-saved')).questions.length,1);
  await fresh();await page.getByRole('button',{name:'メモから追加解説を作る',exact:true}).click();await page.getByRole('heading',{name:'メモから追加解説を作る',exact:true}).waitFor();
  for(const width of [320,390,768]) {await fresh();await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:`qa/phase3/chooser-${width}.png`});}
- assert.deepEqual(errors,[]);console.log('PASS Phase 3: menu routes, progressive AI options/prompts, clipboard, JSON validation/review/save, multiple correct answers, manual/copy/legacy/memo routes, internal back, 320/390/768px.');
+ assert.deepEqual(errors,[]);console.log('PASS Phase 3: menu routes, progressive AI options/prompts, clipboard, JSON validation/review/save, multiple files, interrupted saves, recovery/retry without duplicates, multiple correct answers, manual/copy/legacy/memo routes, internal back, 320/390/768px.');
 } catch(error) {if(page) console.error(await page.locator('body').innerText());console.error(errors);throw error;} finally {await browser?.close();server.kill();}
