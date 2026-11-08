@@ -22,6 +22,10 @@
   color: #ffffff;
 }
 
+.quiz-import--embedded {
+  height: calc(100dvh - var(--primary-nav-height, 76px) - var(--safe-bottom, 0px));
+}
+
 .quiz-import__header {
   height: 88px;
   flex: 0 0 88px;

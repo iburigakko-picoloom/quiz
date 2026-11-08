@@ -1,4 +1,5 @@
 import { queueCompletedStudy, retryStudyActivities } from './utils/groupActivityService';
+import { retryManualActivities } from './utils/groupManualActivityService';
 import { useDeviceRole } from './hooks/useDeviceRole';
 import { assertMainDevice, isContentChange, DEVICE_ROLE_WORK_LOCK } from './utils/deviceRole';
 import { tryScreenBack } from './utils/screenBack';
@@ -659,6 +660,7 @@ export default function App() {
             ? { name: 'createProblemSet' }
             : { name: 'settings' };
     if (getScreenKey(screenRef.current) === getScreenKey(next)) return;
+    if (screenRef.current.name === 'createProblemSet' && importExitGuardRef.current && tryScreenBack()) return;
     if (item === 'home') {
       if (['noteDetail', 'noteList', 'detailedAnswer'].includes(screenRef.current.name) && noteExitGuardRef.current) void noteExitGuardRef.current(goHome);
       else goHome();
@@ -1452,7 +1454,7 @@ export default function App() {
     replaceScreen({ name: 'backupComplete', folderCount: loaded.folders.length, setCount: loaded.problemSets.length, questionCount: loaded.questions.length });
   };
   useEffect(() => {
-    const send = () => { void retryStudyActivities().catch(()=>undefined); };
+    const send = () => { void retryStudyActivities().catch(()=>undefined); void retryManualActivities().catch(()=>undefined); };
     let authTimer:number|undefined;
     const stop=onCloudSessionSnapshot(()=>{window.clearTimeout(authTimer);authTimer=window.setTimeout(send,0);});
     send(); window.addEventListener('online',send); window.addEventListener('focus',send);
@@ -1647,6 +1649,9 @@ export default function App() {
             ? handleUpdateProblemSet(screen.editSetId, submission)
             : handleCreateProblemSet(submission)}
           onOpenLegacyImport={handleOpenLegacyImport}
+          onPrepareBatchImport={target => ({ folderId: dataRef.current.folders.some(folder => folder.id === target.folderId) ? target.folderId : createId('folder'), newFolderName: target.newFolderName })}
+          onBatchImport={(target, title, text) => handleImportProblemSet(target.folderId, target.newFolderName, title, text, true)}
+          registerBatchExitGuard={registerImportExitGuard}
           onDirtyChange={setCreateDraftDirty}
           initialFolderId={screen.folderId}
           editSetId={screen.editSetId}
@@ -1659,6 +1664,7 @@ export default function App() {
     content = <BackupCompleteScreen {...screen} onHome={goHome} />;
   } else if (screen.name === 'questionDetail') {
     content = <QuestionDetailScreen data={data} questionId={screen.questionId} onBack={() => goBackTo(screen.backScreen)}
+      onPractice={() => { const question = dataRef.current.questions.find(item => item.id === screen.questionId); const set = question && dataRef.current.problemSets.find(item => item.id === question.setId); if (question && set) navigate({ name: 'quizSession', session: { title: set.title, questions: [question], mode: 'quiz', setId: set.id, backScreen: screen } }); }}
       onEdit={() => navigate({ name: 'questionEdit', questionId: screen.questionId, backScreen: screen })}
       onDetail={(editing) => navigate({ name: 'detailedAnswer', questionId: screen.questionId, editing, backScreen: screen })}
       onNote={(setId, category) => navigate({ name: 'noteDetail', setId, category, backScreen: screen })} />;
@@ -1818,9 +1824,15 @@ export default function App() {
         data={data}
         setId={screen.setId}
         initialCategory={screen.category}
+        initialReference={screen.reference}
         onLinkBatch={links => handleLinkMaterialBatch(screen.setId, links)}
         registerExitGuard={(guard) => { noteExitGuardRef.current = guard; }}
         onOpenQuestions={() => navigate({ name: 'problemList', setId: screen.setId, backScreen: screen })}
+        onOpenQuestion={(questionId, reference) => {
+          const backScreen: AppScreen = { ...screen, reference };
+          replaceScreen(backScreen);
+          navigate({ name: 'questionDetail', questionId, backScreen });
+        }}
         onBack={problemSet ? () => goBackTo(screen.backScreen ?? { name: 'noteList', setId: screen.setId }) : goHome}
       />
     );
@@ -1862,7 +1874,7 @@ export default function App() {
           onRemoveDetailedImage={handleRemoveDetailedImage}
           onLinkMaterialPage={handleLinkMaterialPage}
           onLinkMaterialBatch={handleLinkMaterialBatch}
-          onStudySessionEnd={(sessionAnswers,identity) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
+          onStudySessionEnd={(sessionAnswers,identity,studyTime) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers,studyTime},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
           onFinish={handleFinish}
         />
       </Suspense>
@@ -1888,7 +1900,7 @@ export default function App() {
           onRemoveDetailedImage={screen.session.isPreview ? undefined : handleRemoveDetailedImage}
           onLinkMaterialPage={screen.session.isPreview ? undefined : handleLinkMaterialPage}
           onLinkMaterialBatch={screen.session.isPreview ? undefined : handleLinkMaterialBatch}
-          onStudySessionEnd={(sessionAnswers,identity) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
+          onStudySessionEnd={(sessionAnswers,identity,studyTime) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers,studyTime},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
           onFinish={handleFinish}
         />
       </Suspense>
@@ -1947,6 +1959,13 @@ export default function App() {
     content = (
     <HomeScreen
       data={data}
+      initialMaterials={screen.name === 'home' ? screen : undefined}
+      onCloseMaterials={() => replaceScreen({ name: 'home' })}
+      onOpenMaterial={(setId, reference, materialsQuery, materialsScroll) => {
+        const backScreen: AppScreen = { name: 'home', materialsView: true, materialsQuery, materialsScroll };
+        replaceScreen(backScreen);
+        navigate({ name: 'noteDetail', setId, category: '__materials', reference, backScreen });
+      }}
       onCreateFolder={handleCreateFolder}
       onCreateSample={() => void commitData(createSampleAppData())}
       onDeleteFolder={handleDeleteFolder}

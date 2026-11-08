@@ -7,7 +7,7 @@ import type { AppData, ProblemSetVisibility } from '../types';
 import { BackButton } from '../components/BackButton';
 import { PublicationMenu } from '../components/PublicationMenu';
 import { Layout } from '../components/Layout';
-import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, GroupIcon, SearchIcon } from '../components/UiIcons';
+import { ChevronRightIcon, ProblemSetIcon, FolderOutlineIcon, GroupIcon, SearchIcon, SettingsIcon } from '../components/UiIcons';
 import { GroupWorkspace, type GroupDetailTab } from '../components/GroupWorkspace';
 import {LibrarySkeleton} from '../components/LibrarySkeleton';
 import {createViewCache} from '../utils/viewCache';
@@ -129,6 +129,8 @@ export function CommunityScreen({
   const [groupsLoading, setGroupsLoading] = useState(true);
   const [groupsReady, setGroupsReady] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId ?? '');
+  const [overviewMemberId, setOverviewMemberId] = useState('');
+  useEffect(()=>setOverviewMemberId(''),[selectedGroupId,session?.user.id]);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [groupNameDraft, setGroupNameDraft] = useState('');
   const renameLock = useRef(false);
@@ -857,7 +859,7 @@ export function CommunityScreen({
         <header className="community-screen__header">
           {isPrimaryRoot ? <span className="community-screen__header-spacer" aria-hidden="true" /> : <BackButton onClick={handleHeaderBack} label="戻る" />}
           <div><h1>{headerTitle}</h1></div>
-          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={openGroupSettings}>…</button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
+          {isGroupDetail && !isGroupSetDetail && selectedGroup ? <div className="community-group-header-actions">{canManageSelectedGroup ? <button type="button" className="community-group-invite" disabled={busy} onClick={() => void copyInvite(selectedGroupId)}>招待</button> : null}<button type="button" className="community-group-invite" aria-label="グループの管理" disabled={busy} onClick={openGroupSettings}><SettingsIcon size={21}/></button></div> : <span className="community-screen__header-spacer" aria-hidden="true" />}
         </header>
 
         {!cloudConfigured ? <div className="community-notice community-notice--warning">共有機能の接続設定が未完了です。端末内の作成・学習機能はそのまま使えます。</div> : null}
@@ -874,7 +876,7 @@ export function CommunityScreen({
           {isGroupDetail ? (
             <LibraryPane viewKey={isGroupSetDetail&&directSet?directSet.id:'workspace'} depth={isGroupSetDetail?2:1}>
             {isGroupSetDetail && directSet ? (
-              progressDetail && session ? <><h2>{directSet.title}</h2><p className="group-breadcrumb">{selectedGroup?.name ?? 'グループ'}</p><GroupProgress key={`${selectedGroupId}:${directSet.id}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} summary={groupLearning.materials?.find(row=>row.setId===directSet.id)} onChanged={() => setGroupLearningRevision(n => n + 1)} /></> :
+              progressDetail && session ? <div className="group-progress-page"><p className="group-progress-page__meta">{selectedGroup?.name ?? 'グループ'} · {directSet.questionCount}問</p><GroupProgress key={`${selectedGroupId}:${directSet.id}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} summary={groupLearning.materials?.find(row=>row.setId===directSet.id)} onChanged={() => setGroupLearningRevision(n => n + 1)} /></div> :
               <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onOpenSource={ownedSource?()=>onOpenLocalSet(ownedSource.id):undefined} onReport={() => setReportTarget(directSet)} />
             ) : (
               <section className="community-section community-group-detail">
@@ -882,7 +884,7 @@ export function CommunityScreen({
                   <EmptyState title="ログインが必要です" action="ログイン" onAction={() => setLoginOpen(true)} />
                 ) : (
                   <>
-                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace materials={groupLearning.materials} onOpenProgress={set => void openSharedDetail(set, 'groups', '', true)} data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onManageFolder={folder => { setManagedFolder(folder); setManagedName(folder.name); setConfirmFolderDelete(false); setManagementError(''); }} onRemoveSet={set => { setManagedSet(set); setManagementError(''); }} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
+                    {copyGroupNotice?<p role="status" className="group-muted">{copyGroupNotice}</p>:null}<GroupWorkspace materials={groupLearning.materials} overviewMemberId={overviewMemberId || session.user.id} onOverviewMemberChange={setOverviewMemberId} onOpenProgress={set => void openSharedDetail(set, 'groups', '', true)} data={data} group={selectedGroup} sets={groupSets} members={groupMembers} userId={session.user.id} snapshot={groupLearning.snapshot} loading={groupLearning.loading || busy} error={groupLearning.error} tab={groupDetailTab} onTab={setGroupDetailTab} folderTrail={groupFolderTrail} onFolderTrail={setGroupFolderTrail} onOpenSet={(set, location) => void openSharedDetail(set, 'groups', location)} onAddSet={folder => openAdd('group', folder.id ? undefined : folder.legacyPath, folder.id)} onAddFolder={() => { setFolderNameDraft(''); setError(''); setFolderCreateOpen(true); }} onSettings={openGroupSettings} onRefresh={groupLearning.refresh} onRemoveMember={member => void removeGroupMember(member)} onManageFolder={folder => { setManagedFolder(folder); setManagedName(folder.name); setConfirmFolderDelete(false); setManagementError(''); }} onRemoveSet={set => { setManagedSet(set); setManagementError(''); }} onImportFolder={onImportGroupFolder?folder=>{setCopyError('');setCopyGroupFolder(folder);}:undefined} busy={busy} />
                   </>
                 )}
               </section>

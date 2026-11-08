@@ -3,8 +3,19 @@ import test from 'node:test';
 import { importedLearning, levelPercentages, sortLearningMembers, sumLevels } from '../src/utils/groupLearning.ts';
 import { buildGroupLibrary, groupFolderSets } from '../src/utils/groupLibrary.ts';
 import { questionRevision } from '../src/utils/studyPlans.ts';
+import { parseMemberMaterialProgress } from '../src/utils/groupMemberProgress.ts';
 
 const now = new Date('2026-10-08T03:00:00Z');
+test('member batch fails closed for hidden, malformed or duplicate progress',()=>{
+  const shared={set_id:'s',version_id:'v',state:'shared',answered:2,total:4,levels:[1,1,1,1],reflected_at:'2026-11-08T00:00:00Z'};
+  const hidden={set_id:'t',version_id:'v',state:'not_shared',answered:null,total:null,levels:null,reflected_at:null};
+  assert.equal(parseMemberMaterialProgress([shared,hidden]).length,2);
+  assert.throws(()=>parseMemberMaterialProgress([{...hidden,answered:0}]));
+  assert.throws(()=>parseMemberMaterialProgress([{...hidden,levels:[0,0,0,0]}]));
+  assert.throws(()=>parseMemberMaterialProgress([{...shared,version_id:null}]));
+  assert.throws(()=>parseMemberMaterialProgress([{...shared,answered:5}]));
+  assert.throws(()=>parseMemberMaterialProgress([shared,shared]));
+});
 function fixture() {
   const questions = Array.from({ length: 4 }, (_, i) => ({ id: `q${i}`, setId: 'copy', question: `Question ${i}`, choices: ['A','B','C','D'], answerIndex: 0, answerText: 'A', explanation: '', sourcePage: '', category: '', difficulty: 'basic' }));
   for (const [i, q] of questions.entries()) q.origin = { setId: 'published', logicalId: `logical${i}`, publicationVersionId: 'v1', contentRevision: `hash${i}`, importedContent: questionRevision(q) };

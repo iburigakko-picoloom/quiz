@@ -38,6 +38,7 @@ try {
     else if(name==='list_group_problem_sets') result=sets.map(s=>({...snakeSet(s),questions:undefined}));
     else if(name==='list_quiz_group_members') result=state.members.map(m=>({user_id:m.userId,display_name:m.displayName,role:m.role}));
     else if(name==='quiz_group_learning_read') result=snapshot();
+    else if(name==='quiz_group_material_activity_history') result={state:'ready',entries:[]};
     else if(name==='quiz_group_material_progress') result=sets.map(set=>{const c=sourceConsents.get(set.id);return {set_id:set.id,version_id:set.versionId,learners:c?.enabled&&c.levels?1:0,answered:c?.enabled?c.answered??null:null,total:c?.enabled&&c.levels?set.questionCount:null,levels:c?.enabled?c.levels??null:null,reflected_at:null,today_count:c?.enabled?c.today??null:null,week_count:c?.enabled?c.week??null:null,own_enabled:c?.enabled??false,own_copy_id:c?.copy_id??null,own_state:c?.enabled&&c.levels?'shared':'not_shared',own_reflected_at:null};});
     else if(name==='get_shared_problem_set_versioned')result=snakeSet(sets.find(set=>set.id===args.p_set_id));
     else if(name==='quiz_group_learning_set_read'){
@@ -78,7 +79,7 @@ try {
   await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html?sourcePointer=1');
   await page.getByRole('tab',{name:'フォルダ',exact:true}).waitFor();
   await page.getByRole('tab',{name:'メンバー',exact:true}).click();
-  await page.getByRole('button',{name:'グループアイコンを変更'}).click();
+  await page.getByRole('button',{name:'グループの管理'}).click();
   await page.getByRole('button',{name:'教材',exact:true}).click();await page.getByRole('button',{name:'紫',exact:true}).click();await page.getByRole('button',{name:'アイコンを保存'}).click();await page.getByRole('dialog').waitFor({state:'hidden'});assert.equal(state.icon,'book');assert.equal(state.accent,'violet');
   await page.getByRole('tab',{name:/フォルダ/}).click();await page.getByRole('button',{name:'フォルダを追加'}).click();await page.getByRole('textbox',{name:'フォルダ名'}).fill('病理学');await page.getByRole('button',{name:'追加する',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});await page.getByRole('tab',{name:'フォルダ',exact:true}).waitFor();
   await page.locator('.group-folder-list .library-content-row__open').first().click();

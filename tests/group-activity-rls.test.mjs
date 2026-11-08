@@ -50,6 +50,9 @@ let consent,folder;
 
 await pg.exec('alter table public.quiz_group_problem_sets add column shared_at timestamptz not null default now(); create unique index problem_set_copies_actor_unique on public.problem_set_copies(set_id,actor_id) where actor_id is not null; create unique index problem_set_copies_installation_unique on public.problem_set_copies(set_id,installation_id);');
 await pg.exec(await readFile(new URL('../supabase/migrations/20261107150102_group_session_timeline.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261108060201_group_material_history.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261108060212_group_manual_activity.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261108060226_group_activity_duration.sql',import.meta.url),'utf8'));
 const feed=()=>call('quiz_group_activity_read',[group,null],['uuid','bigint']);
 const activityConsent=(enabled,generation=null)=>call('quiz_group_activity_consent',[group,enabled,generation],['uuid','boolean','uuid']);
 const destinations=()=>call('quiz_group_activity_destinations',[published.id],['uuid']);
@@ -100,4 +103,78 @@ test('timeline requires separate consent, has idempotent sessions, and never exp
  await actor(owner);assert.equal((await feed()).entries.length,0);
  await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'member')",[group,member]);
  await actor(member);assert.equal((await feed()).enabled,false);assert.equal((await feed()).entries.length,0);
+});
+
+test('material history respects consent, current publication, membership and cursor',async()=>{
+ const g='10000000-0000-4000-8000-000000000097';await actor(owner);
+ await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'History']);
+ await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[g,owner,member]);
+ const shared=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'history-group',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
+ const history=(version=shared.version_id,before=null)=>call('quiz_group_material_activity_history',[g,shared.id,version,before],['uuid','uuid','uuid','bigint']);
+ const setConsent=(enabled,generation)=>call('quiz_group_activity_consent',[g,enabled,generation],['uuid','boolean','uuid']);
+ const read=()=>call('quiz_group_activity_read',[g,null],['uuid','bigint']);
+ await pg.exec('set role anon');await assert.rejects(history(),/permission denied/);await pg.exec('reset role');
+ await actor(outsider);await pg.exec('set role authenticated');await assert.rejects(history(),/not authorized/);
+ await actor(member);assert.deepEqual((await history()).entries,[]);await setConsent(true,null);const generation=(await read()).generation;
+ await call('record_problem_set_copy',[shared.id,'30000000-0000-4000-8000-000000000001','copy'],['uuid','uuid','text']);
+ const time=new Date(Date.now()+1000).toISOString();
+ assert.equal(await call('quiz_group_activity_publish',[g,generation,'b'.repeat(64),shared.id,shared.version_id,'copy',time,time,1],['uuid','uuid','text','uuid','uuid','text','timestamptz','timestamptz','integer']),true);
+ const items=(await history()).entries;assert.equal(items.length,1);assert.equal(items[0].answered,1);assert.deepEqual(Object.keys(items[0]).sort(),['id','user_id','display_name','finished_at','answered'].sort());
+ assert.equal((await history('40000000-0000-4000-8000-000000000001')).state,'update_pending');assert.deepEqual((await history(shared.version_id,items[0].id)).entries,[]);
+ await setConsent(false,generation);assert.deepEqual((await history()).entries,[]);const disabled=(await read()).generation;await setConsent(true,disabled);assert.deepEqual((await history()).entries,[]);
+ await pg.exec('reset role');await actor(owner);await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,member]);await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'member')",[g,member]);assert.deepEqual((await history()).entries,[]);
+ await pg.query('delete from public.quiz_group_problem_sets where group_id=$1 and set_id=$2',[g,shared.id]);await assert.rejects(history(),/not authorized/);
+});
+
+test('manual activities require consent, are idempotent and share a safe cursor with sessions',async()=>{
+ const g='10000000-0000-4000-8000-000000000096';await actor(owner);
+ await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'Manual']);
+ await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[g,owner,member]);
+ const shared=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'manual-group',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
+ const readV2=before=>call('quiz_group_activity_read_v2',[g,before],['uuid','bigint']);
+ const oldFeed=()=>call('quiz_group_activity_read',[g,null],['uuid','bigint']);
+ const setConsent=(enabled,generation)=>call('quiz_group_activity_consent',[g,enabled,generation],['uuid','boolean','uuid']);
+ const event='20000000-0000-4000-8000-000000000001', time=new Date(Date.now()+1000).toISOString();
+ const post=(gen,id=event,title='講義ノート',count=12,minutes=25)=>call('quiz_group_manual_activity_publish',[g,gen,id,title,count,minutes,time],['uuid','uuid','uuid','text','integer','integer','timestamptz']);
+ await pg.exec('set role anon');await assert.rejects(readV2(null),/permission denied/);await assert.rejects(post(null),/permission denied/);await pg.exec('reset role');
+ await actor(outsider);await pg.exec('set role authenticated');await assert.rejects(readV2(null),/not authorized/);assert.equal(await post(null),false);
+ await actor(member);assert.equal(await post(null),false);await setConsent(true,null);const generation=(await readV2(null)).generation;
+ await assert.rejects(post(generation,event,'',12,25),/invalid activity/);await assert.rejects(post(generation,event,'講義',12,0),/invalid activity/);await assert.rejects(post(generation,event,'講義',2001,1),/invalid activity/);await assert.rejects(post(generation,event,'a'.repeat(81),1,1),/invalid activity/);
+ await assert.rejects(pg.query('select * from private.quiz_group_manual_activity'),/permission denied/);
+ assert.equal(await post(generation),true);assert.equal(await post(generation),true);let feed=await readV2(null);assert.equal(feed.entries.length,1);assert.equal(feed.entries[0].kind,'manual');assert.equal(feed.entries[0].title,'講義ノート');assert.equal(feed.entries[0].minutes,25);assert.equal(feed.entries[0].set_id,null);assert.deepEqual((await oldFeed()).entries,[],'old clients do not receive an incompatible row');
+ await call('record_problem_set_copy',[shared.id,'30000000-0000-4000-8000-000000000001','copy'],['uuid','uuid','text']);
+ assert.equal(await call('quiz_group_activity_publish',[g,generation,'b'.repeat(64),shared.id,shared.version_id,'copy',time,time,1],['uuid','uuid','text','uuid','uuid','text','timestamptz','timestamptz','integer']),true);
+ feed=await readV2(null);assert.deepEqual(feed.entries.map(row=>row.kind),['session','manual']);assert.equal(feed.entries[0].minutes,null);assert.deepEqual((await readV2(feed.entries[0].id)).entries.map(row=>row.kind),['manual']);
+ await setConsent(false,generation);assert.deepEqual((await readV2(null)).entries,[]);assert.equal(await post(generation),false);
+ const disabled=(await readV2(null)).generation;await setConsent(true,disabled);assert.deepEqual((await readV2(null)).entries,[]);assert.equal(await post(generation),false);
+ await pg.exec('reset role');const current=(await pg.query('select * from private.quiz_group_manual_activity where group_id=$1',[g])).rows;assert.equal(current.length,1);
+ await actor(owner);await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,member]);await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'member')",[g,member]);assert.deepEqual((await readV2(null)).entries,[]);
+});
+
+test('duration requires separate consent, is hidden immediately on withdrawal and never revives',async()=>{
+ const g='10000000-0000-4000-8000-000000000098';await actor(owner);
+ await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'Duration']);
+ await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[g,owner,member]);
+ const shared=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'duration-group',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
+ const feed=()=>call('quiz_group_activity_read_v2',[g,null],['uuid','bigint']);
+ const consent=(enabled,generation)=>call('quiz_group_activity_consent',[g,enabled,generation],['uuid','boolean','uuid']);
+ const timeConsent=(enabled,generation)=>call('quiz_group_activity_time_consent',[g,enabled,generation],['uuid','boolean','uuid']);
+ const destinations=()=>call('quiz_group_activity_destinations_v2',[shared.id],['uuid']);
+ const start=new Date(Date.now()+30000).toISOString(),end=new Date(Date.now()+40000).toISOString();
+ const post=(id,generation,timeGeneration=null,seconds=null,begin=null,finish=null)=>call('quiz_group_activity_publish_v2',[g,generation,id.repeat(64),shared.id,shared.version_id,'copy',start,end,1,timeGeneration,begin,finish,seconds],['uuid','uuid','text','uuid','uuid','text','timestamptz','timestamptz','integer','uuid','timestamptz','timestamptz','integer']);
+ await pg.exec('set role anon');await assert.rejects(timeConsent(true,null),/permission denied/);await assert.rejects(destinations(),/permission denied/);await pg.exec('reset role');
+ await actor(outsider);await pg.exec('set role authenticated');await assert.rejects(feed(),/not authorized/);await assert.rejects(timeConsent(true,null),/not authorized/);
+ await actor(member);await assert.rejects(timeConsent(true,null),/activity sharing disabled/);await consent(true,null);let current=await feed();assert.equal(current.time_enabled,false);
+ await assert.rejects(pg.query('select * from private.quiz_group_activity_time_consent'),/permission denied/);
+ await call('record_problem_set_copy',[shared.id,'30000000-0000-4000-8000-000000000001','copy'],['uuid','uuid','text']);
+ assert.equal(await post('a',current.generation),true);assert.equal((await feed()).entries[0].seconds,null);
+ await timeConsent(true,null);current=await feed();const activityGeneration=current.generation,timeGeneration=current.time_generation;assert.equal(current.time_enabled,true);assert.equal((await destinations())[0].time_generation,timeGeneration);
+ await assert.rejects(post('b',activityGeneration,timeGeneration,60,start,end),/invalid duration/);
+ assert.equal(await post('b',activityGeneration,timeGeneration,8,start,end),true);assert.equal(await post('b',activityGeneration,timeGeneration,8,start,end),true);assert.equal((await feed()).entries[0].seconds,8);
+ assert.equal(await post('d',activityGeneration,timeGeneration,8,'2020-01-01T00:00:00Z',end),true);assert.equal((await feed()).entries[0].seconds,null,'time before consent is not stored');
+ await timeConsent(false,timeGeneration);current=await feed();assert.equal(current.time_enabled,false);assert.equal(current.entries[0].seconds,null);assert.equal(current.entries[0].answered,1);
+ await timeConsent(true,current.time_generation);current=await feed();assert.notEqual(current.time_generation,timeGeneration);assert.equal(current.entries[0].seconds,null);assert.equal(await post('c',activityGeneration,timeGeneration,8,start,end),true);assert.equal((await feed()).entries[0].seconds,null);
+ await consent(false,activityGeneration);current=await feed();assert.equal(current.time_enabled,false);assert.deepEqual(current.entries,[]);
+ await pg.exec('reset role');await actor(owner);await pg.query('delete from public.quiz_group_members where group_id=$1 and user_id=$2',[g,member]);await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'member')",[g,member]);
+ await actor(member);assert.equal((await feed()).time_enabled,false);assert.deepEqual((await feed()).entries,[]);
 });

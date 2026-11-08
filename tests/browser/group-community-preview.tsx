@@ -1,7 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { CommunityScreen } from '../../src/screens/CommunityScreen';
-import { PrimaryBottomNav } from '../../src/components/PrimaryBottomNav';
 import { previewData } from '../fixtures/group-learning';
 import type {AppData,PublicationSource} from '../../src/types';
 import {applyPublishedSource} from '../../src/utils/groupStudySource';
@@ -11,6 +10,7 @@ import App from '../../src/App';
 import {saveAppDataResult} from '../../src/storage';
 import {AccountStorageSession,activateAccountStorage,accountLocalStorage,accountNamespace} from '../../src/utils/accountStorage';
 import {writeAccountSyncMarker} from '../../src/utils/accountSync';
+import {captureAccountWork,restoreAccountWork} from '../../src/utils/accountWork';
 import '../../src/index.css';
 import '../../src/ui-spec.css';
 import '../../src/final-reference.css';
@@ -40,7 +40,7 @@ function Preview(){
   }} onImportGroupFolder={async(folder,sets,groupId)=>{
     const plan=planGroupImport(current,folder,sets,groupId);localStorage.setItem('group-folder-preview-copy',JSON.stringify(plan.data));
     document.body.dataset.importedGroupFolder=JSON.stringify({folderId:plan.folderId,count:plan.imported.length});return plan;
-  }} onUnpublished={async()=>{}}/><PrimaryBottomNav active="groups" onSelect={()=>{}}/></>;
+  }} onUnpublished={async()=>{}}/></>;
 }
 async function mount() {
   if (enabled && exerciseScenario) {
@@ -53,6 +53,9 @@ async function mount() {
     if (!saved || !(await saveAppDataResult(saved)).ok) throw new Error('学習テストの合成データを保存できませんでした。');
     accountLocalStorage.setItem('quiz-make-welcome-v1', 'done');
     createRoot(document.getElementById('root')!).render(<App/>);
-  } else createRoot(document.getElementById('root')!).render(enabled?<Preview/>:<p>この画面は隔離したブラウザテスト専用です。</p>);
+  } else {
+    let root=createRoot(document.getElementById('root')!);const render=()=>root.render(enabled?<Preview/>:<p>この画面は隔離したブラウザテスト専用です。</p>);render();
+    Object.assign(window,{restoreGroupTestWork(){const identity={project:import.meta.env.VITE_SUPABASE_URL,userId:'00000000-0000-4000-8000-000000000001'};const session=new AccountStorageSession(localStorage,{identity,namespace:accountNamespace(identity),legacyUnclaimed:false});const saved=captureAccountWork(session);root.unmount();restoreAccountWork(saved,session);root=createRoot(document.getElementById('root')!);render();}});
+  }
 }
 void mount();

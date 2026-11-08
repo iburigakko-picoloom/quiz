@@ -12,7 +12,7 @@ context.setDefaultNavigationTimeout(120000);
 const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
 const url=`${origin}/tests/browser/companion-care-preview.html?answers=0`;
 const data=target=>target.evaluate(async()=>await(await import('/quiz/src/storage.ts')).loadAppDataAsync());
-const sync=async target=>{await target.getByRole('button',{name:'設定',exact:true}).click();await target.getByRole('button',{name:'同期',exact:true}).click();await target.getByRole('heading',{name:'同期',exact:true}).waitFor();};
+const sync=async target=>{await target.getByRole('button',{name:'設定',exact:true}).click();await target.getByRole('button',{name:'同期',exact:true}).click();await target.getByRole('heading',{name:'同期',exact:true}).waitFor();await target.getByRole('button',{name:'詳細設定',exact:true}).click();await target.getByRole('heading',{name:'詳細設定',exact:true}).waitFor();};
 try{
   await page.goto(url,{waitUntil:'domcontentloaded'});await page.getByRole('button',{name:'作成',exact:true}).waitFor();const before=await data(page);
   // A second tab editing on this installation must prevent the role change.

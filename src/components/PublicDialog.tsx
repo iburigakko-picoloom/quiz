@@ -2,12 +2,13 @@ import type {ReactNode} from 'react';
 import {createPortal} from 'react-dom';
 import {useEffect,useRef} from 'react';
 import {registerTransientDialog} from '../utils/transientDialog';
-export function PublicDialog({title,busy=false,onClose,children,presentation='center'}:{title:string;busy?:boolean;onClose:()=>void;children:ReactNode;presentation?:'center'|'right'}){
+import './PublicDialog.css';
+export function PublicDialog({title,busy=false,onClose,children,presentation='center',className=''}:{title:string;busy?:boolean;onClose:()=>void;children:ReactNode;presentation?:'center'|'right';className?:string}){
   const ref=useRef<HTMLDivElement>(null);
   useEffect(()=>{const previous=document.activeElement as HTMLElement|null;ref.current?.querySelector<HTMLElement>('button,input,select')?.focus();return()=>previous?.focus();},[]);
   useEffect(()=>registerTransientDialog(()=>{if(!busy)onClose();}),[busy,onClose]);
   return createPortal(<div className={`public-dialog-backdrop${presentation==='right'?' public-dialog-backdrop--right':''}`} onClick={event=>{if(event.target===event.currentTarget&&!busy)onClose();}}>
-    <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={`public-dialog${presentation==='right'?' public-dialog--right':''}`} onKeyDown={event=>{
+    <div ref={ref} role="dialog" aria-modal="true" aria-label={title} className={`public-dialog${presentation==='right'?' public-dialog--right':''}${className?` ${className}`:''}`} onKeyDown={event=>{
       if(event.key==='Escape'&&!busy)onClose();
       if(event.key==='Tab'){
         const buttons=ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)');

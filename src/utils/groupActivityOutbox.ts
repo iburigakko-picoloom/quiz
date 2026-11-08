@@ -20,7 +20,7 @@ export function activityOutbox(identity: LocalAccountIdentity) {
     }); } finally {db.close();}
   };
   return {
-    put:(events:StudyActivity[])=>transact<void>('readwrite',(store,set)=>{for(const row of events)store.put({key:`${scope}/${row.id}`,scope,row});set(undefined);}),
+    put:(events:StudyActivity[])=>transact<void>('readwrite',(store,set)=>{const unique=new Map(events.map(row=>[row.id,row]));for(const row of unique.values()){const key=`${scope}/${row.id}`,request=store.get(key);request.onsuccess=()=>{if(!request.result)store.add({key,scope,row});};}set(undefined);}),
     list:()=>transact<StudyActivity[]>('readonly',(store,set)=>{const r=store.getAll();r.onsuccess=()=>set(r.result.filter(v=>v.scope===scope).map(v=>v.row));}),
     remove:(id:string)=>transact<void>('readwrite',(store,set)=>{store.delete(`${scope}/${id}`);set(undefined);}),
   };

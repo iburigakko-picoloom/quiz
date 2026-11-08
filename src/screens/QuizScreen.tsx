@@ -17,7 +17,7 @@ interface QuizScreenProps {
   onRemoveDetailedImage?: (questionId: string, imageId: string) => Promise<void>;
   onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onLinkMaterialBatch?: (setId: string, links: ReferenceLink[]) => Promise<void>;
-  onStudySessionEnd?: (answers: NonNullable<QuizResult['sessionAnswers']>, identity: LocalAccountIdentity | null) => void;
+  onStudySessionEnd?: (answers: NonNullable<QuizResult['sessionAnswers']>, identity: LocalAccountIdentity | null, studyTime?: QuizResult['studyTime']) => void;
   onFinish: (result: QuizResult) => void;
 }
 

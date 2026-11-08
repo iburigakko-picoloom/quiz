@@ -1,3 +1,4 @@
+import type { StudyTimeSnapshot } from './utils/visibleStudyTimer';
 export type Difficulty = 'basic' | 'standard' | 'advanced' | string;
 
 export type ProblemSetCreationMethod = 'manual' | 'bulk' | 'chatgpt' | 'copy' | 'import' | 'public-copy';
@@ -156,6 +157,7 @@ export interface ImportedProblemSet {
 
 export interface QuizResult {
   sessionAnswers?: { question: Question; selectedIndexes: number[]; correct: boolean; relearned: boolean; answerLogId?: string }[];
+  studyTime?: StudyTimeSnapshot;
   mode: 'quiz' | 'review';
   title: string;
   setId?: string;
@@ -199,7 +201,7 @@ export interface QuizSession {
 export type SyncScreenPage = 'settings' | 'recovery' | 'connect' | 'diagnostics' | 'danger';
 
 export type AppScreen =
-  | { name: 'home' }
+  | { name: 'home'; materialsView?: boolean; materialsQuery?: string; materialsScroll?: number }
   | { name: 'companionCare'; backScreen?: AppScreen }
   | { name: 'plans' }
   | { name: 'planDetail'; planId: string }
@@ -220,7 +222,7 @@ export type AppScreen =
   | { name: 'problemList'; setId: string; sortMode?: ProblemSortMode; backScreen?: AppScreen }
   | { name: 'noteList'; setId: string }
   | { name: 'sessionAnswers'; result: QuizResult }
-  | { name: 'noteDetail'; setId: string; category: string; backScreen?: AppScreen }
+  | { name: 'noteDetail'; setId: string; category: string; reference?: MaterialReference; backScreen?: AppScreen }
   | { name: 'import'; folderId: string; newFolderName?: string; backScreen?: AppScreen }
   | { name: 'quiz'; setId: string; mode: QuizMode }
   | { name: 'quizSession'; session: QuizSession }

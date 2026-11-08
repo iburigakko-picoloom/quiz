@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AppData } from '../types';
+import type { AppData, MaterialReference } from '../types';
 import { BackButton } from '../components/BackButton';
 import { Layout } from '../components/Layout';
 import { MissingResourceState } from '../components/MissingResourceState';
@@ -9,12 +9,13 @@ import { ReferenceLinkDialog } from '../components/ReferenceLinkDialog';
 import type { ReferenceLink } from '../utils/referenceLinking';
 
 interface NoteListScreenProps {
-  data: AppData; setId: string; onBack: () => void; initialCategory?: string;
+  data: AppData; setId: string; onBack: () => void; initialCategory?: string; initialReference?: MaterialReference;
   onOpenQuestions?: () => void;
+  onOpenQuestion?: (questionId: string, reference: MaterialReference) => void;
   onLinkBatch?: (links: ReferenceLink[]) => Promise<void>;
   registerExitGuard?: (guard: ((proceed: () => void) => Promise<boolean>) | null) => void;
 }
-export function NoteListScreen({ data, setId, onBack, onOpenQuestions, registerExitGuard, onLinkBatch }: NoteListScreenProps) {
+export function NoteListScreen({ data, setId, onBack, onOpenQuestions, onOpenQuestion, registerExitGuard, onLinkBatch, initialReference }: NoteListScreenProps) {
   const panel = useRef<CategoryNotePanelHandle>(null);
   const [error, setError] = useState('');
   const [linkDialog,setLinkDialog]=useState<{materialId?:string;pageId?:string}|null>(null);
@@ -28,7 +29,7 @@ export function NoteListScreen({ data, setId, onBack, onOpenQuestions, registerE
     <header><BackButton onClick={() => void transition(onBack)} /><h1>{data.problemSets.find(set => set.id === setId)?.title ?? '資料'}</h1>
     {onOpenQuestions ? <button onClick={() => void transition(onOpenQuestions)}>問題一覧</button> : null}</header>
     {error ? <p role="alert">{error}</p> : null}
-    <MaterialsPanel ref={panel} setId={setId} questions={data.questions} setIds={data.problemSets.map(set => set.id)} onAdjustReferences={onLinkBatch?(materialId,pageId)=>setLinkDialog({materialId,pageId}):undefined} />
+    <MaterialsPanel ref={panel} setId={setId} questions={data.questions} setIds={initialReference ? [setId] : data.problemSets.map(set => set.id)} reference={initialReference} onOpenQuestion={onOpenQuestion} onAdjustReferences={onLinkBatch?(materialId,pageId)=>setLinkDialog({materialId,pageId}):undefined} />
     {linkDialog&&onLinkBatch?<ReferenceLinkDialog setId={setId} questions={data.questions.filter(q=>q.setId===setId)} initialMaterialId={linkDialog.materialId} initialPageId={linkDialog.pageId} onSave={onLinkBatch} onClose={()=>setLinkDialog(null)}/>:null}
   </main></Layout>;
 }

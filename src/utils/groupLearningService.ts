@@ -1,4 +1,6 @@
 import { groupProgressRpc } from './cloudService';
+import { parseMemberMaterialProgress } from './groupMemberProgress';
+export type { MemberMaterialProgress } from './groupMemberProgress';
 import { groupAccents, groupIcons, groupTimeZone, type GroupAccent, type GroupIconName, type GroupLearningMember, type LevelCounts } from './groupLearning';
 import { nextDay, studyDay } from './studyPlans';
 import { parseGroupProgress, type GroupProgressSnapshot } from './groupProgress';
@@ -67,4 +69,8 @@ export function parseMaterialProgress(value: unknown): MaterialProgress[] {
 }
 export async function readMaterialProgress(groupId: string, userId: string) {
   return parseMaterialProgress(await groupProgressRpc('quiz_group_material_progress', { p_group_id: groupId }, userId));
+}
+
+export async function readMemberMaterialProgress(groupId:string,memberId:string,userId:string) {
+  return parseMemberMaterialProgress(await groupProgressRpc('quiz_group_member_material_progress',{p_group_id:groupId,p_member_id:memberId},userId));
 }

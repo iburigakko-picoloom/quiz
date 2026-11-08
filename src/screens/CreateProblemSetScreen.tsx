@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork';
 import { isAccountWorkReloadApproved } from '../utils/accountWork';
 import { createPortal } from 'react-dom';
@@ -6,7 +6,7 @@ import type { AppData, Difficulty, ProblemSet, ProblemSetCreationMethod } from '
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Layout } from '../components/Layout';
-import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, AiCreationIcon, WeaknessMemoIcon, MemoExplanationIcon } from '../components/UiIcons';
+import { ChevronRightIcon, CopyIcon, DocumentOutlineIcon, AiCreationIcon, MemoExplanationIcon } from '../components/UiIcons';
 import { getDraftAnswerIndexes, parseBulkQuestionText, getDraftIssues, type BulkQuestionDraft } from '../utils/bulkQuestionParser';
 import { CreationNotes } from './CreationNotes';
 import type { ExplanationBatch } from '../utils/weaknessNotes';
@@ -34,6 +34,8 @@ import { materialReferencePrompt, type StudyMaterial } from '../utils/materialMo
 import { createId } from '../utils/id';
 import { captureDraftDeletion, restoreDraftDeletion, type DraftDeletion } from '../utils/draftUndo';
 import { readPlans } from '../utils/studyPlanStorage';
+import { ImportScreen } from './ImportScreen';
+import { clearImportSession, readImportSession, storeImportSession, type ImportDraft } from '../utils/importDraftSessions';
 
 export interface CreateProblemSetSubmission {
   folderId: string;
@@ -60,6 +62,9 @@ interface CreateProblemSetScreenProps {
   onSaveDetail: (questionId: string, body: string) => Promise<void>;
   onSave: (submission: CreateProblemSetSubmission) => Promise<string | null>;
   onOpenLegacyImport: (target: LegacyImportTarget) => void;
+  onPrepareBatchImport: (target: LegacyImportTarget) => LegacyImportTarget;
+  onBatchImport: (target: LegacyImportTarget, title: string, text: string) => Promise<string | null>;
+  registerBatchExitGuard?: (guard: ((proceed: () => void) => Promise<boolean>) | null) => void;
   onDirtyChange?: (dirty: boolean) => void;
   initialFolderId?: string;
   startWithAi?: boolean;
@@ -88,15 +93,20 @@ type CreateWork = {
   creationRequest: string; memoContext: string; aiStep: 1|2; aiMethod: 'simple'|'material'|'past-exam'|null; aiStage?: 1|2|3;
   referenceMaterialId: string; choiceCount: 4|5; questionCount: string; allowMultiple: boolean;
   pendingMethod: CreationView|null; pendingQuestionSave: PendingManualQuestion|null; editingBaseline: string|null;
+  batch?: BatchImport | null; batchOpen?: boolean; importMode?: 'paste'|'file';
 };
+type BatchImport = { sessionKey: string; target: LegacyImportTarget; files: File[]; draft?: ImportDraft };
 
-export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onDirtyChange, initialFolderId, startWithAi = false, startWithExplanationImport = false, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
+export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail, onSave, onOpenLegacyImport, onPrepareBatchImport, onBatchImport, registerBatchExitGuard, onDirtyChange, initialFolderId, startWithAi = false, startWithExplanationImport = false, editSetId, copySetId, onBack }: CreateProblemSetScreenProps) {
   const workKey = `create:${editSetId ?? copySetId ?? initialFolderId ?? 'new'}`;
   const recovered = useRestoredAccountWork<CreateWork>(workKey);
   const editingProblemSet = data.problemSets.find((problemSet) => problemSet.id === editSetId);
   const editingBaseline = useRef(recovered?.editingBaseline ?? (editingProblemSet ? JSON.stringify({ set:editingProblemSet, questions:data.questions.filter(q=>q.setId===editSetId) }) : null));
   const initialDraftsRef = useRef<BulkQuestionDraft[]>(recovered?.initialDrafts ?? createDraftsFromProblemSet(data, editingProblemSet));
   const [view, setView] = useState<CreationView>(recovered?.view ?? (startWithExplanationImport ? 'notes' : editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : 'methods'));
+  const [importMode, setImportMode] = useState<'paste'|'file'>(recovered?.importMode ?? (recovered?.view === 'json' ? 'file' : 'paste'));
+  const importModeView = useRef(view);
+  useEffect(()=>{if(importModeView.current===view)return;importModeView.current=view;if(view==='json')setImportMode('file');else if(view==='clipboard'||view==='chatgpt')setImportMode('paste');},[view]);
   const [notesPurpose, setNotesPurpose] = useState<'questions'|'answer'>(recovered?.notesPurpose ?? 'answer');
   const [meta, setMeta] = useState<SetMeta>(() => recovered?.meta ?? createInitialMeta(data, initialFolderId, editingProblemSet));
   const [drafts, setDrafts] = useState<BulkQuestionDraft[]>(() => recovered?.drafts ?? initialDraftsRef.current);
@@ -128,6 +138,15 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const [choiceCount, setChoiceCount] = useState<4 | 5>(recovered?.choiceCount ?? 4);
   const [questionCount, setQuestionCount] = useState(recovered?.questionCount ?? '');
   const [allowMultiple, setAllowMultiple] = useState(recovered?.allowMultiple ?? false);
+  const [batch, setBatch] = useState<BatchImport | null>(() => {
+    const value = recovered?.batch ?? null;
+    if (value?.draft) storeImportSession(value.sessionKey, value.draft);
+    return value;
+  });
+  const [batchOpen, setBatchOpen] = useState(Boolean(recovered?.batch && recovered.batchOpen));
+  const batchExitGuard = useRef<((proceed: () => void) => Promise<boolean>) | null>(null);
+  const setBatchExitGuard = useCallback((guard: ((proceed: () => void) => Promise<boolean>) | null) => { batchExitGuard.current = guard; registerBatchExitGuard?.(guard); }, [registerBatchExitGuard]);
+  const closeBatch = () => { const close = () => setBatchOpen(false); if (batchExitGuard.current) void batchExitGuard.current(close); else close(); };
   const jsonFileRef = useRef<HTMLInputElement>(null);
   const [pendingMethod, setPendingMethod] = useState<CreationView | null>(recovered?.pendingMethod ?? null);
   const [pendingQuestionSave, setPendingQuestionSave] = useState<PendingManualQuestion | null>(recovered?.pendingQuestionSave ?? null);
@@ -138,7 +157,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const initialMetaRef = useRef(recovered?.originalMeta ?? meta);
   const activeMethodRef = useRef<CreationView | null>(editingProblemSet ? 'manual' : startWithAi && !copySetId ? 'chatgpt' : null);
   const copiedTemplateTimerRef = useRef<number | null>(null);
-  useAccountWork(workKey, () => ({ view, notesPurpose, meta, originalMeta:initialMetaRef.current, drafts, initialDrafts:initialDraftsRef.current, deletedDrafts, questionEditor, editingIndex, pasteText, sourceSetId, creationRequest, memoContext, aiStep, aiMethod, aiStage, referenceMaterialId, choiceCount, questionCount, allowMultiple, pendingMethod, pendingQuestionSave, editingBaseline:editingBaseline.current }), async () => { if(busy||saveInFlightRef.current)throw new Error('教材の読み込み・保存完了を待っています。'); });
+  useAccountWork(workKey, () => ({ view, notesPurpose, meta, originalMeta:initialMetaRef.current, drafts, initialDrafts:initialDraftsRef.current, deletedDrafts, questionEditor, editingIndex, pasteText, sourceSetId, creationRequest, memoContext, aiStep, aiMethod, aiStage, referenceMaterialId, choiceCount, questionCount, allowMultiple, pendingMethod, pendingQuestionSave, editingBaseline:editingBaseline.current, batch: batch ? { ...batch, draft: readImportSession(batch.sessionKey) } : null, batchOpen, importMode }), async () => { if(busy||saveInFlightRef.current)throw new Error('教材の読み込み・保存完了を待っています。'); });
 
   useEffect(() => () => {
     if (copiedTemplateTimerRef.current !== null) window.clearTimeout(copiedTemplateTimerRef.current);
@@ -163,7 +182,8 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     || sourceSetId !== undefined
     || hasUncommittedQuestion
     || notesDirty
-  ), [creationRequest, drafts, hasUncommittedQuestion, meta, pasteText, sourceSetId, notesDirty]);
+    || Boolean(batch)
+  ), [creationRequest, drafts, hasUncommittedQuestion, meta, pasteText, sourceSetId, notesDirty, batch]);
   const creationMethod: ProblemSetCreationMethod = sourceSetId
     ? 'copy'
     : view === 'chatgpt' || view === 'memo-questions'
@@ -228,24 +248,20 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   const backWithinCreation = () => {
     if (view === 'memo-questions') { goTo('notes'); return; }
     if (view === 'notes' && notesBackRef.current?.()) return;
+    if (view === 'notes' && notesPurpose === 'questions') { goTo('chatgpt'); return; }
     if (view === 'chatgpt' && aiStep === 2) { setAiStep(1); return; }
-    if (view === 'chatgpt' && aiStage > 1) { setAiStage(stage => stage === 3 ? 2 : 1); return; }
-    if (view === 'chatgpt' && aiMethod) { setAiMethod(null); return; }
+    if (view === 'chatgpt' && aiMethod) { setAiMethod(null); setAiStage(1); return; }
     if ((startWithAi || startWithExplanationImport) && onBack) onBack(); else goTo('methods');
   };
   useEffect(() => {
+    if (batchOpen) return registerScreenBack(closeBatch);
     if (editingProblemSet || copySetId || view === 'methods') return;
     const internal = view === 'chatgpt' ? aiStep === 2 || aiStage > 1 || Boolean(aiMethod) || !startWithAi : !startWithExplanationImport;
     if (internal) return registerScreenBack(backWithinCreation);
-  }, [view, aiStep, aiStage, aiMethod, editingProblemSet, copySetId, startWithAi, startWithExplanationImport]);
+  }, [view, aiStep, aiStage, aiMethod, editingProblemSet, copySetId, startWithAi, startWithExplanationImport, batchOpen]);
   const pasteClipboard = async () => {
     try { const text = await readClipboardText(); if (!text.trim()) throw new Error('クリップボードが空です。'); setPasteText(text); setDrafts([]); setError(''); }
     catch (reason) { setError(reason instanceof Error && reason.message === 'クリップボードが空です。' ? reason.message : '入力欄を長押しして貼り付けてください。'); }
-  };
-  const showPrompt = () => {
-    const count = questionCount.trim() === '' ? undefined : Number(questionCount);
-    if (aiMethod !== 'past-exam' && count !== undefined && (!Number.isInteger(count) || count < 1 || count > 2000)) { setError('問題数は空欄にするか、1〜2000の整数で入力してください。'); return; }
-    setError(''); setAiStage(3);
   };
 
   const addOrUpdateQuestion = () => {
@@ -371,6 +387,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
 
   const submit = async () => {
     if (saveInFlightRef.current) return;
+    if (batch) { setError('複数ファイルの取り込みを完了するか、取り消してください。'); return; }
     const metaError = getMetaError(meta);
     if (metaError) {
       setError(metaError);
@@ -425,6 +442,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
   };
 
   const openLegacyImport = () => {
+    if (batch) { setError('複数ファイルの取り込みを完了するか、取り消してください。'); return; }
     const newFolderName = meta.newFolderName.trim();
     if (!meta.folderId && !newFolderName) {
       setError('追加先のフォルダ名を入力してください。');
@@ -435,6 +453,18 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
       folderId: meta.folderId,
       newFolderName: meta.folderId ? '' : newFolderName,
     });
+  };
+
+  const selectJsonFiles = (files: File[]) => {
+    if (!files.length) return;
+    if (files.length === 1) { void importJsonFile(files[0]); return; }
+    const newFolderName = meta.newFolderName.trim();
+    if (!meta.folderId && !newFolderName) { setError('追加先のフォルダ名を入力してください。'); return; }
+    const target = onPrepareBatchImport({ folderId: meta.folderId, newFolderName: meta.folderId ? '' : newFolderName });
+    setBatch({ sessionKey: createId('batch-import'), target, files }); setBatchOpen(true); setError('');
+  };
+  const discardBatch = () => {
+    if (batch && window.confirm('未保存のファイルを取り消しますか？ 保存済みの教材は残ります。')) { clearImportSession(batch.sessionKey); setBatch(null); }
   };
 
   const chooseCopySource = (setId: string) => {
@@ -505,6 +535,11 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
     }
   };
 
+  if (batchOpen && batch) return <ImportScreen sessionKey={batch.sessionKey} registerExitGuard={setBatchExitGuard}
+    folderName={data.folders.find(folder => folder.id === batch.target.folderId)?.name ?? batch.target.newFolderName}
+    onBack={closeBatch} onImport={(title, text) => onBatchImport(batch.target, title, text)}
+    onImportComplete={() => { setBatch(null); setBatchOpen(false); }} initialFiles={batch.files} filesOnly />;
+
   return (
     <Layout>
       <main className={`create-set${view === 'methods' ? ' create-set--chooser' : ''}`}>
@@ -549,7 +584,7 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
         ) : null}
 
         {(view === 'bulk' || view === 'clipboard' || view === 'json' || view === 'chatgpt' || view === 'memo-questions') ? (
-          <div className="create-set__flow">
+          <div className={`create-set__flow${view === 'chatgpt' ? ' create-set__flow--ai' : ''}`}>
             {view === 'memo-questions' ? <section className="create-set__memo-workspace">
               <div className="create-set__memo-tools">
                 <button type="button" className="create-set__ai-copy" disabled={busy} onClick={async()=>{try{await writeClipboardText(buildMemoQuestionPrompt(memoContext));setCopiedTemplate('simple');setError('');}catch{setError('コピーできませんでした。もう一度お試しください。');}}}>{copiedTemplate==='simple'?'コピーしました':'プロンプトをコピー'}</button>
@@ -567,31 +602,28 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
               </nav>
             ) : null}
             {view === 'chatgpt' && aiStep === 1 ? <section className="create-set__ai-methods" aria-label="問題を作る方法">
-              <h2>1. 作成方法</h2>
-              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '指示から作成'], ['material', '資料から作成'], ['past-exam', '過去問から作成']] as const).map(([method, label]) => <button type="button" key={method} aria-pressed={aiMethod === method} onClick={() => { setAiMethod(method); setAiStage(1); setError(''); }}>{label}</button>)}</nav>
-              {aiMethod ? <section className="create-set__ai-stage">
-                <h2>2. {aiMethod === 'simple' ? '作りたい問題' : aiMethod === 'material' ? '資料を選ぶ' : '過去問を用意'}</h2>
+              <h2>何から作りますか？</h2>
+              <nav className="create-set__method-tabs" aria-label="作成方法">{([['simple', '指示'], ['material', '資料'], ['past-exam', '過去問']] as const).map(([method, label]) => <button type="button" key={method} aria-label={`${label}から作成`} aria-pressed={aiMethod === method} onClick={() => { if(aiMethod!==method)setAiStage(1); setAiMethod(method); setError(''); }}>{label}</button>)}<button type="button" aria-label="メモから作成" onClick={()=>{setNotesPurpose('questions');goTo('notes');}}>メモ</button></nav>
+              {aiMethod && aiMethod !== 'past-exam' ? <section className="create-set__ai-stage create-set__ai-choice">
+                <h2>選択肢数</h2>
+                <div className="create-set__choice-buttons">{([4,5] as const).map(count=><button type="button" key={count} aria-pressed={aiStage>1 && choiceCount===count} onClick={()=>{setChoiceCount(count);setAiStage(2);}}>{count}択</button>)}</div>
+              </section> : null}
+              {aiMethod && (aiMethod === 'past-exam' || aiStage > 1) ? <section className="create-set__ai-stage">
+                {aiMethod !== 'past-exam' ? <div className="create-set__generation-options create-set__generation-options--simple">
+                  <label>問題数（任意）<input type="number" min={1} max={2000} step={1} inputMode="numeric" placeholder="未指定" value={questionCount} onChange={event=>setQuestionCount(event.target.value)} /></label>
+                  <label className="create-set__multiple-option"><span>複数回答</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={event=>setAllowMultiple(event.target.checked)} /></span></label>
+                </div> : null}
                 {aiMethod === 'simple' ? <>
                   {memoContext ? <details><summary>苦手メモを参照中</summary><button type="button" onClick={()=>setMemoContext('')}>参照を外す</button></details> : null}
-                  <label className="create-set__field"><span>作りたい問題集</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={event=>{setCreationRequest(event.target.value);setAiStage(1);}} /></label>
+                  <label className="create-set__field"><span>作りたい問題集</span><textarea rows={3} value={creationRequest} maxLength={2000} onChange={event=>setCreationRequest(event.target.value)} /></label>
                 </> : <>
                   <p className="create-set__external-pdf">外部の生成AIに{aiMethod === 'material' ? '資料PDF' : '過去問PDF'}を添付</p>
                   {aiMethod === 'material' ? <label className="create-set__field"><span>登録済み資料との紐づけ（任意）</span><select value={referenceMaterialId} onChange={event=>setReferenceMaterialId(event.target.value)}><option value="">紐づけない</option>{registeredMaterials.map(({setTitle,material})=><option key={material.id} value={material.id}>{setTitle} · {material.title}</option>)}</select></label> : null}
                   {materialsError && aiMethod === 'material' ? <p role="alert">{materialsError}</p> : null}
                 </>}
-                {aiStage === 1 ? <button type="button" className="create-set__primary" disabled={aiMethod === 'simple' && !creationRequest.trim()} onClick={()=>setAiStage(2)}>条件を設定 <ChevronRightIcon size={18}/></button> : null}
               </section> : null}
-              {aiMethod && aiStage >= 2 ? <section className="create-set__ai-stage">
-                <h2>3. 作成条件</h2>
-                {aiMethod !== 'past-exam' ? <div className="create-set__generation-options">
-                  <fieldset><legend>選択肢数</legend><div className="create-set__choice-switch"><span aria-hidden="true" style={{transform:`translateX(${choiceCount===5?100:0}%)`}} />{([4,5] as const).map(count=><button type="button" key={count} aria-pressed={choiceCount===count} onClick={()=>{setChoiceCount(count);setAiStage(2);}}>{count}択</button>)}</div></fieldset>
-                  <label>問題数（任意）<input type="number" min={1} max={2000} step={1} inputMode="numeric" placeholder="未指定" value={questionCount} onChange={event=>{setQuestionCount(event.target.value);setAiStage(2);}} /></label>
-                  <label className="create-set__multiple-option"><span>複数回答</span><span className="create-set__checkbox-cell"><input type="checkbox" checked={allowMultiple} onChange={event=>{setAllowMultiple(event.target.checked);setAiStage(2);}} /></span></label>
-                </div> : <p>原文の選択肢・正解数を維持</p>}
-                {aiStage === 2 ? <button type="button" className="create-set__primary" onClick={showPrompt}>依頼文を作成 <ChevronRightIcon size={18}/></button> : null}
-              </section> : null}
-              {aiMethod && aiStage === 3 ? <section className="create-set__ai-stage">
-                <h2>4. 生成AIへ依頼</h2>
+              {aiMethod && (aiMethod === 'past-exam' || aiStage > 1) && (aiMethod !== 'simple' || creationRequest.trim()) ? <section className="create-set__ai-stage">
+                <h2>生成AIへ依頼</h2>
                 {aiMethod === 'simple' ? <>
                   <button type="button" className="create-set__ai-copy" onClick={()=>void copyPromptTemplate('simple')}><CopyIcon size={18}/>{copiedTemplate==='simple'?'コピーしました':'依頼文をコピー'}</button>
                   <p>外部の生成AIに貼り付け</p>
@@ -603,12 +635,10 @@ export function CreateProblemSetScreen({ data, onApplyExplanations, onSaveDetail
             <SetMetaFields data={data} value={meta} onChange={next => { setMeta(next); setError(''); }} />
             {view !== 'memo-questions' ? <section className="create-set__panel">
               <h2>{view === 'chatgpt' || view === 'json' ? 'JSONを取り込む' : 'クリップボードから取り込む'}</h2>
-              <input ref={jsonFileRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importJsonFile(file); }} />
-              {view !== 'json' ? <button type="button" className="create-set__ai-copy" disabled={busy} onClick={()=>void pasteClipboard()}>クリップボードから貼り付け</button> : null}
-              <button type="button" className="create-set__ai-copy" disabled={busy} onClick={() => jsonFileRef.current?.click()}><DocumentOutlineIcon size={18} />{busy ? '読み込み中…' : 'JSONファイルを選ぶ'}</button>
-              <textarea className="create-set__paste" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setDrafts([]); }} aria-label={view === 'chatgpt' || view === 'json' ? '問題セットJSON' : '問題の貼り付け欄'} />
-              <button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' || view === 'json' ? 'JSONを読み取る' : '読み取って確認'}</button>
-              {view === 'json' ? <details className="create-set__secondary-menu"><summary>その他のJSON形式</summary><button type="button" className="create-set__text-button" onClick={openLegacyImport}>従来の問題セットファイルを取り込む</button></details> : null}
+              <input ref={jsonFileRef} type="file" accept=".json,application/json" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; selectJsonFiles(files); }} />
+              {view === 'chatgpt' || view === 'json' || view === 'clipboard' ? <div className="create-set__import-tabs" aria-label="取り込み方法"><button type="button" aria-pressed={importMode==='paste'} onClick={()=>setImportMode('paste')}>貼り付け</button><button type="button" aria-pressed={importMode==='file'} onClick={()=>setImportMode('file')}>ファイル</button></div> : null}
+              {(view !== 'chatgpt' && view !== 'json' && view !== 'clipboard') || importMode==='paste' ? <><button type="button" className="create-set__ai-copy" disabled={busy} onClick={()=>void pasteClipboard()}>クリップボードから貼り付け</button><textarea className="create-set__paste" value={pasteText} onChange={(event) => { setPasteText(event.target.value); setDrafts([]); }} aria-label={view === 'chatgpt' || view === 'json' ? '問題セットJSON' : '問題の貼り付け欄'} /><button type="button" className="create-set__primary" onClick={parsePastedContent}>{view === 'chatgpt' || view === 'json' ? 'JSONを読み取る' : '読み取って確認'}</button></> : <><button type="button" className="create-set__ai-copy" disabled={busy} onClick={() => batch ? setBatchOpen(true) : jsonFileRef.current?.click()}><DocumentOutlineIcon size={18} />{batch ? '複数ファイルの取り込みを再開' : busy ? '読み込み中…' : 'JSONファイルを選ぶ'}</button>{batch ? <button type="button" className="create-set__text-button" onClick={discardBatch}>取り込みを取り消す</button> : null}<details className="create-set__secondary-menu"><summary>その他のJSON形式</summary><button type="button" className="create-set__text-button" onClick={openLegacyImport}>従来の問題セットファイルを取り込む</button></details></>}
+              {view === 'clipboard' ? <details className="create-set__secondary-menu"><summary>テキスト・CSVから取り込む</summary><button type="button" className="create-set__text-button" onClick={()=>startMethod('bulk')}>テキスト・CSVを入力</button></details> : null}
             </section> : null}
             {reviewedDrafts.length > 0 ? (
               <section className="create-set__review" aria-label="読み取り結果">
@@ -816,18 +846,13 @@ function PendingQuestionSaveDialog({
 function MethodChooser({ onSelect }: { onSelect: (view: CreationView, purpose?: 'questions'|'answer') => void }) {
   const item = (view: CreationView, title: string, icon: React.ReactNode, purpose?: 'questions'|'answer') => <button key={title} data-guide={view==='chatgpt'?'create-ai':purpose==='answer'?'create-explanation':'create-memo'} type="button" className="create-set__method" onClick={()=>onSelect(view,purpose)}><span className="create-set__method-icon">{icon}</span><strong>{title}</strong><ChevronRightIcon/></button>;
   return <section className="create-set__methods create-set__purpose-groups" aria-label="作成方法">
-    <section className="create-set__purpose-group"><h2>作成</h2>
+    <section className="create-set__purpose-group"><h2>① 作成</h2>
       {item('chatgpt','生成AIで作る',<AiCreationIcon/>)}
       {item('manual','手入力で作る',<DocumentOutlineIcon/>)}
-      <details className="create-set__secondary-menu"><summary>その他の作成方法</summary>
-        {item('notes','メモから問題を作る',<WeaknessMemoIcon/>,'questions')}
-        {item('copy','問題セットのコピー',<CopyIcon/>)}
-      </details>
     </section>
-    <section className="create-set__purpose-group"><h2>とりこみ</h2>
+    <section className="create-set__purpose-group"><h2>② とりこみ</h2>
       {item('clipboard','クリップボードから取り込む',<CopyIcon/>)}
       {item('json','JSONファイルから取り込む',<DocumentOutlineIcon/>)}
-      <details className="create-set__secondary-menu"><summary>まとめて貼り付ける</summary>{item('bulk','テキスト・CSVから取り込む',<CopyIcon/>)}</details>
     </section>
     <section className="create-set__purpose-group">{item('notes','メモから追加解説を作る',<MemoExplanationIcon/>,'answer')}</section>
   </section>;
