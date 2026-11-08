@@ -3,6 +3,21 @@
 .create-set .create-set__header--notes { grid-template-columns: 48px minmax(0, 1fr) 44px; }
 .create-set .create-set__add-note { width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: #305da3; font-size: 28px; }
 .create-set .create-set__flow { width: min(calc(100% - 40px), 600px); }
+.create-set .create-set__flow--ai { width: min(calc(100% - 32px), 760px); gap: 0; }
+.create-set .create-set__flow--ai .create-set__steps { gap: 0; padding: 0; margin: 12px 0 20px; border-bottom: 1px solid #dce2ea; }
+.create-set .create-set__flow--ai .create-set__steps i { display: none; }
+.create-set .create-set__flow--ai .create-set__steps button { justify-content: center; flex: 1; min-width: 0; min-height: 42px; border-bottom: 3px solid transparent; }
+.create-set .create-set__flow--ai .create-set__steps button[aria-current="step"] { border-bottom-color: #2859a6; }
+.create-set .create-set__ai-methods > h2, .create-set .create-set__ai-stage h2 { margin: 0 0 12px; font-size: 14px; line-height: 1.5; }
+.create-set .create-set__ai-methods > .create-set__method-tabs { gap: 8px; padding: 0; background: transparent; }
+.create-set .create-set__method-tabs button { min-height: 46px; border: 1px solid #dce5ef; border-radius: 6px; background: white; font-size: 14px; }
+.create-set .create-set__method-tabs button[aria-pressed=true] { border-color: #2859a6; background: #eef4fc; box-shadow: none; }
+.create-set .create-set__ai-choice { margin-top: 20px; }
+.create-set .create-set__choice-buttons { display: flex; gap: 8px; }
+.create-set .create-set__choice-buttons button { min-width: 44px; min-height: 40px; padding: 8px 10px; border: 1px solid #dce5ef; border-radius: 6px; background: white; color: #526173; font: inherit; }
+.create-set .create-set__choice-buttons button[aria-pressed=true] { border-color: #2859a6; background: #eef4fc; color: #2859a6; }
+.create-set .create-set__generation-options--simple { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 0; text-align: left; }
+.create-set .create-set__generation-options--simple > label { justify-items: start; }
 .create-set .create-set__steps { display: flex; align-items: center; gap: 10px; border: 0; margin: 0 0 14px; padding: 6px 0; }
 .create-set .create-set__steps button { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 44px; padding: 0; border: 0; font-size: 12px; font-weight: 600; }
 .create-set .create-set__steps button span { font-size: 12px; letter-spacing: 0; }
