@@ -88,6 +88,8 @@
 .create-set__draft button { border: 0; background: transparent; color: #1769ff; font-weight: 800; }
 .create-set__draft .create-set__delete { color: #b34f46; }
 .create-set__paste { min-height: 240px; resize: vertical; line-height: 1.55; }
+.create-set__paste-controls { display: grid; justify-items: start; gap: 12px; }
+.create-set__paste-controls > textarea { min-width: 0; }
 .create-set__review { width: min(100%,760px); margin: 0 auto; }
 .create-set__review-summary { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-bottom: 12px; }
 .create-set__review-summary div { display: grid; border: 1px solid #dce8ed; border-radius: 12px; background: #fff; padding: 14px; }

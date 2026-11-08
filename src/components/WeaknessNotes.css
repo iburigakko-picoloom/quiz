@@ -12,6 +12,7 @@
 .weakness-button:disabled,.weakness-primary:disabled{opacity:.5;cursor:default}
 .weakness-text{border:0;background:transparent;color:#305da3;min-height:44px;padding:8px 0;font:inherit;font-size:13px;cursor:pointer}
 .weakness-muted{color:#677587;font-size:12px}.weakness-error{color:#d72d40;font-size:13px}.weakness-error button{margin-left:12px}
+.weakness-empty{color:#52677d;font-size:14px;line-height:1.6}
 .weakness-composer{margin-top:18px}.weakness-composer>label{display:block;font-size:13px;margin-bottom:9px}
 .weakness-compose-row{display:flex;gap:10px;align-items:flex-end}
 .weakness-detail .weakness-compose-row textarea{min-height:88px;height:110px;max-height:220px;flex:1;width:0;padding:12px;border:1px solid #c9d2de;border-radius:10px;font:inherit;font-size:16px;line-height:1.6;resize:vertical;background:white;color:#202d3b;touch-action:pan-y}
