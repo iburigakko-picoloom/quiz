@@ -13,7 +13,7 @@ import { useAccountWork, useRestoredAccountWork } from '../hooks/useAccountWork'
 export function GroupTimeline({groupId,groupName,userId,sets,onOpenProgress}:{groupId:string;groupName:string;userId:string;sets:CloudProblemSet[];onOpenProgress?:(set:CloudProblemSet)=>void}) {
   const workKey=`group-timeline:${groupId}:${userId}`;
   const restored=useRestoredAccountWork<{manualGeneration:string|null}>(workKey);
-  const [feed,setFeed]=useState<ActivityFeed|null>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false),[more,setMore]=useState(false),[manualGeneration,setManualGeneration]=useState<string|null>(restored?.manualGeneration??null);
+  const [feed,setFeed]=useState<ActivityFeed|null>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false),[timeConfirm,setTimeConfirm]=useState(false),[more,setMore]=useState(false),[manualGeneration,setManualGeneration]=useState<string|null>(restored?.manualGeneration??null);
   useAccountWork(workKey,()=>({manualGeneration}));
   const [outbox,setOutbox]=useState<ManualActivityItem[]>([]);
   const request=useRef(0),locked=useRef(false),pageDepth=useRef(1),active=useRef(true),settingsRef=useRef<HTMLDetailsElement>(null);
@@ -52,13 +52,19 @@ export function GroupTimeline({groupId,groupName,userId,sets,onOpenProgress}:{gr
   },[read,readOutbox,userId]);
   const consent=async(enabled:boolean)=>{
     if(!feed||locked.current)return;locked.current=true;setBusy(true);
-    try{await groupProgressRpc('quiz_group_activity_consent',{p_group_id:groupId,p_enabled:enabled,p_expected_generation:feed.generation},userId);setConfirm(false);await read();}
+    try{await groupProgressRpc('quiz_group_activity_consent',{p_group_id:groupId,p_enabled:enabled,p_expected_generation:feed.generation},userId);setConfirm(false);if(!enabled)setTimeConfirm(false);await read();}
     catch{setError('共有設定を変更できません。再読み込みしてください。');}
     finally{locked.current=false;setBusy(false);}
   };
   const retry=async()=>{
     const results=await Promise.allSettled([retryStudyActivities(),retryManualActivities()]);
     await readOutbox();await read();if(results.some(result=>result.status==='rejected'))setError('未送信の活動があります。接続後に再試行してください。');
+  };
+  const timeConsent=async(enabled:boolean)=>{
+    if(!feed||locked.current)return;locked.current=true;setBusy(true);
+    try{await groupProgressRpc('quiz_group_activity_time_consent',{p_group_id:groupId,p_enabled:enabled,p_expected_generation:feed.time_generation},userId);setTimeConfirm(false);await read();}
+    catch{setError('演習時間の共有設定を変更できません。再読み込みしてください。');}
+    finally{locked.current=false;setBusy(false);}
   };
   const removeLocal=async(item:ManualActivityItem)=>{
     if(!window.confirm(item.status==='rejected'?'送信できなかった記録を取り消しますか？':'端末の送信待ちを削除しますか？ 既に共有済みの場合は、共有設定を停止すると表示されなくなります。'))return;
@@ -69,6 +75,8 @@ export function GroupTimeline({groupId,groupName,userId,sets,onOpenProgress}:{gr
     <div className="group-panel__heading"><h2>タイムライン</h2></div>
     <details ref={settingsRef} className="group-timeline__settings"><summary>共有設定・更新</summary><button type="button" className="group-secondary" disabled={busy||!feed} onClick={()=>feed?.enabled?void consent(false):setConfirm(true)}>{feed?.enabled?'活動共有を停止':'活動を共有する'}</button>
     {confirm?<div className="group-panel" role="group" aria-label="活動共有の確認"><p>今後の演習終了時に、名前・教材・日時・解答した問題数をこのグループに共有します。手動の記録は内容を確認してから共有します。</p><button type="button" className="group-primary" disabled={busy} onClick={()=>void consent(true)}>同意して共有</button><button type="button" className="group-secondary" disabled={busy} onClick={()=>setConfirm(false)}>キャンセル</button></div>:null}
+    <button type="button" className="group-secondary" disabled={busy||!feed?.enabled} onClick={()=>feed?.time_enabled?void timeConsent(false):setTimeConfirm(true)}>{feed?.time_enabled?'演習時間の共有を停止':'演習時間を共有する'}</button>
+    {timeConfirm?<div className="group-panel" role="group" aria-label="演習時間の共有確認"><p>今後の演習で画面を表示していた時間を、このグループに共有します。画面が非表示の間は含みません。</p><button type="button" className="group-primary" disabled={busy} onClick={()=>void timeConsent(true)}>同意して時間を共有</button><button type="button" className="group-secondary" disabled={busy} onClick={()=>setTimeConfirm(false)}>キャンセル</button></div>:null}
     <button type="button" className="group-text-link" disabled={busy} onClick={()=>void retry()}>更新・送信を再試行</button>
     </details>
     {manualGeneration?<ManualActivityComposer groupId={groupId} groupName={groupName} userId={userId} generation={manualGeneration} onClose={()=>setManualGeneration(null)} onCompleted={status=>{setManualGeneration(null);setNotice(status==='sent'?'学習を記録しました。':status==='rejected'?'共有設定が変わったため送信できませんでした。':'端末に保存しました。接続後に送信します。');void readOutbox();void read();}}/>:null}
@@ -81,7 +89,7 @@ export function GroupTimeline({groupId,groupName,userId,sets,onOpenProgress}:{gr
       <div className="group-progress-member__name"><MemberAvatar name={entry.display_name} userId={entry.user_id} self={entry.user_id===userId}/><strong>{entry.user_id===userId?'あなた':entry.display_name}</strong></div>
       <time dateTime={entry.finished_at}>{new Date(entry.finished_at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}</time>
       <div>{entry.kind==='session'?<button type="button" className="group-text-link" disabled={!set} onClick={()=>set&&onOpenProgress?.(set)}>{entry.title}</button>:<strong>{entry.title}</strong>}</div>
-      <p>{entry.answered!==null?`${entry.answered}問${entry.kind==='session'?'を解答':''}`:''}{entry.answered!==null&&entry.minutes!==null?'・':''}{entry.minutes!==null?`${entry.minutes}分`:''}</p>
+      <p>{entry.answered!==null?`${entry.answered}問${entry.kind==='session'?'を解答':''}`:''}{entry.answered!==null&&(entry.minutes!==null||entry.seconds!==null)?'・':''}{entry.minutes!==null?`${entry.minutes}分`:entry.seconds!==null?(entry.seconds>=60?`${Math.floor(entry.seconds/60)}分${entry.seconds%60?`${entry.seconds%60}秒`:''}`:`${entry.seconds}秒`):''}</p>
     </article></Fragment>;})}
     {more&&feed?.entries.length?<button type="button" className="group-secondary" onClick={()=>void read(feed.entries[feed.entries.length-1].id)}>もっと見る</button>:null}
     <div className="group-timeline__compose"><button type="button" aria-label="学習を記録" disabled={!feed} onClick={()=>{if(feed?.enabled&&feed.generation)setManualGeneration(feed.generation);else if(feed){if(settingsRef.current)settingsRef.current.open=true;setConfirm(true);}}}><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m15 4 5 5M4 20l5-1L20 8a2 2 0 0 0-5-5L4 14v6Z"/></svg></button></div>
