@@ -29,6 +29,9 @@ try{
  await page.getByRole('button',{name:'同期画面',exact:true}).click();
  await page.locator('.sync-account-summary').getByText('設定した名前',{exact:true}).waitFor();
  await page.locator('.sync-account-avatar svg').waitFor();
+ await page.evaluate(async()=>{(await import('/quiz/src/utils/accountSync.ts')).publishAccountSyncState({phase:'ready',syncId:'a'.repeat(36)});});
+ await page.getByRole('button',{name:'更新を確認',exact:true}).waitFor();await page.getByRole('button',{name:'詳細設定',exact:true}).waitFor();await page.getByRole('button',{name:'バックアップ・復旧',exact:true}).waitFor();
+ for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);}await page.setViewportSize({width:390,height:844});
  await mkdir('qa/phase6',{recursive:true});await page.screenshot({path:'qa/phase6/account-sync-390.png'});
  await page.getByRole('button',{name:'設定画面',exact:true}).click();
  await page.getByRole('button',{name:'LINEの名前を使う',exact:true}).click();
