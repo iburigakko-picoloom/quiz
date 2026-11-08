@@ -201,7 +201,7 @@ export interface QuizSession {
 export type SyncScreenPage = 'settings' | 'recovery' | 'connect' | 'diagnostics' | 'danger';
 
 export type AppScreen =
-  | { name: 'home'; materialsView?: boolean; materialsQuery?: string; materialsScroll?: number; materialsFolderId?: string }
+  | { name: 'home'; materialsView?: boolean; materialsQuery?: string; materialsScroll?: number; materialsCollapsed?: string[] }
   | { name: 'companionCare'; backScreen?: AppScreen }
   | { name: 'plans' }
   | { name: 'planDetail'; planId: string }

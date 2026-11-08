@@ -27,8 +27,8 @@ import type { CompanionCare } from '../utils/companionCare';
 
 interface HomeScreenProps {
   data: AppData;
-  initialMaterials?: { materialsView?: boolean; materialsQuery?: string; materialsScroll?: number; materialsFolderId?: string };
-  onOpenMaterial?: (setId: string, reference: MaterialReference, query: string, scroll: number, folderId: string) => void;
+  initialMaterials?: { materialsView?: boolean; materialsQuery?: string; materialsScroll?: number; materialsCollapsed?: string[] };
+  onOpenMaterial?: (setId: string, reference: MaterialReference, query: string, scroll: number, collapsed: string[]) => void;
   onCloseMaterials?: () => void;
   onCreateFolder: (name: string) => void;
   onCreateSample: () => void;
@@ -59,7 +59,7 @@ export function HomeScreen({
   const isMainDevice = useDeviceRole() === 'main';
   const [materialsView, setMaterialsView] = useState(initialMaterials?.materialsView ?? false);
   const [materialsQuery, setMaterialsQuery] = useState(initialMaterials?.materialsQuery ?? '');
-  const [materialsFolderId, setMaterialsFolderId] = useState(initialMaterials?.materialsFolderId ?? '');
+  const [materialsCollapsed, setMaterialsCollapsed] = useState<string[]>(initialMaterials?.materialsCollapsed ?? []);
   const [materialRows, setMaterialRows] = useState<Array<{setId: string; setTitle: string; folderId: string; material: StudyMaterial}>>([]);
   const [materialError, setMaterialError] = useState('');
   const [materialsLoading, setMaterialsLoading] = useState(false);
@@ -69,13 +69,12 @@ export function HomeScreen({
     while (id && !seen.has(id)) { seen.add(id); const folder = folderMap.get(id); if (!folder) break; names.unshift(folder.name); id = folder.parentFolderId ?? ''; }
     return names.join(' / ');
   };
-  const isInFolder = (id: string, selected: string) => {
-    const seen = new Set<string>();
-    while (id && !seen.has(id)) { if (id === selected) return true; seen.add(id); id = folderMap.get(id)?.parentFolderId ?? ''; }
-    return false;
-  };
-  const selectedMaterialsFolderId = folderMap.has(materialsFolderId) ? materialsFolderId : '';
-  const visibleMaterialRows = materialRows.filter(row => (!selectedMaterialsFolderId || isInFolder(row.folderId, selectedMaterialsFolderId)) && `${row.material.title} ${row.setTitle}`.toLocaleLowerCase().includes(materialsQuery.trim().toLocaleLowerCase()));
+  const visibleMaterialRows = materialRows.filter(row => `${row.material.title} ${row.setTitle} ${folderPath(row.folderId)}`.toLocaleLowerCase().includes(materialsQuery.trim().toLocaleLowerCase()));
+  const rowsByFolder = new Map<string, typeof visibleMaterialRows>();
+  for (const row of visibleMaterialRows) { const rows = rowsByFolder.get(row.folderId) ?? []; rows.push(row); rowsByFolder.set(row.folderId, rows); }
+  const materialGroups = data.folders.map(folder => ({ id: folder.id, title: folderPath(folder.id), rows: rowsByFolder.get(folder.id) ?? [] })).filter(group => group.rows.length);
+  const unfiledMaterials = visibleMaterialRows.filter(row => !folderMap.has(row.folderId));
+  if (unfiledMaterials.length) materialGroups.push({ id: '', title: 'その他の資料', rows: unfiledMaterials });
   const materialList = useRef<HTMLDivElement>(null);
   const materialCovers = useRef<MaterialCoverQueue | null>(null);
   useEffect(() => () => { materialCovers.current?.close(); materialCovers.current = null; }, []);
@@ -140,12 +139,14 @@ export function HomeScreen({
         </header>
 
         {materialsView ? <div className="quiz-home__content quiz-home__materials" ref={materialList}>
-          <label className="quiz-home__materials-folder"><span className="sr-only">資料のフォルダ</span><select value={selectedMaterialsFolderId} onChange={event => { setMaterialsFolderId(event.target.value); if (materialList.current) materialList.current.scrollTop = 0; }}><option value="">すべてのフォルダ</option>{data.folders.map(folder => <option key={folder.id} value={folder.id}>{folderPath(folder.id)}</option>)}</select></label>
-          <label className="quiz-home__materials-search"><SearchIcon size={18} aria-hidden="true"/><input type="search" aria-label="資料を検索" placeholder="資料名・教材名で検索" value={materialsQuery} onChange={event => setMaterialsQuery(event.target.value)} /></label>
+          <label className="quiz-home__materials-search"><SearchIcon size={18} aria-hidden="true"/><input type="search" aria-label="資料を検索" placeholder="資料名・教材名で検索" value={materialsQuery} onChange={event => { if (!materialsQuery.trim() && event.target.value.trim()) setMaterialsCollapsed([]); setMaterialsQuery(event.target.value); }} /></label>
           {materialsLoading ? <p role="status">読み込み中…</p> : null}
           {materialError ? <p role="alert">{materialError}</p> : null}
           {!isMainDevice ? <p>資料を開くにはメイン端末に切り替えてください。</p> : null}
-          {!materialsLoading && !materialError ? <div className="quiz-home__material-grid">{visibleMaterialRows.map(({setId,setTitle,material}) => <button key={`${setId}/${material.id}`} type="button" className="quiz-home__material-card" disabled={!isMainDevice || !material.pages.length} onClick={() => onOpenMaterial?.(setId, {materialId:material.id,pageId:material.pages[0].id}, materialsQuery, materialList.current?.scrollTop ?? 0, selectedMaterialsFolderId)}><MaterialCover ownerId={setId} materialId={material.id} page={material.pages[0]} enabled={isMainDevice} queue={materialCovers}/><span className="quiz-home__material-details"><strong>{material.title}</strong>{setTitle !== material.title ? <span>{setTitle}</span> : null}</span></button>)}</div> : null}
+          {!materialsLoading && !materialError ? materialGroups.map(group => {
+            const expanded = !materialsCollapsed.includes(group.id);
+            return <section className="quiz-home__material-group" key={group.id} aria-label={group.title}><h2><button type="button" className="quiz-home__material-group-toggle" aria-expanded={expanded} onClick={() => setMaterialsCollapsed(previous => previous.includes(group.id) ? previous.filter(id => id !== group.id) : [...previous, group.id])}>{group.title}<span aria-hidden="true">{expanded ? '⌄' : '›'}</span></button></h2>{expanded ? <div className="quiz-home__material-grid">{group.rows.map(({setId,setTitle,material}) => <button key={`${setId}/${material.id}`} type="button" className="quiz-home__material-card" disabled={!isMainDevice || !material.pages.length} onClick={() => onOpenMaterial?.(setId, {materialId:material.id,pageId:material.pages[0].id}, materialsQuery, materialList.current?.scrollTop ?? 0, materialsCollapsed)}><MaterialCover ownerId={setId} materialId={material.id} page={material.pages[0]} enabled={isMainDevice} queue={materialCovers}/><span className="quiz-home__material-details"><strong>{material.title}</strong>{setTitle !== material.title ? <span>{setTitle}</span> : null}</span></button>)}</div> : null}</section>;
+          }) : null}
           {!materialsLoading && !materialError && !visibleMaterialRows.length ? <p>{materialRows.length ? '該当する資料はありません。' : '登録された資料はありません。'}</p> : null}
         </div> : <div className="quiz-home__content">
         <section className="quiz-home__library" aria-label="学習フォルダ">
