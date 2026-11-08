@@ -69,11 +69,22 @@ export function HomeScreen({
     while (id && !seen.has(id)) { seen.add(id); const folder = folderMap.get(id); if (!folder) break; names.unshift(folder.name); id = folder.parentFolderId ?? ''; }
     return names.join(' / ');
   };
+  const topFolderId = (id: string) => {
+    const seen = new Set<string>();
+    let folder = folderMap.get(id);
+    while (folder && !seen.has(folder.id)) {
+      seen.add(folder.id);
+      if (!folder.parentFolderId) return folder.id;
+      folder = folderMap.get(folder.parentFolderId);
+    }
+    // Keep materials accessible even if their folder tree is incomplete.
+    return '';
+  };
   const visibleMaterialRows = materialRows.filter(row => `${row.material.title} ${row.setTitle} ${folderPath(row.folderId)}`.toLocaleLowerCase().includes(materialsQuery.trim().toLocaleLowerCase()));
   const rowsByFolder = new Map<string, typeof visibleMaterialRows>();
-  for (const row of visibleMaterialRows) { const rows = rowsByFolder.get(row.folderId) ?? []; rows.push(row); rowsByFolder.set(row.folderId, rows); }
-  const materialGroups = data.folders.map(folder => ({ id: folder.id, title: folderPath(folder.id), rows: rowsByFolder.get(folder.id) ?? [] })).filter(group => group.rows.length);
-  const unfiledMaterials = visibleMaterialRows.filter(row => !folderMap.has(row.folderId));
+  for (const row of visibleMaterialRows) { const id = topFolderId(row.folderId); const rows = rowsByFolder.get(id) ?? []; rows.push(row); rowsByFolder.set(id, rows); }
+  const materialGroups = data.folders.filter(folder => !folder.parentFolderId).map(folder => ({ id: folder.id, title: folder.name, rows: rowsByFolder.get(folder.id) ?? [] })).filter(group => group.rows.length);
+  const unfiledMaterials = rowsByFolder.get('') ?? [];
   if (unfiledMaterials.length) materialGroups.push({ id: '', title: 'その他の資料', rows: unfiledMaterials });
   const materialList = useRef<HTMLDivElement>(null);
   const materialCovers = useRef<MaterialCoverQueue | null>(null);
