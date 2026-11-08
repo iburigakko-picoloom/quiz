@@ -1,3 +1,4 @@
+import type { StudyTimeSnapshot } from './utils/visibleStudyTimer';
 export type Difficulty = 'basic' | 'standard' | 'advanced' | string;
 
 export type ProblemSetCreationMethod = 'manual' | 'bulk' | 'chatgpt' | 'copy' | 'import' | 'public-copy';
@@ -156,6 +157,7 @@ export interface ImportedProblemSet {
 
 export interface QuizResult {
   sessionAnswers?: { question: Question; selectedIndexes: number[]; correct: boolean; relearned: boolean; answerLogId?: string }[];
+  studyTime?: StudyTimeSnapshot;
   mode: 'quiz' | 'review';
   title: string;
   setId?: string;

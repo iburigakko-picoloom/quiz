@@ -25,7 +25,7 @@ try {
   const snakeSet=set=>({id:set.id,local_set_id:set.localSetId,owner_id:set.ownerId==='you'?userId:set.ownerId,author_name:set.authorName,title:set.title,description:set.description,subject:set.subject,audience:set.audience,difficulty:set.difficulty,creation_method:set.creationMethod,source:set.source,visibility:set.visibility,question_count:set.questionCount,add_count:set.addCount,import_count:set.importCount,published_at:set.publishedAt,updated_at:set.updatedAt,version_id:set.versionId,folder_path:set.folderPath??[],questions:set.questions?.map((q,i)=>({position:i,logical_id:q.logicalId,content_revision:'preview',question:q.question,choices:q.choices,answer_indexes:q.answerIndexes,answer_text:q.answerText,explanation:q.explanation,detailed_explanation:q.detailedExplanation,source_page:q.sourcePage,category:q.category,difficulty:q.difficulty}))});
   const snapshot=()=>({icon:state.icon,accent:state.accent,folders:state.folders.map(f=>({id:f.id,name:f.name,parent_folder_id:f.parentId,created_by:f.createdBy,creator_name:f.creatorName,created_at:f.createdAt,updated_at:f.updatedAt,import_count:f.importCount})),placements:state.placements.map(p=>({set_id:p.setId,group_folder_id:p.folderId})),members:state.members.map(m=>({user_id:m.userId,display_name:m.displayName,role:m.role,levels:m.levels,today_count:m.todayCount,week_count:m.weekCount,imported_set_count:m.importedSetCount,shared_set_count:m.sharedSetCount}))});
   const mutations=[];const uploads=new Map();const sourceConsents=new Map();page.on('pageerror',error=>errors.push(error.message));
-  let activityEnabled=false,failActivity=true,manyActivities=false,failManual=true,denyManual=false; const postedActivities=new Map(),manualPosts=new Map(),manualAttempts=[];
+  let activityEnabled=false,failActivity=true,manyActivities=false,failManual=true,denyManual=false,timeEnabled=false,timeGeneration=null,timeCounter=0; const postedActivities=new Map(),manualPosts=new Map(),manualAttempts=[];
   const batch = () => sets.map(set=>({set_id:set.id,version_id:set.versionId,learners:1,answered:3,total:45,levels:[42,1,1,1],reflected_at:new Date().toISOString(),today_count:2,week_count:5,own_enabled:false,own_copy_id:null,own_state:'not_shared',own_reflected_at:null}));
   await page.route('https://group-preview.example.test/**',async route=>{
     const request=route.request(),url=new URL(request.url()),name=url.pathname.split('/').at(-1);
@@ -39,14 +39,15 @@ try {
     else if(name==='list_quiz_group_members') result=state.members.map(m=>({user_id:m.userId,display_name:m.displayName,role:m.role}));
     else if(name==='quiz_group_learning_read') result=snapshot();
     else if(name==='quiz_group_material_progress') result=batch();
-    else if(name==='quiz_group_activity_read_v2') result={enabled:activityEnabled,generation:activityEnabled?'generation':null,entries:(manyActivities?Array.from({length:65},(_,i)=>({id:String(65-i),user_id:'sato',display_name:'佐藤',set_id:'set-0',title:`心不全 ${65-i}`,finished_at:new Date().toISOString(),answered:3,kind:'session',minutes:null})):[...(activityEnabled?[...manualPosts.values()]:[]),{id:'1',user_id:'sato',display_name:'佐藤',set_id:'set-0',title:'心不全',finished_at:new Date().toISOString(),answered:3,kind:'session',minutes:null}]).filter(row=>!args.p_before||Number(row.id)<Number(args.p_before)).slice(0,50)};
-    else if(name==='quiz_group_manual_activity_publish'){manualAttempts.push(args);if(denyManual){result=false;}else if(failManual){failManual=false;await route.fulfill({status:503,body:'offline'});return;}if(!denyManual){assert.deepEqual(Object.keys(args).sort(),['p_group_id','p_generation','p_event_id','p_title','p_answered','p_minutes','p_finished_at'].sort());manualPosts.set(args.p_event_id,{id:'1000',kind:'manual',user_id:userId,display_name:'検証ユーザー',set_id:null,title:args.p_title,finished_at:args.p_finished_at,answered:args.p_answered,minutes:args.p_minutes});result=true;}}
-    else if(name==='quiz_group_activity_consent'){activityEnabled=args.p_enabled;result=true;}
-    else if(name==='quiz_group_activity_destinations')result=activityEnabled?[{group_id:'preview-group',generation:'generation',enabled_at:'2026-01-01T00:00:00Z'}]:[];
+    else if(name==='quiz_group_activity_read_v2') result={enabled:activityEnabled,generation:activityEnabled?'generation':null,time_enabled:timeEnabled,time_generation:timeGeneration,entries:(manyActivities?Array.from({length:65},(_,i)=>({id:String(65-i),user_id:'sato',display_name:'佐藤',set_id:'set-0',title:`心不全 ${65-i}`,finished_at:new Date().toISOString(),answered:3,kind:'session',minutes:null,seconds:timeEnabled?8:null})):[...(activityEnabled?[...manualPosts.values()]:[]),{id:'1',user_id:'sato',display_name:'佐藤',set_id:'set-0',title:'心不全',finished_at:new Date().toISOString(),answered:3,kind:'session',minutes:null,seconds:timeEnabled?8:null}]).filter(row=>!args.p_before||Number(row.id)<Number(args.p_before)).slice(0,50)};
+    else if(name==='quiz_group_manual_activity_publish'){manualAttempts.push(args);if(denyManual){result=false;}else if(failManual){failManual=false;await route.fulfill({status:503,body:'offline'});return;}if(!denyManual){assert.deepEqual(Object.keys(args).sort(),['p_group_id','p_generation','p_event_id','p_title','p_answered','p_minutes','p_finished_at'].sort());manualPosts.set(args.p_event_id,{id:'1000',kind:'manual',user_id:userId,display_name:'検証ユーザー',set_id:null,title:args.p_title,finished_at:args.p_finished_at,answered:args.p_answered,minutes:args.p_minutes,seconds:null});result=true;}}
+    else if(name==='quiz_group_activity_consent'){activityEnabled=args.p_enabled;if(!activityEnabled&&timeEnabled){timeEnabled=false;timeGeneration=`time-${++timeCounter}`;}result=true;}
+    else if(name==='quiz_group_activity_time_consent'){timeEnabled=args.p_enabled;timeGeneration=`time-${++timeCounter}`;result=true;}
+    else if(name==='quiz_group_activity_destinations'||name==='quiz_group_activity_destinations_v2')result=activityEnabled?[{group_id:'preview-group',generation:'generation',enabled_at:'2026-01-01T00:00:00Z',...(name.endsWith('_v2')?{time_generation:timeEnabled?timeGeneration:null,time_enabled_at:timeEnabled?'2026-01-01T00:00:00Z':null}:{})}]:[];
     else if(name==='record_problem_set_copy')result=true;
-    else if(name==='quiz_group_activity_publish'){
+    else if(name==='quiz_group_activity_publish'||name==='quiz_group_activity_publish_v2'){
       if(failActivity){failActivity=false;await route.fulfill({status:503,body:'offline'});return;}
-      assert.deepEqual(Object.keys(args).sort(),['p_group_id','p_generation','p_event_id','p_set_id','p_version_id','p_copy_id','p_started_at','p_finished_at','p_answered'].sort());
+      assert.deepEqual(Object.keys(args).sort(),['p_group_id','p_generation','p_event_id','p_set_id','p_version_id','p_copy_id','p_started_at','p_finished_at','p_answered',...(name.endsWith('_v2')?['p_time_generation','p_time_started_at','p_time_finished_at','p_elapsed_seconds']:[])].sort());
       postedActivities.set(args.p_event_id,args);result=true;
     }
     else if(name==='get_shared_problem_set_versioned')result=snakeSet(sets.find(set=>set.id===args.p_set_id));
@@ -99,6 +100,8 @@ try {
   await page.getByText('共有設定が変わったため送信できませんでした。',{exact:true}).first().waitFor();await page.getByRole('button',{name:'記録を取り消す'}).waitFor();page.once('dialog',dialog=>dialog.accept());await page.getByRole('button',{name:'記録を取り消す'}).click();await page.getByRole('button',{name:'記録を取り消す'}).waitFor({state:'hidden'});denyManual=false;
   await page.getByRole('button',{name:'活動共有を停止',exact:true}).click();await page.getByRole('button',{name:'活動を共有する',exact:true}).waitFor();assert.equal(await page.locator('.group-timeline__row').filter({hasText:'講義ノート'}).count(),0);
   await page.getByRole('button',{name:'学習を記録',exact:true}).click();await page.getByRole('button',{name:'同意して共有',exact:true}).click();await page.getByRole('button',{name:'活動共有を停止',exact:true}).waitFor();
+  await page.getByRole('button',{name:'演習時間を共有する',exact:true}).click();assert.equal(timeEnabled,false);await page.getByRole('button',{name:'同意して時間を共有',exact:true}).click();await page.getByRole('button',{name:'演習時間の共有を停止',exact:true}).waitFor();assert.equal(timeEnabled,true);await page.getByText(/8秒/).first().waitFor();
+  await page.getByRole('button',{name:'演習時間の共有を停止',exact:true}).click();await page.getByRole('button',{name:'演習時間を共有する',exact:true}).waitFor();assert.equal(timeEnabled,false);assert.equal(await page.getByText(/8秒/).count(),0);await page.getByRole('button',{name:'演習時間を共有する',exact:true}).click();await page.getByRole('button',{name:'同意して時間を共有',exact:true}).click();await page.getByRole('button',{name:'演習時間の共有を停止',exact:true}).waitFor();
   await page.screenshot({path:'qa/phase1/timeline-390.png'});
   await page.getByRole('button',{name:'心不全',exact:true}).click();
   await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
@@ -157,13 +160,13 @@ try {
   await page.getByRole('button',{name:/活動テストフォルダ/}).first().click();
   await page.getByRole('button',{name:/活動テスト教材/}).first().click();
   await page.getByRole('button',{name:'登録順で解く',exact:true}).click();
-  await page.locator('.quiz-choice__text').filter({hasText:/^選択肢A$/}).click();
+  await page.waitForTimeout(1300);await page.locator('.quiz-choice__text').filter({hasText:/^選択肢A$/}).click();
   await page.getByRole('button',{name:'解答する',exact:true}).click();
-  const activityPosted=page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_activity_publish'));
+  const activityPosted=page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_activity_publish_v2'));
   await page.getByRole('button',{name:'結果へ',exact:true}).click();
   assert.equal((await activityPosted).status(),200);
   await page.getByRole('heading',{name:'学習結果',exact:true}).waitFor();
-  assert.equal(postedActivities.size,2,'Full App publishes one activity on session completion');
+  assert.equal(postedActivities.size,2,'Full App publishes one activity on session completion');assert.ok([...postedActivities.values()].some(row=>row.p_elapsed_seconds>=1&&row.p_time_generation===timeGeneration),'only separately consented elapsed time is shared');
   // Use the real App history/popstate listener, not only screenBack directly.
   await page.getByRole('button',{name:'閉じる',exact:true}).click();
   await page.getByRole('button',{name:'戻る',exact:true}).click();

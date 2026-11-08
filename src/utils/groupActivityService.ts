@@ -11,13 +11,13 @@ export async function retryStudyActivities() {
     await publishStudyActivity(row,async(name,args)=>{
       assertAccountNetworkCurrent(identity);
       // A failed import acknowledgement can be retried without creating another copy.
-      if(name==='quiz_group_activity_publish')await recordCloudCopy(row.setId,row.copyId);
+      if(name==='quiz_group_activity_publish'||name==='quiz_group_activity_publish_v2')await recordCloudCopy(row.setId,row.copyId);
       return groupProgressRpc(name as Parameters<typeof groupProgressRpc>[0],args,identity.userId);
     });
   });
   window.dispatchEvent(new Event(GROUP_ACTIVITY_UPDATED));
 }
-export async function queueCompletedStudy(data:AppData,result:Pick<QuizResult, 'sessionAnswers'>, expectedIdentity:LocalAccountIdentity|null=getCachedCloudAccountIdentity()) {
+export async function queueCompletedStudy(data:AppData,result:Pick<QuizResult, 'sessionAnswers'|'studyTime'>, expectedIdentity:LocalAccountIdentity|null=getCachedCloudAccountIdentity()) {
   const identity=getCachedCloudAccountIdentity();if(!identity||!expectedIdentity||!sameLocalAccount(identity,expectedIdentity))return;
   assertAccountNetworkCurrent(identity);
   const events=buildStudyActivities(data,result);if(!events.length)return;

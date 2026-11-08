@@ -21,6 +21,10 @@ import { resolveQuestionDetailedExplanation, resolveQuestionDetailedImageIds } f
 import { WeaknessDetail } from '../components/WeaknessDetail';
 import { getAnswerFeedback, playAnswerFeedback, prepareAnswerAudio } from '../utils/answerFeedback';
 import { randomizeQuestionChoices } from '../utils/choiceRandomization';
+import { isStudyTimeEntry, VisibleStudyTimer, type StudyTimeSnapshot } from '../utils/visibleStudyTimer';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
+import { shouldTrackStudy, watchNativeStudyActivity } from '../utils/studyVisibility';
 
 type AnswerSheetState = 'expanded' | 'default' | 'hidden';
 
@@ -59,11 +63,11 @@ interface QuizRunnerProps {
   onRemoveDetailedImage?: (questionId: string, imageId: string) => Promise<void>;
   onLinkMaterialPage?: (questionId: string, reference: MaterialReference, linked: boolean) => Promise<void>;
   onLinkMaterialBatch?: (setId: string, links: ReferenceLink[]) => Promise<void>;
-  onStudySessionEnd?: (answers: NonNullable<QuizResult['sessionAnswers']>, identity: LocalAccountIdentity | null) => void;
+  onStudySessionEnd?: (answers: NonNullable<QuizResult['sessionAnswers']>, identity: LocalAccountIdentity | null, studyTime?: StudyTimeSnapshot) => void;
   onFinish: (result: QuizResult) => void;
 }
 
-type QuizWork = { questions: Question[]; readOnly: boolean; currentIndex: number; selectedIndexes: number[]; lastCorrect: boolean|null; hasAnswered: boolean; correctCount: number; wrongCount: number; addedReviewCount: number; sessionAnswers: NonNullable<QuizResult['sessionAnswers']>; presentation: {index:number;question:Question|undefined}|null; answerSaveState:'idle'|'saving'|'saved'|'error'; savedLevelLabel:string };
+type QuizWork = { questions: Question[]; readOnly: boolean; currentIndex: number; selectedIndexes: number[]; lastCorrect: boolean|null; hasAnswered: boolean; correctCount: number; wrongCount: number; addedReviewCount: number; sessionAnswers: NonNullable<QuizResult['sessionAnswers']>; presentation: {index:number;question:Question|undefined}|null; answerSaveState:'idle'|'saving'|'saved'|'error'; savedLevelLabel:string; studyTime?: StudyTimeSnapshot; untimedQuestions?: string[] };
 export function QuizRunner({ data, title, subtitle, questions: incomingQuestions, mode, setId, initialIndex = 0, readOnly = false, emptyState, onBack, onAnswer, onToggleAmbiguous, onSaveDetailedExplanation, onAddDetailedImage, onRemoveDetailedImage, onLinkMaterialPage, onLinkMaterialBatch, onFinish, onStudySessionEnd }: QuizRunnerProps) {
   const workKey=`quiz:${setId??'multi'}:${mode}:${readOnly}`;
   const recovered=useRestoredAccountWork<QuizWork>(workKey);
@@ -74,6 +78,21 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
   const [hasAnswered, setHasAnswered] = useState(recovered?.hasAnswered??false);
   const [correctCount, setCorrectCount] = useState(recovered?.correctCount??0);
   const sessionAnswersRef = useRef<NonNullable<QuizResult['sessionAnswers']>>(recovered?.sessionAnswers??[]);
+  const timer = useRef<VisibleStudyTimer | null>(null);
+  if (!timer.current) timer.current = new VisibleStudyTimer(recovered?.studyTime);
+  const nativePlatform = Capacitor.isNativePlatform();
+  const [nativeActive, setNativeActive] = useState(!nativePlatform);
+  useEffect(() => {
+    if (!nativePlatform) return;
+    return watchNativeStudyActivity(CapacitorApp,setNativeActive);
+  },[nativePlatform]);
+  const untimedQuestions = useRef(new Set([...(recovered?.untimedQuestions ?? []), ...(recovered?.sessionAnswers.filter(answer=>!isStudyTimeEntry(recovered.studyTime?.[answer.question.id]) || !recovered.studyTime![answer.question.id].valid).map(answer=>answer.question.id) ?? [])]));
+  const frozenTime = useRef<StudyTimeSnapshot | undefined>(undefined);
+  const timeSnapshot = () => {
+    const result = timer.current!.snapshot();
+    for (const id of untimedQuestions.current) if (result[id]) result[id].valid = false;
+    return result;
+  };
   const activityIdentity = useRef(getCachedCloudAccountIdentity());
   const sessionEndRef = useRef(onStudySessionEnd); sessionEndRef.current = onStudySessionEnd;
   const pendingAnswerSaveRef = useRef<Promise<unknown> | null>(null);
@@ -85,10 +104,11 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
       const callback = sessionEndRef.current;
       const identity = activityIdentity.current;
       if (readOnly || !answers.length) return;
+      const studyTime = frozenTime.current ?? timeSnapshot();
       // A back action can unmount while the durable answer write is still pending.
       // Deferring also skips React's effect replay for a restored session.
       void Promise.resolve(pendingAnswerSaveRef.current).catch(() => undefined).then(() => {
-        if (activityEffectGeneration.current === generation) callback?.(answers, identity);
+        if (activityEffectGeneration.current === generation) callback?.(answers, identity, studyTime);
       });
     };
   }, [readOnly]);
@@ -196,7 +216,17 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
     presentationRef.current = { index: currentIndex, question: sourceQuestion ? randomizeQuestionChoices(sourceQuestion) : undefined };
   }
   const currentQuestion = presentationRef.current.question;
-  useAccountWork(workKey, () => ({ questions, readOnly, currentIndex, selectedIndexes, lastCorrect, hasAnswered, correctCount, wrongCount, addedReviewCount, sessionAnswers:sessionAnswersRef.current, presentation:presentationRef.current, answerSaveState, savedLevelLabel }), async () => { if(answerSaveState==='saving'||answerSaveState==='error')throw new Error('回答の保存完了を待っています。'); });
+  useEffect(() => {
+    if (readOnly || !sourceQuestion) return;
+    const t = timer.current!;
+    const visibility = () => t.setVisible(shouldTrackStudy(document.visibilityState,nativeActive,document.documentElement.dataset.quizAccountFenced === 'true'));
+    const hide = () => t.setVisible(false);
+    t.setQuestion({id:sourceQuestion.id,setId:sourceQuestion.setId}); visibility();
+    const observer=new MutationObserver(visibility);observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-quiz-account-fenced']});
+    document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',hide);window.addEventListener('pageshow',visibility);
+    return () => { t.setQuestion(null); t.setVisible(false);observer.disconnect();document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',hide);window.removeEventListener('pageshow',visibility); };
+  }, [sourceQuestion?.id,sourceQuestion?.setId,readOnly,nativeActive]);
+  useAccountWork(workKey, () => ({ questions, readOnly, currentIndex, selectedIndexes, lastCorrect, hasAnswered, correctCount, wrongCount, addedReviewCount, sessionAnswers:sessionAnswersRef.current, presentation:presentationRef.current, answerSaveState, savedLevelLabel, studyTime:timeSnapshot(), untimedQuestions:[...untimedQuestions.current] }), async () => { if(answerSaveState==='saving'||answerSaveState==='error')throw new Error('回答の保存完了を待っています。'); });
   const currentDetailedExplanation = useMemo(
     () => resolveQuestionDetailedExplanation(data.questions, currentQuestion),
     [currentQuestion, data.questions],
@@ -357,9 +387,11 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
     if (answerSaveState !== 'saved') return;
     void requestNoteTransition(() => {
       if (currentIndex + 1 >= questions.length) {
+        frozenTime.current = timeSnapshot();
         onFinish({
           ...makeResult(mode, title, setId, correctCount, wrongCount, addedReviewCount),
           sessionAnswers: sessionAnswersRef.current,
+          studyTime: frozenTime.current,
           retry: {
             questionIds: questions.slice(initialIndex).map((question) => question.id),
             subtitle,
