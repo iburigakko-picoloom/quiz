@@ -38,6 +38,7 @@ try {
     else if(name==='list_group_problem_sets') result=sets.map(s=>({...snakeSet(s),questions:undefined}));
     else if(name==='list_quiz_group_members') result=state.members.map(m=>({user_id:m.userId,display_name:m.displayName,role:m.role}));
     else if(name==='quiz_group_learning_read') result=snapshot();
+    else if(name==='quiz_group_material_activity_history') result={state:'ready',entries:[]};
     else if(name==='quiz_group_material_progress') result=sets.map(set=>{const c=sourceConsents.get(set.id);return {set_id:set.id,version_id:set.versionId,learners:c?.enabled&&c.levels?1:0,answered:c?.enabled?c.answered??null:null,total:c?.enabled&&c.levels?set.questionCount:null,levels:c?.enabled?c.levels??null:null,reflected_at:null,today_count:c?.enabled?c.today??null:null,week_count:c?.enabled?c.week??null:null,own_enabled:c?.enabled??false,own_copy_id:c?.copy_id??null,own_state:c?.enabled&&c.levels?'shared':'not_shared',own_reflected_at:null};});
     else if(name==='get_shared_problem_set_versioned')result=snakeSet(sets.find(set=>set.id===args.p_set_id));
     else if(name==='quiz_group_learning_set_read'){

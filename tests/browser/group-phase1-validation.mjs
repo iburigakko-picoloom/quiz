@@ -89,6 +89,9 @@ try {
   await page.getByLabel('表示するメンバー').selectOption('00000000-0000-4000-8000-000000000001');
   await mkdir('qa/phase1',{recursive:true});
   await page.screenshot({path:'qa/phase1/overview-390.png'});
+  await page.setViewportSize({width:768,height:844});
+  await page.screenshot({path:'qa/phase1/overview-768.png'});
+  await page.setViewportSize({width:390,height:844});
   await page.locator('.group-material-card').first().click();
   await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
   await page.getByRole('region',{name:'この教材の学習記録'}).getByText('3問を解答').waitFor();

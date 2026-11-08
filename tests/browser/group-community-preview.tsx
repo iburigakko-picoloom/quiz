@@ -1,7 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { CommunityScreen } from '../../src/screens/CommunityScreen';
-import { PrimaryBottomNav } from '../../src/components/PrimaryBottomNav';
 import { previewData } from '../fixtures/group-learning';
 import type {AppData,PublicationSource} from '../../src/types';
 import {applyPublishedSource} from '../../src/utils/groupStudySource';
@@ -41,7 +40,7 @@ function Preview(){
   }} onImportGroupFolder={async(folder,sets,groupId)=>{
     const plan=planGroupImport(current,folder,sets,groupId);localStorage.setItem('group-folder-preview-copy',JSON.stringify(plan.data));
     document.body.dataset.importedGroupFolder=JSON.stringify({folderId:plan.folderId,count:plan.imported.length});return plan;
-  }} onUnpublished={async()=>{}}/><PrimaryBottomNav active="groups" onSelect={()=>{}}/></>;
+  }} onUnpublished={async()=>{}}/></>;
 }
 async function mount() {
   if (enabled && exerciseScenario) {
