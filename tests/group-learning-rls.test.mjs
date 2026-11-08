@@ -39,7 +39,7 @@ let published=await call('publish_problem_set_versioned',[JSON.stringify(payload
 await pg.exec(await readFile(new URL('../supabase/migrations/20261008142626_group_learning_ui.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261009110331_group_library_counts.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261012052313_group_folder_management.sql',import.meta.url),'utf8'));
-await pg.exec(await readFile(new URL('../supabase/migrations/20261107172840_group_member_material_progress.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261108060150_group_member_material_progress.sql',import.meta.url),'utf8'));
 const period=(await pg.query(`select (now() at time zone 'Asia/Tokyo')::date::text as "day",date_trunc('week',now() at time zone 'Asia/Tokyo')::date::text as "week"`)).rows[0];
 const read=()=>call('quiz_group_learning_read',[group,period.day,period.week],['uuid','date','date']);
 const setRead=()=>call('quiz_group_learning_set_read',[group,published.id],['uuid','uuid']);

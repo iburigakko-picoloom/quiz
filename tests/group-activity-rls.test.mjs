@@ -50,9 +50,9 @@ let consent,folder;
 
 await pg.exec('alter table public.quiz_group_problem_sets add column shared_at timestamptz not null default now(); create unique index problem_set_copies_actor_unique on public.problem_set_copies(set_id,actor_id) where actor_id is not null; create unique index problem_set_copies_installation_unique on public.problem_set_copies(set_id,installation_id);');
 await pg.exec(await readFile(new URL('../supabase/migrations/20261107150102_group_session_timeline.sql',import.meta.url),'utf8'));
-await pg.exec(await readFile(new URL('../supabase/migrations/20261107175320_group_material_history.sql',import.meta.url),'utf8'));
-await pg.exec(await readFile(new URL('../supabase/migrations/20261108040754_group_manual_activity.sql',import.meta.url),'utf8'));
-await pg.exec(await readFile(new URL('../supabase/migrations/20261108043527_group_activity_duration.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261108060201_group_material_history.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261108060212_group_manual_activity.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261108060226_group_activity_duration.sql',import.meta.url),'utf8'));
 const feed=()=>call('quiz_group_activity_read',[group,null],['uuid','bigint']);
 const activityConsent=(enabled,generation=null)=>call('quiz_group_activity_consent',[group,enabled,generation],['uuid','boolean','uuid']);
 const destinations=()=>call('quiz_group_activity_destinations',[published.id],['uuid']);

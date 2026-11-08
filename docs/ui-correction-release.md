@@ -16,9 +16,9 @@
 
 本番の接続先は他アプリと共用。既存オブジェクトの変更対象を確認し、以下の追加migrationを順番に適用し、権限・RLS・advisorsを再確認してからフロントエンドを配信する。
 
-1. `20261107172840_group_member_material_progress.sql`: 同意済みメンバーの教材別進捗一括取得。
-2. `20261107175320_group_material_history.sql`: 現在公開されている教材の同意済み活動履歴。
-3. `20261108040754_group_manual_activity.sql`: 手動活動テーブル・共有RPC・統合タイムライン。
-4. `20261108043527_group_activity_duration.sql`: 時間共有の同意・実時間の保存と読み取り。
+1. `20261108060150_group_member_material_progress.sql`: 同意済みメンバーの教材別進捗一括取得。
+2. `20261108060201_group_material_history.sql`: 現在公開されている教材の同意済み活動履歴。
+3. `20261108060212_group_manual_activity.sql`: 手動活動テーブル・共有RPC・統合タイムライン。
+4. `20261108060226_group_activity_duration.sql`: 時間共有の同意・実時間の保存と読み取り。
 
-適用前の読取確認では新RPCは存在せず、直前の2 migrationは本番に存在。新規migrationの本番適用・GitHub Pages配信は未実施。
+2026-11-08: 4件を本番DBへ適用し、ファイル名を本番が発行したmigration versionに合わせた。4つのprivateテーブルはRLS有効でanon/authenticatedの直接読み書き権限なし。公開7 RPCはsecurity invokerでanon実行不可・authenticated実行可。合成したグループ外IDでは一括進捗・教材別履歴・タイムラインの読み取りが拒否されることをrollbackトランザクションで確認。security advisorの新しい2件は、直接アクセスを許可しないprivateテーブルに対するRLS・policyなしのINFO。既存のWARNは残っている。GitHub Pages配信はこれから実施する。
