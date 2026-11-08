@@ -65,6 +65,10 @@ export function getResultReturnScreen(result: QuizResult, data: AppData): AppScr
   if (target.name === 'import') {
     return data.folders.some((folder) => folder.id === target.folderId) ? target : { name: 'home' };
   }
+  if (target.name === 'questionDetail') {
+    const question = data.questions.find(item => item.id === target.questionId);
+    return question && data.problemSets.some(set => set.id === question.setId) ? target : { name: 'home' };
+  }
   if (target.name === 'quiz' || target.name === 'quizSession' || target.name === 'result') {
     return { name: 'home' };
   }
@@ -76,6 +80,7 @@ export function getResultReturnLabel(target: AppScreen): string {
   if (target.name === 'studyRecord') return '学習記録へ戻る';
   if (target.name === 'problemSetDetail') return '問題セットへ戻る';
   if (target.name === 'problemList') return '問題一覧へ戻る';
+  if (target.name === 'questionDetail') return '問題詳細へ戻る';
   if (target.name === 'noteList') return '詳細解説一覧へ戻る';
   if (target.name === 'folder') return 'フォルダへ戻る';
   if (target.name === 'community') {

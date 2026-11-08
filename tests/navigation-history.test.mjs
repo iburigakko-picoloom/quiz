@@ -172,6 +172,12 @@ test('result exits return to the session origin and reject deleted local targets
   }, data);
   assert.equal(getResultReturnLabel(listTarget), '問題一覧へ戻る');
 
+  const questionScreen = { name: 'questionDetail', questionId: 'question-1', backScreen: { name: 'noteList', setId: 'set-1', reference: { materialId: 'material-1', pageId: 'page-1' } } };
+  const withQuestion = { ...data, questions: [{ id: 'question-1', setId: 'set-1' }] };
+  assert.deepEqual(getResultReturnScreen({ ...baseResult, returnScreen: questionScreen }, withQuestion), questionScreen);
+  assert.equal(getResultReturnLabel(questionScreen), '問題詳細へ戻る');
+  assert.deepEqual(getResultReturnScreen({ ...baseResult, returnScreen: questionScreen }, data), { name: 'home' });
+
   const sharedTarget = getResultReturnScreen({
     ...baseResult,
     returnScreen: { name: 'community', tab: 'discover', shareSetId: 'shared-1' },
