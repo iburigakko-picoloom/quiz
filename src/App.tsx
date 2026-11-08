@@ -1874,7 +1874,7 @@ export default function App() {
           onRemoveDetailedImage={handleRemoveDetailedImage}
           onLinkMaterialPage={handleLinkMaterialPage}
           onLinkMaterialBatch={handleLinkMaterialBatch}
-          onStudySessionEnd={(sessionAnswers,identity) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
+          onStudySessionEnd={(sessionAnswers,identity,studyTime) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers,studyTime},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
           onFinish={handleFinish}
         />
       </Suspense>
@@ -1900,7 +1900,7 @@ export default function App() {
           onRemoveDetailedImage={screen.session.isPreview ? undefined : handleRemoveDetailedImage}
           onLinkMaterialPage={screen.session.isPreview ? undefined : handleLinkMaterialPage}
           onLinkMaterialBatch={screen.session.isPreview ? undefined : handleLinkMaterialBatch}
-          onStudySessionEnd={(sessionAnswers,identity) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
+          onStudySessionEnd={(sessionAnswers,identity,studyTime) => { void queueCompletedStudy(durableDataRef.current,{sessionAnswers,studyTime},identity).catch(()=>setGroupReflectionError('学習は保存済みです。活動の送信を再試行してください。')); }}
           onFinish={handleFinish}
         />
       </Suspense>
