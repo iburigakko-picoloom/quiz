@@ -136,7 +136,7 @@
 .materials-workspace { display:flex; position:relative; flex:1; min-height:0; overflow:hidden; }
 .materials-workspace > .materials-content { min-width:0; }
 .materials-content[hidden] { display:none; }
-.materials-navigator { flex:0 0 260px; width:260px; max-width:calc(100% - 32px); overflow:auto; overscroll-behavior:contain; box-sizing:border-box; padding:12px; border-right:1px solid #d5dce4; background:white; z-index:4; }
+.materials-navigator { flex:0 0 164px; width:164px; max-width:calc(100% - 120px); overflow:auto; overscroll-behavior:contain; box-sizing:border-box; padding:8px; border-right:1px solid #d5dce4; background:white; z-index:4; }
 .materials-navigator header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .materials-navigator h2,.materials-related h2 { font-size:16px; margin:4px 0 12px; }
 .materials-navigator label { display:block; margin:12px 0 6px; font-size:14px; }
@@ -154,13 +154,13 @@
 .materials-related summary { cursor:pointer; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
 .materials-related article > button { margin-top:12px; }
 @container (max-width: 650px) {
-  .materials-navigator { position:absolute; inset:0 auto 0 0; width:min(300px,calc(100% - 32px)); box-shadow:4px 0 16px #17304225; }
+  .materials-navigator { position:absolute; inset:0 auto calc(48px + var(--safe-bottom,0px)) 0; width:164px; box-shadow:4px 0 16px #17304225; }
   .materials-controls { flex-wrap:wrap; }
   .materials-controls .materials-picker,.materials-controls .materials-title { min-width:72px; }
   .materials-controls .materials-pagination { margin-left:auto; }
 }
 .materials-navigator__tabs { display: flex; gap: 4px; border-bottom: 1px solid #e1e6ed; margin-bottom: 12px; }
-.materials-navigator__tabs button { flex: 1; min-height: 44px; border: 0; background: transparent; font: inherit; color: #44576c; }
+.materials-panel .materials-navigator__tabs button { flex: 1; min-width: 0; min-height: 44px; padding: 4px 1px; border: 0; background: transparent; font: inherit; font-size: 12px; white-space: nowrap; color: #44576c; }
 .materials-navigator__tabs button[aria-selected=true] { color: #2859a6; border-bottom: 2px solid #2859a6; font-weight: 700; }
 .materials-navigator__pages { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .materials-navigator__page { min-width: 0; padding: 6px; border: 1px solid #e1e6ed; border-radius: 6px; background: #fff; color: #173042; }
