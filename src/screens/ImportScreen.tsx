@@ -21,6 +21,8 @@ interface ImportScreenProps {
   onBack: () => void;
   onImport: (titleOverride: string, jsonText: string, stayOnScreen?: boolean) => Promise<string | null>;
   onImportComplete: () => void;
+  initialFiles?: File[];
+  filesOnly?: boolean;
 }
 
 interface ImportResult {
@@ -28,7 +30,7 @@ interface ImportResult {
   failures: { fileName: string; error: string }[];
 }
 
-export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack, onImport, onImportComplete }: ImportScreenProps) {
+export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack, onImport, onImportComplete, initialFiles, filesOnly = false }: ImportScreenProps) {
   const workKey = `import:${sessionKey}`;
   const recovered = useRestoredAccountWork<ImportDraft>(workKey);
   const initial = recovered ?? readImportSession(sessionKey);
@@ -107,12 +109,21 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
     setNotice('クリップボードから読み込みました');
   };
 
-  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+  const initialFilesHandled = useRef(false);
+  useEffect(() => {
+    if (initialFilesHandled.current || initial || !initialFiles?.length) return;
+    initialFilesHandled.current = true;
+    void prepareFiles(initialFiles);
+  }, []);
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    void prepareFiles(files);
+  };
+  const prepareFiles = async (files: File[]) => {
     setError('');
     setNotice('');
     setImportResult(null);
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = '';
     if (files.length === 0) return;
     const incomingFiles: ImportFileDescriptor[] = files.map((file) => ({
       id: `${file.name}_${file.lastModified}_${file.size}`,
@@ -226,7 +237,7 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
 
   return (
     <Layout>
-      <div className="quiz-import">
+      <div className={`quiz-import${filesOnly ? ' quiz-import--embedded' : ''}`}>
         <header className="quiz-import__header">
           <BackButton onClick={onBack} className="quiz-import__back" />
           <div className="quiz-import__title-wrap">
@@ -238,7 +249,7 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
 
         <main className="quiz-import__content">
           <fieldset disabled={isImporting || isPreparingFiles} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-          <section className="quiz-import__title-card">
+          {!filesOnly ? <section className="quiz-import__title-card">
             <div className="quiz-import__card-heading">
               <span>1</span>
               <h2>問題セット名</h2>
@@ -251,16 +262,16 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
               maxLength={IMPORT_RESOURCE_LIMITS.setTitle}
               className="quiz-import__input"
             />
-          </section>
+          </section> : null}
 
           <section className="quiz-import__file-card">
             <div className="quiz-import__card-heading">
               <span>2</span>
               <h2>JSONを読み込む</h2>
             </div>
-            <button type="button" onClick={handleReadClipboard} className="quiz-import__clipboard-button">
+            {!filesOnly ? <button type="button" onClick={handleReadClipboard} className="quiz-import__clipboard-button">
               クリップボードから読み込む
-            </button>
+            </button> : null}
             <label htmlFor="jsonFiles" className="quiz-import__label">JSONファイル選択</label>
             <input
               id="jsonFiles"
@@ -299,7 +310,7 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
             ) : null}
           </section>
 
-          <section className="quiz-import__json-card">
+          {!filesOnly ? <section className="quiz-import__json-card">
             <div className="quiz-import__card-heading">
               <span>3</span>
               <h2>JSON貼り付け欄</h2>
@@ -311,7 +322,7 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
               onChange={(event) => handleJsonTextChange(event.target.value)}
               className="quiz-import__textarea"
             />
-          </section>
+          </section> : null}
 
           {notice ? <div className="quiz-import__notice" role="status" aria-live="polite">{notice}</div> : null}
           {importProgress ? <div className="quiz-import__progress" role="status" aria-live="polite"><span />{importProgress}</div> : null}
@@ -335,7 +346,7 @@ export function ImportScreen({ sessionKey, registerExitGuard, folderName, onBack
           {error ? <div className="quiz-import__error" role="alert">{error}</div> : null}
           {savedCount ? <p role="status">保存済み：{savedCount}件。再開時は未保存の項目だけ取り込みます。</p> : null}
           </fieldset>
-          {!isImporting && !jsonText.trim() && !importFiles.length && savedCount ? <button type="button" className="quiz-import__clipboard-button" onClick={onImportComplete}>保存先を開く</button> : null}
+          {!isImporting && !jsonText.trim() && !importFiles.length && savedCount ? <button type="button" className="quiz-import__clipboard-button" onClick={onImportComplete}>{filesOnly ? '作成画面へ戻る' : '保存先を開く'}</button> : null}
         </main>
 
         <button
