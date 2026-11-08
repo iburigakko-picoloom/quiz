@@ -21,4 +21,4 @@
 3. `20261108060212_group_manual_activity.sql`: 手動活動テーブル・共有RPC・統合タイムライン。
 4. `20261108060226_group_activity_duration.sql`: 時間共有の同意・実時間の保存と読み取り。
 
-2026-11-08: 4件を本番DBへ適用し、ファイル名を本番が発行したmigration versionに合わせた。4つのprivateテーブルはRLS有効でanon/authenticatedの直接読み書き権限なし。公開7 RPCはsecurity invokerでanon実行不可・authenticated実行可。合成したグループ外IDでは一括進捗・教材別履歴・タイムラインの読み取りが拒否されることをrollbackトランザクションで確認。security advisorの新しい2件は、直接アクセスを許可しないprivateテーブルに対するRLS・policyなしのINFO。既存のWARNは残っている。GitHub Pages配信はこれから実施する。
+2026-11-08: 4件を本番DBへ適用し、ファイル名を本番が発行したmigration versionに合わせた。4つのprivateテーブルはRLS有効でanon/authenticatedの直接読み書き権限なし。公開7 RPCはsecurity invokerでanon実行不可・authenticated実行可。合成したグループ外IDでは一括進捗・教材別履歴・タイムラインの読み取りが拒否されることをrollbackトランザクションで確認。security advisorの新しい2件は、直接アクセスを許可しないprivateテーブルに対するRLS・policyなしのINFO。既存のWARNは残っている。GitHub Pagesの配信状況は統合PR #47を参照。
