@@ -204,6 +204,7 @@
 }
 /* Match the existing Home library: clear titles, restrained metadata, generous tap areas. */
 .community-screen.community-screen--group-workspace { background: #fff; }
+.community-screen.community-screen--group-workspace:has(#group-panel-folders:not([hidden])), .community-screen.community-screen--group-workspace:has(#group-panel-overview:not([hidden])), .community-screen.community-screen--group-workspace:has(#group-panel-members:not([hidden])) { background: #f5f7fb; }
 .group-panel, .community-screen .group-folder-card, .group-set-row, .group-member-card { border-radius: 12px; box-shadow: none; }
 .community-screen .group-folder-card { padding: 0; }
 .community-screen .group-folder-card__top { align-items: center; }
@@ -265,6 +266,12 @@
 .group-material-card { width: 100%; text-align: left; color: inherit; cursor: pointer; }
 .group-material-card h3 { overflow-wrap: anywhere; }
 .group-material-card:focus-visible { outline: 3px solid var(--color-primary, #2563eb); outline-offset: 2px; }
+.group-workspace__content:has(#group-panel-folders:not([hidden])) { background: #f5f7fb; padding: 16px; }
+.group-add-folder { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 6px; background: transparent; color: #2859a6; }
+.group-folder-list:not(:empty), .group-set-list:not(:empty) { gap: 0; padding: 0 14px; border: 1px solid #e1e6ed; border-radius: 8px; background: #fff; }
+.group-folder-list .library-content-row, .group-set-list .library-content-row { margin: 0; border: 0; border-bottom: 1px solid #e1e6ed; border-radius: 0; }
+.group-folder-list .library-content-row:last-child, .group-set-list .library-content-row:last-child { border-bottom: 0; }
+.group-folder-list .library-content-row__open, .group-set-list .library-content-row__open { padding-inline: 0; }
 .group-member-stat-card { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(230px, 1.8fr); align-items: center; gap: 12px; padding: 16px; border: 1px solid #e1e6ed; border-radius: 14px; background: #fff; }
 .group-member-card__identity small { display: block; margin-top: 4px; }
 .group-workspace__content:has(#group-panel-members:not([hidden])) { background: #f5f7fb; padding: 16px; }
