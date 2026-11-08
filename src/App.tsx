@@ -659,6 +659,7 @@ export default function App() {
             ? { name: 'createProblemSet' }
             : { name: 'settings' };
     if (getScreenKey(screenRef.current) === getScreenKey(next)) return;
+    if (screenRef.current.name === 'createProblemSet' && importExitGuardRef.current && tryScreenBack()) return;
     if (item === 'home') {
       if (['noteDetail', 'noteList', 'detailedAnswer'].includes(screenRef.current.name) && noteExitGuardRef.current) void noteExitGuardRef.current(goHome);
       else goHome();
@@ -1647,6 +1648,9 @@ export default function App() {
             ? handleUpdateProblemSet(screen.editSetId, submission)
             : handleCreateProblemSet(submission)}
           onOpenLegacyImport={handleOpenLegacyImport}
+          onPrepareBatchImport={target => ({ folderId: dataRef.current.folders.some(folder => folder.id === target.folderId) ? target.folderId : createId('folder'), newFolderName: target.newFolderName })}
+          onBatchImport={(target, title, text) => handleImportProblemSet(target.folderId, target.newFolderName, title, text, true)}
+          registerBatchExitGuard={registerImportExitGuard}
           onDirtyChange={setCreateDraftDirty}
           initialFolderId={screen.folderId}
           editSetId={screen.editSetId}
