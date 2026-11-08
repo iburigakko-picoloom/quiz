@@ -1189,6 +1189,13 @@
           "pixels": 18124
         }
       ]
+    },
+    "spinStep": {
+      "frames": 16,
+      "source": "spin-step-v1.png",
+      "columns": 4,
+      "rows": 4,
+      "baseline": 320
     }
   }
 }

@@ -51,6 +51,7 @@ test('reduced motion shows a stable complete drawing throughout an action', () =
   for (const activity of ['sit', ...Object.keys(COMPANION_MOTION_MS)]) {
     assert.deepEqual(companionFrame(activity, 100, 4000, false, true), companionFrame(activity, 3600, 4000, false, true));
   }
+  assert.equal(companionFrame('spin', 2000, 4000, false, true).index, 0, 'the reduced-motion pose faces forward');
 });
 
 test('seated contributions remain continuous across every cut and stay opaque', () => {
@@ -84,7 +85,7 @@ test('all five tricks have continuous, fully opaque contributions across cel bou
       for (const [index, weight] of [[frame.index, 1 - frame.mix], [frame.nextIndex, frame.mix]]) current.set(index, (current.get(index) ?? 0) + weight);
       assert.ok(Math.abs([...current.values()].reduce((a, b) => a + b, 0) - 1) < 1e-9);
       if (elapsed) for (const index of new Set([...previous.keys(), ...current.keys()])) {
-        assert.ok(Math.abs((current.get(index) ?? 0) - (previous.get(index) ?? 0)) < .05, `${activity} has a hard cut at ${elapsed}ms`);
+        assert.ok(Math.abs((current.get(index) ?? 0) - (previous.get(index) ?? 0)) < (activity === 'spin' ? .08 : activity === 'touch' ? .06 : .05), `${activity} has a hard cut at ${elapsed}ms`);
       }
       if (frame.index !== frame.nextIndex && frame.mix > 0 && frame.mix < 1) {
         transitions++; longestTransition = Math.max(longestTransition, ++transitionRun);
@@ -92,22 +93,24 @@ test('all five tricks have continuous, fully opaque contributions across cel bou
       previous = current;
     }
     assert.ok(transitions > 100, activity + ' has intermediate drawings');
-    const limit = activity === 'spin' ? duration / 32 : activity === 'roll' ? 45 : 85;
+    const limit = activity === 'spin' ? 26 : activity === 'touch' ? 32 : activity === 'roll' ? 45 : 85;
     assert.ok(longestTransition <= limit, activity + ' avoids sustained double silhouettes');
   }
 });
 
-test('spin paints on every display tick instead of freezing at each source cel', () => {
-  for (const activity of ['spin']) {
-    for (const hz of [60, 90, 120]) for (const awkward of [false, true]) {
-      const duration = companionMotionDuration(activity, awkward);
-      let previous = '';
-      for (let elapsed = 0; elapsed < duration * .9; elapsed += 1000 / hz) {
-        const frame = companionFrame(activity, elapsed, duration, awkward);
-        const signature = `${frame.index}:${frame.nextIndex}:${frame.mix}`;
-        assert.notEqual(signature, previous, `${activity} freezes at ${elapsed}ms / ${hz}Hz`);
-        previous = signature;
-      }
-    }
+test('spin uses each stepping pose and does not keep two sets of legs blended throughout a step', () => {
+  for (const awkward of [false, true]) {
+    const duration = companionMotionDuration('spin', awkward), frames = [];
+    for (let elapsed = 0; elapsed < duration; elapsed += 5) frames.push(companionFrame('spin', elapsed, duration, awkward));
+    assert.ok(frames.every(frame => frame.sheet === 'spinStep'));
+    assert.deepEqual([...new Set(frames.map(frame => frame.index))], Array.from({ length: 16 }, (_, i) => i));
+    assert.ok(frames.filter(frame => frame.mix === 0).length / frames.length > .75, 'paws are not doubled for most of the turn');
   }
+});
+
+test('scratching repeatedly moves the same hind paw and returns to a resting pose', () => {
+  const duration = 2400;
+  const frames = Array.from({length: 121}, (_, i) => companionFrame('scratch', i * duration / 120, duration));
+  const sequence = frames.map(frame => frame.index).filter((value, index, list) => index === 0 || value !== list[index - 1]);
+  assert.deepEqual(sequence, [0, 1, 2, 3, 2, 3, 2, 3, 2, 1, 0]);
 });

@@ -3,9 +3,9 @@ import { pickCompanionReaction, type CompanionReaction, type CompanionTrickId } 
 export type CompanionAction = CompanionTrickId | 'feed' | 'pet';
 export type CompanionActivity = 'sit' | 'stand' | 'scratch' | 'lie' | 'sleep' | 'stretch' | CompanionReaction | CompanionAction;
 export type CompanionMotion = { id: number; kind: CompanionAction; awkward?: boolean };
-export type CompanionSheet = 'idle' | 'scratch' | 'sleep' | 'spin' | 'spinSmooth' | 'touch' | 'bow' | 'roll' | 'care';
+export type CompanionSheet = 'idle' | 'scratch' | 'sleep' | 'spin' | 'spinSmooth' | 'spinStep' | 'touch' | 'bow' | 'roll' | 'care';
 export const COMPANION_MOTION_MS: Record<CompanionAction, number> = {
-  spin: 1_600, touch: 1_800, bow: 1_800, roll: 1_800, sleep: 4_600, feed: 2_000, pet: 2_400,
+  spin: 2_000, touch: 1_800, bow: 1_800, roll: 1_800, sleep: 4_600, feed: 2_000, pet: 2_400,
 };
 export function companionMotionDuration(kind: CompanionAction, awkward = false): number {
   return COMPANION_MOTION_MS[kind] * (awkward ? 1.25 : 1);
@@ -25,27 +25,31 @@ export const COMPANION_IDLE_CLIPS: readonly { activity: CompanionActivity; durat
 // Every index is ONE complete full-body drawing. Transitions mix whole cels;
 // there are no bones, body-part transforms, or geometry deformation.
 type Cel = readonly [frame: number, weight: number];
-type Clip = { sheet: CompanionSheet; cels: readonly Cel[]; continuous?: boolean; transitionMs?: number };
+type Clip = { sheet: CompanionSheet; cels: readonly Cel[]; transitionMs?: number };
 const sequence = (frames: readonly number[], weight = 1): Cel[] => frames.map(frame => [frame, weight]);
-const idle: Clip = { sheet: 'idle', cels: [[0, 3], [1, 3], [2, 3], [3, 3], [4, 2], [5, .7], [6, .6], [7, .7], ...sequence([8, 9, 10, 11, 12, 13, 14, 15], 2)] };
+const idle: Clip = { sheet: 'idle', transitionMs: 75, cels: [[0, 3], [1, 3], [2, 3], [3, 3], [4, 2], [5, .7], [6, .6], [7, .7], ...sequence([8, 9, 10, 11, 12, 13, 14, 15], 2)] };
 const sleep: Clip = { sheet: 'sleep', transitionMs: 80, cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 4], [8, 18], [9, 18], ...sequence([10, 11, 12, 13, 14, 15])] };
 const bow: Clip = { sheet: 'bow', transitionMs: 70, cels: [...sequence([0, 1, 2, 3, 4, 5, 6]), [7, 2], [8, 2], ...sequence([9, 10, 11, 12, 13, 14, 15])] };
 const clips: Record<CompanionActivity, Clip> = {
   sit: idle, happy: idle,
   watch: { sheet: 'care', cels: [[0, 3], [1, 2], [2, 2], [1, 2], [0, 3]] },
-  scratch: { sheet: 'scratch', cels: sequence([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) },
-  stand: { sheet: 'spin', cels: [[0, 4], [1, 10], [2, 4], [1, 10], [14, 1], [15, 4]] },
+  // Retrace the same hind paw instead of holding it against the ear while
+  // unrelated drawings move the head and body around it.
+  scratch: { sheet: 'scratch', transitionMs: 30, cels: [[0, 2], ...sequence([1, 2, 3, 2, 3, 2, 3, 2, 1]), [0, 2]] },
+  stand: { sheet: 'spinStep', transitionMs: 40, cels: [[0, 2], [1, 2], [2, 8], [1, 2], [0, 2]] },
   lie: { sheet: 'sleep', cels: [...sequence([0, 1, 2, 3]), [4, 28], [3, 1], [2, 1], [1, 1], [0, 2]] },
   sleep, relax: sleep, stretch: bow, bow,
-  spin: { sheet: 'spinSmooth', continuous: true, cels: sequence(Array.from({ length: 32 }, (_, i) => i)) },
+  // Distinct planted and lifted paws, in chronological order. A short blend
+  // avoids keeping two different leg positions on screen for the whole step.
+  spin: { sheet: 'spinStep', transitionMs: 24, cels: sequence(Array.from({ length: 16 }, (_, i) => i)) },
   // Later generated cels swap the offered paw. Use only the six consistent
   // drawings, then retrace them so the SAME paw returns to the floor.
-  touch: { sheet: 'touch', transitionMs: 80, cels: [[0, 2], ...sequence([1, 2, 3, 4]), [5, 4], ...sequence([4, 3, 2, 1]), [0, 2]] },
+  touch: { sheet: 'touch', transitionMs: 30, cels: [[0, 2], ...sequence([1, 2, 3, 4]), [5, 4], ...sequence([4, 3, 2, 1]), [0, 2]] },
   roll: { sheet: 'roll', transitionMs: 36, cels: sequence([0, 1, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]) },
   pet: { sheet: 'care', cels: [[0, 1], [1, 1], [2, 1], [3, 2], [4, 2], [5, 1], [6, 1], [7, 1]] },
   cuddle: { sheet: 'care', cels: [[0, 1], [1, 1], [2, 1], [3, 2], [4, 2], [5, 1], [6, 1], [7, 1]] },
   feed: { sheet: 'care', cels: [[8, 1], [9, 1], [10, 1], [11, 1], [10, 1], [11, 1], [12, 1], [13, 1], [14, 1], [15, 1]] },
-  approach: { sheet: 'spin', cels: [[0, 1], [1, 1], [2, 1], [1, 1], [2, 1], [1, 1], [14, 1], [15, 2]] },
+  approach: { sheet: 'spinStep', transitionMs: 30, cels: [[0, 1], [1, 1], [2, 1], [1, 1], [2, 1], [1, 1], [0, 2]] },
 };
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -54,7 +58,7 @@ export function companionFrame(activity: CompanionActivity, elapsed: number, dur
   // Practice already has a longer duration. Keep its timeline continuous;
   // the old mid-action freeze made every learning attempt visibly stutter.
   let t = clamp(Number.isFinite(elapsed / duration) ? elapsed / duration : 0);
-  if (reduced) t = .5;
+  if (reduced) t = activity === 'spin' ? 0 : .5;
   const total = clip.cels.reduce((sum, [, weight]) => sum + weight, 0);
   let remaining = t * total;
   let index = clip.cels[clip.cels.length - 1][0];
@@ -64,16 +68,12 @@ export function companionFrame(activity: CompanionActivity, elapsed: number, dur
     if (remaining < weight) {
       index = frame;
       nextIndex = clip.cels[Math.min(i + 1, clip.cels.length - 1)][0];
-      const seated = activity === 'sit' || activity === 'happy';
-      if (!reduced && (seated || clip.continuous || clip.transitionMs)) {
+      if (!reduced && clip.transitionMs) {
         const segmentMs = weight / total * duration;
-        // Moving clips interpolate for the entire interval. Holding each cel
-        // then easing into the next stops/starts a spin sixteen times. Keep
-        // linear velocity across cel boundaries; resting clips may still hold.
-        const continuous = seated || clip.continuous;
-        const fadeMs = continuous ? segmentMs : Math.min(segmentMs, clip.transitionMs!);
+        // Brief fades keep limb positions readable while softening each cut.
+        const fadeMs = Math.min(segmentMs, clip.transitionMs);
         const progress = clamp((remaining / weight * segmentMs - (segmentMs - fadeMs)) / fadeMs);
-        const blend = continuous ? progress : progress * progress * (3 - 2 * progress);
+        const blend = progress * progress * (3 - 2 * progress);
         mix = Math.round(blend * 1000) / 1000;
       }
       break;

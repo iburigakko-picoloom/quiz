@@ -114,7 +114,7 @@ export function CompanionCharacter({ friendship = 0, motion = null, large = fals
           drawCompanionFrame(ctx, image, 0, canvas.width, canvas.height);
           canvas.dataset.renderer = 'full-body-frames'; setLoaded(true); announce('sit');
           // Prepare the small set of whole-body clips before the first action.
-          for (const name of ['spinSmooth', 'scratch', 'sleep', 'spin', 'touch', 'bow', 'roll', 'care'] as const) requestSheet(name);
+          for (const name of ['spinStep', 'scratch', 'sleep', 'touch', 'bow', 'roll', 'care'] as const) requestSheet(name);
         }
         // Background preloads must not reset the running action's clock.
         if (sheet === 'idle' || sheet === companionFrame(clip.activity, 0, clip.duration).sheet) wake();
