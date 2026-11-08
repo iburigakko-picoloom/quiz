@@ -84,9 +84,9 @@ export class MaterialPreviewCache {
     return { url, aspect, pixelWidth };
   }
 
-  async load(ownerId: string, materialId: string, page: MaterialPage): Promise<MaterialPagePreview> {
+  async load(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0): Promise<MaterialPagePreview> {
     const [background, raw] = await Promise.all([
-      this.loadBackground(ownerId, materialId, page),
+      this.loadBackground(ownerId, materialId, page, requestedWidth),
       loadCategoryNoteRaw(`quizMake:notes:${ownerId}:${annotationCategory(materialId, page.id)}`),
     ]);
     const note = raw ? JSON.parse(raw) : null;
