@@ -1961,8 +1961,8 @@ export default function App() {
       data={data}
       initialMaterials={screen.name === 'home' ? screen : undefined}
       onCloseMaterials={() => replaceScreen({ name: 'home' })}
-      onOpenMaterial={(setId, reference, materialsQuery, materialsScroll) => {
-        const backScreen: AppScreen = { name: 'home', materialsView: true, materialsQuery, materialsScroll };
+      onOpenMaterial={(setId, reference, materialsQuery, materialsScroll, materialsFolderId) => {
+        const backScreen: AppScreen = { name: 'home', materialsView: true, materialsQuery, materialsScroll, materialsFolderId };
         replaceScreen(backScreen);
         navigate({ name: 'noteDetail', setId, category: '__materials', reference, backScreen });
       }}
@@ -1972,7 +1972,6 @@ export default function App() {
       onOpenFolder={(folderId) => navigate({ name: 'folder', folderId })}
       onOpenStudyRecord={() => navigate({ name: 'studyRecord' })}
       onOpenPlans={() => navigate({ name: 'plans' })}
-      onOpenSearch={() => navigate({ name: 'search' })}
       companionCare={companion.care}
       onOpenCompanion={() => navigate({ name: 'companionCare' })}
       onSave={commitData}
