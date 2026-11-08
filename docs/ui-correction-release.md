@@ -22,3 +22,5 @@
 4. `20261108060226_group_activity_duration.sql`: 時間共有の同意・実時間の保存と読み取り。
 
 2026-11-08: 4件を本番DBへ適用し、ファイル名を本番が発行したmigration versionに合わせた。4つのprivateテーブルはRLS有効でanon/authenticatedの直接読み書き権限なし。公開7 RPCはsecurity invokerでanon実行不可・authenticated実行可。合成したグループ外IDでは一括進捗・教材別履歴・タイムラインの読み取りが拒否されることをrollbackトランザクションで確認。security advisorの新しい2件は、直接アクセスを許可しないprivateテーブルに対するRLS・policyなしのINFO。既存のWARNは残っている。GitHub Pagesの配信状況は統合PR #47を参照。
+
+今回の4件より前から、リポジトリ内の旧migration 17件は本番履歴のversionと一致していない。今回の4件を揃えても全履歴が一致したことにはならないため、今後 `supabase db push` を一括実行する前に旧履歴とSQLの対応を確認する。今回、旧履歴は変更していない。
