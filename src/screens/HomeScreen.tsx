@@ -12,7 +12,6 @@ import { LibraryItemActions } from '../components/LibraryItemActions';
 import {
   CheckIcon,
   ChevronRightIcon,
-  DocumentOutlineIcon,
   FolderOutlineIcon,
   PlusIcon,
   SearchIcon,
@@ -22,6 +21,7 @@ import { buildAppDataView } from '../utils/appDataView';
 import './HomeScreen.css';
 import { StudyCompanion } from '../components/StudyCompanion';
 import { StudyActivity } from '../components/StudyActivity';
+import { MaterialCover, MaterialCoverQueue } from '../components/MaterialCover';
 import { useStudyRecord } from '../hooks/useStudyRecord';
 import type { CompanionCare } from '../utils/companionCare';
 
@@ -77,6 +77,8 @@ export function HomeScreen({
   const selectedMaterialsFolderId = folderMap.has(materialsFolderId) ? materialsFolderId : '';
   const visibleMaterialRows = materialRows.filter(row => (!selectedMaterialsFolderId || isInFolder(row.folderId, selectedMaterialsFolderId)) && `${row.material.title} ${row.setTitle}`.toLocaleLowerCase().includes(materialsQuery.trim().toLocaleLowerCase()));
   const materialList = useRef<HTMLDivElement>(null);
+  const materialCovers = useRef<MaterialCoverQueue | null>(null);
+  useEffect(() => () => { materialCovers.current?.close(); materialCovers.current = null; }, []);
   const restoreScroll = useRef(initialMaterials?.materialsScroll ?? 0);
   useEffect(() => {
     if (!materialsView) return;
@@ -143,7 +145,7 @@ export function HomeScreen({
           {materialsLoading ? <p role="status">読み込み中…</p> : null}
           {materialError ? <p role="alert">{materialError}</p> : null}
           {!isMainDevice ? <p>資料を開くにはメイン端末に切り替えてください。</p> : null}
-          {!materialsLoading && !materialError ? <div className="quiz-home__material-grid">{visibleMaterialRows.map(({setId,setTitle,material}) => <button key={`${setId}/${material.id}`} type="button" className="quiz-home__material-card" disabled={!isMainDevice || !material.pages.length} onClick={() => onOpenMaterial?.(setId, {materialId:material.id,pageId:material.pages[0].id}, materialsQuery, materialList.current?.scrollTop ?? 0, selectedMaterialsFolderId)}><span className="quiz-home__material-cover"><DocumentOutlineIcon size={40} aria-hidden="true"/></span><span className="quiz-home__material-details"><strong>{material.title}</strong>{setTitle !== material.title ? <span>{setTitle}</span> : null}</span></button>)}</div> : null}
+          {!materialsLoading && !materialError ? <div className="quiz-home__material-grid">{visibleMaterialRows.map(({setId,setTitle,material}) => <button key={`${setId}/${material.id}`} type="button" className="quiz-home__material-card" disabled={!isMainDevice || !material.pages.length} onClick={() => onOpenMaterial?.(setId, {materialId:material.id,pageId:material.pages[0].id}, materialsQuery, materialList.current?.scrollTop ?? 0, selectedMaterialsFolderId)}><MaterialCover ownerId={setId} materialId={material.id} page={material.pages[0]} enabled={isMainDevice} queue={materialCovers}/><span className="quiz-home__material-details"><strong>{material.title}</strong>{setTitle !== material.title ? <span>{setTitle}</span> : null}</span></button>)}</div> : null}
           {!materialsLoading && !materialError && !visibleMaterialRows.length ? <p>{materialRows.length ? '該当する資料はありません。' : '登録された資料はありません。'}</p> : null}
         </div> : <div className="quiz-home__content">
         <section className="quiz-home__library" aria-label="学習フォルダ">

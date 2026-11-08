@@ -4,7 +4,7 @@ import type { RecordConflict } from './recordSyncPull';
 import { categoryNoteRecoveryKeys, isCategoryNotesRecoveryRequired } from './noteStorage';
 
 export const RECORD_SYNC_STATE_EVENT = 'quiz-make-record-sync-state';
-export type RecordSyncStatus = { lastSuccessAt: string; phase: RecordSyncOutcome['status'] | 'idle'; pending: number; conflicts: number; staged: boolean; cursor: number; recoveryNotes?:number; recoveryUnknown?:boolean; mediaPending?:number; deltaEnabled?:boolean; recoveryCandidates?:number; migrationError?:string };
+export type RecordSyncStatus = { lastSuccessAt: string; phase: RecordSyncOutcome['status'] | 'idle'; pending: number; conflicts: number; staged: boolean; roleTransitionBlocked?: boolean; cursor: number; recoveryNotes?:number; recoveryUnknown?:boolean; mediaPending?:number; deltaEnabled?:boolean; recoveryCandidates?:number; migrationError?:string };
 type Receipt = { connection: RecordSyncConnection; lastSuccessAt: string; phase: RecordSyncOutcome['status'] };
 const done = (tx: IDBTransaction) => new Promise<void>((resolve, reject) => {
   tx.oncomplete = () => resolve();
@@ -49,6 +49,7 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
     conflicts: wholeConflict.result && sameRecordSyncConnection(wholeConflict.result.connection,connection)?1:stage.result && sameRecordSyncConnection(stage.result.connection, connection)
       ? conflicts.filter(item => item.operationId && item.remote && item.connection && sameRecordSyncConnection(item.connection, connection)).length : 0,
     staged: Boolean(deltaCheckpoint.result || deltaFrozen.result || deltaPull.result || stage.result && sameRecordSyncConnection(stage.result.connection, connection)||wholeIncoming.result),
+    roleTransitionBlocked: Boolean(batch.result || wholeFrozen.result || deltaFrozen.result || deltaCheckpoint.result || deltaPull.result || stage.result || wholeIncoming.result),
     cursor: deltaCursor.result?.revision??(cursor.result && sameRecordSyncConnection(cursor.result.connection, connection) ? cursor.result.cursor : 0) };
 }
 
