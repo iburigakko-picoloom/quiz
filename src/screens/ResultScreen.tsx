@@ -15,7 +15,7 @@ export function ResultScreen({ result, returnLabel, onReturn, onRetry, onRetryWr
   const rate = result.answered ? Math.round(result.correct / result.answered * 100) : 0;
   const relearned = result.sessionAnswers?.filter((answer) => answer.relearned).length ?? 0;
   const canRetryWrong = result.wrong > 0 && Boolean(result.sessionAnswers?.length);
-  const returnText = result.setId ? 'セット詳細へ' : returnLabel;
+  const returnText = result.setId && returnLabel === '問題セットへ戻る' ? 'セット詳細へ' : returnLabel;
   const answerIds = (result.sessionAnswers ?? []).flatMap(answer => answer.answerLogId ? [answer.answerLogId] : []);
   const credited = new Set(companionCare?.creditedAnswerIds);
   const rewardReady = Boolean(companionCare) && answerIds.every(id => credited.has(id));

@@ -1659,6 +1659,7 @@ export default function App() {
     content = <BackupCompleteScreen {...screen} onHome={goHome} />;
   } else if (screen.name === 'questionDetail') {
     content = <QuestionDetailScreen data={data} questionId={screen.questionId} onBack={() => goBackTo(screen.backScreen)}
+      onPractice={() => { const question = dataRef.current.questions.find(item => item.id === screen.questionId); const set = question && dataRef.current.problemSets.find(item => item.id === question.setId); if (question && set) navigate({ name: 'quizSession', session: { title: set.title, questions: [question], mode: 'quiz', setId: set.id, backScreen: screen } }); }}
       onEdit={() => navigate({ name: 'questionEdit', questionId: screen.questionId, backScreen: screen })}
       onDetail={(editing) => navigate({ name: 'detailedAnswer', questionId: screen.questionId, editing, backScreen: screen })}
       onNote={(setId, category) => navigate({ name: 'noteDetail', setId, category, backScreen: screen })} />;
