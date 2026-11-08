@@ -876,7 +876,7 @@ export function CommunityScreen({
           {isGroupDetail ? (
             <LibraryPane viewKey={isGroupSetDetail&&directSet?directSet.id:'workspace'} depth={isGroupSetDetail?2:1}>
             {isGroupSetDetail && directSet ? (
-              progressDetail && session ? <><h2>{directSet.title}</h2><p className="group-breadcrumb">{selectedGroup?.name ?? 'グループ'}</p><GroupProgress key={`${selectedGroupId}:${directSet.id}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} summary={groupLearning.materials?.find(row=>row.setId===directSet.id)} onChanged={() => setGroupLearningRevision(n => n + 1)} /></> :
+              progressDetail && session ? <div className="group-progress-page"><p className="group-progress-page__meta">{selectedGroup?.name ?? 'グループ'} · {directSet.questionCount}問</p><GroupProgress key={`${selectedGroupId}:${directSet.id}:${session.user.id}`} data={data} groupId={selectedGroupId} set={directSet} userId={session.user.id} summary={groupLearning.materials?.find(row=>row.setId===directSet.id)} onChanged={() => setGroupLearningRevision(n => n + 1)} /></div> :
               <SharedSetDetail key={directSet.id} set={directSet} location={`${directSetLocation || directSet.folderPath?.map(part => part.name).join(' / ') || 'フォルダ'} / ${selectedGroup?.name ?? 'グループ'}`} busy={busy} onCopy={() => copySharedSet(directSet)} onOpenSource={ownedSource?()=>onOpenLocalSet(ownedSource.id):undefined} onReport={() => setReportTarget(directSet)} />
             ) : (
               <section className="community-section community-group-detail">
