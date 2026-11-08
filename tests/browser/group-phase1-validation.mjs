@@ -16,7 +16,7 @@ let failMemberOnce=true;
 try {
   await new Promise((resolveReady,reject)=>{const timeout=setTimeout(()=>reject(new Error('Test server timed out')),15000);server.stdout.on('data',chunk=>{if(chunk.toString().includes('5175')){clearTimeout(timeout);resolveReady();}});server.once('exit',code=>{clearTimeout(timeout);reject(new Error(`Test server exited: ${code}`));});});
   browser=await chromium.launch({channel:'chrome',headless:true});
-  page=await browser.newPage({viewport:{width:390,height:844}});
+  page=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'});
   page.setDefaultTimeout(30000);
   page.setDefaultNavigationTimeout(120000);
   const userId='00000000-0000-4000-8000-000000000001';
@@ -142,13 +142,14 @@ try {
   await page.getByRole('tab',{name:'タイムライン',exact:true}).waitFor();
   assert.equal(await page.getByRole('tab',{name:'タイムライン',exact:true}).getAttribute('aria-selected'),'true');
   await page.getByRole('tab',{name:'フォルダ',exact:true}).click();
+  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);if(width>=390)await page.screenshot({path:`qa/phase1/folders-${width}.png`});}await page.setViewportSize({width:390,height:844});
   await page.locator('.group-folder-list .library-content-row__open').first().click();
   await page.getByRole('button',{name:'フォルダごと取り込む',exact:true}).waitFor();
   await page.locator('.group-set-list .library-content-row__open').first().click();
   await page.getByRole('button',{name:'取り込む',exact:true}).waitFor();
   assert.equal(await page.getByRole('switch').count(),0);
   assert.equal(await page.locator('.group-set-progress').count(),0);
-  await page.screenshot({path:'qa/phase1/import-390.png'});
+  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);if(width>=390)await page.screenshot({path:`qa/phase1/import-${width}.png`});}await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'戻る',exact:true}).click();
   await page.getByRole('tab',{name:'メンバー',exact:true}).click();
   assert.equal(await page.locator('.group-member-card').count(),8);
