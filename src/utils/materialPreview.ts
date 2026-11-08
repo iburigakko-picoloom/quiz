@@ -6,6 +6,14 @@ import type { MaterialPage } from './materialModel';
 import { ByteBudgetLruCache, estimateDataUrlMemoryBytes, estimateRgbaPixelBytes } from '../components/noteMemory';
 
 export interface MaterialPagePreview { url?: string; inkUrl?: string; aspect: number; pixelWidth?: number }
+export async function loadMaterialPageInk(ownerId: string, materialId: string, page: MaterialPage): Promise<string | undefined> {
+  const raw = await loadCategoryNoteRaw(`quizMake:notes:${ownerId}:${annotationCategory(materialId, page.id)}`);
+  const note = raw ? JSON.parse(raw) : null;
+  const ink = note?.pages?.[Math.max(0, Math.min(note.currentPageIndex ?? 0, note.pages.length - 1))]?.dataUrl ?? note?.dataUrl;
+  const inkUrl = typeof ink === 'string' && ink ? ink : undefined;
+  if (inkUrl) { const image = new Image(); image.src = inkUrl; await image.decode(); }
+  return inkUrl;
+}
 // Retain the decoded PDF image within the existing byte budget. Revisiting a
 // prefetched page must not create and decode another copy of the same bitmap.
 type Background = Omit<MaterialPagePreview, 'inkUrl'> & { decoded?: HTMLImageElement };
@@ -85,16 +93,10 @@ export class MaterialPreviewCache {
   }
 
   async load(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0): Promise<MaterialPagePreview> {
-    const [background, raw] = await Promise.all([
+    const [background, inkUrl] = await Promise.all([
       this.loadBackground(ownerId, materialId, page, requestedWidth),
-      loadCategoryNoteRaw(`quizMake:notes:${ownerId}:${annotationCategory(materialId, page.id)}`),
+      loadMaterialPageInk(ownerId, materialId, page),
     ]);
-    const note = raw ? JSON.parse(raw) : null;
-    const ink = note?.pages?.[Math.max(0, Math.min(note.currentPageIndex ?? 0, note.pages.length - 1))]?.dataUrl ?? note?.dataUrl;
-    const inkUrl = typeof ink === 'string' && ink ? ink : undefined;
-    if (inkUrl) {
-      const image = new Image(); image.src = inkUrl; await image.decode();
-    }
     return { url: background.url, aspect: background.aspect, inkUrl };
   }
 }
