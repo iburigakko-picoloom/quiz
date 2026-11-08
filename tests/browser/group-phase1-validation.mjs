@@ -73,7 +73,7 @@ try {
   await page.locator('.group-material-card').first().getByText('回答済み 3 / 45問・回答率 7%',{exact:true}).waitFor();
   assert.equal(requests.filter(n=>n==='quiz_group_member_material_progress').length,1,'one batch for all materials');
   await page.locator('.group-material-card').first().click();
-  await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'自分の進捗',exact:true}).waitFor();
   await page.getByRole('button',{name:'戻る',exact:true}).click();
   await page.getByLabel('表示するメンバー').waitFor();
   assert.equal(await page.getByLabel('表示するメンバー').inputValue(),'sato','selection survives detail');
@@ -93,8 +93,10 @@ try {
   await page.screenshot({path:'qa/phase1/overview-768.png'});
   await page.setViewportSize({width:390,height:844});
   await page.locator('.group-material-card').first().click();
-  await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'自分の進捗',exact:true}).waitFor();
   await page.getByRole('region',{name:'この教材の学習記録'}).getByText('3問を解答').waitFor();
+  for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);if(width>=390)await page.screenshot({path:`qa/phase1/progress-${width}.png`});}
+  await page.setViewportSize({width:390,height:844});
   await page.getByText('グループ全体',{exact:true}).click();
   await page.getByText('回答済み 3 / 45問・回答率 7%',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'取り込む',exact:true}).count(),0);
@@ -102,7 +104,6 @@ try {
   assert.equal(await page.locator('.group-progress-member').filter({hasText:'非共有の利用者'}).getByText('未共有',{exact:true}).count(),1);
   assert.equal(await page.getByRole('switch').getAttribute('aria-checked'),'false');
   assert.equal(requests.filter(n=>n==='quiz_group_progress_consent').length,0);
-  await page.screenshot({path:'qa/phase1/progress-390.png'});
   await page.getByRole('button',{name:'戻る',exact:true}).click();
   assert.equal(await page.getByRole('tab',{name:'概要',exact:true}).getAttribute('aria-selected'),'true');
   await page.getByRole('tab',{name:'タイムライン',exact:true}).click();
@@ -132,7 +133,7 @@ try {
   await page.getByRole('button',{name:'演習時間の共有を停止',exact:true}).click();await page.getByRole('button',{name:'演習時間を共有する',exact:true}).waitFor();assert.equal(timeEnabled,false);assert.equal(await page.getByText(/8秒/).count(),0);await page.getByRole('button',{name:'演習時間を共有する',exact:true}).click();await page.getByRole('button',{name:'同意して時間を共有',exact:true}).click();await page.getByRole('button',{name:'演習時間の共有を停止',exact:true}).waitFor();
   await page.screenshot({path:'qa/phase1/timeline-390.png'});
   await page.getByRole('button',{name:'心不全',exact:true}).click();
-  await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'自分の進捗',exact:true}).waitFor();
   // Exercise the exact handler used by Android/app back and browser popstate.
   assert.equal(await page.evaluate(async()=>{const {tryScreenBack}=await import('/quiz/src/utils/screenBack.ts');return tryScreenBack();}),true);
   await page.getByRole('tab',{name:'タイムライン',exact:true}).waitFor();
@@ -203,13 +204,13 @@ try {
   await page.getByRole('button',{name:new RegExp(previewGroup.name)}).first().click();
   await page.locator('.group-material-card').first().waitFor();
   await page.locator('.group-material-card').first().click();
-  await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'自分の進捗',exact:true}).waitFor();
   await page.goBack();
   await page.getByRole('tab',{name:'概要',exact:true}).waitFor();
   assert.equal(await page.getByRole('tab',{name:'概要',exact:true}).getAttribute('aria-selected'),'true','browser back restores overview origin');
   await page.getByRole('tab',{name:'タイムライン',exact:true}).click();
   await page.getByRole('button',{name:'心不全',exact:true}).click();
-  await page.getByRole('heading',{name:'教材の進捗',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'自分の進捗',exact:true}).waitFor();
   await page.goBack();
   await page.getByRole('tab',{name:'タイムライン',exact:true}).waitFor();
   assert.equal(await page.getByRole('tab',{name:'タイムライン',exact:true}).getAttribute('aria-selected'),'true','browser back restores timeline origin');
