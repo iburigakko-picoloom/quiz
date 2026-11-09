@@ -69,7 +69,9 @@ test('memo practice has its own source section and keeps question output format'
 
 test('ordinary explanation emphasis is orange and survives JSON import', () => {
   for (const prompt of [buildSimpleCreationPrompt('古文単語'), CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
-    assert.ok(prompt.includes('1問あたり1〜3箇所だけ**太字**'));
+    assert.ok(prompt.includes('重要事項と各選択肢の理由それぞれ'));
+    assert.ok(!prompt.includes('1問あたり1〜3箇所'));
+    assert.ok(prompt.includes('赤寄りのオレンジ色'));
     assert.ok(prompt.includes('オレンジ色の太字'));
     assert.ok(prompt.includes('HTMLや色指定タグは使わない'));
     const sample = JSON.parse(prompt.split('\n').find(line => line.startsWith('{')));

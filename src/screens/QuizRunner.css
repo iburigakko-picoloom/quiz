@@ -9,7 +9,7 @@
 .answer-sheet__section-title::after { content:''; height:1px; flex:1; background:#c7d9f2; }
 .answer-sheet__important { margin:4px 0 26px; background:white; }
 .answer-sheet .answer-sheet__markdown { color:#26364e; font-size:15px; line-height:1.85; font-weight:400; }
-.answer-sheet .answer-sheet__markdown strong { color:#b9530c; font-weight:750; }
+.answer-sheet .answer-sheet__markdown strong { color:#c4481c; font-weight:750; }
 .answer-sheet__choice-cards { display:grid; gap:12px; padding-bottom:12px; }
 .answer-sheet__choice-card { display:grid; grid-template-columns:40px minmax(0,1fr); border:1px solid #ecd2d5; border-radius:12px; overflow:hidden; background:white; }
 .answer-sheet__choice-card.is-correct { border-color:#b7dfc4; }
