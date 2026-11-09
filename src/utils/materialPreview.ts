@@ -21,12 +21,13 @@ type Background = Omit<MaterialPagePreview, 'inkUrl'> & { decoded?: HTMLImageEle
 /** Only a few neighbouring pages are requested; original PDF and ink stay separate. */
 export class MaterialPreviewCache {
   private images = new ByteBudgetLruCache<string, Background>(32 * 1024 * 1024);
+  private preferred = new Map<string, string>();
   private pending = new Map<string, Promise<Background>>();
   private document: { key: string; cancelled: boolean; task?: ReturnType<(typeof import('./pdfReader'))['openPdf']>; ready: Promise<PDFDocumentProxy> } | null = null;
 
   clear() {
     if (this.document) { this.document.cancelled = true; void this.document.task?.destroy(); }
-    this.document = null; this.images.clear(); this.pending.clear();
+    this.document = null; this.images.clear(); this.pending.clear(); this.preferred.clear();
   }
 
   private pdf(ownerId: string, materialId: string) {
@@ -49,7 +50,11 @@ export class MaterialPreviewCache {
     const docPromise = this.pdf(ownerId, materialId);
     const session = this.document!;
     const pixelWidth = requestedWidth > 0 ? Math.min(4096, Math.ceil(requestedWidth / 256) * 256) : 0;
-    const key = `${ownerId}/${materialId}/${page.pdfPage}/${pixelWidth}`;
+    const pageKey = `${ownerId}/${materialId}/${page.pdfPage}`;
+    const preferredKey = this.preferred.get(pageKey);
+    const preferred = preferredKey ? this.images.get(preferredKey) : undefined;
+    if (preferred && (!requestedWidth || (preferred.pixelWidth ?? 0) >= Math.min(requestedWidth,4096))) return preferred;
+    const key = `${pageKey}/${pixelWidth}`;
     const cached = this.images.get(key);
     if (cached) return cached;
     const existing = this.pending.get(key);
@@ -78,6 +83,12 @@ export class MaterialPreviewCache {
         await decoded.decode();
         if (session.cancelled) throw new Error('資料の読込を中止しました。');
         const result = { url, aspect: native.width / native.height, pixelWidth: canvas.width, decoded };
+        const previousKey = this.preferred.get(pageKey);
+        const previous = previousKey ? this.images.peek(previousKey) : undefined;
+        // Keep one resolution per page; navigation may reuse the sharper image.
+        if (previous && (previous.pixelWidth ?? 0) >= canvas.width) return previous;
+        if (previousKey) this.images.delete(previousKey);
+        this.preferred.set(pageKey,key);
         this.images.set(key, result, estimateDataUrlMemoryBytes(result.url) + estimateRgbaPixelBytes(canvas.width, canvas.height));
         return result;
       } finally { canvas.width = 0; canvas.height = 0; }
