@@ -6,7 +6,7 @@ import { integrityCodes, SyncDataError, type SyncFailureDetails } from './syncDa
 export const SYNC_ATTEMPT_EVENT = 'quiz-make-sync-attempt';
 export type SyncFailure = { code: string; step: string; at: string; message: string; diagnostic?: SyncFailureDetails };
 export type SyncProgressStage = 'preparing' | 'comparing' | 'receiving_records' | 'receiving_images' | 'checking_materials' | 'receiving_materials' | 'building_backup' | 'archiving' | 'backup' | 'validating' | 'sending' | 'applying' | 'finalizing';
-export type SyncProgress = { label: string; completed: number; total: number | null; stage?: SyncProgressStage };
+export type SyncProgress = { label: string; completed: number; total: number | null; stage?: SyncProgressStage; unit?: 'items' | 'parts' | 'bytes' };
 // Stages have different costs, so this is a work-completion estimate, not an
 // elapsed-time forecast. Unknown totals hold at the stage's starting point.
 const progressRanges: Record<SyncProgressStage, readonly [number,number]> = {
@@ -42,7 +42,10 @@ export function publishSyncQueue(connection: RecordSyncConnection, queue: AutoSy
 export function publishSyncAttempt(connection: RecordSyncConnection, update: Partial<SyncAttemptStatus>) {
   const current = owned(connection);
   if(!current.result.background&&update.phase==='running'&&update.step==='prepare'&&(['done','failed','paused'].includes(current.result.phase)||current.result.overallPercent===undefined))resetProgress(current);
-  if (update.step && update.step !== current.result.step || update.phase === 'running' && update.step === 'prepare') delete current.result.progress;
+  const stage = current.result.progress?.stage;
+  const sameTransfer = update.step === 'push' && stage === 'sending'
+    || update.step === 'pull' && stage === 'receiving_records';
+  if (update.step && update.step !== current.result.step && !sameTransfer || update.phase === 'running' && update.step === 'prepare') delete current.result.progress;
   current.result = { ...current.result, ...update, ...(update.phase==='done'?{overallPercent:100}:{}) }; changed();
 }
 export function publishSyncProgress(connection: RecordSyncConnection, progress: SyncProgress) {
