@@ -67,6 +67,13 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const pageIndex = material?.pages.findIndex(item => item.id === pageId) ?? -1;
   const pagePending = !!page && displayed?.page.id !== page.id;
   const linked = questionReferences?.some(item => item.materialId === materialId && item.pageId === pageId) ?? false;
+  const requestedPageWidth = () => {
+    const content = contentRef.current;
+    const active = content?.querySelector<HTMLElement>('.category-note-page--active');
+    const width = active?.getBoundingClientRect().width
+      || Math.min(content?.clientWidth ?? 0, Math.max(0,(content?.clientHeight ?? 0)-64) * (displayed?.aspect ?? 210/297)) * viewScale.current;
+    return width * Math.max(1,window.devicePixelRatio || 1);
+  };
   const clearTransition = useCallback(() => {
     stopAnimation.current?.(); stopAnimation.current = null;
     transitionLayer.current?.replaceChildren(); setTransitioning(false);
@@ -187,7 +194,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     if (!material || !page) { if (index) { setDisplayed(null); clearTransition(); } return; }
     let disposed = false;
     void (async () => {
-      const preview = await previews.current.loadBackground(ownerId, material.id, page);
+      const preview = await previews.current.loadBackground(ownerId, material.id, page, requestedPageWidth());
       if (!disposed) setDisplayed({ ownerId, materialId: material.id, page, url: preview.url, aspect: preview.aspect, pixelWidth: preview.pixelWidth });
     })().catch(err => { if (!disposed) { clearTransition(); if (displayed) { setMaterialId(displayed.materialId); setPageId(displayed.page.id); } setError(`資料を表示できません: ${err.message ?? err}`); } });
     return () => { disposed = true; };
@@ -202,13 +209,13 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     // images are read afresh so returning to a page never shows stale ink.
     void (async () => {
       const nearby = transitionDirection.current < 0
-        ? [['previous', material.pages[current - 1]], ['next', material.pages[current + 1]], ['ahead', material.pages[current - 2]]] as const
-        : [['next', material.pages[current + 1]], ['previous', material.pages[current - 1]], ['ahead', material.pages[current + 2]]] as const;
+        ? [['previous', material.pages[current - 1]], ['next', material.pages[current + 1]]] as const
+        : [['next', material.pages[current + 1]], ['previous', material.pages[current - 1]]] as const;
       for (const [side, adjacent] of nearby) {
         if (!adjacent || disposed) continue;
         try {
-          const preview = await previews.current.load(ownerId, material.id, adjacent);
-          if (!disposed && side !== 'ahead') setNeighbours(value => ({ ...value, [side]: preview }));
+          const preview = await previews.current.load(ownerId, material.id, adjacent, requestedPageWidth());
+          if (!disposed) setNeighbours(value => ({ ...value, [side]: preview }));
         } catch { /* A failed prefetch is retried, with an error, on navigation. */ }
       }
     })();
@@ -218,7 +225,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   // Re-render vector text at screen resolution once resizing/pinching settles.
   // Keep the sharper image when the note shrinks; never resample the saved PDF.
   useEffect(() => {
-    if (!displayed || displayed.page.kind === 'blank' || memoOpen) return;
+    if (transitioning || !displayed || displayed.page.kind === 'blank' || memoOpen) return;
     const target = contentRef.current?.querySelector<HTMLElement>('.category-note-page--active');
     if (!target) return;
     let disposed = false, timer: ReturnType<typeof setTimeout>;
@@ -236,7 +243,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     const observer = new ResizeObserver(refresh); observer.observe(target);
     window.addEventListener('resize', refresh); refresh();
     return () => { disposed = true; clearTimeout(timer); observer.disconnect(); window.removeEventListener('resize', refresh); };
-  }, [displayed?.page.id, displayed?.materialId, displayed?.ownerId, renderScale, memoOpen]);
+  }, [displayed?.page.id, displayed?.materialId, displayed?.ownerId, renderScale, memoOpen, transitioning]);
 
   const update = async (nextMaterial: StudyMaterial) => {
     if (!index) return;
