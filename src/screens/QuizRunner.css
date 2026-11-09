@@ -2,3 +2,21 @@
 .quiz-related-question-dialog::backdrop { background: rgb(13 25 40 / .55); }
 .quiz-related-question-dialog .app-layout { height: 100%; }
 @media (max-width: 600px) { .quiz-related-question-dialog { width: 100%; height: 100dvh; border-radius: 0; } }
+
+/* Answer reading view: existing sheet gestures and footer remain unchanged. */
+.answer-sheet .answer-sheet__section-title { display:flex; align-items:center; gap:9px; margin:0 0 14px; color:#162d53; font-size:19px; font-weight:800; line-height:1.35; background:white; }
+.answer-sheet__section-title::before { content:''; width:4px; height:25px; flex:0 0 4px; border-radius:3px; background:#205cc2; }
+.answer-sheet__section-title::after { content:''; height:1px; flex:1; background:#c7d9f2; }
+.answer-sheet__important { margin:4px 0 26px; background:white; }
+.answer-sheet .answer-sheet__markdown { color:#26364e; font-size:15px; line-height:1.85; font-weight:400; }
+.answer-sheet .answer-sheet__markdown strong { color:#b9530c; font-weight:750; }
+.answer-sheet__choice-cards { display:grid; gap:12px; padding-bottom:12px; }
+.answer-sheet__choice-card { display:grid; grid-template-columns:40px minmax(0,1fr); border:1px solid #ecd2d5; border-radius:12px; overflow:hidden; background:white; }
+.answer-sheet__choice-card.is-correct { border-color:#b7dfc4; }
+.answer-sheet__choice-mark { display:flex; justify-content:center; align-items:flex-start; padding-top:14px; font-size:27px; font-weight:800; color:#c93240; background:#fff5f4; }
+.answer-sheet__choice-card.is-correct .answer-sheet__choice-mark { color:#16813c; background:#f1fbf5; }
+.answer-sheet__choice-body { min-width:0; padding:12px; }
+.answer-sheet__choice-statement { margin:0; font-size:15px; line-height:1.65; font-weight:700; color:#16233b; overflow-wrap:anywhere; }
+.answer-sheet__choice-reason { margin-top:10px; padding-top:9px; border-top:1px solid #e8edf3; }
+.answer-sheet .answer-sheet__choice-reason p:first-child { margin-top:0; }
+.answer-sheet .answer-sheet__choice-reason p:last-child { margin-bottom:0; }
