@@ -11,7 +11,8 @@ try{
  await page.getByText('消してはいけない旧形式の説明。',{exact:true}).waitFor();
  assert.equal(await sheet.locator('.answer-sheet__choice-card').count(),4);assert.equal(await sheet.locator('.answer-sheet__choice-card.is-correct').count(),2);
  for(const card of await sheet.locator('.answer-sheet__choice-card').all()){const title=await card.locator('.answer-sheet__choice-statement').innerText();const choice=['腎臓','尿管','膀胱','別'].findIndex(x=>title.includes(x));assert.ok((await card.innerText()).includes(`判断条件${choice+1}`));}
- assert.equal(await sheet.locator('.answer-sheet__important strong').first().evaluate(el=>getComputedStyle(el).color),'rgb(196, 72, 28)');
+ for(const mark of await sheet.locator('.answer-sheet__choice-mark').all()){assert.equal(await mark.evaluate(el=>getComputedStyle(el).alignItems),'center');assert.equal(await mark.evaluate(el=>getComputedStyle(el).paddingTop),'0px');}
+ assert.equal(await sheet.locator('.answer-sheet__important strong').first().evaluate(el=>getComputedStyle(el).color),'rgb(224, 68, 0)');
  await mkdir('qa/answer-reading',{recursive:true});
  for(const width of [320,390,768]){await page.setViewportSize({width,height:844});await page.screenshot({path:`qa/answer-reading/${width}.png`});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const body=await sheet.locator('.answer-sheet__scroll').boundingBox(),footer=await sheet.locator('.answer-sheet__actions').boundingBox();assert.ok(body.y+body.height<=footer.y+1);}
  await page.setViewportSize({width:390,height:844});
