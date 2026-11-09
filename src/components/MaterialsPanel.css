@@ -179,3 +179,7 @@
 .materials-navigator__page[aria-current=page] { border: 2px solid #2859a6; }
 .materials-navigator__page img,.materials-navigator__page-placeholder { display: block; width: 100%; aspect-ratio: 210 / 297; object-fit: contain; background: #f7f9fc; }
 .materials-navigator__page > span:last-child { display: block; padding-top: 4px; }
+.materials-workspace > .materials-navigator { position:relative; inset:auto; flex:0 0 30%; width:30%; max-width:none; box-shadow:none; }
+.materials-panel .materials-navigator__tabs button[aria-selected=true] { color:white; background:#0864ce; border-radius:8px; }
+.materials-navigator .materials-related { padding:8px 0; overflow:visible; }
+.materials-related__explanation { white-space:pre-wrap; overflow-wrap:anywhere; }

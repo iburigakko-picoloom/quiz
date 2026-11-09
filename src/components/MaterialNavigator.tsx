@@ -1,17 +1,17 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { MaterialReference, Question } from '../types';
 import type { StudyMaterial } from '../utils/materialModel';
 import type { MaterialPage } from '../utils/materialModel';
 import { MaterialPreviewCache } from '../utils/materialPreview';
 import { normalizedMaterialText, relatedMaterialQuestions, searchMaterialPdf, type MaterialTextResult } from '../utils/materialSearch';
 
-export function MaterialNavigator({ materials, material, ownerId, pageId, disabled, onSelect, onPage, onClose }: {
+export function MaterialNavigator({ materials, material, ownerId, pageId, disabled, onSelect, onPage, children }: {
   materials: StudyMaterial[]; material?: StudyMaterial; ownerId: string; disabled: boolean;
   pageId: string;
-  onSelect: (id: string) => void; onPage: (id: string) => void; onClose: () => void;
+  onSelect: (id: string) => void; onPage: (id: string) => void; children?: ReactNode;
 }) {
   const [query, setQuery] = useState(''), [pdfQuery, setPdfQuery] = useState('');
-  const [tab, setTab] = useState<'materials'|'pages'|'search'>('materials');
+  const [tab, setTab] = useState<'questions'|'materials'|'search'>('questions');
   const thumbnails = useRef(new MaterialPreviewCache());
   const [result, setResult] = useState<MaterialTextResult | null>(null), [error, setError] = useState('');
   const [progress, setProgress] = useState<{done: number; total: number} | null>(null);
@@ -39,15 +39,15 @@ export function MaterialNavigator({ materials, material, ownerId, pageId, disabl
   };
   const filtered = materials.filter(item=>normalizedMaterialText(item.title).includes(normalizedMaterialText(query)));
   return <aside className="materials-navigator" aria-label="資料一覧">
-    <header><h2>資料一覧</h2><button type="button" aria-label="資料一覧を閉じる" onClick={onClose}>×</button></header>
-    <div className="materials-navigator__tabs" role="tablist" aria-label="資料パネル">{([['materials','資料'],['pages','ページ'],['search','検索']] as const).map(([value,label],index)=><button type="button" role="tab" key={value} aria-selected={tab===value} tabIndex={tab===value?0:-1} onClick={()=>setTab(value)} onKeyDown={event=>{if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;event.preventDefault();const next=(index+(event.key==='ArrowRight'?1:2))%3;const value=(['materials','pages','search'] as const)[next];setTab(value);event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next]?.focus();}}>{label}</button>)}</div>
+    <div className="materials-navigator__tabs" role="tablist" aria-label="資料パネル">{([['questions','問題'],['materials','資料'],['search','検索']] as const).map(([value,label],index)=><button type="button" role="tab" key={value} aria-selected={tab===value} tabIndex={tab===value?0:-1} onClick={()=>setTab(value)} onKeyDown={event=>{if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;event.preventDefault();const next=(index+(event.key==='ArrowRight'?1:2))%3;const value=(['questions','materials','search'] as const)[next];setTab(value);event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role=tab]')[next]?.focus();}}>{label}</button>)}</div>
+    {tab==='questions' ? <><p>現在のページ：p{(material?.pages.findIndex(page=>page.id===pageId) ?? -1)+1}</p>{children}</> : null}
     {tab==='materials' ? <>
     <label htmlFor={`${id}-materials`}>資料を検索</label>
     <input id={`${id}-materials`} type="search" value={query} onChange={event=>setQuery(event.target.value)} />
     <ul className="materials-navigator__list">{filtered.map(item=><li key={item.id}><button type="button" aria-current={material?.id===item.id?'true':undefined} disabled={disabled} onClick={()=>onSelect(item.id)}><strong>{item.title}</strong><span>{item.pages.length}ページ</span></button></li>)}</ul>
     {!filtered.length ? <p role="status">該当する資料がありません</p> : null}
     </> : null}
-    {tab==='pages' && material ? <div className="materials-navigator__pages">{material.pages.map((page,index)=><PageThumbnail key={page.id} cache={thumbnails.current} ownerId={ownerId} materialId={material.id} page={page} number={index+1} active={page.id===pageId} disabled={disabled} onPage={onPage}/>)}</div> : null}
+    {tab==='materials' && material ? <div className="materials-navigator__pages">{material.pages.map((page,index)=><PageThumbnail key={page.id} cache={thumbnails.current} ownerId={ownerId} materialId={material.id} page={page} number={index+1} active={page.id===pageId} disabled={disabled} onPage={onPage}/>)}</div> : null}
     {tab==='search' && material?.pages.some(page=>page.kind==='pdf') ? <form onSubmit={event=>{event.preventDefault();void search();}}>
       <label htmlFor={`${id}-pdf`}>PDF内を検索</label>
       <div className="materials-navigator__search"><input id={`${id}-pdf`} type="search" value={pdfQuery} onChange={event=>setPdfQuery(event.target.value)} /><button type="submit" disabled={!pdfQuery.trim()}>検索</button></div>
@@ -73,8 +73,8 @@ function PageThumbnail({cache,ownerId,materialId,page,number,active,disabled,onP
   return <button ref={ref} type="button" className="materials-navigator__page" aria-label={`${number}ページ`} aria-current={active?'page':undefined} disabled={disabled} onClick={()=>onPage(page.id)}>{url?<img src={url} alt=""/>:<span className="materials-navigator__page-placeholder" aria-hidden="true"/>}<span>{number}</span></button>;
 }
 
-export function MaterialRelatedQuestions({questions, materialId, pageId, disabled, onReference, onOpenQuestion}: {
-  questions: Question[]; materialId: string; pageId: string; disabled: boolean; onReference: (reference: MaterialReference) => void; onOpenQuestion?: (questionId:string, reference:MaterialReference)=>void;
+export function MaterialRelatedQuestions({questions, materialId, pageId, disabled, onReference, onOpenQuestion, inline = false}: {
+  questions: Question[]; materialId: string; pageId: string; disabled: boolean; onReference: (reference: MaterialReference) => void; onOpenQuestion?: (questionId:string, reference:MaterialReference)=>void; inline?: boolean;
 }) {
   const [query,setQuery]=useState('');
   const related = relatedMaterialQuestions(questions, materialId, pageId);
@@ -82,10 +82,10 @@ export function MaterialRelatedQuestions({questions, materialId, pageId, disable
   return <section className="materials-related" aria-label="現在のページの関連問題">
     <h2>関連問題 {related.length}問</h2>
     {related.length ? <label className="materials-related__search"><span>関連問題を検索</span><input type="search" placeholder="関連問題を検索" value={query} onChange={event=>setQuery(event.target.value)}/></label> : null}
-    {!related.length ? <p>このページに関連する問題はありません</p> : !filtered.length ? <p>該当する問題はありません</p> : filtered.map(question=><article key={question.id}>
-      <details><summary>{question.question}</summary><ol>{question.choices.map((choice,index)=><li key={index}>{choice}</li>)}</ol></details>
-      <div className="materials-related__actions">{onOpenQuestion ? <button type="button" disabled={disabled} onClick={()=>onOpenQuestion(question.id,{materialId,pageId})}>問題の詳細へ</button> : null}
-      <button type="button" disabled={disabled} onClick={()=>onReference({materialId,pageId})}>参照PDFページへ</button></div>
+    {!related.length ? <p>このページの関連問題はありません</p> : !filtered.length ? <p>該当する問題はありません</p> : filtered.map(question=><article key={question.id}>
+      <details><summary>{question.question}</summary><ol>{question.choices.map((choice,index)=><li key={index}>{choice}</li>)}</ol>{inline ? <div className="materials-related__explanation"><h3>解説</h3><p>{question.explanation}</p><p>{question.detailedExplanation}</p><p>{question.detailedAnswer?.body}</p></div> : null}</details>
+      {!inline ? <div className="materials-related__actions">{onOpenQuestion ? <button type="button" disabled={disabled} onClick={()=>onOpenQuestion(question.id,{materialId,pageId})}>問題の詳細へ</button> : null}
+      <button type="button" disabled={disabled} onClick={()=>onReference({materialId,pageId})}>参照PDFページへ</button></div> : null}
     </article>)}
   </section>;
 }
