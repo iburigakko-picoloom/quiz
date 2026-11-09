@@ -171,3 +171,21 @@ test('explicit conflict recovery keeps chosen care and both spend ledgers, resum
  const resumed=await saveCompanionCare([...logs(50),...Array.from({length:50},(_,i)=>({id:`repay-${i}`}))],{now});
  assert.equal(resumed.answerBalance,25);
 });
+
+test('companion choice is scoped to the displayed connection and rejects a replaced candidate',async()=>{
+ const {readCompanionBudgetConflicts,resolveCompanionBudgetConflict}=await import('../src/utils/companionBudgetRecovery.ts');
+ const connection={project:'https://fixture.invalid',userId:'user-a',syncId:'one'};
+ const raw=JSON.stringify(readCompanionCare());
+ const tx=db.transaction('appRecordConflicts','readwrite');
+ tx.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',connection,local:{raw},remote:{raw}},'scope-a');
+ tx.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',connection:{...connection,syncId:'two'},local:{raw},remote:{raw}},'scope-b');
+ await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});
+ const items=await readCompanionBudgetConflicts(connection);
+ assert.deepEqual(items.map(item=>item.id),['scope-a']);
+ const changed=db.transaction('appRecordConflicts','readwrite');
+ changed.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',connection,local:{raw},remote:{raw:JSON.stringify({...readCompanionCare(),name:'new remote'})}},'scope-a');
+ await new Promise((r,j)=>{changed.oncomplete=r;changed.onabort=()=>j(changed.error);});
+ await assert.rejects(resolveCompanionBudgetConflict('scope-a','remote',items[0]),/競合の状態が変わりました/);
+ assert.equal(JSON.stringify(readCompanionCare()),raw);
+ assert.equal((await row('appRecordConflicts','scope-a')).resolvedAt,undefined);
+});

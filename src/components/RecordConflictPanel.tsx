@@ -156,12 +156,13 @@ export function RecordConflictPanel({ syncId, accountId, onImported, open, onOpe
     <strong>{row.label}</strong><dl><div><dt>この端末</dt><dd>{row.local}</dd></div><div><dt>クラウド</dt><dd>{row.remote}</dd></div></dl>
   </div>);
   return <>
-    {conflicts.length ? <button type="button" className="sync-button sync-button--primary sync-review-entry" onClick={() => onOpenChange(true)}>確認する</button> : null}
+    {conflicts.length ? <button type="button" className="sync-button sync-button--primary sync-review-entry" onClick={() => onOpenChange(true)}>重なった変更のデータを選ぶ（{conflicts.length}件）</button> : null}
     {error && !open ? <div className="sync-overview-error"><p role="alert">変更の内容を確認できません。未送信の変更は保持しています。</p><button type="button" className="sync-button" onClick={() => setAttempt(n => n + 1)}>再試行</button><details><summary>詳細</summary>{error}</details></div> : null}
     {open ? <section ref={dialogRef} tabIndex={-1} className="sync-review-screen" role="dialog" aria-modal="true" aria-label="変更の内容を確認">
       <header><button type="button" className="sync-button" disabled={busy} onClick={() => onOpenChange(false)}>戻る</button><h2>変更の内容を確認</h2><button type="button" className="sync-button" disabled={busy} onClick={() => onOpenChange(false)}>閉じる</button></header>
       <main>
         {conflicts.length > 1 ? <p>{index + 1} / {conflicts.length}</p> : null}
+        {conflicts.length > 1 ? <div className="sync-actions">{(['local','remote'] as const).map(side=><button key={side} type="button" className="sync-button" disabled={busy} onClick={()=>setChoices(Object.fromEntries(conflicts.map(item=>[item.key,side])))}>{side==='local'?'すべてこの端末を選ぶ':'すべてクラウドを選ぶ'}</button>)}</div> : null}
         {current ? <fieldset disabled={busy} key={current.key}>
           <legend>{titles[current.key] ?? '変更内容'}</legend>
           {rows(false)}
