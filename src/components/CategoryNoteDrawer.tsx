@@ -99,6 +99,7 @@ interface CategoryNoteProps {
   onScaleChange?: (scale: number) => void;
   initialTools?: NoteToolSettings;
   onToolsChange?: (settings: NoteToolSettings) => void;
+  searchMarks?: import('../utils/materialSearch').SearchMark[];
   backgroundUrl?: string;
   pageAspect?: number;
   singlePage?: boolean;
@@ -264,7 +265,7 @@ export const CategoryNoteDrawer = forwardRef<CategoryNoteDrawerHandle, CategoryN
 });
 
 export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNoteProps>(function CategoryNotePanel(
-  { materialImagePage, problemSetId, category, className = '', onClose, backgroundUrl, pageAspect = 210 / 297, singlePage = false, scratchMemo = false, onPageStateChange, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
+  { materialImagePage, problemSetId, category, className = '', onClose, searchMarks, backgroundUrl, pageAspect = 210 / 297, singlePage = false, scratchMemo = false, onPageStateChange, pageNavigation, onReady, onUnavailable, initialTools, onToolsChange, initialScale = 1, onScaleChange },
   ref,
 ) {
   const normalizedCategory = normalizeCategory(category);
@@ -1331,6 +1332,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
                   onPointerCancel={endDraw}
                   onPointerLeave={endDraw}
                 />
+                {searchMarks?.length ? <svg className="material-search-marks" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">{searchMarks.map((mark,index)=><polygon key={index} points={mark.points}/>)}</svg> : null}
                 {imageReferences.overlay}
               </div>
             </div>
