@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {relatedMaterialQuestions,searchMaterialDocument,normalizedMaterialText} from '../src/utils/materialSearch.ts';
+import {relatedMaterialQuestions,searchMaterialDocument,normalizedMaterialText,searchMarks} from '../src/utils/materialSearch.ts';
 
 test('related questions use both stable material and page IDs, including cross-set references',()=>{
  const questions=[{id:'a',materialReferences:[{materialId:'m',pageId:'p'}]},{id:'b',materialReferences:[{materialId:'other',pageId:'p'}]},{id:'c',materialReferences:[{materialId:'m',pageId:'else'}]},{id:'d',materialReferences:[{materialId:'m',pageId:'p'},{materialId:'m',pageId:'p'}]}];
@@ -33,4 +33,13 @@ test('cancellation stops page traversal and cleans the current page; results are
  await assert.rejects(searchMaterialDocument(document,material,'hit',controller.signal),{name:'AbortError'});assert.equal(reads,1);assert.equal(cleaned,1);
  const all=await searchMaterialDocument({getPage:async()=>({getTextContent:async()=>({items:[{str:'hit'}]}),cleanup(){}})},material,'hit');
  assert.equal(all.matches.length,200);assert.equal(all.limited,true);assert.equal(all.textPages,205);
+});
+
+
+test('search marks follow split text and normalized queries without modifying source',()=>{
+ const items=[{str:'ＢＥ',transform:[10,0,0,10,10,50],width:20},{str:'ta',transform:[10,0,0,10,30,50],width:20}];
+ const before=JSON.stringify(items),viewport={width:100,height:100,convertToViewportPoint:(x,y)=>[x,100-y]};
+ const marks=searchMarks(items,'beta',viewport);
+ assert.equal(marks.length,2);assert.equal(marks[0].points,'10,52 30,52 30,41.5 10,41.5');
+ assert.equal(searchMarks(items,'absent',viewport).length,0);assert.equal(JSON.stringify(items),before);
 });

@@ -16,14 +16,18 @@ try {
  const ready=()=>page.locator('.materials-content > .category-note-panel .category-note-canvas[aria-disabled="false"]').waitFor();
  await ready();
  const sidebar=page.locator('.materials-navigator');
+ assert.equal(await page.getByLabel('資料一覧を開閉',{exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(220, 236, 255)');
+ assert.equal(await sidebar.getByRole('searchbox').count(),0);
  assert.deepEqual(await sidebar.getByRole('tab').allTextContents(),['問題','資料','検索']);
  assert.equal(await page.locator('.materials-view-tabs').count(),0);
  await sidebar.getByText('未登録の問題',{exact:true}).click();await sidebar.getByRole('heading',{name:'解説',exact:true}).waitFor();
  await ready();
  await mkdir('qa/pdf-sidebar',{recursive:true});
  for(const width of [390,768,1280]){await page.setViewportSize({width,height:960});const a=await sidebar.boundingBox(),b=await page.locator('.materials-workspace').boundingBox();assert.ok(Math.abs(a.width/b.width-.3)<.02);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:`qa/pdf-sidebar/${width}.png`});}
- await sidebar.getByRole('tab',{name:'資料',exact:true}).click();await sidebar.locator('.materials-navigator__page img').first().waitFor();
+ await sidebar.getByRole('tab',{name:'資料',exact:true}).click();await sidebar.locator('.materials-navigator__page img').first().waitFor();assert.equal(await sidebar.getByRole('searchbox').count(),0);
  await sidebar.getByRole('tab',{name:'検索',exact:true}).click();await page.getByLabel('PDF内を検索',{exact:true}).fill('beta');await sidebar.getByRole('button',{name:'検索',exact:true}).click();await sidebar.locator('.materials-navigator__results button').first().click();await ready();
+ await page.locator('.material-search-marks polygon').first().waitFor();
+ await page.screenshot({path:'qa/pdf-sidebar/search-pink.png'});
  assert.equal(await page.getByLabel('ページ',{exact:true}).inputValue(),'attached-second');
  await sidebar.getByRole('tab',{name:'問題',exact:true}).click();await sidebar.getByText('このページの関連問題はありません',{exact:true}).waitFor();
  await page.getByLabel('資料一覧を開閉',{exact:true}).click();assert.equal(await sidebar.count(),0);await ready();await page.getByLabel('資料一覧を開閉',{exact:true}).click();await sidebar.waitFor();
