@@ -1,3 +1,4 @@
+import { splitAnswerExplanation, choiceReason } from '../utils/answerExplanation';
 import { getCachedCloudAccountIdentity } from '../utils/cloudService';
 import type { LocalAccountIdentity } from '../utils/accountStorage';
 import { useDeviceRole } from '../hooks/useDeviceRole';
@@ -119,7 +120,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
   const [feedback, setFeedback] = useState<'correct' | 'relearned' | 'wrong' | null>(null);
   const [wrongCount, setWrongCount] = useState(recovered?.wrongCount??0);
   const [addedReviewCount, setAddedReviewCount] = useState(recovered?.addedReviewCount??0);
-  const [answerSheetState, setAnswerSheetState] = useState<AnswerSheetState>('default');
+  const [answerSheetState, setAnswerSheetState] = useState<AnswerSheetState>('expanded');
   const [savedLevelLabel, setSavedLevelLabel] = useState(recovered?.savedLevelLabel??'');
   const [answerMessage, setAnswerMessage] = useState('');
   const [answerSaveState, setAnswerSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>(recovered?.answerSaveState??'idle');
@@ -353,7 +354,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
     setSelectedIndexes(normalizedIndexes);
     setLastCorrect(result.isCorrect);
     setHasAnswered(true);
-    setAnswerSheetState('default');
+    setAnswerSheetState('expanded');
     answerRetryRef.current = result.retrySave ?? null;
     if (result.saveStatusLabel) {
       setSavedLevelLabel(result.saveStatusLabel);
@@ -416,7 +417,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
       setHasAnswered(false);
       submittedQuestionRef.current = null;
       setFeedback(null);
-      setAnswerSheetState('default');
+      setAnswerSheetState('expanded');
       setSavedLevelLabel('');
       setAnswerSaveState('idle');
       answerRetryRef.current = null;
@@ -553,6 +554,8 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
             relearned={feedback === 'relearned'}
             answer={answerText}
             explanation={currentQuestion.explanation}
+            choices={currentQuestion.choices} correctIndexes={answerIndexes}
+            knownChoices={[...sourceQuestion.choices,...(sourceQuestion.distractors ?? [])]}
             detailedExplanation={currentDetailedExplanation}
             questionId={currentQuestion.id}
             imageIds={currentDetailedImageIds}
@@ -748,6 +751,7 @@ export function AnswerPanel({ contentReadOnly = false,
   relearned,
   answer,
   explanation,
+  choices = [], correctIndexes = [], knownChoices,
   detailedExplanation,
   imageIds,
   savedLevelLabel,
@@ -773,6 +777,7 @@ export function AnswerPanel({ contentReadOnly = false,
   relearned: boolean;
   answer: string;
   explanation: string;
+  choices?: readonly string[]; correctIndexes?: readonly number[]; knownChoices?: readonly string[];
   detailedExplanation: string;
   imageIds: string[];
   savedLevelLabel: string;
@@ -1123,6 +1128,7 @@ export function AnswerPanel({ contentReadOnly = false,
   };
 
 
+  const explanationParts = useMemo(() => splitAnswerExplanation(explanation, knownChoices ?? choices), [explanation,knownChoices,choices]);
   const detailEditingDisabled = readOnly || contentReadOnly || answerSaveState !== 'saved';
 
 
@@ -1142,10 +1148,22 @@ export function AnswerPanel({ contentReadOnly = false,
         <p className="answer-sheet__label">{'\u6b63\u89e3'}</p>
         <p className="answer-sheet__answer-text">{answer}</p>
       </div>
-      <div className="answer-sheet__explanation-block">
-        <p className="answer-sheet__label">{'\u89e3\u8aac'}</p>
-        <ExplanationContent text={explanation} className="answer-sheet__explanation-text" />
-      </div>
+      <section className="answer-sheet__important">
+        <h2 className="answer-sheet__section-title">重要事項</h2>
+        <ExplanationContent text={explanationParts.important} className="answer-sheet__explanation-text" />
+      </section>
+      {choices.length ? <section className="answer-sheet__choice-review">
+        <h2 className="answer-sheet__section-title">選択肢の検討</h2>
+        <div className="answer-sheet__choice-cards">{choices.map((choice,index)=>{
+          const correct=correctIndexes.includes(index), reason=choiceReason(explanationParts.reasons,choice);
+          return <article key={`${index}-${choice}`} className={`answer-sheet__choice-card ${correct?'is-correct':'is-incorrect'}`}>
+            <span className="answer-sheet__choice-mark" aria-label={correct?'正しい選択肢':'誤った選択肢'}>{correct?'○':'×'}</span>
+            <div className="answer-sheet__choice-body"><p className="answer-sheet__choice-statement">{index+1}. {choice}</p>
+              {reason ? <ExplanationContent text={reason} className="answer-sheet__choice-reason"/> : null}
+            </div>
+          </article>;
+        })}</div>
+      </section> : null}
     </div>
   );
 
@@ -1231,6 +1249,8 @@ function ExplanationContent({ text, className }: { text: string; className: stri
         remarkPlugins={[remarkGfm]}
         urlTransform={sanitizeMarkdownUrl}
         components={{
+          h1: ({children}) => <p>{children}</p>, h2: ({children}) => <p>{children}</p>, h3: ({children}) => <p>{children}</p>,
+          h4: ({children}) => <p>{children}</p>, h5: ({children}) => <p>{children}</p>, h6: ({children}) => <p>{children}</p>,
           p: ({ children }) => <p style={{ whiteSpace: 'pre-wrap' }}>{Children.map(children, child => typeof child === 'string' ? child.replace(/。(?=[^\n」』）])/g, '。\n') : child)}</p>,
           table: ({ children }) => (
             <div

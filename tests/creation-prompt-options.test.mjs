@@ -67,10 +67,10 @@ test('memo practice has its own source section and keeps question output format'
   assert.ok(!buildSimpleCreationPrompt('普通の問題').includes('【苦手メモからの問題化】'));
 });
 
-test('ordinary explanation emphasis is red and survives JSON import', () => {
+test('ordinary explanation emphasis is orange and survives JSON import', () => {
   for (const prompt of [buildSimpleCreationPrompt('古文単語'), CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
     assert.ok(prompt.includes('1問あたり1〜3箇所だけ**太字**'));
-    assert.ok(prompt.includes('赤い太字'));
+    assert.ok(prompt.includes('オレンジ色の太字'));
     assert.ok(prompt.includes('HTMLや色指定タグは使わない'));
     const sample = JSON.parse(prompt.split('\n').find(line => line.startsWith('{')));
     sample.questions[0].explanation = '**重要語**を覚える。';
@@ -98,7 +98,7 @@ test('copy routing applies conditions once and preserves the past-exam original 
   const screen = readFileSync(new URL('../src/screens/CreateProblemSetScreen.tsx', import.meta.url), 'utf8');
   assert.match(screen, /writeClipboardText\(kind !== 'material'\s*\? template\s*: applyCreationConditions/);
   const simple = buildSimpleCreationPrompt('古文単語');
-  assert.ok(simple.length < 2200);
+  assert.ok(simple.length < 5000);
   assert.ok(simple.indexOf('【通常解説の強調】') < simple.indexOf('【学習者の依頼】'));
   for (const prompt of [CHATGPT_MATERIAL_TEMPLATE_PROMPT, CHATGPT_PAST_EXAM_TEMPLATE_PROMPT]) {
     const sample = JSON.parse(prompt.split('\n').find(line => line.startsWith('{')));

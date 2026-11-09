@@ -1,3 +1,4 @@
+import { ANSWER_EXPLANATION_INSTRUCTIONS, exampleAnswerExplanation } from './answerExplanation';
 export interface CreationPromptOptions { choiceCount: 4 | 5; questionCount?: number; allowMultiple: boolean }
 
 export function buildMemoQuestionPrompt(context: string): string {
@@ -20,14 +21,14 @@ export function applyCreationConditions(template: string, options: CreationPromp
     delete question.answerIndexes;
     if (options.allowMultiple) question.answerIndexes = [0, 1];
     else question.answerIndex = 0;
-    question.explanation = options.allowMultiple
-      ? '正解1は**条件A**、正解2は**条件B**を満たします。実際の出力では各正解の根拠と誤答との差を具体的に説明します。'
-      : '正解1は**重要な条件**を満たします。実際の出力では根拠と誤答との差を具体的に説明します。';
+    question.explanation = exampleAnswerExplanation(question.choices,question.distractors);
     return template.slice(0, exampleMatch.index) + JSON.stringify(example) + template.slice(exampleMatch.index! + line.length);
   })();
   return `【今回の作成条件】
 ${options.questionCount === undefined ? '' : `問題数：${options.questionCount}問が目安。厳密に一致させる必要はありません。品質を優先し、数合わせの重複・水増しや重要事項の切り捨てを避けてください。\n`}選択肢：各問のchoicesは必ず${options.choiceCount}個。indexは0始まり。
 ${options.allowMultiple ? '複数回答：適した問題では複数回答を実際に含めてください。全問を単一回答にしないでください。ただし正解を無理に増やしたり捏造しないでください。複数回答はanswerIndexesを使い、正解は2個以上かつ選択肢数未満、問題文は「すべて選べ」。単一回答も混ぜてよく、その場合はanswerIndexだけを使います。両フィールドは併記しません。' : '複数回答：オフ。全問の正解は必ず1個でanswerIndexだけを使用。複数回答問題は作らないでください。'}
+
+${template.includes('【解説の共通形式】') ? '' : ANSWER_EXPLANATION_INSTRUCTIONS}
 
 ${withExample}`;
 }
@@ -38,7 +39,7 @@ export function buildSimpleCreationPrompt(request: string, options: CreationProm
 ${output === 'file' ? '原則1回の回答で完成したJSONファイルを添付してください。' : '原則1回の回答で完成したJSONを1つのjsonコードブロックで出力してください。'}予告・方針案・サンプルだけ・許可の確認は不要です。主題が不明で作れない場合だけ確認してください。
 
 【通常解説の強調】
-explanationの重要語・判断条件を1問あたり1〜3箇所だけ**太字**で囲んでください。Quiz Makeでは赤い太字になります。JSON文字列の中に**を残してください。HTMLや色指定タグは使わないでください。question・choices・distractorsは強調しません。
+explanationの重要語・判断条件を1問あたり1〜3箇所だけ**太字**で囲んでください。Quiz Makeではオレンジ色の太字になります。JSON文字列の中に**を残してください。HTMLや色指定タグは使わないでください。question・choices・distractorsは強調しません。
 explanationは内容のまとまりごとに改行し、根拠・補足・各選択肢の説明を別の段落にしてください。長い一段落にせず、JSON文字列では改行を\\n、段落間を\\n\\nで表してください。
 
 【学習者の依頼】
@@ -58,7 +59,7 @@ ${memoContext}
 {"setTitle":"問題集名","source":"","questions":[{"question":"問題文","choices":${JSON.stringify(['正解', ...Array.from({ length: options.choiceCount - 1 }, (_, i) => `誤答${i + 1}`)])},"answerIndex":0,"distractors":["追加誤答1","追加誤答2","追加誤答3","追加誤答4","追加誤答5","追加誤答6"],"shuffleChoices":true,"explanation":"正解の根拠と混同しやすい点","category":"分類"}]}
 distractorsには明確な追加誤答を6〜12個（最大50個）。正解・同義語・choicesとの重複は禁止。確実な候補が足りなければ減らす。選択肢の長さと文体をそろえる。
 Quiz Makeが正解を必ず残し、誤答候補から必要数を抽選して位置も並べ替える。問題文・解説で選択肢番号や「上記すべて」を参照せず、語句そのものを使う。語句の内部の文字順は変えない。
-explanationは正解の根拠 → 判断に必要な知識・手順 → 迷いやすい誤答との差を説明する。一般的な問題は300〜600字程度が目安で、文字数の上限にはしない。単純なら短く、複雑なら詳しく。単語は語義と用例、計算は途中式・単位、複数回答は各正解の根拠を示す。短い段落・箇条書きで整理し、無関係な一般論で水増ししない。
+explanationは共通形式に従い、問題全体の概念説明 → 各選択肢の根拠を説明する。一般的な問題は300〜600字程度が目安で、文字数の上限にはしない。単純なら短く、複雑なら詳しく。単語は語義と用例、計算は途中式・単位、複数回答は各正解の根拠を示す。短い段落・箇条書きで整理し、無関係な一般論で水増ししない。
 依頼に含まれる対象・範囲・難易度を尊重し、一問で問う主題を明確にする。類似問題ばかりに偏らず、基礎から応用へ並べる。出力を短くするために後半の解説を省略しない。
 【1回で取り込める出力】
 ${output === 'file' ? 'ダウンロード可能なUTF-8の「quiz-make.json」を実際に作成・添付してください。ファイル内はJSON本体を1個だけとし、コメント・末尾カンマ・省略記号・コードフェンスは入れません。文字列の改行・引用符はJSONとしてエスケープし、**重要語**を保持してください。見本は実際の問題に置き換えます。チャット本文はファイルへのリンクと短い案内だけにし、JSON全文や作成コードは表示しません。ファイルを作れない環境では、その旨だけを伝え、架空の添付やリンクは作らないでください。\n1ファイルで扱いきれない場合は問題数を調整して完結したJSONにし、sourceに未収録範囲を明記する。全範囲を網羅したふりや解説の省略はしない。' : 'コピーして取り込めるよう、JSON本体を1つのjsonコードブロックにまとめてください。前後の説明・省略・コメント・末尾カンマは不要です。改行や引用符はJSONとしてエスケープし、**重要語**を保持してください。途中で切れる量の場合は無理に省略せず、対象メモを分けるよう伝えてください。'}
