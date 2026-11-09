@@ -148,3 +148,16 @@ test('403 permission failure pauses without login prompts; Auth transport failur
     h.queue.request(true);await h.advance(0);const attempt=readSyncAttemptStatus(connection);assert.equal(attempt.lastFailure.code,code);assert.notEqual(present().action,'login');assert.equal(attempt.phase,status===403?'paused':'queued');if(status===403)assert.match(present().text,/権限/);h.queue.dispose();
   }
 });
+
+
+test('RPC step notifications retain detailed counters for the same transfer',()=>{
+ clearSyncAttemptStatus();publishSyncAttempt(connection,{phase:'running',step:'open'});
+ publishSyncProgress(connection,{stage:'sending',unit:'parts',label:'クラウドで学習データを保存中',completed:268,total:269});
+ publishSyncAttempt(connection,{step:'push'});
+ assert.equal(readSyncAttemptStatus(connection).progress.completed,268);
+ publishSyncProgress(connection,{stage:'receiving_records',unit:'bytes',label:'受信中',completed:2048,total:null});
+ publishSyncAttempt(connection,{step:'pull'});
+ assert.equal(readSyncAttemptStatus(connection).progress.completed,2048);
+ publishSyncAttempt(connection,{step:'authentication'});
+ assert.equal(readSyncAttemptStatus(connection).progress,undefined);
+});

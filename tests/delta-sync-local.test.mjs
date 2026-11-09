@@ -253,3 +253,25 @@ test('new material imports after migration completion are immediately transferab
   assert.equal((await read(db,'appRecords',key)).raw,JSON.stringify(merged));assert.equal((await readMeta(db,'deltaCursor')).revision,2);
 
  });
+
+
+test('fragment receipt progress survives restart and grows before complete JSON is applied',async()=>{
+ const {db}=await database(),{writeMeta}=await import('../src/utils/blobVault.ts');
+ await writeMeta(db,'deltaCursor',{connection,revision:1});
+ const first=await freezeDelta(db,connection,'device-a');
+ await sendDelta(db,{delta:async()=>({code:'ok',state:'committed',revision:1})},first,async()=>{});
+ const row=await read(db,'appRecords','["folders","f"]');
+ const payload=JSON.stringify([{key:row.key,collection:'folders',id:'f',raw:row.raw,position:0,revision:2}]);
+ let requests=0,offset=0;const progress=[];
+ const transport={async delta(action,body){
+  assert.equal(action,'pull');assert.equal(body.offset,offset);
+  const fragment=payload.slice(offset,offset+1);offset++;
+  requests++;return {code:'ok',revision:2,head:2,fragment,offset,complete:false};
+ }};
+ const guards={assertCurrent:async()=>{},progress:p=>progress.push(p),apply:async()=>{throw Error('incomplete fragments must not apply');}};
+ assert.equal((await runDeltaSync(db,connection,transport,guards)).status,'more');
+ const saved=await readMeta(db,'deltaPull');assert.equal(saved.fragment,payload.slice(0,20));
+ assert.equal((await runDeltaSync(db,connection,transport,guards)).status,'more');
+ assert.equal(requests,40);assert.ok(progress.some(p=>p.unit==='bytes'&&p.completed===40));
+ assert.ok(progress.some(p=>p.unit==='bytes'&&p.completed===20));
+});

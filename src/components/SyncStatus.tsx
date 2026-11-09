@@ -1,3 +1,4 @@
+import { SyncProgressView } from './SyncProgressView';
 import { useEffect, useState } from 'react';
 import { openAppDb } from '../storage';
 import { getRemoteSyncConfig, isLocalSyncUnchanged, type LastSyncState } from '../utils/syncService';
@@ -7,7 +8,7 @@ import { readSyncAttemptStatus, SYNC_ATTEMPT_EVENT, type SyncAttemptStatus } fro
 import { LOCAL_DATA_SAVED_EVENT } from '../utils/localDataRevision';
 import { requestSyncRetry } from '../utils/syncRequest';
 import { safeSyncFailureMessage } from '../utils/syncFailureDiagnostic';
-import { syncStatusReason, syncStageLabel } from '../utils/syncStatusReason';
+import { syncStatusReason } from '../utils/syncStatusReason';
 import { integrityCodes } from '../utils/syncDataIntegrity';
 
 export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, lastState, disabled, onLogin, detailsOpen = false, diagnosticsOnly = false, onInitialSync,choiceOpen=false,onChooseSource }: {
@@ -56,10 +57,9 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const complete = isLearningSyncComplete(presentation.text);
   const reason = complete || attempt?.background && ['running','queued'].includes(attempt.phase) && !attempt.retryAt
     ? '' : syncStatusReason(attempt, record?.conflicts ?? 0, readError, lastState.error ?? '');
-  const showProgress = complete || (!attempt?.background || !success && attempt?.progress?.stage === 'receiving_records')
+  const showProgress = complete || (!attempt?.background || Boolean(attempt?.progress))
     && (attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt || attempt?.overallPercent !== undefined);
   const progress = attempt?.progress;
-  const percentage = complete ? 100 : Math.min(99,Math.max(0,attempt?.overallPercent??0));
   const activeFailure=attempt?.lastFailure&&(attempt.phase==='failed'||attempt.phase==='paused'&&attempt.pauseReason===attempt.lastFailure.code)?attempt.lastFailure:null;
   const canChoose=Boolean(onChooseSource&&record?.conflicts&&activeFailure&&(activeFailure.code!=='material_reference'||activeFailure.diagnostic?.side==='local')&&['invalid_response','invalid','media_pending','media_unsupported',...integrityCodes].includes(activeFailure.code));
   if(choiceOpen&&!detailsOpen&&!diagnosticsOnly)return null;
@@ -67,11 +67,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
     {!diagnosticsOnly && complete ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
     {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : activeFailure?'同期できませんでした':summary}</h2> : null}
     {!diagnosticsOnly && reason ? <p className="sync-status-reason">{reason}</p> : null}
-    {!diagnosticsOnly && showProgress ? <div className="sync-progress" aria-live="polite">
-      <div className="sync-progress__label"><span>{complete?'同期完了':'全体の進捗（目安）'}</span><strong>{percentage}%</strong></div>
-      <div className="sync-progress__track" role="progressbar" aria-label="同期全体の進捗（目安）" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${percentage}%${complete?' 同期完了':''}`}><span className="sync-progress__fill" style={{width:`${percentage}%`}}/></div>
-      {!complete ? <small>{activeFailure?'停止した処理：':''}{progress?.label ?? syncStageLabel(attempt?.step ?? '')}{progress && progress.completed > 0 ? ` · ${progress.total ? `${progress.completed.toLocaleString('ja-JP')} / ${progress.total.toLocaleString('ja-JP')} 件` : `${progress.completed.toLocaleString('ja-JP')} 件完了`}` : ''}</small> : null}
-    </div> : null}
+    {!diagnosticsOnly && showProgress ? <SyncProgressView complete={complete} progress={progress} step={attempt?.step ?? ''} stopped={Boolean(activeFailure) || attempt?.phase==='paused'} /> : null}
     {!diagnosticsOnly && complete && attempt?.notice ? <p className="sync-status-reason">{attempt.notice}</p> : null}
     {!diagnosticsOnly && attempt?.phase === 'queued' && attempt.retryAt && attempt.retryAt > Date.now() ? <p>{new Date(attempt.retryAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}に再試行します。</p> : null}
     {!diagnosticsOnly ? <p>最終成功 {success ? new Date(success).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : '未実行'}</p> : null}

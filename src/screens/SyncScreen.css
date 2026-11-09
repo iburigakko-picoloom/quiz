@@ -971,3 +971,10 @@
 @media (prefers-reduced-motion: reduce) { .sync-progress__fill { transition: none; } }
 .sync-progress small { color: #697482; font-size: 12px; }
 .sync-screen .sync-status-reason { line-height: 1.7; font-size: 14px; }
+
+.sync-progress__label strong { color:#173042; font-size:16px; }
+.sync-progress__label > span { flex-shrink:0; font-weight:700; color:#24558a; }
+.sync-progress__count { margin:8px 0 0; color:#173042; font-size:15px; font-variant-numeric:tabular-nums; }
+.sync-progress__track.is-indeterminate .sync-progress__fill { animation:sync-progress-wait 1.6s ease-in-out infinite alternate; }
+@keyframes sync-progress-wait { from { transform:translateX(0); } to { transform:translateX(230%); } }
+@media (prefers-reduced-motion:reduce) { .sync-progress__track.is-indeterminate .sync-progress__fill { animation:none; } }

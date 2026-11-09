@@ -113,26 +113,26 @@ export async function sendDelta(db: IDBDatabase, transport: DeltaTransport, froz
     (receipt.digest !== frozen.digest || receipt.parts !== frozen.parts.length || receipt.deviceId !== frozen.deviceId || receipt.sequence !== frozen.sequence)) {
     throw new SyncProtocolError('invalid_response','送信内容とクラウドの受領記録が一致しません。未送信データを保持しています。');
   }
-  if (receipt.state === 'committed') { await assertCurrent(); await acknowledgeDelta(db, frozen, Number(receipt.revision)); return frozen.operations.length; }
+  if (receipt.state === 'committed') { report({progress},{stage:'finalizing',label:'保存済みの送信結果を端末に記録中',completed:0,total:null}); await assertCurrent(); await acknowledgeDelta(db, frozen, Number(receipt.revision)); return frozen.operations.length; }
   const received = new Set<number>();
   if (receipt.state === 'staging' && receipt.received !== undefined) {
     if (!Array.isArray(receipt.received) || receipt.received.some(part => !Number.isInteger(part) || part < 0 || part >= frozen.parts.length))
       throw new SyncProtocolError('invalid_response','送信の再開位置を確認できません。未送信データを保持しています。');
     for (const part of receipt.received as number[]) received.add(part);
   }
-  report({progress},{stage:'sending',label:received.size ? '受領済みの続きから学習データを送信中' : '学習データを送信中',completed:received.size,total:frozen.parts.length});
+  report({progress},{stage:'sending',unit:'parts',label:received.size ? '受領済みの続きから学習データを送信中' : '学習データを送信中',completed:received.size,total:frozen.parts.length});
   // Replaying one exact part also resolves an all-staged, uncommitted receipt.
   if (received.size === frozen.parts.length) received.delete(frozen.parts.length-1);
   for (let index = 0; index < frozen.parts.length; index++) {
     if (received.has(index)) continue;
     await assertCurrent();
-    if(received.size === frozen.parts.length-1) report({progress},{stage:'sending',label:'クラウドで学習データを保存中',completed:received.size,total:frozen.parts.length});
+    if(received.size === frozen.parts.length-1) report({progress},{stage:'sending',unit:'parts',label:'クラウドで学習データを保存中',completed:received.size,total:frozen.parts.length});
     const reply = await transport.delta('push', { operationId: frozen.operationId, deviceId: frozen.deviceId, sequence: frozen.sequence,
       digest: frozen.digest, parts: frozen.parts.length, part: index, payload: frozen.parts[index] });
     assertReply(reply);
     received.add(index);
-    report({progress},{stage:'sending',label:'学習データを送信中',completed:received.size,total:frozen.parts.length});
-    if (reply.state === 'committed') { await assertCurrent(); await acknowledgeDelta(db, frozen, Number(reply.revision)); return frozen.operations.length; }
+    report({progress},{stage:'sending',unit:'parts',label:'学習データを送信中',completed:received.size,total:frozen.parts.length});
+    if (reply.state === 'committed') { report({progress},{stage:'finalizing',label:'送信完了・保存結果を端末に記録中',completed:0,total:null}); await assertCurrent(); await acknowledgeDelta(db, frozen, Number(reply.revision)); return frozen.operations.length; }
   }
   throw new Error('送信結果がまだ確定していません。同じ操作IDで確認を続けます。');
 }
@@ -341,11 +341,14 @@ export async function runDeltaSync(db: IDBDatabase, connection: RecordSyncConnec
   }
   if (bootstrapOnly) return { status: 'done', uploaded, downloaded };
   let stage = await readMeta<{ revision: number; offset: number; fragment: string }>(db, 'deltaPull');
+  let receivedBytes = new TextEncoder().encode(stage?.fragment ?? '').byteLength;
+  const receiving = () => report(guards,{stage:'receiving_records',unit:'bytes',label:receivedBytes ? '学習データを受信中' : 'クラウドの変更を確認中',completed:receivedBytes,total:null});
   for (let page = 0; page < 20; page++) {
+    receiving();
     await guards.assertCurrent(); const reply = await transport.delta('pull', { revision: stage?.revision ?? cursor.revision, offset: stage?.offset ?? 0 });
-    report(guards,{stage:'comparing',label:'学習データの変更を確認中',completed:downloaded,total:null});
     if (reply.code === 'checkpoint_required') { await writeMeta(db, 'deltaCursor', undefined); await writeMeta(db, 'deltaPull', undefined); return { status: 'more', uploaded, downloaded }; }
     assertReply(reply); if (!validRevision(reply.revision) || typeof reply.fragment !== 'string') throw new Error('受信した差分を確認できません。');
+    receivedBytes += new TextEncoder().encode(reply.fragment).byteLength; receiving();
     const fragment = (stage?.fragment ?? '') + reply.fragment;
     if (!reply.complete) { stage = { revision: reply.revision, offset: Number(reply.offset), fragment }; await writeMeta(db, 'deltaPull', stage); continue; }
     const rows = fragment ? JSON.parse(fragment) as RemoteRecordChange[] : [];
@@ -357,7 +360,7 @@ export async function runDeltaSync(db: IDBDatabase, connection: RecordSyncConnec
       downloaded += rows.length;
     } else { await writeMeta(db, 'deltaCursor', { connection, revision: reply.revision }); await writeMeta(db, 'deltaPull', undefined); }
     stage = undefined; cursor = { connection, revision: reply.revision };
-    if (reply.revision === reply.head) return { status: 'done', uploaded, downloaded };
+    if (reply.revision === reply.head) { report(guards,{stage:'finalizing',label:'送受信完了・同期結果を確認中',completed:0,total:null}); return { status: 'done', uploaded, downloaded }; }
   }
   return { status: 'more', uploaded, downloaded };
 }
