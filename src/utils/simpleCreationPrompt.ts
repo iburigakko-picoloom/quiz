@@ -39,7 +39,7 @@ export function buildSimpleCreationPrompt(request: string, options: CreationProm
 ${output === 'file' ? '原則1回の回答で完成したJSONファイルを添付してください。' : '原則1回の回答で完成したJSONを1つのjsonコードブロックで出力してください。'}予告・方針案・サンプルだけ・許可の確認は不要です。主題が不明で作れない場合だけ確認してください。
 
 【通常解説の強調】
-explanationの重要語・判断条件を1問あたり1〜3箇所だけ**太字**で囲んでください。Quiz Makeではオレンジ色の太字になります。JSON文字列の中に**を残してください。HTMLや色指定タグは使わないでください。question・choices・distractorsは強調しません。
+explanationの重要語・判断条件を重要事項と各選択肢の理由それぞれで必要な箇所だけ**太字**で囲んでください（各段落0〜3箇所を目安に、強調のために不要な語を増やさない）。Quiz Makeでは赤寄りのオレンジ色の太字になります。JSON文字列の中に**を残してください。HTMLや色指定タグは使わないでください。question・choices・distractorsは強調しません。
 explanationは内容のまとまりごとに改行し、根拠・補足・各選択肢の説明を別の段落にしてください。長い一段落にせず、JSON文字列では改行を\\n、段落間を\\n\\nで表してください。
 
 【学習者の依頼】
