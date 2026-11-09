@@ -66,6 +66,9 @@ test('finish response budget exceeds its 30-second server deadline without exten
     const rpc=createRecordSyncRpc(options({fetch:async()=>Response.json({code:'ok'})}));
     await rpc.whole('finish',{p_operation_id:'stable'});await rpc.whole('status');
     await createRecordSyncRpc(options({timeoutMs:123,fetch:async()=>Response.json({code:'ok'})})).whole('finish');
-    assert.deepEqual(delays,[45000,30000,123]);
+    await rpc.delta('push',{parts:327,part:325});
+    await rpc.delta('push',{parts:327,part:326});
+    await rpc.delta('receipt',{operationId:'stable'});
+    assert.deepEqual(delays,[45000,30000,123,30000,75000,30000]);
   } finally {globalThis.setTimeout=original;}
 });

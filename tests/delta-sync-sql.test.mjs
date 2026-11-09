@@ -16,6 +16,7 @@ const functionPermissions=async()=> (await pg.query("select prosecdef,proconfig,
 const beforeResumePermissions=await functionPermissions();
 const resumeMigration=await readFile(new URL('../supabase/migrations/20261016094737_quiz_delta_resumable_finish.sql', import.meta.url), 'utf8');
 await pg.exec(resumeMigration.replace(/\r\n/g, '\n'));
+await pg.exec(await readMigration(new URL('../supabase/migrations/20261109005201_delta_bulk_finalize.sql', import.meta.url)));
 test('the exact resumable migration preserves function security and execution permissions',async()=>{
   assert.deepEqual(await functionPermissions(),beforeResumePermissions);
   console.log('VERIFIED_RESUME_MIGRATION_SHA256',createHash('sha256').update(resumeMigration).digest('hex'));
