@@ -31,6 +31,7 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
   const deltaCheckpoint = meta.count('deltaCheckpoint');
   const deltaCursor=meta.get('deltaCursor'),migrationError=meta.get('blobMigrationError');
   const conflictStore=tx.objectStore('appRecordConflicts');
+  const careConflicts=conflictStore.indexNames.contains('kind')?conflictStore.index('kind').getAll('companion-budget-conflict'):undefined;
   const candidates=conflictStore.indexNames.contains('kind')?conflictStore.index('kind').count('legacy-recovery-candidate'):undefined;
   const blobJobs = stores.includes('contentBlobJobs') ? tx.objectStore('contentBlobJobs').count() : undefined;
   const pending = tx.objectStore('appOutbox').count();
@@ -46,8 +47,8 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
     recoveryNotes:categoryNoteRecoveryKeys().length,
     recoveryUnknown:isCategoryNotesRecoveryRequired()&&!categoryNoteRecoveryKeys().length,
     pending: Math.max(pending.result, batch.result, wholeFrozen.result,deltaFrozen.result),
-    conflicts: wholeConflict.result && sameRecordSyncConnection(wholeConflict.result.connection,connection)?1:stage.result && sameRecordSyncConnection(stage.result.connection, connection)
-      ? conflicts.filter(item => item.operationId && item.remote && item.connection && sameRecordSyncConnection(item.connection, connection)).length : 0,
+    conflicts: (careConflicts?.result??[]).filter(item=>!item.resolvedAt&&item.connection&&sameRecordSyncConnection(item.connection,connection)).length + (wholeConflict.result && sameRecordSyncConnection(wholeConflict.result.connection,connection)?1:stage.result && sameRecordSyncConnection(stage.result.connection, connection)
+      ? conflicts.filter(item => item.operationId && item.remote && item.connection && sameRecordSyncConnection(item.connection, connection)).length : 0),
     staged: Boolean(deltaCheckpoint.result || deltaFrozen.result || deltaPull.result || stage.result && sameRecordSyncConnection(stage.result.connection, connection)||wholeIncoming.result),
     roleTransitionBlocked: Boolean(batch.result || wholeFrozen.result || deltaFrozen.result || deltaCheckpoint.result || deltaPull.result || stage.result || wholeIncoming.result),
     cursor: deltaCursor.result?.revision??(cursor.result && sameRecordSyncConnection(cursor.result.connection, connection) ? cursor.result.cursor : 0) };

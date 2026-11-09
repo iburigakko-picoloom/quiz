@@ -32,10 +32,11 @@ export async function readActiveRecordConflicts(db: IDBDatabase, connection: Rec
   const tx = db.transaction(['appRecordMeta','appRecordConflicts'],'readonly');
   const completion = done(tx);
   const stage = tx.objectStore('appRecordMeta').get('pullStage');
-  const rows = tx.objectStore('appRecordConflicts').getAll();
+  let rows: IDBRequest<unknown[]> | undefined;
+  stage.onsuccess=()=>{if(stage.result&&sameRecordSyncConnection(stage.result.connection,connection))rows=tx.objectStore('appRecordConflicts').getAll();};
   await completion;
   if (!stage.result || !sameRecordSyncConnection(stage.result.connection,connection)) return [];
-  return (rows.result as unknown[]).filter((value): value is RecordConflict => {
+  return (rows?.result ?? []).filter((value): value is RecordConflict => {
     const item = value as RecordConflict;
     return Boolean(item && typeof item.key === 'string' && item.remote && typeof item.operationId === 'string'
       && sameRecordSyncConnection(item.connection,connection));

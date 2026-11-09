@@ -117,9 +117,10 @@ try {
     await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});
   });
   await care.reload();await care.getByRole('button',{name:'ぽんのお世話をする'}).click();
-  await care.getByRole('heading',{name:'育成の変更を確認'}).waitFor();
-  await care.getByRole('button',{name:/別の端末の育成を使う.*補充分25問/}).click();
-  await care.getByRole('heading',{name:'育成の変更を確認'}).waitFor({state:'hidden'});
+  await care.getByRole('heading',{name:'育成はどちらのデータを使いますか？'}).waitFor();
+  await care.getByRole('radio',{name:/クラウド/}).check();
+  await care.getByRole('button',{name:'この育成で同期を再開'}).click();
+  await care.getByRole('heading',{name:'育成はどちらのデータを使いますか？'}).waitFor({state:'hidden'});
   assert.equal((await readCare(care)).answerBalance,-25);
   assert.equal((await readCare(care)).tricks.touch,1);
   assert.equal(await care.getByRole('button',{name:'ごはんを1個あげる'}).isEnabled(),false);
