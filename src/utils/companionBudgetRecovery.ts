@@ -20,6 +20,11 @@ export async function resolveCompanionBudgetConflict(id:string,side:'local'|'rem
   assertOwner();
   const db=await openAppDb();await replayLocalStorageProjections(db,[COMPANION_CARE_KEY]);
   const conflict=(await readCompanionBudgetConflicts(expected?.connection)).find(row=>row.id===id);if(!conflict||(expected&&(expected.local!==conflict.local||expected.remote!==conflict.remote)))throw new Error('競合の状態が変わりました。もう一度確認してください。');
+  if(expected?.connection){
+   const {readMeta}=await import('./blobVault');
+   const binding=await readMeta<RecordSyncConnection>(db,'recordSyncConnection');
+   if(!binding||!sameRecordSyncConnection(binding,expected.connection))throw new Error('同期先が変わりました。育成の変更を確認し直してください。');
+  }
   assertOwner();
   const local=parseCompanionCare(conflict.local),remote=parseCompanionCare(conflict.remote);
   let merged=mergeCompanionBudgets(side==='local'?local:remote,side==='local'?remote:local);
