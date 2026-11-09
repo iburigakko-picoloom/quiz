@@ -13,10 +13,10 @@ import { boundedNoteScale } from './noteGestures';
 import { insertMaterialPage, moveMaterialPage, MAX_MATERIAL_PDF_BYTES, MAX_MATERIAL_PAGES, MATERIAL_PDF_SIZE_ERROR, MATERIAL_PAGE_COUNT_ERROR, type MaterialIndex, type MaterialPage, type StudyMaterial } from '../utils/materialModel';
 import './MaterialsPanel.css';
 
-interface Props { questions?: Question[]; setId: string; setIds?: string[]; reference?: MaterialReference; referenceRequest?: number; onClose?: () => void; onAdjustReferences?: (materialId?: string, pageId?: string) => void; questionReferences?: MaterialReference[]; onOpenReference?: (reference: MaterialReference) => void; onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void>; onOpenQuestion?: (questionId:string,reference:MaterialReference)=>void }
-export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(function MaterialsPanel({ questions = [], setId, setIds, reference, referenceRequest, onClose, onAdjustReferences, questionReferences, onOpenReference, onLinkPage, onOpenQuestion }, ref) {
+interface Props { defaultNavigatorOpen?: boolean; questions?: Question[]; setId: string; setIds?: string[]; reference?: MaterialReference; referenceRequest?: number; onClose?: () => void; onAdjustReferences?: (materialId?: string, pageId?: string) => void; questionReferences?: MaterialReference[]; onOpenReference?: (reference: MaterialReference) => void; onLinkPage?: (reference: MaterialReference, linked: boolean) => Promise<void>; onOpenQuestion?: (questionId:string,reference:MaterialReference)=>void }
+export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(function MaterialsPanel({ defaultNavigatorOpen = true, questions = [], setId, setIds, reference, referenceRequest, onClose, onAdjustReferences, questionReferences, onOpenReference, onLinkPage, onOpenQuestion }, ref) {
   const [searchResult, setSearchResult] = useState<MaterialTextResult | null>(null);
-  const [navigatorOpen, setNavigatorOpen] = useState(true);
+  const [navigatorOpen, setNavigatorOpen] = useState(defaultNavigatorOpen);
   const [view, setView] = useState<'material' | 'questions'>('material');
   const [index, setIndex] = useState<MaterialIndex | null>(null);
   const [ownerId, setOwnerId] = useState(setId);

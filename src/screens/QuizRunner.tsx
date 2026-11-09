@@ -452,6 +452,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
         <QuizHeader title={title} current={currentIndex + 1} total={questions.length} onBack={handleQuizBack} />
         {noteFeatureAvailable && noteDrawerMounted && setId ? (
           <MaterialsDrawer
+            defaultNavigatorOpen={false}
             ref={noteDrawerRef}
             problemSetId={setId}
             setIds={data.problemSets.map(set => set.id)}
