@@ -1145,10 +1145,6 @@ export function AnswerPanel({ contentReadOnly = false,
           <span>追加解説・メモ</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6" /></svg>
         </button>
       </div>
-      <div className="answer-sheet__answer-box">
-        <p className="answer-sheet__label">{'\u6b63\u89e3'}</p>
-        <p className="answer-sheet__answer-text">{answer}</p>
-      </div>
       <section className="answer-sheet__important">
         <h2 className="answer-sheet__section-title">重要事項</h2>
         <ExplanationContent text={explanationParts.important} className="answer-sheet__explanation-text" />
