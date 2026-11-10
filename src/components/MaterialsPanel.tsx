@@ -194,7 +194,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     if (!material || !page) { if (index) { setDisplayed(null); clearTransition(); } return; }
     let disposed = false;
     void (async () => {
-      const preview = await previews.current.loadBackground(ownerId, material.id, page, requestedPageWidth());
+      const preview = await previews.current.loadBackground(ownerId, material.id, page, requestedPageWidth(), true);
       if (!disposed) setDisplayed({ ownerId, materialId: material.id, page, url: preview.url, aspect: preview.aspect, pixelWidth: preview.pixelWidth });
     })().catch(err => { if (!disposed) { clearTransition(); if (displayed) { setMaterialId(displayed.materialId); setPageId(displayed.page.id); } setError(`資料を表示できません: ${err.message ?? err}`); } });
     return () => { disposed = true; };
@@ -229,20 +229,21 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     const target = contentRef.current?.querySelector<HTMLElement>('.category-note-page--active');
     if (!target) return;
     let disposed = false, timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController();
     const refresh = () => {
       clearTimeout(timer);
       timer = setTimeout(async () => {
         const width = target.getBoundingClientRect().width * Math.max(1, window.devicePixelRatio || 1);
         if (!width || width <= (displayed.pixelWidth ?? 0)) return;
         try {
-          const preview = await previews.current.loadBackground(displayed.ownerId, displayed.materialId, displayed.page, width);
+          const preview = await previews.current.loadBackground(displayed.ownerId, displayed.materialId, displayed.page, width, false, controller.signal);
           if (!disposed) setDisplayed(current => current?.page.id === displayed.page.id && current.materialId === displayed.materialId && current.ownerId === displayed.ownerId && (preview.pixelWidth ?? 0) > (current.pixelWidth ?? 0) ? { ...current, ...preview } : current);
         } catch { /* Retain the current readable background if refinement fails. */ }
-      }, 180);
+      }, 650);
     };
     const observer = new ResizeObserver(refresh); observer.observe(target);
     window.addEventListener('resize', refresh); refresh();
-    return () => { disposed = true; clearTimeout(timer); observer.disconnect(); window.removeEventListener('resize', refresh); };
+    return () => { disposed = true; controller.abort(); clearTimeout(timer); observer.disconnect(); window.removeEventListener('resize', refresh); };
   }, [displayed?.page.id, displayed?.materialId, displayed?.ownerId, renderScale, memoOpen, transitioning]);
 
   const update = async (nextMaterial: StudyMaterial) => {
