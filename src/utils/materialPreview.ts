@@ -21,13 +21,15 @@ type Background = Omit<MaterialPagePreview, 'inkUrl'> & { decoded?: HTMLImageEle
 /** Only a few neighbouring pages are requested; original PDF and ink stay separate. */
 export class MaterialPreviewCache {
   private images = new ByteBudgetLruCache<string, Background>(32 * 1024 * 1024);
+  // Small page-turn previews survive eviction of a zoomed/high-DPI image.
+  private navigationImages = new ByteBudgetLruCache<string, Background>(16 * 1024 * 1024);
   private preferred = new Map<string, string>();
   private pending = new Map<string, Promise<Background>>();
   private document: { key: string; cancelled: boolean; task?: ReturnType<(typeof import('./pdfReader'))['openPdf']>; ready: Promise<PDFDocumentProxy> } | null = null;
 
   clear() {
     if (this.document) { this.document.cancelled = true; void this.document.task?.destroy(); }
-    this.document = null; this.images.clear(); this.pending.clear(); this.preferred.clear();
+    this.document = null; this.images.clear(); this.navigationImages.clear(); this.pending.clear(); this.preferred.clear();
   }
 
   private pdf(ownerId: string, materialId: string) {
@@ -45,22 +47,31 @@ export class MaterialPreviewCache {
     return session.ready;
   }
 
-  private async background(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0): Promise<Background> {
+  private async background(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0, navigation = false, signal?: AbortSignal): Promise<Background> {
     if (page.kind === 'blank') return { aspect: 210 / 297 };
     const docPromise = this.pdf(ownerId, materialId);
     const session = this.document!;
+    if (navigation) {
+      const detailKey = this.preferred.get(`detail/${ownerId}/${materialId}/${page.pdfPage}`);
+      const detail = detailKey ? this.images.get(detailKey) : undefined;
+      if (detail) return detail;
+    }
+    const images = navigation ? this.navigationImages : this.images;
+    if (navigation) requestedWidth = Math.min(requestedWidth || 768, 768);
     const pixelWidth = requestedWidth > 0 ? Math.min(4096, Math.ceil(requestedWidth / 256) * 256) : 0;
-    const pageKey = `${ownerId}/${materialId}/${page.pdfPage}`;
+    const pageKey = `${navigation ? 'navigation' : 'detail'}/${ownerId}/${materialId}/${page.pdfPage}`;
     const preferredKey = this.preferred.get(pageKey);
-    const preferred = preferredKey ? this.images.get(preferredKey) : undefined;
+    const preferred = preferredKey ? images.get(preferredKey) : undefined;
     if (preferred && (!requestedWidth || (preferred.pixelWidth ?? 0) >= Math.min(requestedWidth,4096))) return preferred;
     const key = `${pageKey}/${pixelWidth}`;
-    const cached = this.images.get(key);
+    const cached = images.get(key);
     if (cached) return cached;
     const existing = this.pending.get(key);
     if (existing) return existing;
     const pending = (async () => {
+      signal?.throwIfAborted();
       const doc = await docPromise;
+      signal?.throwIfAborted();
       const pdfPage = await doc.getPage(page.pdfPage!);
       if (session.cancelled) throw new Error('資料の読込を中止しました。');
       const native = pdfPage.getViewport({ scale: 1 });
@@ -68,28 +79,36 @@ export class MaterialPreviewCache {
       const canvas = document.createElement('canvas');
       canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
       try {
-        await pdfPage.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
+        signal?.throwIfAborted();
+        const render = pdfPage.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport });
+        const cancel = () => render.cancel();
+        signal?.addEventListener('abort', cancel, { once: true });
+        try { await render.promise; } finally { signal?.removeEventListener('abort', cancel); }
+        signal?.throwIfAborted();
         if (session.cancelled) throw new Error('資料の読込を中止しました。');
         // PNG encoding can be expensive for scanned pages. Keep it off the
         // synchronous gesture path while preserving the existing image quality.
         const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('資料画像を作成できませんでした。')), 'image/png'));
+        signal?.throwIfAborted();
         const url = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(String(reader.result));
           reader.onerror = () => reject(new Error('資料画像を読み込めませんでした。'));
           reader.readAsDataURL(blob);
         });
+        signal?.throwIfAborted();
         const decoded = new Image(); decoded.src = url;
         await decoded.decode();
+        signal?.throwIfAborted();
         if (session.cancelled) throw new Error('資料の読込を中止しました。');
         const result = { url, aspect: native.width / native.height, pixelWidth: canvas.width, decoded };
         const previousKey = this.preferred.get(pageKey);
-        const previous = previousKey ? this.images.peek(previousKey) : undefined;
+        const previous = previousKey ? images.peek(previousKey) : undefined;
         // Keep one resolution per page; navigation may reuse the sharper image.
         if (previous && (previous.pixelWidth ?? 0) >= canvas.width) return previous;
-        if (previousKey) this.images.delete(previousKey);
+        if (previousKey) images.delete(previousKey);
         this.preferred.set(pageKey,key);
-        this.images.set(key, result, estimateDataUrlMemoryBytes(result.url) + estimateRgbaPixelBytes(canvas.width, canvas.height));
+        images.set(key, result, estimateDataUrlMemoryBytes(result.url) + estimateRgbaPixelBytes(canvas.width, canvas.height));
         return result;
       } finally { canvas.width = 0; canvas.height = 0; }
     })();
@@ -98,14 +117,14 @@ export class MaterialPreviewCache {
   }
 
   /** The live handwriting panel reads and validates its own ink exactly once. */
-  async loadBackground(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0): Promise<MaterialPagePreview> {
-    const { url, aspect, pixelWidth } = await this.background(ownerId, materialId, page, requestedWidth);
+  async loadBackground(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0, navigation = false, signal?: AbortSignal): Promise<MaterialPagePreview> {
+    const { url, aspect, pixelWidth } = await this.background(ownerId, materialId, page, requestedWidth, navigation, signal);
     return { url, aspect, pixelWidth };
   }
 
   async load(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0): Promise<MaterialPagePreview> {
     const [background, inkUrl] = await Promise.all([
-      this.loadBackground(ownerId, materialId, page, requestedWidth),
+      this.loadBackground(ownerId, materialId, page, requestedWidth, true),
       loadMaterialPageInk(ownerId, materialId, page),
     ]);
     return { url: background.url, aspect: background.aspect, inkUrl };
