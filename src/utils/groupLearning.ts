@@ -1,10 +1,20 @@
 import type { AppData, ProblemSet,QuestionProgress } from '../types';
-import { getVirtualLevel, indexProgress } from './quiz';
+import { getEffectiveLevel, getVirtualLevel, indexProgress } from './quiz';
 import { nextDay, questionRevision, studyDay } from './studyPlans';
 import { groupStudySelection } from './groupStudySource';
 
 export type LevelCounts = [number, number, number, number];
+export type IndividualLevelCounts = [number, number, number, number, number];
+export type LevelProgressCounts = LevelCounts | IndividualLevelCounts;
 export const learningLevel=(progress:QuestionProgress|undefined)=>progress?.isGraduated?3:getVirtualLevel(progress);
+export function individualLevelCounts(questions: readonly { id: string }[], progress: ReadonlyMap<string, QuestionProgress>): IndividualLevelCounts {
+  const levels: IndividualLevelCounts = [0, 0, 0, 0, 0];
+  for (const question of questions) {
+    const level = getEffectiveLevel(progress.get(question.id));
+    levels[level === 'graduated' ? 4 : level]++;
+  }
+  return levels;
+}
 export const groupTimeZone = 'Asia/Tokyo';
 export const groupIcons = ['group', 'book', 'study', 'folder'] as const;
 export type GroupIconName = typeof groupIcons[number];
@@ -22,14 +32,14 @@ export interface GroupLearningMember {
   sharedSetCount: number;
 }
 
-export function levelPercentages(levels: LevelCounts): LevelCounts {
+export function levelPercentages<T extends LevelProgressCounts>(levels: T): T {
   const total = levels.reduce((sum, count) => sum + count, 0);
-  if (!total) return [0, 0, 0, 0];
+  if (!total) return levels.map(() => 0) as T;
   const raw = levels.map(count => count / total * 100);
   const result = raw.map(Math.floor);
   const order = raw.map((value, index) => ({ index, fraction: value - result[index] })).sort((a, b) => b.fraction - a.fraction || a.index - b.index);
   for (let remaining = 100 - result.reduce((sum, count) => sum + count, 0), i = 0; i < remaining; i++) result[order[i].index]++;
-  return result as LevelCounts;
+  return result as T;
 }
 
 export function sumLevels(rows: readonly LevelCounts[]): LevelCounts {

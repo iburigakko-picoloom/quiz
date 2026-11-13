@@ -557,7 +557,8 @@
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__bar{display:flex;height:22px;overflow:hidden;border-radius:8px}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__segment{display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:700}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-color-0{background:#909bad}.quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-color-1{background:#e9b367}.quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-color-2{background:#68aed1}.quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-color-3{background:#57b59c}
-.quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__legend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:12px;text-align:center}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__segment.level-color-4{color:#33234d}
+.quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__legend{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin-top:12px;text-align:center}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__label{font-size:11px;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:4px}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__label i{width:8px;height:8px;border-radius:50%}
 .quiz-detail.quiz-detail--reference .quiz-detail__main-column .level-progress__legend small{display:block;font-size:11px;color:#75808e;margin-top:6px}

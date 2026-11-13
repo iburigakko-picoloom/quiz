@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { importedLearning, levelPercentages, sortLearningMembers, sumLevels } from '../src/utils/groupLearning.ts';
+import { importedLearning, individualLevelCounts, levelPercentages, sortLearningMembers, sumLevels } from '../src/utils/groupLearning.ts';
+
+test('individual chart counts graduated questions separately from level 3', () => {
+  const questions = ['unanswered', 'one', 'two', 'three', 'graduated'].map(id => ({ id }));
+  const progress = new Map([
+    ['one', { answeredCount: 1, reviewLevel: 1 }],
+    ['two', { answeredCount: 2, reviewLevel: 2 }],
+    ['three', { answeredCount: 3, reviewLevel: 3 }],
+    ['graduated', { answeredCount: 4, reviewLevel: null, isGraduated: true }],
+  ]);
+  assert.deepEqual(individualLevelCounts(questions, progress), [1, 1, 1, 1, 1]);
+});
 import { buildGroupLibrary, groupFolderSets } from '../src/utils/groupLibrary.ts';
 import { questionRevision } from '../src/utils/studyPlans.ts';
 import { parseMemberMaterialProgress } from '../src/utils/groupMemberProgress.ts';
@@ -25,6 +36,8 @@ function fixture() {
 test('percentages sum to 100 using stable rounding, including small and empty sets', () => {
   assert.deepEqual(levelPercentages([1,1,1,0]), [34,33,33,0]);
   assert.deepEqual(levelPercentages([0,0,0,0]), [0,0,0,0]);
+  assert.deepEqual(levelPercentages([1,1,1,1,1]), [20,20,20,20,20]);
+  assert.deepEqual(levelPercentages([0,0,0,0,0]), [0,0,0,0,0]);
   assert.deepEqual(sumLevels([[1,2,3,4], [4,3,2,1]]), [5,5,5,5]);
 });
 test('source denominator survives edits, removal and duplicates; graduation maps to L3', () => {

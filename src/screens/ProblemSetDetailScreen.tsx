@@ -17,7 +17,7 @@ import { ALL_CATEGORIES, buildProblemCategories, filterQuestionsByCategory } fro
 import { useLocalDay } from '../hooks/useLocalDay';
 import './ProblemSetDetailScreen.css';
 import {LevelProgress} from '../components/GroupLearningUi';
-import {learningLevel,levelPercentages,type LevelCounts} from '../utils/groupLearning';
+import {individualLevelCounts,levelPercentages,type LevelCounts} from '../utils/groupLearning';
 
 import {DocumentOutlineIcon,HistoryIcon,BookIcon,CalendarIcon,NoteIcon} from '../components/UiIcons';
 
@@ -118,9 +118,9 @@ export function ProblemSetDetailScreen({
     );
   }
 
-  const levels:LevelCounts=[0,0,0,0];
-  for(const question of questions){const progress=progressById.get(question.id);levels[learningLevel(progress)]++;}
-  const levelThreeRate=levelPercentages(levels)[3];
+  const levels=individualLevelCounts(questions, progressById);
+  const reachedLevelThree: LevelCounts = [levels[0], levels[1], levels[2], levels[3] + levels[4]];
+  const levelThreeRate=levelPercentages(reachedLevelThree)[3];
   const selectedLabel = getCategoryLabel(startCategory);
   const reviewFilterLabel = getReviewFilterLabel(reviewFilter);
 

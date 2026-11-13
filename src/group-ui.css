@@ -43,6 +43,7 @@
 .level-color-1 { background: #e9b367; }
 .level-color-2 { background: #68aed1; }
 .level-color-3 { background: #57b59c; }
+.level-color-4 { background: #b9a0e3; }
 .level-progress__segment { flex: 0 0 auto; }
 .level-progress__legend { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .level-progress__label { display: flex; align-items: center; gap: 5px; font-size: 11px; white-space: nowrap; }

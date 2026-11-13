@@ -1,7 +1,7 @@
 import type { AnswerLog, QuestionProgress } from '../types';
 import type { AppOutboxOperation, AppRecord } from './appRecordStorage';
 import { appRecordKey } from './appRecordStorage';
-import { advanceAnswerProgress, createInitialProgress } from './quiz';
+import { advanceAnswerProgress, createInitialProgress, getVirtualLevel } from './quiz';
 
 type Incoming = { key: string; collection: string; id: string; raw: string | null; revision: number; position: number };
 type EventRow = { id: string; raw: string | null; position: number };
@@ -35,7 +35,21 @@ export function createProgressSyncContext(records: Map<string, AppRecord>, incom
   return context;
 }
 
-function replayHistory(question: { setId: string; choices: string[] }, questionId: string, rows: EventRow[]):
+// Older answer logs do not record which level rules were active. Preserve the
+// old schedule when checking whether a synthesized merge is unambiguous.
+function advanceLegacyProgress(existing: QuestionProgress, selectedIndex: number, isCorrect: boolean, timestamp: string): QuestionProgress {
+  const next = advanceAnswerProgress(existing, selectedIndex, isCorrect, timestamp);
+  if (!isCorrect || existing.answeredCount === 0 || existing.isGraduated || !(existing.isReview || existing.isAmbiguous)) return next;
+  const last = existing.lastAnsweredAt ? new Date(existing.lastAnsweredAt) : null;
+  const days = existing.lastAnswerCorrect === false || existing.isAmbiguous ? 1 : existing.reviewLevel === 3 ? 7 : existing.reviewLevel === 2 ? 3 : 1;
+  const due = last && Number.isFinite(last.getTime()) ? new Date(last.getFullYear(), last.getMonth(), last.getDate() + days).getTime() : Number.NEGATIVE_INFINITY;
+  const now = new Date(timestamp);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (due <= today) return next;
+  return { ...next, isReview: existing.isReview, isGraduated: existing.isGraduated, reviewLevel: getVirtualLevel(existing) || 1 };
+}
+
+function replayHistory(question: { setId: string; choices: string[] }, questionId: string, rows: EventRow[], legacy = false):
   { progress: QuestionProgress; eventIds: string[] } | null {
   let progress = createInitialProgress(questionId);
   let previousTime = Number.NEGATIVE_INFINITY;
@@ -50,7 +64,7 @@ function replayHistory(question: { setId: string; choices: string[] }, questionI
       || log.selectedIndex < -1 || log.selectedIndex >= question.choices.length) return null;
     previousTime = time;
     eventIds.add(log.id);
-    progress = advanceAnswerProgress(progress, log.selectedIndex, log.isCorrect, log.answeredAt);
+    progress = (legacy ? advanceLegacyProgress : advanceAnswerProgress)(progress, log.selectedIndex, log.isCorrect, log.answeredAt);
   }
   return { progress, eventIds: [...eventIds] };
 }
@@ -126,6 +140,10 @@ export function verifiedBootstrapProgress(
   const merged = replayHistory(question, remote.id, ordered);
   if (!merged) return null;
   const raw = JSON.stringify(merged.progress);
+  if (!same('progress', local.raw, raw) && !same('progress', remote.raw, raw)) {
+    const legacyMerged = replayHistory(question, remote.id, ordered, true);
+    if (!legacyMerged || !same('progress', raw, JSON.stringify(legacyMerged.progress))) return null;
+  }
   return { raw, choice: same('progress', local.raw, raw) ? 'local' : same('progress', remote.raw, raw) ? 'remote' : 'merged',
     eventIds: merged.eventIds };
 }

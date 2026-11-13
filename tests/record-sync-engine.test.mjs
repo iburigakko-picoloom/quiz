@@ -290,7 +290,7 @@ test('complete bootstrap histories merge independent event IDs, defer live quiz 
   } finally { a.close(); b.close(); }
 });
 
-test('independent equal-time answers merge only when their progress transitions commute', async () => {
+test('independent equal-time answers remain conflicts when historical level rules are ambiguous', async () => {
   for (const differentOutcome of [false, true]) {
     const f = await fixture({ syncDevices: false }); const [a,b] = f.devices;
     try {
@@ -301,9 +301,9 @@ test('independent equal-time answers merge only when their progress transitions 
       await records.saveAppRecords(a, left, timestamp); await records.saveAppRecords(b, right, timestamp);
       await runRecordSync(a, f.connection, f.transport, guards);
       const result = await runRecordSync(b, f.connection, f.transport, guards);
-      assert.equal(result.status, differentOutcome ? 'conflict' : 'done');
-      assert.equal((await read(b)).progress[0].answeredCount, differentOutcome ? 1 : 2);
-      if (differentOutcome) assert.deepEqual(await read(b), right);
+      assert.equal(result.status, 'conflict');
+      assert.equal((await read(b)).progress[0].answeredCount, 1);
+      assert.deepEqual(await read(b), right);
     } finally { a.close(); b.close(); }
   }
 });

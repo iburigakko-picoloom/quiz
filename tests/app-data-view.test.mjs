@@ -41,8 +41,8 @@ test('recommendations preserve review semantics, prioritize uncertainty, and nev
     lastAnsweredAt: new Date(2026, 8, 21 - daysAgo, 23).toISOString(), ...overrides,
   });
   const entries = [
-    progress('future', 0), progress('today-l2', 3, { reviewLevel: 2 }),
-    progress('overdue', 9, { reviewLevel: 3 }), progress('wrong', 1, { lastAnswerCorrect: false }),
+    progress('future', 0), progress('today-l2', 10, { reviewLevel: 2 }),
+    progress('overdue', 32, { reviewLevel: 3 }), progress('wrong', 1, { lastAnswerCorrect: false }),
     progress('ambiguous', 1, { isAmbiguous: true }), progress('graduated', 20, { isGraduated: true }),
     progress('not-review', 20, { isReview: false }), progress('invalid', 1, { lastAnsweredAt: 'invalid' }),
     progress('orphan', 20), progress('unanswered', 20, { answeredCount: 0 }),
@@ -95,11 +95,11 @@ test('study record recommends only due reviews, ignores legacy question completi
     ...overrides,
   });
   const progress = [
-    dueProgress('due', 20),
+    dueProgress('due', 18),
     dueProgress('not-yet', 19, { reviewLevel: 2 }),
-    dueProgress('due-level-3', 13, { reviewLevel: 3 }),
-    dueProgress('finished-set', 20),
-    dueProgress('finished-question', 20, { isStudyCompleted: true }),
+    dueProgress('due-level-3', -10, { reviewLevel: 3 }),
+    dueProgress('finished-set', 18),
+    dueProgress('finished-question', 18, { isStudyCompleted: true }),
   ];
   const data = {
     problemSets: [{ id: 'active' }, { id: 'finished', isStudyCompleted: true }],

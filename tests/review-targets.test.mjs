@@ -41,6 +41,7 @@ test('wrong-answer and ambiguous targets wait a day before review', () => {
     ...initialProgress,
     answeredCount: 1,
     wrongCount: 1,
+    lastAnswerCorrect: false,
     lastAnsweredAt: yesterday,
     isReview: true,
     reviewLevel: 1,
@@ -59,7 +60,7 @@ test('wrong-answer and ambiguous targets wait a day before review', () => {
 
 test('review intervals follow local calendar days for levels 1, 2 and 3', () => {
   const lastAnsweredAt = new Date(2026, 8, 20, 23).toISOString();
-  for (const [reviewLevel, days] of [[1, 1], [2, 3], [3, 7]]) {
+  for (const [reviewLevel, days] of [[1, 3], [2, 10], [3, 30]]) {
     const progress = { ...initialProgress, answeredCount: 1, isReview: true, lastAnswerCorrect: true, lastAnsweredAt, reviewLevel };
     assert.equal(getReviewDueAt(progress), new Date(2026, 8, 20 + days).getTime());
     assert.equal(isReviewTarget(progress, new Date(2026, 8, 20 + days - 1, 23)), false);
@@ -181,11 +182,15 @@ test('set-level completion is reversible without rewriting individual progress',
   assert.deepEqual(resumed.progress, restored.data.progress);
 });
 
-test('correct answers only advance levels after the scheduled review day', () => {
+test('correct answers advance levels even before the scheduled review day', () => {
   const first = recordAnswer(createAnswerTestData(), multipleAnswerQuestion, [0, 2], false);
   assert.equal(first.progress.reviewLevel, 1);
   const early = recordAnswer(first.data, multipleAnswerQuestion, [0, 2], false);
-  assert.equal(early.progress.reviewLevel, 1);
+  assert.equal(early.progress.reviewLevel, 2);
+  const earlierThird = recordAnswer(early.data, multipleAnswerQuestion, [0, 2], false);
+  assert.equal(earlierThird.progress.reviewLevel, 3);
+  const earlyGraduation = recordAnswer(earlierThird.data, multipleAnswerQuestion, [0, 2], false);
+  assert.equal(earlyGraduation.progress.isGraduated, true);
   const setOverdue = (data, level) => ({
     ...data,
     progress: [{ ...data.progress[0], reviewLevel: level, lastAnsweredAt: timestamp }],

@@ -7,7 +7,7 @@ export function isReviewTarget(progress: QuestionProgress | undefined, now = new
 export function getReviewIntervalDays(progress: QuestionProgress): number {
   // A wrong or uncertain answer returns to the shortest interval.
   if (progress.lastAnswerCorrect === false || progress.isAmbiguous) return 1;
-  return progress.reviewLevel === 3 ? 7 : progress.reviewLevel === 2 ? 3 : 1;
+  return progress.reviewLevel === 3 ? 30 : progress.reviewLevel === 2 ? 10 : 3;
 }
 
 export function getReviewDueAt(progress: QuestionProgress): number | null {

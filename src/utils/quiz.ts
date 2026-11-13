@@ -190,9 +190,7 @@ export function advanceAnswerProgress(
   } else if (existing.isGraduated && isCorrect) {
     // A graduated answer only re-enters review if wrong.
   } else if (isCorrect) {
-    if (isReviewCandidate(existing) && !isReviewTarget(existing, new Date(timestamp))) {
-      nextProgress.reviewLevel = currentLevel || 1;
-    } else if (currentLevel >= 3) {
+    if (currentLevel >= 3) {
       nextProgress.isReview = false;
       nextProgress.isGraduated = true;
       nextProgress.reviewLevel = null;
