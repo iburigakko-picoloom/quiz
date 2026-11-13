@@ -5,6 +5,9 @@ import { isReviewCandidate, isReviewTarget } from './reviewTargets';
 import { folderSubtreeIds } from './folderHierarchy';
 import { questionRevision, studyDay } from './studyPlans';
 import { getStudyTimeZone } from './studyPlanStorage';
+import { stripChoicePrefix } from './choicePrefix';
+
+export { stripChoicePrefix } from './choicePrefix';
 
 export type ReviewLevelFilter = 'all' | 'level0' | 'level1' | 'level2' | 'level3' | 'ambiguous';
 export type EffectiveReviewLevel = 0 | 1 | 2 | 3 | 'graduated';
@@ -281,10 +284,6 @@ export function getChoiceLabel(index: number) {
 
 export function getChoiceText(question: Question, index: number) {
   return stripChoicePrefix(question.choices[index] ?? '');
-}
-
-export function stripChoicePrefix(text: string) {
-  return text.replace(/^\s*(?:[A-EＡ-Ｅａ-ｅa-e]|[1-5１-５])\s*[\.\)\]:：．）]\s*/u, '').trim();
 }
 
 function areSameIndexSet(a: number[], b: number[]) {

@@ -1,6 +1,7 @@
 import { ANSWER_EXPLANATION_INSTRUCTIONS } from './answerExplanation';
 import type { ImportedProblemSet, ImportedQuestion } from '../types';
 import { normalizeMaterialReferences } from './materialModel.ts';
+import { stripChoicePrefix } from './choicePrefix';
 
 type ValidationResult = { ok: true; value: ImportedProblemSet } | { ok: false; errors: string[] };
 
@@ -327,10 +328,6 @@ function getSourcePage(rawQuestion: Record<string, unknown>) {
   if (typeof rawQuestion.sourcePage === 'string') return rawQuestion.sourcePage;
   if (typeof rawQuestion.reference === 'string') return rawQuestion.reference;
   return '';
-}
-
-function stripChoicePrefix(text: string) {
-  return text.replace(/^\s*(?:[A-EＡ-Ｅａ-ｅa-e]|[1-5１-５])\s*[\.\)\]:：．）]\s*/u, '').trim();
 }
 
 function getAnswerIndexes(rawQuestion: Record<string, unknown>, choiceCount: number, path: string): { value: number[]; errors: string[] } {
