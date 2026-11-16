@@ -1,6 +1,7 @@
 import { sameRecordSyncConnection, type RecordSyncConnection } from './recordSyncOutbox';
 import type { RecordSyncOutcome } from './recordSyncEngine';
 import type { RecordConflict } from './recordSyncPull';
+import { requiredSyncContentHashes } from './learningMediaScope';
 import { categoryNoteRecoveryKeys, isCategoryNotesRecoveryRequired } from './noteStorage';
 
 export const RECORD_SYNC_STATE_EVENT = 'quiz-make-record-sync-state';
@@ -33,7 +34,7 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
   const conflictStore=tx.objectStore('appRecordConflicts');
   const careConflicts=conflictStore.indexNames.contains('kind')?conflictStore.index('kind').getAll('companion-budget-conflict'):undefined;
   const candidates=conflictStore.indexNames.contains('kind')?conflictStore.index('kind').count('legacy-recovery-candidate'):undefined;
-  const blobJobs = stores.includes('contentBlobJobs') ? tx.objectStore('contentBlobJobs').count() : undefined;
+  const blobJobs = stores.includes('contentBlobJobs') ? tx.objectStore('contentBlobJobs').getAllKeys() : undefined;
   const pending = tx.objectStore('appOutbox').count();
   let conflicts:RecordConflict[]=[];
   stage.onsuccess=()=>{if(stage.result){const request=conflictStore.getAll();request.onsuccess=()=>{conflicts=request.result;};}};
@@ -41,8 +42,10 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
   if (binding.result && !sameRecordSyncConnection(binding.result, connection)) throw new Error('差分履歴は別の接続に属しています。詳細から接続を確認してください。');
   const saved = receipt.result as Receipt | undefined;
   const matches = saved && sameRecordSyncConnection(saved.connection, connection);
+  // Recovery-only jobs are retained locally, not perpetually "transferring".
+  const needed = blobJobs?.result.length ? await requiredSyncContentHashes(db) : new Set<string>();
   return { lastSuccessAt: matches ? saved.lastSuccessAt : '', phase: matches ? saved.phase : 'idle',
-    deltaEnabled: Boolean(deltaEnabled.result), mediaPending: blobJobs?.result ?? 0,
+    deltaEnabled: Boolean(deltaEnabled.result), mediaPending: (blobJobs?.result ?? []).filter(key => needed.has(String(key))).length,
     recoveryCandidates:candidates?.result??0,migrationError:migrationError.result?.message,
     recoveryNotes:categoryNoteRecoveryKeys().length,
     recoveryUnknown:isCategoryNotesRecoveryRequired()&&!categoryNoteRecoveryKeys().length,

@@ -1058,9 +1058,8 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
         : '「同期IDを生成」で作成した36文字のIDを使用してください',
   });
 
-  let exportedPayload: SyncPayload | null = null;
   try {
-    exportedPayload = await exportQuizMakeData();
+    const exportedPayload = await exportQuizMakeData();
     addStep({ name: 'localStorage export', ok: true, message: `${Object.keys(exportedPayload.localStorage).length}件のキーをexportできます` });
   } catch (error) {
     addStep({
@@ -1068,15 +1067,18 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
       ok: false,
       message: '端末データのexportに失敗しました',
       errorDetails: error instanceof Error ? error.message : String(error),
+      suggestion: '資料を含む書き出しの確認に失敗しました。接続の結果は下の項目で別に確認します。端末データは削除しないでください。',
     });
   }
 
   const config = getRemoteSyncConfig();
-  if (!config || !isStrongSyncId(normalizedSyncId) || !exportedPayload) {
+  // Export can need media bodies that are not yet available on this device.
+  // Its failure is not evidence that the authenticated RPC connection failed.
+  if (!config || !isStrongSyncId(normalizedSyncId)) {
     addStep({
       name: 'テーブル接続',
       ok: false,
-      message: 'Supabase設定、同期ID、またはexport結果が不足しているため中止しました',
+      message: 'Supabase設定または同期IDが不足しているため中止しました',
     });
     return { ok: steps.every((step) => step.ok), steps };
   }

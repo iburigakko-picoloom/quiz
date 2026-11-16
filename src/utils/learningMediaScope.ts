@@ -26,3 +26,21 @@ export async function requiredQuestionImageHashes(db: IDBDatabase): Promise<Set<
   }
   return hashes;
 }
+
+/** References already published by current/pending notes need their bodies too.
+ * Read the reference index, never PDF bodies or private recovery-only archives. */
+export async function requiredSyncContentHashes(db: IDBDatabase): Promise<Set<string>> {
+  const hashes = await requiredQuestionImageHashes(db);
+  const tx = db.transaction('contentBlobRefs'), done = idbDone(tx);
+  const cursor = tx.objectStore('contentBlobRefs').openCursor();
+  cursor.onsuccess = () => {
+    const row = cursor.result;
+    if (!row) return;
+    if (['current:', 'pending:'].some(prefix => String(row.key).startsWith(prefix + '["indexedDbNotes",'))) {
+      for (const hash of row.value.hashes ?? []) hashes.add(hash);
+    }
+    row.continue();
+  };
+  await done;
+  return hashes;
+}

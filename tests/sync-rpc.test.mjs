@@ -571,6 +571,31 @@ test('bounded diagnostic reports actual read failures and revision races without
   }
 });
 
+test('export failure remains visible while connection diagnostics still probe the cloud',async()=>{
+  localStorage.clear();sync.setStoredSyncId(syncId);
+  const originalKey=localStorage.key;
+  const exportError='資料はまだ転送中か、通信できません。保存元の端末の同期後に再試行してください。';
+  localStorage.key=()=>{throw new Error(exportError);};
+  try {
+    for(const denied of [false,true]) {
+      const calls=[];
+      globalThis.fetch=async url=>{
+        calls.push(String(url));
+        if(String(url).endsWith('/quiz_sync_probe'))return rpcResponse({},denied?403:200);
+        if(String(url).endsWith('/quiz_whole_status'))return rpcResponse({code:'ok',enabled:true,revision:7});
+        assert.ok(String(url).endsWith('/quiz_whole_read'));
+        return rpcResponse({code:'ok',revision:7,rows:[],hasMore:false});
+      };
+      const result=await sync.runSyncDiagnostic(syncId);
+      assert.equal(result.ok,false,'an incomplete export must never become overall success');
+      assert.equal(result.steps.find(step=>step.name==='localStorage export').errorDetails,exportError);
+      assert.equal(result.steps.find(step=>step.name==='安全な同期RPC')?.ok,!denied);
+      assert.equal(calls.length,denied?1:3);
+      assert.equal(sync.getStoredSyncId(),syncId);
+    }
+  } finally {localStorage.key=originalKey;}
+});
+
 test('legacy diagnostic fallback reads snapshot references only',async()=>{
   localStorage.clear();sync.setStoredSyncId(syncId);let snapshots=0;
   for(const legacy of [false,true]){
