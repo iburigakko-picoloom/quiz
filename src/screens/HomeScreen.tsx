@@ -145,7 +145,9 @@ export function HomeScreen({
     <Layout>
       <div className={`quiz-home quiz-home--plans${materialsView ? ' quiz-home--materials-active' : ''}`}>
         <header className="quiz-home__header">
-          <h1 className="quiz-home__title">Quiz Make</h1>
+          <h1 className="quiz-home__title quiz-home__wordmark" aria-label="Quiz Make">
+            <span>Quiz</span>{' '}<span className="quiz-home__wordmark-accent">Make</span>
+          </h1>
           <div className="quiz-home__header-actions"><div className="quiz-home__view-switch" role="group" aria-label="表示切り替え"><button type="button" aria-pressed={materialsView} onClick={() => setMaterialsView(true)}>資料</button><button type="button" aria-pressed={!materialsView} onClick={() => { if (materialsView) onCloseMaterials?.(); setMaterialsView(false); }}>問題</button></div><button type="button" className="quiz-home__plans-link" onClick={onOpenPlans}>学習計画</button></div>
         </header>
 
