@@ -40,6 +40,7 @@ import { readMeta } from './blobVault';
 import { prepareDeltaSync } from './deltaMigration';
 import { runDeltaSync } from './deltaSync';
 import { startDeltaBackground } from './deltaBackground';
+import { startBlobTransfers } from './blobCloud';
 import { getAccountStorageSession } from './accountStorage';
 
 export async function runAppRecordSync(syncId: string, apply: RecordSyncGuards['apply'], manual = false, step: (value: string) => void = () => {}): Promise<RecordSyncOutcome> {
@@ -108,6 +109,9 @@ async function runAppRecordSyncLocked(syncId: string, apply: RecordSyncGuards['a
   const imageTransport = createQuestionImageTransport(config, initialAccess);
   const materialTransport = createMaterialTransport(config,initialAccess,{assertCurrent});
   if (deltaRequested) {
+    // Previously queued bodies can unblock the other device even while this
+    // device is waiting for a checkpoint or an explicit conflict resolution.
+    void startBlobTransfers(db, assertCurrent);
     const guards = { assertCurrent, apply, step, progress:(value:SyncProgress)=>{try{publishSyncProgress(connection,value);}catch{/* Informational only. */}} };
     const migration = await prepareDeltaSync(db, connection, rpc, guards);
     if (migration) return migration;

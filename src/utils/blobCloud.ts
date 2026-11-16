@@ -4,7 +4,7 @@ import { getAccountStorageSession } from './accountStorage';
 import { openAppDb } from '../storage';
 import { getContentBlob, idbDone, idbResult, putContentBlob, type BlobRef, type BlobMeta } from './blobVault';
 import { downloadContentParts, uploadContentParts } from './contentParts';
-import { requiredQuestionImageHashes } from './learningMediaScope';
+import { requiredSyncContentHashes } from './learningMediaScope';
 export const CONTENT_BUCKET = 'quiz-content-blobs';
 async function access() {
   const config = getRemoteSyncConfig(), token = await getCloudAccessToken();
@@ -31,16 +31,19 @@ export async function downloadContentBlob(ref: BlobRef): Promise<Blob> {
 }
 const uploads = new WeakMap<IDBDatabase, Promise<void>>();
 /** A separate queue; callers never await PDF transfers on the learning sync path. */
-export function startBlobTransfers(db: IDBDatabase, assertCurrent: () => Promise<void>): void {
-  if (uploads.has(db)) return;
+export function startBlobTransfers(db: IDBDatabase, assertCurrent: () => Promise<void>): Promise<void> {
+  const running = uploads.get(db);
+  if (running) return running;
   const task = (async () => {
     const tx = db.transaction('contentBlobJobs', 'readonly'), done = idbDone(tx);
     const refs = await idbResult<BlobRef[]>(tx.objectStore('contentBlobJobs').getAll()); await done;
-    const requiredImages = await requiredQuestionImageHashes(db);
+    const requiredContent = await requiredSyncContentHashes(db);
     for (const ref of refs) {
-      // Keep local originals and queued recovery evidence, but transfer only
-      // images still referenced by a current question or its explanation.
-      if (!requiredImages.has(ref.sha256)) continue;
+      // A synchronized note reference is unusable without its original body.
+      // Recovery-only archives remain local and are never uploaded here.
+      if (!requiredContent.has(ref.sha256)) continue;
+      await assertCurrent();
+      try {
       await assertCurrent(); const { config, token } = await access();
       const blob = await getContentBlob(db, ref); if (!blob) throw new Error('未送信の本文が見つかりません。');
       await uploadContentParts(ref, blob, async (part, bytes) => {
@@ -75,7 +78,13 @@ export function startBlobTransfers(db: IDBDatabase, assertCurrent: () => Promise
       const meta = write.objectStore('contentBlobMeta').get(ref.sha256);
       meta.onsuccess = () => { if (meta.result) write.objectStore('contentBlobMeta').put({ ...meta.result, uploaded: true } satisfies BlobMeta, ref.sha256); };
       await committed;
+      } catch {
+        // Retain this job and original for retry. One missing/corrupt body must
+        // not starve other independent, verifiable transfers in this queue.
+        await assertCurrent();
+      }
     }
   })().catch(() => { /* Persistent jobs and originals survive network/account/quota failures. */ }).finally(() => uploads.delete(db));
   uploads.set(db, task);
+  return task;
 }
