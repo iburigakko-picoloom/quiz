@@ -99,7 +99,7 @@ import { beginRecordApply, setActiveProtectedWorkReason, type ProtectedWorkReaso
 import { validateHydratedSyncPayload } from './utils/syncService';
 import { exportFileBackup, validateFileBackup, restoreFileBackup, type FileBackup } from './utils/backupPayload';
 import { SYNC_ORIGINALS_FORMAT } from './utils/syncOriginalBackup';
-import { SyncProtocolError } from './utils/syncInterruption';
+import { applyAndPublishRecords } from './utils/recordImportPublication';
 import {
   initializeCloudNativeAuth,
   onCloudSessionSnapshot,
@@ -260,23 +260,20 @@ export default function App() {
     try {
       const result = await withCoordinatedDataMutation(['app','notes'], async () => {
         if (!autoImportEligibleRef.current || !isSyncDisplaySafe(screenRef.current.name) || document.visibilityState !== 'visible') return null;
-        const applied = await operation();
-        if (applied.applied) {
-          await replayLocalStorageProjections();
-          if (applied.changed) {
-            if (!applied.data) throw new Error('差分読込後の問題データを確認できませんでした。');
-            dataRevisionRef.current += 1;
-            dataRef.current = applied.data;
-            durableDataRef.current = applied.data;
-            setData(applied.data);
+        return applyAndPublishRecords(operation, async (applied) => {
+          if (applied.applied) {
+            await replayLocalStorageProjections();
+            if (applied.changed) {
+              if (!applied.data) throw new Error('差分読込後の問題データを確認できませんでした。');
+              dataRevisionRef.current += 1;
+              dataRef.current = applied.data;
+              durableDataRef.current = applied.data;
+              setData(applied.data);
+            }
           }
-        }
-        return applied;
+        }, error => setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。'));
       }, { requireCrossContext: true });
       return result;
-    } catch (error) {
-      if(!(error instanceof SyncProtocolError))setStorageLoadError(error instanceof Error ? error.message : '差分データを表示できませんでした。');
-      throw error;
     } finally {
       finishRecordApply();
       autoImportBusyRef.current = false;
