@@ -147,13 +147,16 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
     if (remote.collection !== 'localStorage' || remote.id !== COMPANION_CARE_KEY) continue;
     const local = before.records.get(remote.key);
     if (!local || local.serverRevision >= remote.revision || !companionSpendWouldRollback(local.raw, remote.raw)) continue;
-    if (pending.has(remote.key) && !companionSpendWouldRollback(remote.raw, local.raw)) continue;
     const conflictId=`companion:${remote.key}:${remote.revision}`;
     const archivedRead=db.transaction('appRecordConflicts'), archivedDone=idbDone(archivedRead);
     const archived=await idbResult<{resolvedAt?:string;remote?:{raw:string|null}}|undefined>(archivedRead.objectStore('appRecordConflicts').get(conflictId));await archivedDone;
     if(archived?.resolvedAt && archived.remote?.raw===remote.raw && !companionSpendWouldRollback(remote.raw,local.raw)) {
       rows=rows.filter(row=>row!==remote);continue;
     }
+    // Check the explicit recovery first: bootstrap otherwise releases a pending
+    // baseRevision=0 write and replaces the user's merged choice with the old row.
+    const pendingCare = pending.get(remote.key);
+    if (pendingCare && (!checkpoint || pendingCare.baseRevision > 0) && !companionSpendWouldRollback(remote.raw, local.raw)) continue;
     const tx = db.transaction('appRecordConflicts', 'readwrite'), done = idbDone(tx);
     tx.objectStore('appRecordConflicts').put({ kind: 'companion-budget-conflict', connection,
       key: remote.key, local, remote, conflict: {connection,key:remote.key,local,remote,operationId:null}, archivedAt: new Date().toISOString() }, `companion:${remote.key}:${remote.revision}`);

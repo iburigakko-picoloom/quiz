@@ -227,7 +227,7 @@ test('new material imports after migration completion are immediately transferab
   assert.ok((await freezeDelta(db,connection,'device-a')).operations.some(op=>op.id===id));
 });
 
- test('parallel companion spending preserves both snapshots and stops replay without rolling back balance', async()=>{
+for (const checkpoint of [false, true]) test(`parallel companion spending preserves recovery and resumes ${checkpoint ? 'bootstrap' : 'incremental pull'}`, async()=>{
   const {db}=await database();
   const {createCompanionCare,creditCompanionAnswers,applyCompanionCareAction,COMPANION_CARE_KEY}=await import('../src/utils/companionCare.ts');
   const base={...creditCompanionAnswers(createCompanionCare('2026-11-07'),Array.from({length:50},(_,i)=>({id:`budget-${i}`}))),friendship:40,peakFriendship:40};
@@ -245,12 +245,19 @@ test('new material imports after migration completion are immediately transferab
   assert.equal(saved.local.raw,local.raw);assert.equal(saved.remote.raw,remote.raw);
   assert.equal(await readMeta(db,'deltaCursor'),undefined);
   const {mergeCompanionBudgets}=await import('../src/utils/companionCare.ts');
-  const merged=mergeCompanionBudgets(left,right),resolved=db.transaction(['appRecords','appRecordConflicts'],'readwrite'),resolvedDone=idbDone(resolved);
+  const merged=mergeCompanionBudgets(left,right),resolved=db.transaction(['appRecords','appRecordConflicts','appOutbox'],'readwrite'),resolvedDone=idbDone(resolved);
   resolved.objectStore('appRecords').put({...local,raw:JSON.stringify(merged)},key);
+  // Recovery is a new pending write, including on devices still bootstrapping.
+  resolved.objectStore('appOutbox').put({key,collection:'localStorage',id:COMPANION_CARE_KEY,raw:JSON.stringify(merged),position:0,baseRevision:0,localRevision:2,operationId:'recovered-care',transferReady:1},key);
   resolved.objectStore('appRecordConflicts').put({...saved,resolvedAt:new Date().toISOString()},`companion:${key}:2`);await resolvedDone;
   records.rememberAppRecordSnapshot(db,await records.readAppRecordSnapshot(db));
-  const applied=await applyDeltaRows(db,connection,[remote],2);assert.equal(applied.applied,true);
+  const applied=await applyDeltaRows(db,connection,[remote],2,{},checkpoint);assert.equal(applied.applied,true);
   assert.equal((await read(db,'appRecords',key)).raw,JSON.stringify(merged));assert.equal((await readMeta(db,'deltaCursor')).revision,2);
+  assert.equal((await read(db,'appOutbox',key)).raw,JSON.stringify(merged));
+  // A new spend on the other device still requires a fresh decision.
+  const changedRemote={...remote,revision:3,raw:JSON.stringify(applyCompanionCareAction(right,{kind:'train',trickId:'spin'},'2026-11-07'))};
+  await assert.rejects(applyDeltaRows(db,connection,[changedRemote],3,{},checkpoint),/育成の変更/);
+  assert.equal((await read(db,'appRecords',key)).raw,JSON.stringify(merged));
 
  });
 
