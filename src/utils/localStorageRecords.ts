@@ -20,8 +20,9 @@ function project(key: string, raw: string | null): void {
 /** Caller holds the origin data lock. IndexedDB is authoritative; localStorage
  * is a synchronous UI cache. A crash between commit and projection is replayable.
  */
-export async function saveSyncedLocalStorage(entries: Record<string, string | null>, onCommitted?: () => void): Promise<void> {
+export async function saveSyncedLocalStorage(entries: Record<string, string | null>, onCommitted?: () => void, atomic?: { stores: readonly string[]; write: (tx: IDBTransaction) => void }): Promise<void> {
   if (typeof indexedDB === 'undefined') {
+    if (atomic) throw new Error('復旧の保存にはIndexedDBが必要です。');
     for (const [key,raw] of Object.entries(entries)) project(key,raw);
     onCommitted?.();
     return;
@@ -30,7 +31,7 @@ export async function saveSyncedLocalStorage(entries: Record<string, string | nu
   await replayLocalStorageProjections(db, Object.keys(entries));
   const previous = await readLearningValues(db);
   const learning = new Map(await Promise.all(Object.entries(entries).filter(([key]) => isLearningStorageKey(key)).map(async ([key, raw]) => [key, { ...await prepareLearningValue(key, raw), ...(previous.get(key)?.nativeCleanup ? { nativeCleanup: previous.get(key)!.nativeCleanup } : {}) }] as const)));
-  const tx=db.transaction(STORES,'readwrite'); const completion=done(tx);
+  const tx=db.transaction([...new Set([...STORES,...(atomic?.stores??[])])],'readwrite'); const completion=done(tx);
   try {
     if (learning.size) queueLearningFence(tx);
     for (const [key,raw] of Object.entries(entries)) {
@@ -38,6 +39,7 @@ export async function saveSyncedLocalStorage(entries: Record<string, string | nu
       const value = learning.get(key);
       if (value) queueLearningValue(tx, value); else tx.objectStore(LOCAL_PROJECTION_STORE).put(raw,key);
     }
+    atomic?.write(tx);
     await completion;
   } catch (error) { try { tx.abort(); } catch { /* transaction finished */ } await completion.catch(() => {}); throw error; }
   onCommitted?.();

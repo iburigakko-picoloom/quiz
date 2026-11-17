@@ -506,7 +506,7 @@ function markAppDataExpectedBestEffort(savedAt: string): void {
   }
 }
 
-function isAppDataRecoveryRequired(): boolean {
+export function isAppDataRecoveryRequired(): boolean {
   try {
     return localStorage.getItem(APP_DATA_RECOVERY_REQUIRED_KEY) !== null;
   } catch {

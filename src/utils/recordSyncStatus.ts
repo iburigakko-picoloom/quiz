@@ -1,3 +1,4 @@
+import { isAppDataRecoveryRequired } from '../storage';
 import { sameRecordSyncConnection, type RecordSyncConnection } from './recordSyncOutbox';
 import type { RecordSyncOutcome } from './recordSyncEngine';
 import type { RecordConflict } from './recordSyncPull';
@@ -5,7 +6,7 @@ import { requiredSyncContentHashes } from './learningMediaScope';
 import { categoryNoteRecoveryKeys, isCategoryNotesRecoveryRequired } from './noteStorage';
 
 export const RECORD_SYNC_STATE_EVENT = 'quiz-make-record-sync-state';
-export type RecordSyncStatus = { lastSuccessAt: string; phase: RecordSyncOutcome['status'] | 'idle'; pending: number; conflicts: number; staged: boolean; roleTransitionBlocked?: boolean; cursor: number; recoveryNotes?:number; recoveryUnknown?:boolean; mediaPending?:number; deltaEnabled?:boolean; recoveryCandidates?:number; migrationError?:string };
+export type RecordSyncStatus = { lastSuccessAt: string; phase: RecordSyncOutcome['status'] | 'idle'; pending: number; conflicts: number; staged: boolean; roleTransitionBlocked?: boolean; cursor: number; recoveryApp?:boolean; recoveryNotes?:number; recoveryUnknown?:boolean; mediaPending?:number; deltaEnabled?:boolean; recoveryCandidates?:number; migrationError?:string };
 type Receipt = { connection: RecordSyncConnection; lastSuccessAt: string; phase: RecordSyncOutcome['status'] };
 const done = (tx: IDBTransaction) => new Promise<void>((resolve, reject) => {
   tx.oncomplete = () => resolve();
@@ -47,6 +48,7 @@ export async function readRecordSyncStatus(db: IDBDatabase, connection: RecordSy
   return { lastSuccessAt: matches ? saved.lastSuccessAt : '', phase: matches ? saved.phase : 'idle',
     deltaEnabled: Boolean(deltaEnabled.result), mediaPending: (blobJobs?.result ?? []).filter(key => needed.has(String(key))).length,
     recoveryCandidates:candidates?.result??0,migrationError:migrationError.result?.message,
+    recoveryApp:isAppDataRecoveryRequired(),
     recoveryNotes:categoryNoteRecoveryKeys().length,
     recoveryUnknown:isCategoryNotesRecoveryRequired()&&!categoryNoteRecoveryKeys().length,
     pending: Math.max(pending.result, batch.result, wholeFrozen.result,deltaFrozen.result),
@@ -75,6 +77,7 @@ export async function writeRecordSyncReceipt(db: IDBDatabase, connection: Record
 }
 
 export function recordSyncSummary(status: RecordSyncStatus): string {
+  if(status.recoveryApp)return '問題データの復旧確認が必要です';
   if(status.recoveryNotes)return `要復旧のノート${status.recoveryNotes}件`;
   if(status.recoveryUnknown)return 'ノートの復旧確認が必要です';
   if(status.migrationError)return '学習データを同期中・本文の移行は再試行待ち';

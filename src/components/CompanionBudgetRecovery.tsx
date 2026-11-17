@@ -1,7 +1,7 @@
 import './SyncDataChoice.css';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { readCompanionBudgetConflicts, resolveCompanionBudgetConflict, type CompanionBudgetConflict } from '../utils/companionBudgetRecovery';
-import { parseCompanionCare, mergeCompanionBudgets, COMPANION_CARE_EVENT } from '../utils/companionCare';
+import { readCompanionBudgetConflicts, resolveCompanionBudgetConflict, previewCompanionBudgetChoice, type CompanionBudgetConflict } from '../utils/companionBudgetRecovery';
+import { COMPANION_CARE_EVENT } from '../utils/companionCare';
 import { SYNC_ATTEMPT_EVENT } from '../utils/syncAttemptStatus';
 import type { RecordSyncConnection } from '../utils/recordSyncOutbox';
 
@@ -22,7 +22,7 @@ export function CompanionBudgetRecovery({onResolved, connection, onBusyChange, d
     const previous=shown.current;
     setChoices(current=>Object.fromEntries(Object.entries(current).filter(([id])=>{
      const old=previous.find(item=>item.id===id),fresh=next.find(item=>item.id===id);
-     return old&&fresh&&old.local===fresh.local&&old.remote===fresh.remote;
+     return old&&fresh&&old.local===fresh.local&&old.remote===fresh.remote&&old.current===fresh.current;
     })));
     shown.current=next;setItems(next);
    }}catch{if(!stopped)setError('育成の変更を読み込めません。再度同期画面を開いてください。');}finally{reading=false;}
@@ -44,12 +44,12 @@ export function CompanionBudgetRecovery({onResolved, connection, onBusyChange, d
  };
  return <>{message&&<p role="status">{message}</p>}{items.map(item=><section key={item.id} className="record-recovery">
   <h2>育成はどちらのデータを使いますか？</h2>
-  <p>消費済みの回答数は両端末分を保持します。</p>
+  <p>保存後のなかよし度と残高を表示しています。消費済みの回答数は両端末分を保持します。クラウド側は競合時に受信した記録で、ほかの端末の現在値とは異なる場合があります。</p>
   <fieldset disabled={busy||disabled} className="sync-data-choices"><legend className="sync-choice-hidden">育成のデータ</legend>
    {(['local','remote'] as const).map(side=>{
-    let care,merged;try{care=parseCompanionCare(item[side]);merged=mergeCompanionBudgets(care,parseCompanionCare(item[side==='local'?'remote':'local']));}
+    let merged;try{merged=previewCompanionBudgetChoice(item,side);}
     catch{return <p key={side} role="alert">消費記録を照合できません。原本は保持しています。</p>;}
-    return <label key={side} className={`sync-data-choice${choices[item.id]===side?' sync-data-choice--selected':''}`}><input type="radio" name={`care-${item.id}`} checked={choices[item.id]===side} onChange={()=>setChoices(value=>({...value,[item.id]:side}))}/><span className="sync-data-choice__content"><strong>{side==='local'?'この端末':'クラウド（ほかの端末）'}</strong><p>{care.name}・なかよし度 {Number(care.friendship.toFixed(2))}</p><p>{merged.answerBalance<0?`補充分 ${-merged.answerBalance}問`:`残り ${merged.answerBalance}問分`}</p></span></label>;
+    return <label key={side} className={`sync-data-choice${choices[item.id]===side?' sync-data-choice--selected':''}`}><input type="radio" name={`care-${item.id}`} checked={choices[item.id]===side} onChange={()=>setChoices(value=>({...value,[item.id]:side}))}/><span className="sync-data-choice__content"><strong>{side==='local'?(item.current?'この端末の現在の育成':'この端末の競合時の控え'):'受信したクラウドの育成（競合時）'}</strong><p>{merged.name}・なかよし度 {Number(merged.friendship.toFixed(2))}</p><p>{merged.answerBalance<0?`補充分 ${-merged.answerBalance}問`:`残り ${merged.answerBalance}問分`}</p></span></label>;
    })}
   </fieldset>
   <button type="button" className="sync-button sync-button--primary" disabled={busy||disabled||!choices[item.id]} onClick={()=>void resolve(item)}>{busy?'選択を保存中…':'この育成で同期を再開'}</button>

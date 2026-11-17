@@ -7,7 +7,7 @@ import { COMPANION_CARE_KEY, COMPANION_CARE_EVENT, applyCompanionCareAction, cre
 import { getStudyTimeZone } from './studyPlanStorage';
 import { studyDay } from './studyPlans';
 import { advanceLocalDataRevision } from './localDataRevision';
-import { openAppDb } from '../storage';
+import { openAppDb, isAppDataRecoveryRequired } from '../storage';
 import { isSyncInteractionProtected } from './syncInteraction';
 
 export function readCompanionCare(): CompanionCare | null {
@@ -32,6 +32,7 @@ export async function saveCompanionCare(logs: readonly Pick<AnswerLog, 'id'>[], 
     const day = studyDay(options.now ?? new Date(), getStudyTimeZone());
     const previousRaw = accountLocalStorage.getItem(COMPANION_CARE_KEY);
     const previous = previousRaw === null ? null : parseCompanionCare(previousRaw);
+    if (isAppDataRecoveryRequired()) throw new Error('問題データの復旧確認が必要なため、育成の更新を停止しています。今の育成記録は保持しています。');
     if (options.automatic || options.action) {
       // Daily visits and answer reconciliation can wait while the user chooses
       // a source or a frozen upload is pending. Check after acquiring the lock:
