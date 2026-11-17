@@ -25,6 +25,7 @@ export function useCompanionCare(logs: readonly AnswerLog[], ready: boolean, vis
 
   useEffect(() => {
     mounted.current = true;
+    refresh();
     const preference = () => setEnabled(isStudyCompanionEnabled());
     const storage = () => { preference(); refresh(); };
     window.addEventListener(COMPANION_CARE_EVENT, refresh);

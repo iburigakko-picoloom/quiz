@@ -189,3 +189,93 @@ test('companion choice is scoped to the displayed connection and rejects a repla
  assert.equal(JSON.stringify(readCompanionCare()),raw);
  assert.equal((await row('appRecordConflicts','scope-a')).resolvedAt,undefined);
 });
+
+
+test('choice previews use current friendship, preserve archived spends and reject changed local care',async()=>{
+ const {readCompanionBudgetConflicts,resolveCompanionBudgetConflict,previewCompanionBudgetChoice}=await import('../src/utils/companionBudgetRecovery.ts');
+ const original=readCompanionCare();
+ const archived={...original,friendship:12,peakFriendship:60};
+ const current={...original,friendship:55,peakFriendship:60};
+ const remote={...original,friendship:30,peakFriendship:60};
+ await saveSyncedLocalStorage({[COMPANION_CARE_KEY]:JSON.stringify(current)});
+ const tx=db.transaction('appRecordConflicts','readwrite');
+ tx.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',local:{raw:JSON.stringify(archived)},remote:{raw:JSON.stringify(remote)}},'fresh-choice');
+ await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});
+ const item=(await readCompanionBudgetConflicts()).find(item=>item.id==='fresh-choice');
+ assert.equal(previewCompanionBudgetChoice(item,'local').friendship,55);
+ assert.equal(previewCompanionBudgetChoice(item,'remote').friendship,30);
+ await saveSyncedLocalStorage({[COMPANION_CARE_KEY]:JSON.stringify({...current,friendship:56})});
+ await assert.rejects(resolveCompanionBudgetConflict(item.id,'local',item),/競合の状態が変わりました/);
+ const refreshed=(await readCompanionBudgetConflicts()).find(item=>item.id==='fresh-choice');
+ const preview=previewCompanionBudgetChoice(refreshed,'local');
+ await resolveCompanionBudgetConflict(refreshed.id,'local',refreshed);
+ assert.deepEqual(readCompanionCare(),preview);
+ assert.equal(readCompanionCare().friendship,56);
+});
+
+test('failure to mark a conflict resolved rolls back care and the outgoing edit together',async()=>{
+ const {readCompanionBudgetConflicts,resolveCompanionBudgetConflict}=await import('../src/utils/companionBudgetRecovery.ts');
+ const before=readCompanionCare(),raw=JSON.stringify(before);
+ const outbox=await row('appOutbox',appRecordKey('localStorage',COMPANION_CARE_KEY));
+ const tx=db.transaction('appRecordConflicts','readwrite');
+ tx.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',local:{raw},remote:{raw:JSON.stringify({...before,friendship:23})}},'atomic-choice');
+ await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});
+ const item=(await readCompanionBudgetConflicts()).find(item=>item.id==='atomic-choice');
+ const put=IDBObjectStore.prototype.put;
+ IDBObjectStore.prototype.put=function(value,...args){if(this.name==='appRecordConflicts'&&value?.resolvedAt){this.transaction.abort();return;}return put.call(this,value,...args);};
+ try{await assert.rejects(resolveCompanionBudgetConflict(item.id,'remote',item));}finally{IDBObjectStore.prototype.put=put;}
+ await replayLocalStorageProjections(db);
+ assert.deepEqual(readCompanionCare(),before);
+ assert.deepEqual(await row('appOutbox',appRecordKey('localStorage',COMPANION_CARE_KEY)),outbox);
+ assert.equal((await row('appRecordConflicts',item.id)).resolvedAt,undefined);
+ await resolveCompanionBudgetConflict(item.id,'remote',item);
+ assert.equal(readCompanionCare().friendship,23);
+});
+
+test('recovery-required app data neither rewards nor mutates care and cannot appear synchronized',async()=>{
+ const {APP_DATA_RECOVERY_REQUIRED_KEY}=await import('../src/storage.ts');
+ const {syncStatusPresentation}=await import('../src/utils/syncStatusPresentation.ts');
+ const {readRecordSyncStatus,recordSyncSummary}=await import('../src/utils/recordSyncStatus.ts');
+ const before=readCompanionCare(),generation=await readUserEditGeneration(db);
+ values.set(APP_DATA_RECOVERY_REQUIRED_KEY,JSON.stringify({version:1,reason:'backup-only'}));
+ try{
+  await assert.rejects(saveCompanionCare(logs(900),{automatic:true,visit:true,now}),/復旧確認/);
+  await assert.rejects(saveCompanionCare([],{action:{kind:'pet'},now}),/復旧確認/);
+  assert.deepEqual(readCompanionCare(),before);
+  assert.equal(await readUserEditGeneration(db),generation);
+  const status=await readRecordSyncStatus(db,{project:'fixture',userId:'user',syncId:'sync'});
+  assert.equal(status.recoveryApp,true);
+  assert.match(recordSyncSummary(status),/問題データの復旧確認/);
+  assert.match(syncStatusPresentation({online:true,record:status,autoEnabled:true,recordEnabled:true,success:'saved',pending:false}).text,/問題データの復旧確認/);
+ }finally{values.delete(APP_DATA_RECOVERY_REQUIRED_KEY);}
+});
+
+
+test('remote preview includes newer local spending and exactly matches the saved result',async()=>{
+ const {createCompanionCare,creditCompanionAnswers,applyCompanionCareAction}=await import('../src/utils/companionCare.ts');
+ const {readCompanionBudgetConflicts,resolveCompanionBudgetConflict,previewCompanionBudgetChoice}=await import('../src/utils/companionBudgetRecovery.ts');
+ const base={...creditCompanionAnswers(createCompanionCare('2026-10-14'),logs(200)),friendship:60,peakFriendship:60};
+ const left=applyCompanionCareAction(base,{kind:'feed'},'2026-10-14');
+ const right=applyCompanionCareAction(base,{kind:'feed'},'2026-10-14');
+ const current=applyCompanionCareAction(left,{kind:'feed'},'2026-10-14');
+ await saveSyncedLocalStorage({[COMPANION_CARE_KEY]:JSON.stringify(current)});
+ const tx=db.transaction('appRecordConflicts','readwrite');
+ tx.objectStore('appRecordConflicts').put({kind:'companion-budget-conflict',local:{raw:JSON.stringify(left)},remote:{raw:JSON.stringify(right)}},'three-spends');
+ await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});
+ const item=(await readCompanionBudgetConflicts()).find(item=>item.id==='three-spends');
+ const preview=previewCompanionBudgetChoice(item,'remote');
+ assert.equal(preview.answerBalance,50);
+ assert.equal(preview.spendEvents.length,3);
+ await resolveCompanionBudgetConflict(item.id,'remote',item);
+ assert.deepEqual(readCompanionCare(),preview);
+});
+
+test('care-screen recovery defaults to the bound connection instead of another sync ID',async()=>{
+ const {readCompanionBudgetConflicts}=await import('../src/utils/companionBudgetRecovery.ts');
+ const binding={project:'https://fixture.invalid',userId:'user-a',syncId:'one'};
+ const previous=await row('appRecordMeta','recordSyncConnection');
+ const tx=db.transaction('appRecordMeta','readwrite');tx.objectStore('appRecordMeta').put(binding,'recordSyncConnection');
+ await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});
+ try{assert.deepEqual((await readCompanionBudgetConflicts()).map(item=>item.id),['scope-a']);}
+ finally{const restore=db.transaction('appRecordMeta','readwrite');if(previous)restore.objectStore('appRecordMeta').put(previous,'recordSyncConnection');else restore.objectStore('appRecordMeta').delete('recordSyncConnection');await new Promise((r,j)=>{restore.oncomplete=r;restore.onabort=()=>j(restore.error);});}
+});
