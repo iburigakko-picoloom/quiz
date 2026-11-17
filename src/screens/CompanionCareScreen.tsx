@@ -67,9 +67,9 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
       {renaming ? <form className="companion-care__name-form" onSubmit={event => { event.preventDefault(); void handleAction({ kind: 'rename', name }); }}>
         <input aria-label="キャラの名前" value={name} onChange={event => setName(event.target.value)} maxLength={20} autoFocus />
         <button type="submit" disabled={disabled || !name.trim()}>保存</button><button type="button" onClick={() => setRenaming(false)}>取消</button>
-      </form> : <button className="companion-care__name" type="button" aria-label="キャラの名前を変更" disabled={disabled} onClick={() => { setName(care?.name ?? ''); setRenaming(true); }}>{care?.name ?? 'パピィ'}<span aria-hidden="true">✎</span></button>}
-      <div className="companion-care__bond-caption"><span>♡ なかよし度 <strong>{Number((care?.friendship ?? 0).toFixed(2))}</strong><small> / {COMPANION_BALANCE.maxFriendship}</small></span><span>{companionFriendshipLabel(care?.friendship ?? 0)}</span></div>
-      <progress value={care?.friendship ?? 0} max={COMPANION_BALANCE.maxFriendship} aria-label="なかよし度" />
+      </form> : <button className="companion-care__name" type="button" aria-label="キャラの名前を変更" disabled={disabled} onClick={() => { setName(care?.name ?? ''); setRenaming(true); }}>{care?.name ?? '育成記録を確認中'}<span aria-hidden="true">✎</span></button>}
+      <div className="companion-care__bond-caption"><span>♡ なかよし度 <strong>{care ? Number(care.friendship.toFixed(2)) : '—'}</strong><small> / {COMPANION_BALANCE.maxFriendship}</small></span><span>{care ? companionFriendshipLabel(care.friendship) : '未確認'}</span></div>
+      {care && <progress value={care.friendship} max={COMPANION_BALANCE.maxFriendship} aria-label="なかよし度" />}
     </section>
     <section className="companion-care__stage" aria-label="キャラクター">
       <CompanionCharacter friendship={care?.friendship} motion={motion} large />
@@ -77,7 +77,7 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
     {error && <div className="companion-care__error" role="alert"><p>{error}</p><button type="button" onClick={() => void onRetry()} disabled={busy}>もう一度読み込む</button></div>}
     <CompanionBudgetRecovery onResolved={onRetry} />
     {!care && !error && <p className="companion-care__loading" role="status">お世話の記録を読み込み中…</p>}
-    <div className="companion-care__controls">
+    {care && <div className="companion-care__controls">
       <div className="companion-care__panel-heading" aria-label="共通の解答残枠"><h2>使える解答数</h2><strong>{(care?.answerBalance ?? 0) < 0 ? `補充分 ${-care!.answerBalance}問` : `${care?.answerBalance ?? 0}問分`}</strong></div>
       <div className="companion-care__tabs" role="tablist" aria-label="お世話の種類">
         {([{ id: 'feed', icon: '◡', label: 'ごはん' }, { id: 'pet', icon: '♡', label: 'なでる' }, { id: 'tricks', icon: '☆', label: 'おやつ' }] as const).map(item => <button key={item.id} id={`care-tab-${item.id}`} type="button" role="tab" aria-selected={tab === item.id} aria-controls={`care-panel-${item.id}`} onClick={() => setTab(item.id)}><span aria-hidden="true">{item.icon}</span>{item.label}</button>)}
@@ -108,6 +108,6 @@ export function CompanionCareScreen({ care, busy, error, onAction, onRetry, onBa
           <div className="companion-care__food-progress"><span>次のおやつまで あと <strong>{Math.max(0, COMPANION_BALANCE.answersPerTreat - (care?.answerBalance ?? 0))}問</strong></span><progress value={care?.answerBalance ?? 0} max={COMPANION_BALANCE.answersPerTreat} aria-label="次のおやつまでの回答数" /></div>
         </>}
       </section>
-    </div>
+    </div>}
   </main></Layout>;
 }
