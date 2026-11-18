@@ -20,3 +20,5 @@
 .answer-sheet__choice-reason { margin-top:10px; padding-top:9px; border-top:1px solid #e8edf3; }
 .answer-sheet .answer-sheet__choice-reason p:first-child { margin-top:0; }
 .answer-sheet .answer-sheet__choice-reason p:last-child { margin-bottom:0; }
+
+.answer-sheet__choice-statement[data-mismatch] { background-color: #fff4bf; border-radius: 4px; padding-inline: 4px; margin-inline: -4px; }

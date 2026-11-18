@@ -555,7 +555,7 @@ export function QuizRunner({ data, title, subtitle, questions: incomingQuestions
             relearned={feedback === 'relearned'}
             answer={answerText}
             explanation={currentQuestion.explanation}
-            choices={currentQuestion.choices} correctIndexes={answerIndexes}
+            choices={currentQuestion.choices} correctIndexes={answerIndexes} selectedIndexes={selectedIndexes}
             knownChoices={[...sourceQuestion.choices,...(sourceQuestion.distractors ?? [])]}
             detailedExplanation={currentDetailedExplanation}
             questionId={currentQuestion.id}
@@ -752,7 +752,7 @@ export function AnswerPanel({ contentReadOnly = false,
   relearned,
   answer,
   explanation,
-  choices = [], correctIndexes = [], knownChoices,
+  choices = [], correctIndexes = [], selectedIndexes, knownChoices,
   detailedExplanation,
   imageIds,
   savedLevelLabel,
@@ -778,7 +778,7 @@ export function AnswerPanel({ contentReadOnly = false,
   relearned: boolean;
   answer: string;
   explanation: string;
-  choices?: readonly string[]; correctIndexes?: readonly number[]; knownChoices?: readonly string[];
+  choices?: readonly string[]; correctIndexes?: readonly number[]; selectedIndexes?: readonly number[]; knownChoices?: readonly string[];
   detailedExplanation: string;
   imageIds: string[];
   savedLevelLabel: string;
@@ -1153,9 +1153,10 @@ export function AnswerPanel({ contentReadOnly = false,
         <h2 className="answer-sheet__section-title">選択肢の検討</h2>
         <div className="answer-sheet__choice-cards">{choices.map((choice,index)=>{
           const correct=correctIndexes.includes(index), reason=choiceReason(explanationParts.reasons,choice);
+          const mismatch = selectedIndexes !== undefined && selectedIndexes.includes(index) !== correct;
           return <article key={`${index}-${choice}`} className={`answer-sheet__choice-card ${correct?'is-correct':'is-incorrect'}`}>
             <span className="answer-sheet__choice-mark" aria-label={correct?'正しい選択肢':'誤った選択肢'}>{correct?'○':'×'}</span>
-            <div className="answer-sheet__choice-body"><p className="answer-sheet__choice-statement">{index+1}. {choice}</p>
+            <div className="answer-sheet__choice-body"><p className="answer-sheet__choice-statement" data-mismatch={mismatch || undefined}>{mismatch && <span className="sr-only">{correct ? '選び忘れた正解。' : '選んだ不正解。'}</span>}{index+1}. {choice}</p>
               {reason ? <ExplanationContent text={reason} className="answer-sheet__choice-reason"/> : null}
             </div>
           </article>;
