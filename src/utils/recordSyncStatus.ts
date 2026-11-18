@@ -77,7 +77,7 @@ export async function writeRecordSyncReceipt(db: IDBDatabase, connection: Record
 }
 
 export function recordSyncSummary(status: RecordSyncStatus): string {
-  if(status.recoveryApp)return '問題データの復旧確認が必要です';
+  if(status.recoveryApp && !status.deltaEnabled)return '問題データの復旧確認が必要です';
   if(status.recoveryNotes)return `要復旧のノート${status.recoveryNotes}件`;
   if(status.recoveryUnknown)return 'ノートの復旧確認が必要です';
   if(status.migrationError)return '学習データを同期中・本文の移行は再試行待ち';

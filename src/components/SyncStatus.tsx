@@ -57,7 +57,8 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const complete = isLearningSyncComplete(presentation.text);
   const reason = complete || attempt?.background && ['running','queued'].includes(attempt.phase) && !attempt.retryAt
     ? '' : syncStatusReason(attempt, record?.conflicts ?? 0, readError, lastState.error ?? '');
-  const showProgress = complete || (!record?.recoveryApp && attempt?.pauseReason !== 'companion_conflict') && (!attempt?.background || Boolean(attempt?.progress))
+  const recoveryBlocksSync = record?.recoveryApp && !record.deltaEnabled;
+  const showProgress = complete || (!recoveryBlocksSync && attempt?.pauseReason !== 'companion_conflict') && (!attempt?.background || Boolean(attempt?.progress))
     && (attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt || attempt?.overallPercent !== undefined);
   const progress = attempt?.progress;
   const activeFailure=attempt?.lastFailure&&(attempt.phase==='failed'||attempt.phase==='paused'&&attempt.pauseReason===attempt.lastFailure.code)?attempt.lastFailure:null;
@@ -67,7 +68,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
     {!diagnosticsOnly && complete ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
     {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : summary}</h2> : null}
     {!diagnosticsOnly && reason ? <p className="sync-status-reason">{reason}</p> : null}
-    {record?.recoveryApp && <div>
+    {recoveryBlocksSync && <div>
       <p>この端末の問題が最新か確認できず、同期を停止しています。まず「ファイルに保存」で今の記録を残してください。</p>
       <p>最近の解答を含む完全なバックアップがあれば復元し、同期画面で「更新を確認」を押してください。どれが最新か分からない場合は、復元前に最後に学習した端末の解答履歴を確認してください。</p>
       {onOpenBackups && <button type="button" className="sync-button" disabled={disabled} onClick={onOpenBackups}>バックアップ・復旧を開く</button>}
@@ -78,6 +79,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
     {!diagnosticsOnly ? <p>最終成功 {success ? new Date(success).toLocaleString('ja-JP', { dateStyle: 'short', timeStyle: 'short' }) : '未実行'}</p> : null}
     {diagnosticsOnly ? null : onInitialSync ? <button type="button" className="sync-button sync-button--primary" disabled={disabled || !online} onClick={onInitialSync}>初回のデータを確認</button> : canChoose ? <button type="button" className="sync-button sync-button--primary" disabled={disabled} onClick={onChooseSource}>使うデータを選び直す</button> : presentation.action === 'login' ? <button type="button" className="sync-button sync-button--primary" onClick={onLogin}>ログイン</button> : presentation.action === 'retry' ? <button type="button" className="sync-button sync-button--primary"
       disabled={disabled || !online} onClick={() => requestSyncRetry(syncId)}>再試行</button> : null}
+    {detailsOpen && record?.deltaEnabled && record.recoveryApp && <p>端末全体のバックアップには復旧確認が必要です。学習記録の差分同期は上の同期状態で確認できます。</p>}
     {detailsOpen && lastState.error ? <p role="alert">{lastState.error}</p> : null}
     {detailsOpen && readError ? <p role="alert">{readError}</p> : null}
     {detailsOpen && record?.recoveryCandidates ? <p>復旧用に保存した原本が{record.recoveryCandidates}件あります。バックアップ画面で確認できます。</p> : null}

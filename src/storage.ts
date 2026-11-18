@@ -106,6 +106,7 @@ async function loadAppDataUnlocked(): Promise<AppData> {
   if (!usesDurableFallback && indexedRecord.source === 'backup') {
     markAppDataRecoveryRequiredBestEffort('backup-only');
   }
+  recheckRecoveredPrimary(indexedRecord, preferredRaw);
   if (usesDurableFallback || indexedRecord.source === 'current') {
     markAppDataExpectedBestEffort(indexedRecord.savedAt ?? fallbackRecord.savedAt ?? new Date().toISOString());
   }
@@ -294,6 +295,7 @@ export async function exportAppDataRaw(
         throw new Error('端末の問題データが復旧用バックアップから読み込まれたため、古い内容でクラウドを上書きしないよう保存を中止しました。内容を確認し、必要ならクラウドから読み込んでください。');
       }
     }
+    recheckRecoveredPrimary(indexedRecord, preferredRaw);
     if (isAppDataRecoveryRequired() && options.mode !== 'recovery') {
       throw new AppDataRecoveryRequiredError();
     }
@@ -524,10 +526,27 @@ export function isAppDataRecoveryRequired(): boolean {
 
 function markAppDataRecoveryRequiredBestEffort(reason: 'missing-primary' | 'backup-only'): void {
   try {
-    localStorage.setItem(APP_DATA_RECOVERY_REQUIRED_KEY, JSON.stringify({ version: 1, reason }));
+    if (localStorage.getItem(APP_DATA_RECOVERY_REQUIRED_KEY) !== null) return;
+    const expectedSavedAt = localStorage.getItem(APP_DATA_EXPECTED_KEY);
+    localStorage.setItem(APP_DATA_RECOVERY_REQUIRED_KEY, JSON.stringify({ version: 1, reason, expectedSavedAt }));
   } catch {
     // Existing sync history/expected markers still keep strict exports closed.
   }
+}
+
+// Only the exact primary generation expected before the failed read can clear
+// the marker. Later edits based on a recovery copy have a different timestamp.
+function recheckRecoveredPrimary(record: IndexedAppDataRecord, chosen: string | null): void {
+  if (record.source !== 'current' || !record.savedAt || record.raw !== chosen) return;
+  try {
+    const raw = localStorage.getItem(APP_DATA_RECOVERY_REQUIRED_KEY);
+    if (!raw) return;
+    const marker = JSON.parse(raw);
+    if (marker.version === 1 && marker.expectedSavedAt === record.savedAt
+        && localStorage.getItem(APP_DATA_EXPECTED_KEY) === record.savedAt) {
+      localStorage.removeItem(APP_DATA_RECOVERY_REQUIRED_KEY);
+    }
+  } catch { /* Keep recovery protection when storage cannot be verified. */ }
 }
 
 function getLocalFallbackRecord(): { raw: string | null; savedAt: string | null } {

@@ -496,3 +496,16 @@ test('a status-only atomic sync record is not history and permits a first empty 
   assert.deepEqual(JSON.parse(exported.localStorage[storage.APP_DATA_STORAGE_KEY]), storage.createEmptyAppData());
   assert.deepEqual(exported.indexedDbNotes, {});
 });
+
+test('a temporary loss clears only when the expected primary returns', async () => {
+  resetState();
+  localStorage.setItem(storage.APP_DATA_EXPECTED_KEY, timestamp);
+  await assert.rejects(storage.exportAppDataRaw());
+  seedCurrentApp();
+  const primary = idb.store('quiz-make-app-data-v1', 'appData');
+  primary.set(storage.APP_DATA_STORAGE_KEY + ':saved-at', '2026-08-14T00:00:00.000Z');
+  await assert.rejects(storage.exportAppDataRaw());
+  seedCurrentApp();
+  assert.deepEqual(JSON.parse(await storage.exportAppDataRaw()), appData);
+  assert.equal(localStorage.getItem(storage.APP_DATA_RECOVERY_REQUIRED_KEY), null);
+});
