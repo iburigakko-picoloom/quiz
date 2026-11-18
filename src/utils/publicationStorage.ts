@@ -7,7 +7,7 @@ export interface PublicationJob extends PublicationProgress {
   error?:string;errorCode?:string;retryable?:boolean;result?:CloudPublishResult;applied?:boolean;warning?:string;groupFolderId?:string;groupId?:string;publicFolderId?:string;publicFolderPath?:import('./sharedFolders').SharedFolderPart[];
 }
 export interface PublicationRepository {
-  list():Promise<PublicationJob[]>;enqueue(jobs:{job:PublicationJob;payload:PublicationPayload}[]):Promise<void>;update(job:PublicationJob):Promise<void>;payload(id:string):Promise<PublicationPayload>;retirePayload(id:string):Promise<void>;
+  list():Promise<PublicationJob[]>;enqueue(jobs:{job:PublicationJob;payload:PublicationPayload}[]):Promise<void>;update(job:PublicationJob):Promise<void>;payload(id:string):Promise<PublicationPayload>;retirePayload(id:string):Promise<void>;dismissFailed(id:string):Promise<void>;
 }
 const databases=new Map<string,Promise<IDBDatabase>>();
 export function publicationScope(identity:LocalAccountIdentity){return `${identity.project}/${identity.userId}`;}
@@ -21,8 +21,17 @@ export function publicationRepository(identity:LocalAccountIdentity):Publication
   return {
     list:()=>transact<PublicationJob[]>(['jobs'],'readonly',(tx,set)=>{const request=tx.objectStore('jobs').index('scope').getAll(scope);request.onsuccess=()=>set(request.result.sort((a:PublicationJob,b:PublicationJob)=>a.createdAt.localeCompare(b.createdAt)));}),
     enqueue:rows=>transact<void>(['jobs','payloads'],'readwrite',(tx,set)=>{for(const {job,payload} of rows){if(job.scope!==scope)throw new Error('公開アカウントが変わりました。');tx.objectStore('jobs').add(job);tx.objectStore('payloads').add({id:job.id,scope,payload});}set(undefined);}),
-    update:job=>transact<void>(['jobs'],'readwrite',(tx,set)=>{if(job.scope!==scope)throw new Error('公開アカウントが変わりました。');tx.objectStore('jobs').put(job);set(undefined);}),
+    update:job=>transact<void>(['jobs'],'readwrite',(tx,set)=>{if(job.scope!==scope)throw new Error('公開アカウントが変わりました。');const store=tx.objectStore('jobs'),current=store.getKey(job.id);current.onsuccess=()=>{if(current.result!==undefined)store.put(job);set(undefined);};}),
     payload:id=>transact<PublicationPayload>(['payloads'],'readonly',(tx,set)=>{const request=tx.objectStore('payloads').get(id);request.onsuccess=()=>{if(request.result?.scope!==scope){tx.abort();return;}set(request.result.payload);};}),
+    dismissFailed:id=>transact<void>(['jobs','payloads'],'readwrite',(tx,set)=>{
+      const jobs=tx.objectStore('jobs'),request=jobs.get(id);
+      request.onsuccess=()=>{
+        if(request.result?.scope===scope && request.result.state==='failed'){
+          jobs.delete(id);tx.objectStore('payloads').delete(id);
+        }
+        set(undefined);
+      };
+    }),
     retirePayload:id=>transact<void>(['payloads'],'readwrite',(tx,set)=>{const store=tx.objectStore('payloads'),request=store.get(id);request.onsuccess=()=>{if(request.result?.scope===scope)store.delete(id);set(undefined);};}),
   };
 }

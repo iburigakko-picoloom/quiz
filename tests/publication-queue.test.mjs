@@ -98,3 +98,16 @@ test('PDF transfer failure stays retryable and does not stop other set publicati
  const [id]=await queue.enqueue([{payload:payload('PDF',4)},{payload:payload('Other',4)}]);await queue.run();assert.equal(queue.jobs.find(job=>job.id===id).state,'failed');assert.equal(queue.jobs.find(job=>job.id===id).retryable,true);assert.equal(server.counts.commits,1);
  fail=false;await queue.retry(id);await queue.run();assert.equal(queue.jobs.find(job=>job.id===id).state,'completed');assert.equal(server.counts.commits,2);
 });
+
+test('dismissal removes only the failed job and its payload and survives stale updates',async()=>{
+ const owner={...identity,userId:'dismiss'},scope=publicationScope(owner),repository=publicationRepository(owner);
+ const job={id:'old-failure',scope,state:'failed',createdAt:new Date().toISOString()},active={...job,id:'working',state:'publishing'};
+ await repository.enqueue([job,active].map(job=>({job,payload:payload(job.id,1)})));
+ await publicationRepository({...identity,userId:'different'}).dismissFailed(job.id);
+ assert.equal((await repository.list()).length,2);
+ await repository.dismissFailed(active.id);
+ await repository.dismissFailed(job.id);
+ await repository.update({...job,state:'queued'});
+ assert.deepEqual((await publicationRepository(owner).list()).map(row=>row.id),[active.id]);
+ await assert.rejects(repository.payload(job.id));assert.ok(await repository.payload(active.id));
+});

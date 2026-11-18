@@ -866,7 +866,7 @@ export function CommunityScreen({
         {error ? <div className="community-notice community-notice--error" role="alert">{error}<button type="button" onClick={() => setError('')}>閉じる</button></div> : null}
         {authMessage ? <div className="community-notice" role="status">{authMessage}<button type="button" onClick={() => setAuthMessage('')}>閉じる</button></div> : null}
         {publication.error&&(tab!=='groups'||addTarget||shareLocalSetId||visiblePublicationJobs.length)?<div className="community-notice community-notice--error" role="alert">{publication.error}</div>:null}
-        {!addTarget&&!shareLocalSetId?<PublicationJobs jobs={visiblePublicationJobs.slice(-10)} onRetry={id=>void publication.retry(id)} compact/>:null}
+        {!addTarget&&!shareLocalSetId?<PublicationJobs jobs={visiblePublicationJobs.slice(-10)} onDismiss={id=>void publication.dismissFailed(id)} onRetry={id=>void publication.retry(id)} compact/>:null}
 
         <main className="community-screen__body">
           {directSet && !progressDetail ? <div className="community-detail-toolbar">
@@ -1083,7 +1083,7 @@ export function CommunityScreen({
         {addTarget ? (
           <CommunityModal ariaLabel="問題セット・フォルダを追加" busy={busy} onClose={() => setAddTarget(null)} publishing>
             <h2>{addPublicationIds.length?'公開状況':Object.keys(addResults).length ? busy ? '追加中…' : '追加結果' : addReview ? '共有する内容を確認' : addTarget.groupFolderId ? 'フォルダに追加する問題セット' : '公開する問題を選択'}</h2>
-            {addPublicationIds.length?<><PublicationJobs jobs={publication.jobs.filter(job=>addPublicationIds.includes(job.id))} onRetry={id=>void publication.retry(id)}/><p>画面を閉じても公開処理は続きます。アプリ終了後は、同じアカウントで続きから再開します。</p></>:null}
+            {addPublicationIds.length?<><PublicationJobs jobs={publication.jobs.filter(job=>addPublicationIds.includes(job.id))} onDismiss={id=>void publication.dismissFailed(id)} onRetry={id=>void publication.retry(id)}/><p>画面を閉じても公開処理は続きます。アプリ終了後は、同じアカウントで続きから再開します。</p></>:null}
             {addTarget.groupFolderId ? <p>追加先：{groupLearning.snapshot?.folders.find(folder => folder.id === addTarget.groupFolderId)?.name} / {selectedGroup?.name}</p> : null}
             {addReview && !addPublicationIds.length && !Object.keys(addResults).length && !addTarget.groupFolderId ? <fieldset disabled={busy} className="community-destinations"><legend>公開先（複数選択可）</legend>
               <label className="community-check"><input type="checkbox" checked={addTarget.public} onChange={(event) => setAddTarget({ ...addTarget, public: event.target.checked })} />全体公開</label>
@@ -1116,7 +1116,7 @@ export function CommunityScreen({
           <CommunityModal ariaLabel="問題セットを共有" busy={busy} onClose={closeShare} publishing>
               <h2>問題セットを共有</h2>
               <div className="community-share-title"><ProblemSetIcon size={30} /><strong>{data.problemSets.find((set) => set.id === shareLocalSetId)?.title}</strong></div>
-              {sharePublicationIds.length?<><PublicationJobs jobs={publication.jobs.filter(job=>sharePublicationIds.includes(job.id))} onRetry={id=>void publication.retry(id)}/>{shareResult?<button type="button" className="community-primary" onClick={()=>void writeClipboardText(shareResult.url).then(()=>setAuthMessage('共有リンクをコピーしました。'))}>共有リンクをコピー</button>:null}{publication.jobs.some(job=>sharePublicationIds.includes(job.id)&&needsPublicationAttention(job))?<p>画面を閉じても公開処理は続きます。</p>:null}<button type="button" onClick={closeShare}>閉じる</button></>:!shareResult ? (
+              {sharePublicationIds.length?<><PublicationJobs jobs={publication.jobs.filter(job=>sharePublicationIds.includes(job.id))} onDismiss={id=>void publication.dismissFailed(id)} onRetry={id=>void publication.retry(id)}/>{shareResult?<button type="button" className="community-primary" onClick={()=>void writeClipboardText(shareResult.url).then(()=>setAuthMessage('共有リンクをコピーしました。'))}>共有リンクをコピー</button>:null}{publication.jobs.some(job=>sharePublicationIds.includes(job.id)&&needsPublicationAttention(job))?<p>画面を閉じても公開処理は続きます。</p>:null}<button type="button" onClick={closeShare}>閉じる</button></>:!shareResult ? (
                 <>
                   <fieldset disabled={busy} className="community-share-scope"><legend>共有先</legend>
                     <div className="community-share-options">{([{ value: 'link', label: 'リンク' }, { value: 'public', label: '全体公開' }, { value: 'group', label: 'グループ共有' }] as const).map((option) => <label key={option.value}>
