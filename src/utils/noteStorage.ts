@@ -63,9 +63,9 @@ export function isIndexedDbAvailable(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
-export async function loadCategoryNoteRaw(key: string, options: { coordinationLockHeld?: boolean } = {}): Promise<string | null> {
+export async function loadCategoryNoteRaw(key: string, options: { coordinationLockHeld?: boolean; keepBlobReferences?: boolean } = {}): Promise<string | null> {
   if (!isCategoryNoteKey(key)) return null;
-  const hydrate = async (raw: string | null) => raw && parseBlobNote(raw) ? unpackBlobNote(await openAppDb(), raw, downloadContentBlob) : raw;
+  const hydrate = async (raw: string | null) => !options.keepBlobReferences && raw && parseBlobNote(raw) ? unpackBlobNote(await openAppDb(), raw, downloadContentBlob) : raw;
   if (options.coordinationLockHeld) return hydrate(await loadCategoryNoteRawUnlocked(key));
   await waitForPendingCategoryNoteSaves();
   return hydrate(await loadLatestCoordinatedData(['notes'], () => loadCategoryNoteRawUnlocked(key)));

@@ -21,7 +21,7 @@ export async function recoverCachedMaterial(db: IDBDatabase, key: string, ref: B
     let candidate: MaterialFile;
     try { candidate = JSON.parse(await unpackBlobNote(db, raw)); } catch { continue; }
     if (candidate.kind !== 'quiz-material-file' || !validMaterialRecord(candidate as unknown as Record<string,unknown>)) continue;
-    const bytes = Uint8Array.from(atob(candidate.dataUrl.slice(candidate.dataUrl.indexOf(',')+1)), char=>char.charCodeAt(0));
+    const bytes = decodeMaterialPdf(candidate.dataUrl);
     const blob = new Blob([bytes], { type: ref.type });
     if (owner !== getAccountStorageSession()) throw new Error('PDFのアカウントが変わりました。'); owner?.assertCurrent();
     // A mismatch is an unrelated historical version, which remains protected.
@@ -66,19 +66,58 @@ export async function deleteMaterial(setId: string, materialId: string): Promise
     return next;
   }, { requireCrossContext: true });
 }
-export async function loadMaterialFile(setId: string, id: string): Promise<string> {
+function decodeMaterialPdf(url: string): Uint8Array<ArrayBuffer> {
+  const start=url.indexOf(',')+1;
+  const size=(url.length-start)/4*3-(url.endsWith('==')?2:url.endsWith('=')?1:0);
+  const bytes=new Uint8Array(size);
+  let offset=0;
+  for(let i=start;i<url.length;i+=65536){
+    const chunk=atob(url.slice(i,i+65536));
+    for(let j=0;j<chunk.length;j++)bytes[offset++]=chunk.charCodeAt(j);
+  }
+  return bytes;
+}
+
+export async function loadMaterialFile(setId:string,id:string):Promise<string>{
+  const file=await readMaterialBody(setId,id,false);
+  return typeof file==='string'?file:blobDataUrl(file);
+}
+
+export async function loadMaterialBytes(setId:string,id:string):Promise<Uint8Array<ArrayBuffer>>{
+  const file=await readMaterialBody(setId,id,true);
+  return typeof file==='string'?decodeMaterialPdf(file):new Uint8Array(await file.arrayBuffer());
+}
+
+async function readMaterialBody(setId:string,id:string,binary:boolean):Promise<string|Blob>{
   const key = materialFileKey(setId, id);
-  let raw = await loadCategoryNoteRaw(key);
+  let raw = await loadCategoryNoteRaw(key,{keepBlobReferences:binary});
+  const note=binary?parseBlobNote(raw):null;
+  if(note && raw){
+    const ref=note.blobs[0], value=note.value as Partial<MaterialFile>;
+    if(note.blobs.length===1 && ref.type==='application/pdf' && value.kind==='quiz-material-file' && value.materialId===id
+        && (value.dataUrl==='quiz-blob:'+ref.sha256 || (note.prefix && value.dataUrl===note.prefix+ref.sha256+':'+encodeURIComponent(ref.type)+':'))){
+      const owner=getAccountStorageSession(), db=await openAppDb();
+      let blob=await getContentBlob(db,ref);
+      if(!blob){
+        blob=await (await import('./blobCloud')).downloadContentBlob(ref);
+        if(owner!==getAccountStorageSession())throw new Error('PDFのアカウントが変わりました。');
+        owner?.assertCurrent();await putContentBlob(db,blob,{origin:'remote',expected:ref});
+      }
+      return blob;
+    }
+    raw=await unpackBlobNote(await openAppDb(),raw,async ref=>(await import('./blobCloud')).downloadContentBlob(ref));
+  }
   if (raw) {
     const candidate = JSON.parse(raw);
+    if(candidate?.kind==='quiz-material-file' && validMaterialRecord(candidate)) return candidate.dataUrl;
     if (candidate?.kind === 'quiz-material-remote-file') {
       if (!validMaterialRecord(candidate)) throw new Error('PDFの参照が不正です。');
       const db = await openAppDb();
       const ref: BlobRef = { sha256: candidate.sha256, size: candidate.size, type: 'application/pdf', ...(candidate.parts ? { parts: candidate.parts } : {}) };
       const cached = await getContentBlob(db, ref);
-      if (cached) return blobDataUrl(new Blob([cached], { type: ref.type }));
+      if (cached) return new Blob([cached], { type: ref.type });
       const recovered = await recoverCachedMaterial(db, key, ref);
-      if (recovered) return blobDataUrl(recovered);
+      if (recovered) return recovered;
       const {getRemoteSyncConfig}=await import('./syncService'),{getCloudAccessToken}=await import('./cloudService');
       const config = getRemoteSyncConfig();
       const access = await getCloudAccessToken();
@@ -89,7 +128,7 @@ export async function loadMaterialFile(setId: string, id: string): Promise<strin
         await putContentBlob(db, blob, { origin: 'remote', expected: ref });
         await writeMeta(db, `materialCache:${key}`, ref);
         await trimBlobCache(db);
-        return blobDataUrl(blob);
+        return blob;
       }
       const result = await hydrateMaterialDownload({ version: 1, updatedAt: '', localStorage: {}, indexedDbNotes: { [key]: raw } },
         createMaterialTransport(config,access));
