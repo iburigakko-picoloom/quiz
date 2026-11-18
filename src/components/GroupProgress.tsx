@@ -86,7 +86,7 @@ export function GroupProgress({ data, groupId, set, userId, onClose, onChanged, 
     <h2 id="group-members-progress-title">メンバーの進捗</h2>
     <ImportedMemberProgress members={(snapshot?.members ?? []).map(member => ({ userId: member.user_id, self: member.user_id === userId, name: member.user_id === userId ? 'あなた' : member.display_name, levels: member.state === 'shared' ? member.levels : null, reflectedAt: member.state === 'shared' ? member.reflected_at : null, status: member.state === 'shared' ? '反映待ち' : { not_shared: '未共有', update_pending: '更新待ち', reflection_pending: '反映待ち' }[member.state] }))} />
     {snapshot && !snapshot.members.length ? <GroupEmpty>メンバーの進捗はまだありません。</GroupEmpty> : !snapshot && !error ? <p role="status" className="group-muted">進捗を読み込み中…</p> : null}
-    <details><summary>グループ全体</summary><p>回答済み {answered ?? '—'} / {total ?? '—'}問・回答率 {total && answered !== null ? `${Math.round(answered/total*100)}%` : '—'}</p>{levels ? <LevelProgress levels={levels} label="グループ全体の理解度" /> : null}<p>今日：{currentSummary?.todayCount ?? '未反映'} ／ 今週：{currentSummary?.weekCount ?? '未反映'}</p></details>
+    <section><h3>グループ全体</h3><p>回答済み {answered ?? '—'} / {total ?? '—'}問・回答率 {total && answered !== null ? `${Math.round(answered/total*100)}%` : '—'}</p>{levels ? <LevelProgress levels={levels} label="グループ全体の理解度" /> : null}<p>今日：{currentSummary?.todayCount ?? '未反映'} ／ 今週：{currentSummary?.weekCount ?? '未反映'}</p></section>
     </section>
     <section className="group-panel group-progress-section" aria-labelledby="group-history-title">
     <h2 id="group-history-title">この教材の学習記録</h2>{set.versionId ? <GroupMaterialHistory groupId={groupId} setId={set.id} versionId={set.versionId} userId={userId}/> : <p>教材の公開版を確認できません。</p>}

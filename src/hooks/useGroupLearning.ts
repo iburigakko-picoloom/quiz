@@ -26,7 +26,7 @@ export function useGroupLearning(groupId: string, userId: string, revision: numb
     const id = ++request.current;
     if (!groupId || !userId) { setState({ key, snapshot: null, error: '', loading: false }); return; }
     reading.current = true;
-    setState(old => ({ key, snapshot: old.key === key ? old.snapshot : null, error: '', loading: old.key !== key || !old.snapshot }));
+    setState(old => ({ key, snapshot: old.key === key ? old.snapshot : null, materials: old.key === key ? old.materials : undefined, error: '', loading: old.key !== key || !old.snapshot }));
     void Promise.all([readGroupLearning(groupId, userId), readMaterialProgress(groupId, userId)]).then(([snapshot, materials]) => {
       if (request.current === id) setState({ key, snapshot, materials, error: '', loading: false });
     }).catch(reason => {

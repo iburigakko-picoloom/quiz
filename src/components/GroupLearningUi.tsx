@@ -37,7 +37,7 @@ export function SharedFolderCard({ name, creatorName, creatorId, sets, questionC
       <span className="group-folder-card__body"><strong>{name}</strong><small>{partial ? '表示中 ' : ''}{sets.length}セット · {questionCount.toLocaleString('ja-JP')}問</small></span>
       <ChevronRightIcon size={20} />
     </button>{actions}</div>
-    {expanded?<details className="library-info"><summary>フォルダ情報</summary><span className="group-folder-card__creator"><MemberAvatar name={creatorName} userId={creatorId ?? creatorName}/>{creatorName}</span><p>{sets.slice(0,3).map(set=>set.title).join(' / ')}</p><div className="group-folder-card__meta"><span><HistoryIcon size={16}/>更新 {displayGroupDate(updatedAt)}</span><span><GroupIcon size={16}/>{importLabel}</span></div></details>:null}
+    {expanded?<section className="library-info"><h3>フォルダ情報</h3><span className="group-folder-card__creator"><MemberAvatar name={creatorName} userId={creatorId ?? creatorName}/>{creatorName}</span><p>{sets.slice(0,3).map(set=>set.title).join(' / ')}</p><div className="group-folder-card__meta"><span><HistoryIcon size={16}/>更新 {displayGroupDate(updatedAt)}</span><span><GroupIcon size={16}/>{importLabel}</span></div></section>:null}
   </article>;
 }
 

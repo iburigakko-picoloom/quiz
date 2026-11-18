@@ -4,15 +4,18 @@ import { questionRevision } from './studyPlans';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 
-export type StudyActivity = { id: string; setId: string; versionId: string; copyId: string; startedAt: string; finishedAt: string; answered: number; duration?: { seconds: number; startedAt: string; finishedAt: string } };
-/** Only durable, revision-matching answers to imported source questions leave the device.
+export type StudyActivity = { id: string; setId: string; versionId: string; copyId: string; startedAt: string; finishedAt: string; answered: number; original?: true; duration?: { seconds: number; startedAt: string; finishedAt: string } };
+/** Only durable, revision-matching answers to questions matching the published version leave the device.
  * A deterministic opaque session key makes restored results and retries idempotent. */
-export function buildStudyActivities(data: AppData, result: Pick<QuizResult, 'sessionAnswers' | 'studyTime'>): StudyActivity[] {
+export function buildStudyActivities(data: AppData, result: Pick<QuizResult, 'sessionAnswers' | 'studyTime'>, userId?:string): StudyActivity[] {
   const ids = new Set(result.sessionAnswers?.flatMap(a=>a.answerLogId ? [a.answerLogId] : []) ?? []);
   const rows: StudyActivity[] = [];
   for (const set of data.problemSets) {
-    if (!set.sourceSetId || !set.sourceVersionId || set.publicationSource) continue;
-    const selection = groupStudySelection(data,set,set.sourceSetId,set.sourceVersionId);
+    const source=set.publicationSource;
+    if(source && (!userId || source.ownerId!==userId || source.setId!==set.cloudSetId)) continue;
+    const setId=source?.setId ?? set.sourceSetId, versionId=source?.versionId ?? set.sourceVersionId;
+    if(!setId || !versionId)continue;
+    const selection = groupStudySelection(data,set,setId,versionId);
     if (!selection) continue;
     const logs = data.answerLogs.filter(log=>{
       const q = selection.eligible.get(log.questionId);
@@ -28,7 +31,7 @@ export function buildStudyActivities(data: AppData, result: Pick<QuizResult, 'se
     const startedAt=valid?times.map(row=>row!.startedAt).sort()[0]:'';
     const finishedAt=valid?times.map(row=>row!.finishedAt).sort().slice(-1)[0]:'';
     const duration = valid && seconds >= 1 && seconds <= 604800 && seconds <= Math.ceil((Date.parse(finishedAt)-Date.parse(startedAt))/1000)+1 ? { seconds, startedAt, finishedAt } : undefined;
-    rows.push({ id: hash, setId: set.sourceSetId, versionId: set.sourceVersionId, copyId: set.id, startedAt: dates[0], finishedAt: dates[dates.length-1], answered: new Set(logs.map(log=>selection.logicalByQuestionId.get(log.questionId))).size, ...(duration ? {duration} : {}) });
+    rows.push({ id: hash, setId, versionId, ...(source ? {original:true as const} : {}), copyId: set.id, startedAt: dates[0], finishedAt: dates[dates.length-1], answered: new Set(logs.map(log=>selection.logicalByQuestionId.get(log.questionId))).size, ...(duration ? {duration} : {}) });
   }
   return rows;
 }

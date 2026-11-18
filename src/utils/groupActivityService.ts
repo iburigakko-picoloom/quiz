@@ -1,7 +1,8 @@
 import type { AppData, QuizResult } from '../types';
-import { getCachedCloudAccountIdentity, groupProgressRpc, recordCloudCopy } from './cloudService';
+import { getCachedCloudAccountIdentity, getSharedProblemSet, groupProgressRpc, recordCloudCopy } from './cloudService';
 import { assertAccountNetworkCurrent, sameLocalAccount, type LocalAccountIdentity } from './accountStorage';
 import { activityOutbox, drainActivityOutbox } from './groupActivityOutbox';
+import { groupStudyCandidates } from './groupStudySource';
 import { buildStudyActivities, publishStudyActivity } from './groupActivity';
 export const GROUP_ACTIVITY_UPDATED='quizmake:group-activity-updated';
 export async function retryStudyActivities() {
@@ -11,7 +12,7 @@ export async function retryStudyActivities() {
     await publishStudyActivity(row,async(name,args)=>{
       assertAccountNetworkCurrent(identity);
       // A failed import acknowledgement can be retried without creating another copy.
-      if(name==='quiz_group_activity_publish'||name==='quiz_group_activity_publish_v2')await recordCloudCopy(row.setId,row.copyId);
+      if(!row.original && (name==='quiz_group_activity_publish'||name==='quiz_group_activity_publish_v2'))await recordCloudCopy(row.setId,row.copyId);
       return groupProgressRpc(name as Parameters<typeof groupProgressRpc>[0],args,identity.userId);
     });
   });
@@ -20,7 +21,16 @@ export async function retryStudyActivities() {
 export async function queueCompletedStudy(data:AppData,result:Pick<QuizResult, 'sessionAnswers'|'studyTime'>, expectedIdentity:LocalAccountIdentity|null=getCachedCloudAccountIdentity()) {
   const identity=getCachedCloudAccountIdentity();if(!identity||!expectedIdentity||!sameLocalAccount(identity,expectedIdentity))return;
   assertAccountNetworkCurrent(identity);
-  const events=buildStudyActivities(data,result);if(!events.length)return;
+  const answeredSets=new Set(result.sessionAnswers?.map(answer=>answer.question?.setId));
+  const problemSets=await Promise.all(data.problemSets.map(async set=>{
+    const source=set.publicationSource;
+    if(!answeredSets.has(set.id)||!source||source.ownerId!==identity.userId||source.manifest?.length)return set;
+    const shared=await getSharedProblemSet(source.setId);
+    if(shared.versionId!==source.versionId)return set;
+    return groupStudyCandidates(data,shared,identity.userId).find(candidate=>candidate.id===set.id)??set;
+  }));
+  assertAccountNetworkCurrent(identity);
+  const events=buildStudyActivities({...data,problemSets},result,identity.userId);if(!events.length)return;
   await activityOutbox(identity).put(events);
   await retryStudyActivities();
 }

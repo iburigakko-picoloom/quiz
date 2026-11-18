@@ -130,3 +130,13 @@ test('duration is never sent without explicit prior time consent for that group'
  calls.length=0;destination.time_enabled_at='2026-11-07T11:00:00Z';await publishStudyActivity(row,invoke);assert.equal(calls[1].name,'quiz_group_activity_publish_v2');assert.equal(calls[1].args.p_elapsed_seconds,12);assert.equal(calls[1].args.p_time_generation,'time-gen');assert.equal(JSON.stringify(calls[1].args).includes('private question'),false);
  calls.length=0;destination.time_enabled_at=null;await assert.rejects(publishStudyActivity(row,invoke),/共有設定/);assert.equal(calls.length,1);
 });
+
+test('only the publishing account builds an activity from the revision-matched original',async()=>{
+ const {data,result}=fixture(), set=data.problemSets[0], q=data.questions[0];
+ const {publishedQuestionRevision}=await import('../src/utils/groupStudySource.ts');
+ set.cloudSetId='source';set.publicationSource={setId:'source',versionId:'v1',ownerId:'owner',groupIds:['g'],manifest:[{logicalId:q.origin.logicalId,contentRevision:publishedQuestionRevision(q)}]};
+ assert.deepEqual(buildStudyActivities(data,result,'other'),[]);
+ const [row]=buildStudyActivities(data,result,'owner');
+ assert.equal(row.original,true);assert.equal(row.answered,1);assert.equal(row.setId,'source');
+ q.question='edited';assert.deepEqual(buildStudyActivities(data,result,'owner'),[]);
+});

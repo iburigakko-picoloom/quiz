@@ -53,6 +53,7 @@ await pg.exec(await readFile(new URL('../supabase/migrations/20261107150102_grou
 await pg.exec(await readFile(new URL('../supabase/migrations/20261108060201_group_material_history.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261108060212_group_manual_activity.sql',import.meta.url),'utf8'));
 await pg.exec(await readFile(new URL('../supabase/migrations/20261108060226_group_activity_duration.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261118070000_group_activity_original.sql',import.meta.url),'utf8'));
 const feed=()=>call('quiz_group_activity_read',[group,null],['uuid','bigint']);
 const activityConsent=(enabled,generation=null)=>call('quiz_group_activity_consent',[group,enabled,generation],['uuid','boolean','uuid']);
 const destinations=()=>call('quiz_group_activity_destinations',[published.id],['uuid']);
@@ -62,6 +63,18 @@ const publish=async(generation,overrides={})=>{
  const values={group,generation,id:eventId,set:published.id,version:published.version_id,copy:'copy',started:now,finished:now,count:3,...overrides};
  return call('quiz_group_activity_publish',Object.values(values),['uuid','uuid','text','uuid','uuid','text','timestamptz','timestamptz','integer']);
 };
+test('publisher can share new study on the bound original without registering an import',async()=>{
+ await pg.exec('begin');
+ try {
+  await actor(owner);
+  await activityConsent(true);
+  const {generation}=await feed();
+  const when=new Date(Date.now()+1000).toISOString();
+  assert.equal(await publish(generation,{copy:'wrong',started:when,finished:when}),false);
+  assert.equal(await publish(generation,{copy:'local',started:when,finished:when}),true);
+  assert.equal((await feed()).entries.length,1);
+ } finally {await pg.exec('rollback');}
+});
 test('timeline requires separate consent, has idempotent sessions, and never exposes private answers or cross-group activity',async()=>{
  await pg.exec('set role anon');await assert.rejects(feed(),/permission denied/);await pg.exec('reset role');
  await actor(outsider);await pg.exec('set role authenticated');await assert.rejects(feed(),/not authorized/);await assert.rejects(activityConsent(true),/not authorized/);await pg.exec('reset role');
@@ -156,7 +169,8 @@ test('duration requires separate consent, is hidden immediately on withdrawal an
  await pg.query('insert into public.quiz_groups(id,owner_id,name) values($1,$2,$3)',[g,owner,'Duration']);
  await pg.query("insert into public.quiz_group_members(group_id,user_id,role) values($1,$2,'owner'),($1,$3,'member')",[g,owner,member]);
  const shared=await call('publish_problem_set_versioned',[JSON.stringify({...payload,local_set_id:'duration-group',group_ids:[g]}),JSON.stringify(questions)],['jsonb','jsonb']);
- const feed=()=>call('quiz_group_activity_read_v2',[g,null],['uuid','bigint']);
+ await pg.exec(await readFile(new URL('../supabase/migrations/20261118070000_group_activity_original.sql',import.meta.url),'utf8'));
+const feed=()=>call('quiz_group_activity_read_v2',[g,null],['uuid','bigint']);
  const consent=(enabled,generation)=>call('quiz_group_activity_consent',[g,enabled,generation],['uuid','boolean','uuid']);
  const timeConsent=(enabled,generation)=>call('quiz_group_activity_time_consent',[g,enabled,generation],['uuid','boolean','uuid']);
  const destinations=()=>call('quiz_group_activity_destinations_v2',[shared.id],['uuid']);
