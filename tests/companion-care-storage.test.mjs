@@ -279,3 +279,10 @@ test('care-screen recovery defaults to the bound connection instead of another s
  try{assert.deepEqual((await readCompanionBudgetConflicts()).map(item=>item.id),['scope-a']);}
  finally{const restore=db.transaction('appRecordMeta','readwrite');if(previous)restore.objectStore('appRecordMeta').put(previous,'recordSyncConnection');else restore.objectStore('appRecordMeta').delete('recordSyncConnection');await new Promise((r,j)=>{restore.oncomplete=r;restore.onabort=()=>j(restore.error);});}
 });
+
+test('verified delta sync reports pending work and completion with a retained backup warning', async () => {
+ const {syncStatusPresentation}=await import('../src/utils/syncStatusPresentation.ts');
+ const input={online:true,recordEnabled:true,autoEnabled:true,pending:false,success:'saved',record:{recoveryApp:true,deltaEnabled:true,pending:1}};
+ assert.equal(syncStatusPresentation(input).text,'同期中');
+ assert.equal(syncStatusPresentation({...input,record:{...input.record,pending:0}}).text,'学習データ同期済み');
+});
