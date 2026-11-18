@@ -7,7 +7,7 @@ import {loadMaterials,loadMaterialFile} from './materialStorage';
 import {createMaterialTransport} from './materialCloud';
 import {MATERIAL_BUCKET,type RemoteMaterialFile} from './materialModel';
 import {getRemoteSyncConfig} from './syncService';
-import {assertPublishedReferences,parsePublishedMaterials,pdfBytes,pdfHash,readPublishedPdf,PUBLICATION_MATERIAL_BUCKET,type PublishedMaterial} from './publicationMaterials';
+import {assertPublishedReferences,parsePublishedMaterials,pdfBytes,pdfHash,publicationPdfObjects,readPublishedPdf,PUBLICATION_MATERIAL_BUCKET,type PublishedMaterial} from './publicationMaterials';
 
 export async function attachPublicationMaterials(payload:PublicationPayload,userId:string):Promise<PublicationPayload> {
   const identity=publicationIdentity(userId);assertAccountStorageCurrent(identity);
@@ -44,7 +44,13 @@ export async function uploadPublicationMaterials(payload:PublicationPayload,user
     const raw=payload.materialFiles?.[material.id];if(!raw)throw new Error('公開するPDF本体がありません。公開をやり直してください。');
     const bytes=pdfBytes(raw);if(bytes.length!==pdf.size||await pdfHash(bytes)!==pdf.sha256)throw new Error('公開するPDFの内容が一致しません。');
     const remote:RemoteMaterialFile={kind:'quiz-material-remote-file',version:1,materialId:material.id,updatedAt:'',bucket:MATERIAL_BUCKET,path:pdf.path,sha256:pdf.sha256,size:pdf.size};
-    try{if(!await transport.exists(remote))await transport.upload(remote,bytes);}catch{assertAccountNetworkCurrent(identity);throw new PublicationError('PDFを送信できません。再試行すると続きから送信します。','network',true); }sent.add(pdf.path);
+    try{
+      for(const object of publicationPdfObjects(pdf)){
+        assertAccountNetworkCurrent(identity);
+        const target={...remote,path:object.path,size:object.size};
+        if(!await transport.exists(target))await transport.upload(target,bytes.subarray(object.offset,object.offset+object.size));
+      }
+    }catch{assertAccountNetworkCurrent(identity);throw new PublicationError('PDFを送信できません。再試行すると続きから送信します。','network',true); }sent.add(pdf.path);
   }
   assertAccountNetworkCurrent(identity);
 }
@@ -54,12 +60,16 @@ export async function hydratePublishedMaterials<T extends CloudProblemSet>(sets:
   const result:T[]=[];
   for(const set of sets){await assertCurrent();const materials=parsePublishedMaterials(set.materials??[],set.ownerId),files:Record<string,string>={};
     for(const material of materials){if(!material.pdf)continue;if(!cloudClient||!set.versionId)throw new Error('PDFの公開版を確認できません。');
-      const permission=await cloudClient.rpc('quiz_publication_material_read',{p_set_id:set.id,p_version_id:set.versionId,p_path:material.pdf.path,p_share_token:shareToken||null});
-      if(permission.error)throw new Error(shareToken&&!viewer?'共有リンクのPDFを取り込むにはログインしてください。':'PDFを取得できません。公開状態と通信を確認してください。');
-      const {data,error}=await cloudClient.storage.from(PUBLICATION_MATERIAL_BUCKET).createSignedUrl(material.pdf.path,60);
-      if(error||!data?.signedUrl)throw new Error('PDFを取得できません。公開状態と通信を確認してください。');
-      const config=getRemoteSyncConfig(),url=new URL(data.signedUrl);if(!config||url.origin!==new URL(config.url).origin||!url.pathname.startsWith(`/storage/v1/object/sign/${PUBLICATION_MATERIAL_BUCKET}/`))throw new Error('PDFの取得先を確認できません。');
-      files[material.id]=await readPublishedPdf(await fetch(url,{redirect:'error',signal:AbortSignal.timeout(120000)}),material.pdf);await assertCurrent();
+      const client=cloudClient, pdf=material.pdf, versionId=set.versionId;
+      files[material.id]=await readPublishedPdf(async path=>{
+        await assertCurrent();
+        const permission=await client.rpc('quiz_publication_material_read',{p_set_id:set.id,p_version_id:versionId,p_path:pdf.path,p_share_token:shareToken||null});
+        if(permission.error)throw new Error(shareToken&&!viewer?'共有リンクのPDFを取り込むにはログインしてください。':'PDFを取得できません。公開状態と通信を確認してください。');
+        const {data,error}=await client.storage.from(PUBLICATION_MATERIAL_BUCKET).createSignedUrl(path,60);
+        if(error||!data?.signedUrl)throw new Error('PDFを取得できません。公開状態と通信を確認してください。');
+        const config=getRemoteSyncConfig(),url=new URL(data.signedUrl);if(!config||url.origin!==new URL(config.url).origin||!url.pathname.startsWith(`/storage/v1/object/sign/${PUBLICATION_MATERIAL_BUCKET}/`))throw new Error('PDFの取得先を確認できません。');
+        return fetch(url,{redirect:'error',signal:AbortSignal.timeout(120000)});
+      },material.pdf);await assertCurrent();
     }
     result.push({...set,materials,materialFiles:files});
   }
