@@ -2,7 +2,7 @@ import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mj
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 GlobalWorkerOptions.workerSrc = workerUrl;
 export function openPdf(data: Uint8Array) {
-  const base = import.meta.env.BASE_URL + 'assets/pdfjs/';
+  const base = new URL(import.meta.env.BASE_URL + 'assets/pdfjs/', document.baseURI).href;
   return getDocument({ data, isEvalSupported: false, stopAtErrors: true, cMapUrl: base + 'cmaps/', cMapPacked: true, standardFontDataUrl: base + 'standard_fonts/', wasmUrl: base + 'wasm/' });
 }
 export function pdfBytes(dataUrl: string): Uint8Array {
