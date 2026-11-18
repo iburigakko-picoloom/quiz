@@ -2,7 +2,6 @@ import { useLayoutEffect, useMemo, useState } from 'react';
 import { CompanionBudgetRecovery } from './CompanionBudgetRecovery';
 import { RecordConflictPanel } from './RecordConflictPanel';
 import { getRemoteSyncConfig } from '../utils/syncService';
-import { requestSyncRetry } from '../utils/syncRequest';
 
 /** Both account and legacy sync screens expose the existing protected resolvers. */
 export function SyncConflictRecovery({syncId,accountId,onImported,onBusyChange,onOpenBackups,disabled=false}:{
@@ -14,11 +13,7 @@ export function SyncConflictRecovery({syncId,accountId,onImported,onBusyChange,o
  useLayoutEffect(()=>{onBusyChange?.(careBusy||recordBusy||open);return()=>onBusyChange?.(false);},[careBusy,recordBusy,open,onBusyChange]);
  if(!connection)return null;
  return <>
-  <CompanionBudgetRecovery connection={connection} disabled={disabled||open||recordBusy} onBusyChange={setCareBusy} onResolved={async()=>{
-   await onImported?.();
-   // Resume after React has released the protected-work flag, including when auto sync is off.
-   window.setTimeout(()=>requestSyncRetry(syncId),0);
-  }}/>
+  <CompanionBudgetRecovery connection={connection} disabled={disabled||open||recordBusy} onBusyChange={setCareBusy} onResolved={onImported}/>
   {!careBusy&&!disabled&&<RecordConflictPanel syncId={syncId} accountId={accountId} open={open} onOpenChange={setOpen} onBusyChange={setRecordBusy} onImported={onImported} onOpenBackups={onOpenBackups}/>}
  </>;
 }

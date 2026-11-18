@@ -44,6 +44,7 @@ export function syncStatusReason(attempt:SyncAttemptStatus|null,conflicts:number
   if(readError)return '端末の同期履歴を読み出せません。';
   if(attempt?.phase==='running'||attempt?.phase==='queued'&&!attempt.retryAt)return '';
   if(attempt?.phase==='paused'&&attempt.pauseReason==='protected_work')return conflicts?'同期に使うデータを選んでください。':'操作が終わると同期を再開します。';
+  if (attempt?.phase === 'paused' && attempt.pauseReason === 'companion_conflict') return '残したい育成を選ぶと同期を再開します。';
   const failure=attempt?.lastFailure;
   if(failure&&(attempt?.phase==='failed'||attempt?.phase==='paused'&&attempt.pauseReason===failure.code||attempt?.phase==='queued'&&attempt.retryAt))return syncFailureReason(failure);
   if(conflicts||attempt?.pauseReason==='conflict')return '端末とクラウドの両方に変更があります。';

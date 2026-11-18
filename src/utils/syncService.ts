@@ -3,6 +3,7 @@ import { accountLocalStorage as localStorage } from './accountStorage';
 import { accountAutomaticSyncEnabled, pauseAccountSync } from './accountSync';
 import { chunkFailure, hydrateChunkPayload, isChunkInternal, parseChunkManifest } from './recordChunkFormat';
 import {
+  AppDataRecoveryRequiredError,
   APP_DATA_FALLBACK_META_KEY,
   APP_DATA_EXPECTED_KEY,
   APP_DATA_RECOVERY_REQUIRED_KEY,
@@ -143,6 +144,8 @@ export type LastSyncState = {
 
 export type SyncDiagnosticStep = {
   name: string;
+  kind?: 'export';
+  action?: 'backups';
   ok: boolean;
   message?: string;
   errorCode?: string;
@@ -155,6 +158,16 @@ export type SyncDiagnosticResult = {
   ok: boolean;
   steps: SyncDiagnosticStep[];
 };
+
+export function syncDiagnosticSummary(result: SyncDiagnosticResult): string {
+  if (result.ok) return '接続と端末データの書き出しを確認しました';
+  const failures = result.steps.filter(step => !step.ok);
+  if (failures.length === 1 && failures[0].kind === 'export'
+    && result.steps.some(step => step.name === '同期ID限定の読み込み' && step.ok)) {
+    return 'クラウド接続は正常です。端末データの書き出しには確認が必要です';
+  }
+  return '診断で確認が必要な項目があります';
+}
 
 export type SyncEnvironmentStatus = {
   hasUrl: boolean;
@@ -1059,15 +1072,19 @@ export async function runSyncDiagnostic(syncId: string): Promise<SyncDiagnosticR
   });
 
   try {
-    const exportedPayload = await exportQuizMakeData();
-    addStep({ name: 'localStorage export', ok: true, message: `${Object.keys(exportedPayload.localStorage).length}件のキーをexportできます` });
+    await exportQuizMakeData();
+    addStep({ name: '端末データの書き出し', kind: 'export', ok: true, message: '端末の問題・設定・ノートを書き出せます' });
   } catch (error) {
     addStep({
-      name: 'localStorage export',
+      name: '端末データの書き出し',
+      kind: 'export',
       ok: false,
-      message: '端末データのexportに失敗しました',
+      message: error instanceof AppDataRecoveryRequiredError ? '問題データの復旧確認が必要です' : '端末データを書き出せませんでした',
       errorDetails: error instanceof Error ? error.message : String(error),
-      suggestion: '資料を含む書き出しの確認に失敗しました。接続の結果は下の項目で別に確認します。端末データは削除しないでください。',
+      ...(error instanceof AppDataRecoveryRequiredError ? {
+        action: 'backups' as const,
+        suggestion: 'バックアップと復旧を開き、残っている履歴と原本を確認してください。',
+      } : {}),
     });
   }
 

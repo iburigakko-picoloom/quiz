@@ -588,12 +588,32 @@ test('export failure remains visible while connection diagnostics still probe th
       };
       const result=await sync.runSyncDiagnostic(syncId);
       assert.equal(result.ok,false,'an incomplete export must never become overall success');
-      assert.equal(result.steps.find(step=>step.name==='localStorage export').errorDetails,exportError);
+      assert.equal(result.steps.find(step=>step.kind==='export').errorDetails,exportError);
+      assert.equal(sync.syncDiagnosticSummary(result).includes('クラウド接続は正常'), !denied);
       assert.equal(result.steps.find(step=>step.name==='安全な同期RPC')?.ok,!denied);
       assert.equal(calls.length,denied?1:3);
       assert.equal(sync.getStoredSyncId(),syncId);
     }
   } finally {localStorage.key=originalKey;}
+});
+
+test('a recovery marker points to backups while retaining the local original', async()=>{
+  localStorage.clear();
+  sync.setStoredSyncId(syncId);
+  const raw=JSON.stringify(storage.createEmptyAppData());
+  localStorage.setItem(storage.APP_DATA_STORAGE_KEY,raw);
+  localStorage.setItem(storage.APP_DATA_RECOVERY_REQUIRED_KEY,'{"version":1,"reason":"backup-only"}');
+  globalThis.fetch=async url=>{
+    if(String(url).endsWith('/quiz_sync_probe'))return rpcResponse([]);
+    if(String(url).endsWith('/quiz_whole_status'))return rpcResponse({code:'ok',enabled:true,revision:7});
+    return rpcResponse({code:'ok',revision:7,rows:[],hasMore:false});
+  };
+  const result=await sync.runSyncDiagnostic(syncId);
+  assert.equal(result.ok,false);
+  assert.equal(result.steps.find(step=>step.kind==='export').action,'backups');
+  assert.match(sync.syncDiagnosticSummary(result),/クラウド接続は正常/);
+  assert.equal(localStorage.getItem(storage.APP_DATA_STORAGE_KEY),raw);
+  assert.ok(localStorage.getItem(storage.APP_DATA_RECOVERY_REQUIRED_KEY));
 });
 
 test('legacy diagnostic fallback reads snapshot references only',async()=>{
