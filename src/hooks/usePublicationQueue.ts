@@ -47,5 +47,10 @@ export function usePublicationQueue(userId:string,onPublished:(id:string,result:
     enqueue:async(rows:{payload:PublicationPayload;groupFolderId?:string;groupId?:string;publicFolderId?:string;publicFolderPath?:import('../utils/sharedFolders').SharedFolderPart[];preparationError?:string}[])=>{const queue=queueRef.current;if(!queue||queue.dependencies.scope!==scope)throw new Error('公開アカウントが変わりました。画面を開き直してください。');
       const prepared=[];for(const row of rows){assertAccountNetworkCurrent(publicationIdentity(userId));try{prepared.push(row.preparationError?row:{...row,payload:await attachPublicationMaterials(row.payload,userId)});}catch(error){assertAccountNetworkCurrent(publicationIdentity(userId));prepared.push({...row,preparationError:error instanceof Error?error.message:'PDFの公開準備に失敗しました。'});}}
       assertAccountNetworkCurrent(publicationIdentity(userId));return queue.enqueue(prepared);},
+    dismissFailed:async(id:string)=>{
+      const queue=queueRef.current;
+      if(!queue||queue.dependencies.scope!==scope)return;
+      try{await queue.dismissFailed(id);}catch{setState(old=>({...old,error:'失敗した公開履歴を消せませんでした。もう一度お試しください。'}));}
+    },
     retry:(id:string)=>queueRef.current?.dependencies.scope===scope?queueRef.current.retry(id):undefined,cancelForSet:(id:string)=>queueRef.current?.dependencies.scope===scope?queueRef.current.cancelForSet(id):undefined,cancelForFolder:(id:string)=>queueRef.current?.dependencies.scope===scope?queueRef.current.cancelForFolder(id):undefined};
 }

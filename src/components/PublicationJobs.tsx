@@ -1,6 +1,6 @@
 import type {PublicationJob} from '../utils/publicationStorage';
 import {needsPublicationAttention} from '../utils/publicationQueue';
-export function PublicationJobs({jobs,onRetry,compact=false}:{jobs:PublicationJob[];onRetry:(id:string)=>void;compact?:boolean}) {
+export function PublicationJobs({jobs,onRetry,onDismiss,compact=false}:{jobs:PublicationJob[];onRetry:(id:string)=>void;onDismiss:(id:string)=>void;compact?:boolean}) {
   const visibleJobs=jobs.filter(needsPublicationAttention);
   if(!visibleJobs.length)return null;
   return <section className={`publication-jobs${compact?' publication-jobs--compact':''}`} aria-label="公開の処理状況" aria-live="polite">{visibleJobs.map(job=><article key={job.id} className={`publication-job publication-job--${job.state}`}>
@@ -8,5 +8,6 @@ export function PublicationJobs({jobs,onRetry,compact=false}:{jobs:PublicationJo
     {job.state==='queued'||job.state==='publishing'?<><progress value={job.uploaded} max={job.total} aria-label={`${job.title}の送信済み問題数`}/><small>{job.uploaded.toLocaleString('ja-JP')} / {job.total.toLocaleString('ja-JP')}問{job.phase==='committing'?' · 公開を確定中':''}</small></>:null}
     {job.error?<p>{job.error}</p>:null}{job.warning?<p>{job.warning}</p>:null}
     {job.state==='failed'&&job.retryable||job.warning?<button type="button" onClick={()=>onRetry(job.id)}>{job.warning?'反映を再試行':'このセットを再試行'}</button>:null}
+    {job.state==='failed'?<button type="button" onClick={()=>onDismiss(job.id)}>失敗した履歴を消す</button>:null}
   </article>)}</section>;
 }
