@@ -203,3 +203,6 @@
     to { margin-left: 0; }
   }
 }
+
+.material-zoom-detail { position:absolute; pointer-events:none; background-size:100% 100%; background-repeat:no-repeat; }
+.material-zoom-detail + .category-note-canvas { position:relative; }

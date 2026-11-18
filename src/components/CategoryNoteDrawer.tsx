@@ -1322,6 +1322,7 @@ export const CategoryNotePanel = forwardRef<CategoryNotePanelHandle, CategoryNot
                 className={`category-note-page category-note-page--active${pagePinching ? ' category-note-page--pinching' : ''}`}
                 style={{ aspectRatio: pageAspect, width: singlePage ? `min(100%, ${pageAspect * 100}cqh)` : undefined, backgroundImage: backgroundUrl ? `url(${backgroundUrl})` : undefined, backgroundSize: '100% 100%', transform: pageScale === 1 ? undefined : `translate3d(${pagePan.x}px, ${pagePan.y}px, 0) scale(${pageScale})` }}
               >
+                {backgroundUrl && <div className="material-zoom-detail" aria-hidden="true"/>}
                 <canvas
                   ref={canvasRef}
                   className="category-note-canvas"

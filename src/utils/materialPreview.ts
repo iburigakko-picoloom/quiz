@@ -116,6 +116,29 @@ export class MaterialPreviewCache {
     try { return await pending; } finally { if (this.pending.get(key)?.result === pending) this.pending.delete(key); }
   }
 
+  /** Render just the visible PDF rectangle, with coordinates normalized to the page. */
+  async renderRegion(ownerId:string, materialId:string, pageNumber:number,
+    region:{x:number;y:number;width:number;height:number}, desiredWidth:number, signal:AbortSignal):Promise<Blob> {
+    const doc=await this.pdf(ownerId,materialId);
+    signal.throwIfAborted();
+    const page=await doc.getPage(pageNumber);
+    signal.throwIfAborted();
+    const native=page.getViewport({scale:1});
+    const scale=materialRenderScale(native.width*region.width,native.height*region.height,desiredWidth*region.width);
+    const viewport=page.getViewport({scale});
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.ceil(viewport.width*region.width);
+    canvas.height=Math.ceil(viewport.height*region.height);
+    try {
+      const render=page.render({canvas,viewport,transform:[1,0,0,1,-region.x*viewport.width,-region.y*viewport.height]});
+      const cancel=()=>render.cancel();
+      signal.addEventListener('abort',cancel,{once:true});
+      try{await render.promise;}finally{signal.removeEventListener('abort',cancel);}
+      signal.throwIfAborted();
+      return await new Promise<Blob>((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('PDFの拡大表示を作成できません。'))));
+    }finally{canvas.width=0;canvas.height=0;}
+  }
+
   /** The live handwriting panel reads and validates its own ink exactly once. */
   async loadBackground(ownerId: string, materialId: string, page: MaterialPage, requestedWidth = 0, navigation = false, signal?: AbortSignal): Promise<MaterialPagePreview> {
     const { url, aspect, pixelWidth } = await this.background(ownerId, materialId, page, requestedWidth, navigation, signal);
