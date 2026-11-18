@@ -136,7 +136,7 @@ export function CommunityScreen({
   const renameLock = useRef(false);
   const [groupSets, setGroupSets] = useState<CloudProblemSet[]>([]);
   const [groupMembers, setGroupMembers] = useState<CloudGroupMember[]>([]);
-  const [groupDetailTab, setGroupDetailTab] = useState<GroupDetailTab>('overview');
+  const [groupDetailTab, setGroupDetailTab] = useState<GroupDetailTab>('timeline');
   const [groupFolderTrail, setGroupFolderTrail] = useState<string[]>([]);
   const [groupLearningRevision, setGroupLearningRevision] = useState(0);
   const groupLearning = useGroupLearning(initialGroupId ?? '', session?.user.id ?? '', groupLearningRevision);
@@ -394,7 +394,7 @@ export function CommunityScreen({
     if (!initialGroupId || !authReady || !session) return;
     let cancelled = false;
     setSelectedGroupId(initialGroupId);
-    setGroupFolderTrail([]); setGroupDetailTab('overview');
+    setGroupFolderTrail([]); setGroupDetailTab('timeline');
     setGroupSets([]); setGroupMembers([]); setDirectSet(null);
     setBusy(true);
     setError('');

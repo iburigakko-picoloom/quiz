@@ -49,7 +49,7 @@ test('imported copies reflect saved learning with existing consent, preserving O
 
 test('publication immediately shares prior levels and prepublication answers from one original in every selected group', async () => {
   const { data } = fixture(), mock = server(), before = JSON.stringify(data);
-  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1','group1','group2'], mock.rpc, { initialize: true, now }), 2);
+  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1','group1','group2'], mock.rpc, { now }), 2);
   assert.equal(mock.calls.filter(c => c.name === 'quiz_group_progress_consent').length, 2);
   for (const row of mock.updates.values()) {
     assert.deepEqual(row.p_levels, [1,1,1,1]); assert.equal(row.p_answered, 2);
@@ -63,31 +63,31 @@ test('publication immediately shares prior levels and prepublication answers fro
 
 test('partial failure keeps successful groups and retries absolute aggregates without another consent or double counting', async () => {
   const { data } = fixture(), mock = server(); mock.fail('group2');
-  await assert.rejects(reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1','group2'], mock.rpc, { initialize: true, now }), /network/);
+  await assert.rejects(reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1','group2'], mock.rpc, { now }), /network/);
   assert.deepEqual(mock.updates.get('group1').p_levels, [1,1,1,1]);
-  mock.fail(''); await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1','group2'], mock.rpc, { initialize: true, now });
+  mock.fail(''); await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1','group2'], mock.rpc, { now });
   assert.equal(mock.calls.filter(c => c.name === 'quiz_group_progress_consent').length, 2);
   assert.equal(mock.updates.get('group1').p_today, 2); assert.equal(mock.updates.get('group2').p_today, 2);
 });
 
 test('explicit OFF, another chosen copy and a changed publication version are preserved', async () => {
   const { data } = fixture(), mock = server({ group1: { ...enabled, enabled: false, generation: 'OFF' }, group2: { ...enabled, copy_id: 'chosen-copy' } });
-  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1','group2'], mock.rpc, { initialize: true, now }), 0);
+  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1','group2'], mock.rpc, { now }), 0);
   assert.equal(mock.calls.every(c => c.name === 'quiz_group_learning_set_read'), true);
   const stale = async () => ({ version_id: 'new-version', own: enabled, members: [] });
-  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1'], stale, { initialize: true, now }), 0);
+  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1'], stale, { now }), 0);
 });
 
 test('OFF racing a delayed update cannot be undone by the publication retry', async () => {
   const { data } = fixture(), mock = server(); mock.disableDuringUpdate();
-  await assert.rejects(reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1'], mock.rpc, { initialize: true, now }), /consent changed/);
+  await assert.rejects(reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1'], mock.rpc, { now }), /consent changed/);
   const consentCount = mock.calls.filter(c => c.name === 'quiz_group_progress_consent').length;
-  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1'], mock.rpc, { initialize: true, now }), 0);
+  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1'], mock.rpc, { now }), 0);
   assert.equal(mock.calls.filter(c => c.name === 'quiz_group_progress_consent').length, consentCount);
 });
 
 test('subsequent exercise refreshes an enabled original, excludes edits and leaves disabled groups OFF', async () => {
-  const { data } = fixture(), mock = server({ group1: enabled });
+  const { data } = fixture(), mock = server({ group1: enabled, group2: { ...enabled, enabled: false, generation: "OFF" } });
   data.progress[1] = { ...data.progress[1], reviewLevel: 3, isGraduated: true };
   data.questions[2] = { ...data.questions[2], question: 'Edited after publication' };
   assert.equal(await reflectOwnedStudyLearning(data, ['original'], 'owner', mock.rpc, async () => { throw Error('manifest already retained'); }, now), 1);
@@ -99,21 +99,21 @@ test('large source pointer derives its manifest from the owned snapshot only in 
   const { data, shared } = fixture(), mock = server({ group1: enabled });
   delete data.problemSets[0].publicationSource.manifest;
   const before = JSON.stringify(data), loaded = [];
-  assert.equal(await reflectOwnedStudyLearning(data, ['original'], 'owner', mock.rpc, async id => { loaded.push(id); return shared; }, now), 1);
+  assert.equal(await reflectOwnedStudyLearning(data, ['original'], 'owner', mock.rpc, async id => { loaded.push(id); return shared; }, now), 2);
   assert.deepEqual(loaded, ['published']); assert.equal(JSON.stringify(data), before); assert.deepEqual(mock.updates.get('group1').p_levels, [1,1,1,1]);
 });
 
 test('other accounts and unbound/removed originals cannot submit any aggregates or restore sharing', async () => {
   const { data } = fixture(), mock = server();
-  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'different-account', ['group1'], mock.rpc, { initialize: true, now }), 0);
-  assert.equal(await reflectGroupSourceLearning(data, { ...data.problemSets[0], cloudSetId: undefined }, 'owner', ['group1'], mock.rpc, { initialize: true, now }), 0);
+  assert.equal(await reflectGroupSourceLearning(data, data.problemSets[0], 'different-account', ['group1'], mock.rpc, { now }), 0);
+  assert.equal(await reflectGroupSourceLearning(data, { ...data.problemSets[0], cloudSetId: undefined }, 'owner', ['group1'], mock.rpc, { now }), 0);
   assert.equal(await reflectOwnedStudyLearning(data, ['missing'], 'owner', mock.rpc, async () => { throw Error('unneeded'); }, now), 0);
   assert.equal(mock.calls.length, 0);
 });
 
 test('enabled original on a newly republished version uses compare-and-swap to move its own binding before reflection', async () => {
   const { data } = fixture(), mock = server({ group1: { ...enabled, version_id: 'old-version' } });
-  await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1'], mock.rpc, { initialize: true, now });
+  await reflectGroupSourceLearning(data, data.problemSets[0], 'owner', ['group1'], mock.rpc, { now });
   assert.equal(mock.calls.find(c => c.name === 'quiz_group_progress_consent').args.p_expected_generation, 'ON');
   assert.equal(mock.updates.get('group1').p_version_id, 'version1');
 });

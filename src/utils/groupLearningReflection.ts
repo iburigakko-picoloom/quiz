@@ -10,7 +10,7 @@ export type GroupLearningTransport = (name: 'quiz_group_learning_set_read' | 'qu
  * A stored OFF generation is an explicit choice and is never turned back on.
  * Every write still uses the live server membership/version/consent gate. */
 export async function reflectGroupSourceLearning(data: AppData, local: ProblemSet, userId: string, groupIds: readonly string[], rpc: GroupLearningTransport,
-  { initialize = false, now = new Date() }: { initialize?: boolean; now?: Date } = {}) {
+  { initialize = true, now = new Date() }: { initialize?: boolean; now?: Date } = {}) {
   const source = local.publicationSource;
   if (!source || source.ownerId !== userId || local.cloudSetId !== source.setId) return 0;
   return reflectBoundLearning(data, local, source, groupIds, rpc, initialize, now);
@@ -65,9 +65,9 @@ export async function reflectImportedStudyLearning(data: AppData, setIds: readon
   return reflected;
 }
 
-/** Refresh already enabled owner sources after durable exercise completion.
+/** Refresh published owner sources after durable exercise completion.
  * Reading the current immutable snapshot fills large, intentionally unretained
- * manifests. This path never creates consent or replaces a selected copy. */
+ * manifests. An existing OFF or a different selected copy is preserved. */
 export async function reflectOwnedStudyLearning(data: AppData, setIds: readonly string[], userId: string, rpc: GroupLearningTransport,
   loadShared: (setId: string) => Promise<CloudProblemSet>, now = new Date()) {
   let reflected = 0;
