@@ -37,6 +37,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   const transitionDistance = useRef(1);
   const transitionVersion = useRef(0);
   const stopAnimation = useRef<(() => void) | null>(null);
+  const loadedForSet = useRef('');
   const [transitioning, setTransitioning] = useState(false);
   const [transitionReady, setTransitionReady] = useState(false);
   const transitionReadyRef = useRef(false);
@@ -170,6 +171,13 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   };
   useEffect(() => {
     let cancelled = false;
+    if (reference && index && loadedForSet.current === setId && !memoOpen && view === 'material'
+        && reference.materialId === material?.id && reference.pageId === page?.id
+        && displayed?.materialId === reference.materialId && displayed.page.id === reference.pageId) {
+      if (transitionLayer.current?.firstElementChild) clearTransition();
+      setError('');
+      return;
+    }
     const delta = reference && material?.id === reference.materialId ? material.pages.findIndex(item => item.id === reference.pageId) - pageIndex : 1;
     if (!reference || reference.materialId !== displayed?.materialId || reference.pageId !== displayed?.page.id) captureTransition(delta < 0 ? -1 : 1, Math.abs(delta));
     else clearTransition(); // Returning to the already-painted page cancels a pending departure.
@@ -180,6 +188,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
         for (const id of setIds ?? []) { if (id === setId) continue; const candidate = await loadMaterials(id); if (candidate.materials.some(item => item.id === reference.materialId)) { found = candidate; break; } }
       }
       if (cancelled) return;
+      loadedForSet.current = setId;
       setIndex(found); setOwnerId(found.problemSetId);
       const selected = reference ? found.materials.find(item => item.id === reference.materialId) : found.materials[0];
       if (reference && (!selected || !selected.pages.some(item => item.id === reference.pageId))) {
