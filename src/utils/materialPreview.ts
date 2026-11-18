@@ -24,7 +24,7 @@ export class MaterialPreviewCache {
   // Small page-turn previews survive eviction of a zoomed/high-DPI image.
   private navigationImages = new ByteBudgetLruCache<string, Background>(16 * 1024 * 1024);
   private preferred = new Map<string, string>();
-  private pending = new Map<string, Promise<Background>>();
+  private pending = new Map<string, { signal?: AbortSignal; result: Promise<Background> }>();
   private document: { key: string; cancelled: boolean; task?: ReturnType<(typeof import('./pdfReader'))['openPdf']>; ready: Promise<PDFDocumentProxy> } | null = null;
 
   clear() {
@@ -67,7 +67,7 @@ export class MaterialPreviewCache {
     const cached = images.get(key);
     if (cached) return cached;
     const existing = this.pending.get(key);
-    if (existing) return existing;
+    if (existing && existing.signal === signal && !signal?.aborted) return existing.result;
     const pending = (async () => {
       signal?.throwIfAborted();
       const doc = await docPromise;
@@ -112,8 +112,8 @@ export class MaterialPreviewCache {
         return result;
       } finally { canvas.width = 0; canvas.height = 0; }
     })();
-    this.pending.set(key, pending);
-    try { return await pending; } finally { if (this.pending.get(key) === pending) this.pending.delete(key); }
+    this.pending.set(key, { signal, result: pending });
+    try { return await pending; } finally { if (this.pending.get(key)?.result === pending) this.pending.delete(key); }
   }
 
   /** The live handwriting panel reads and validates its own ink exactly once. */
