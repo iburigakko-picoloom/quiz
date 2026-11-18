@@ -39,7 +39,7 @@
 .materials-content .category-note-panel--material .category-note-canvas { background:transparent; }
 .materials-content .category-note-panel--material .category-note-canvas { mix-blend-mode:multiply; }
 .materials-content .category-note-panel--material .category-note-drawer__header-actions { display:none; }
-.materials-content .category-note-panel--material .category-note-drawer__header { padding:0; min-height:0; border:0; }
+.materials-content .category-note-panel--material .category-note-drawer__header { position:absolute; top:0; left:0; z-index:1; pointer-events:none; padding:0; min-height:0; border:0; }
 .materials-content .category-note-panel--material .category-note-drawer__header h2 { display:none; }
 .materials-content .category-note-panel--material .category-note-save-state { margin:4px 12px; }
 .materials-content .category-note-panel--material .category-note-drawer__header p,
