@@ -239,7 +239,15 @@ for (const checkpoint of [false, true]) test(`parallel companion spending preser
   const tx=db.transaction('appRecords','readwrite'),done=idbDone(tx);tx.objectStore('appRecords').put(local,key);await done;
   records.rememberAppRecordSnapshot(db,await records.readAppRecordSnapshot(db));
   const remote={key,collection:'localStorage',id:COMPANION_CARE_KEY,raw:JSON.stringify(right),position:0,revision:2};
-  for(let i=0;i<2;i++)await assert.rejects(applyDeltaRows(db,connection,[remote],2),/育成の変更/);
+  const {observeRecordSyncAttempt}=await import('../src/utils/syncAttemptStatus.ts');
+  const updates=[];
+  const observed=await observeRecordSyncAttempt(async()=>{
+    await applyDeltaRows(db,connection,[remote],2);
+    return {status:'done'};
+  }, update=>updates.push(update));
+  assert.equal(observed.outcome,'paused');
+  assert.equal(updates.at(-1).pauseReason,'companion_conflict');
+  assert.ok(!updates.some(update=>update.lastFailure));
   assert.equal((await read(db,'appRecords',key)).raw,local.raw);
   const saved=await read(db,'appRecordConflicts',`companion:${key}:2`);
   assert.equal(saved.local.raw,local.raw);assert.equal(saved.remote.raw,remote.raw);

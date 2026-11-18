@@ -25,6 +25,3 @@ test('server timeout and cloud quota show distinct causes without implying local
   assert.equal(syncFailureReason({code:'server_timeout',step:'receipt',message:'private SQL'}),'クラウドの保存処理が時間切れになりました。再試行します。');
   assert.equal(syncFailureReason({code:'quota',step:'push',message:'private SQL'}),'クラウドの保存容量が上限に達しました。');
 });
-test('basic connection success never claims the record protocol succeeded',()=>{
-  const screen=readFileSync(new URL('../src/screens/SyncScreen.tsx',import.meta.url),'utf8');assert.doesNotMatch(screen,/接続診断が完了しました。すべてOKです。/);assert.match(screen,/基本接続の診断が完了しました。差分同期の成否は前回の失敗欄/);
-});

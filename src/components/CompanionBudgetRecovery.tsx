@@ -3,29 +3,33 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { readCompanionBudgetConflicts, resolveCompanionBudgetConflict, previewCompanionBudgetChoice, type CompanionBudgetConflict } from '../utils/companionBudgetRecovery';
 import { COMPANION_CARE_EVENT } from '../utils/companionCare';
 import { SYNC_ATTEMPT_EVENT } from '../utils/syncAttemptStatus';
+import { requestSyncRetry } from '../utils/syncRequest';
+import { getAccountStorageSession } from '../utils/accountStorage';
 import type { RecordSyncConnection } from '../utils/recordSyncOutbox';
 
 export function CompanionBudgetRecovery({onResolved, connection, onBusyChange, disabled = false}: {
  onResolved?:()=>Promise<void>; connection?:RecordSyncConnection; onBusyChange?:(busy:boolean)=>void; disabled?:boolean;
 }) {
  const [items,setItems]=useState<CompanionBudgetConflict[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ const [readError,setReadError]=useState('');
  const [choices,setChoices]=useState<Record<string,'local'|'remote'>>({});
  const lock=useRef(false);
  const shown=useRef<CompanionBudgetConflict[]>([]);
  useLayoutEffect(()=>{onBusyChange?.(busy);return()=>onBusyChange?.(false);},[busy,onBusyChange]);
  useEffect(()=>{
   let stopped=false,reading=false;
-  shown.current=[];setItems([]);setChoices({});setError('');setMessage('');
+  shown.current=[];setItems([]);setChoices({});setError('');setReadError('');setMessage('');
   const load=async()=>{
    if(reading||lock.current)return;reading=true;
    try {const next=await readCompanionBudgetConflicts(connection);if(!stopped){
+    setReadError('');
     const previous=shown.current;
     setChoices(current=>Object.fromEntries(Object.entries(current).filter(([id])=>{
      const old=previous.find(item=>item.id===id),fresh=next.find(item=>item.id===id);
      return old&&fresh&&old.local===fresh.local&&old.remote===fresh.remote&&old.current===fresh.current;
     })));
     shown.current=next;setItems(next);
-   }}catch{if(!stopped)setError('育成の変更を読み込めません。再度同期画面を開いてください。');}finally{reading=false;}
+   }}catch{if(!stopped)setReadError('育成の記録を読み込めません。もう一度確認しています。');}finally{reading=false;}
   };
   void load();const timer=window.setInterval(()=>void load(),5000);
   window.addEventListener(SYNC_ATTEMPT_EVENT,load);window.addEventListener(COMPANION_CARE_EVENT,load);
@@ -34,13 +38,27 @@ export function CompanionBudgetRecovery({onResolved, connection, onBusyChange, d
  const resolve=async(item:CompanionBudgetConflict)=>{
   const side=choices[item.id];if(lock.current||disabled||!side)return;
   lock.current=true;setBusy(true);setError('');
+  let saved = false;
+  let readyToResume = false;
   try{
    await resolveCompanionBudgetConflict(item.id,side,item);
-   setItems(await readCompanionBudgetConflicts(connection));
+   saved = true;
+   setItems(current => current.filter(row => row.id !== item.id));
    setMessage('選んだ育成を保存しました。消費済みの回答数も保持しています。');
    await onResolved?.();
-  }catch(e){setError(e instanceof Error?e.message:'育成の変更を確定できません。');}
-  finally{lock.current=false;setBusy(false);}
+   readyToResume = true;
+  } catch (error) {
+   setError(saved ? '育成は保存済みです。画面を再読み込みして同期を再開してください。'
+    : error instanceof Error ? error.message : '育成の変更を確定できません。');
+  }
+  finally {
+   lock.current=false;
+   setBusy(false);
+   const syncId = item.connection?.syncId;
+   if (readyToResume && syncId) window.setTimeout(() => {
+    if (item.owner === getAccountStorageSession()) requestSyncRetry(syncId);
+   }, 0);
+  }
  };
  return <>{message&&<p role="status">{message}</p>}{items.map(item=><section key={item.id} className="record-recovery">
   <h2>育成はどちらのデータを使いますか？</h2>
@@ -53,5 +71,5 @@ export function CompanionBudgetRecovery({onResolved, connection, onBusyChange, d
    })}
   </fieldset>
   <button type="button" className="sync-button sync-button--primary" disabled={busy||disabled||!choices[item.id]} onClick={()=>void resolve(item)}>{busy?'選択を保存中…':'この育成で同期を再開'}</button>
- </section>)}{error&&<p role="alert">{error}</p>}</>;
+ </section>)}{readError&&<p role="alert">{readError}</p>}{error&&<p role="alert">{error}</p>}</>;
 }

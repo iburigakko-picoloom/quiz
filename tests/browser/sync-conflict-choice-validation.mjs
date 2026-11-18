@@ -8,14 +8,14 @@ const {chromium}=await import(pathToFileURL(resolve(process.env.QUIZMAKE_PLAYWRI
 const server=await createServer({server:{host:'127.0.0.1',port:5197,strictPort:true}});await server.listen();
 const browser=await chromium.launch({channel:'chrome',headless:true});
 try {
- for(const side of ['local','remote']){
+ for(const [side,standalone] of [['local',false],['remote',false],['local',true]]){
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('https://**/*',route=>route.abort());
   const html=await server.transformIndexHtml('/quiz/conflict-fixture.html','<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div></body></html>');
   await page.route('**/conflict-fixture.html',route=>route.fulfill({contentType:'text/html',body:html}));
   await page.goto('http://127.0.0.1:5197/quiz/conflict-fixture.html');
-  await page.evaluate(async()=>{
+  await page.evaluate(async standalone=>{
    const {React,createRoot}=await import('/quiz/tests/browser/companion-sync-runtime.ts');
    const {SyncConflictRecovery}=await import('/quiz/src/components/SyncConflictRecovery.tsx');
    const storage=await import('/quiz/src/storage.ts'),model=await import('/quiz/src/utils/companionCare.ts');
@@ -36,8 +36,11 @@ try {
     tx.objectStore('appRecordConflicts').put(row,'shown');tx.objectStore('appRecordConflicts').put({...row,connection:{...connection,syncId:'other'}},'hidden');
     await new Promise((r,j)=>{tx.oncomplete=r;tx.onabort=()=>j(tx.error);});window.dispatchEvent(new Event(SYNC_ATTEMPT_EVENT));
    },read:async()=>{const tx=db.transaction('appRecordConflicts'),request=tx.objectStore('appRecordConflicts').get('shown');await new Promise(r=>tx.oncomplete=r);return {care:readCompanionCare(),original:request.result,retries,busy};}};
-   createRoot(document.getElementById('root')).render(React.createElement(React.StrictMode,null,React.createElement('main',{className:'sync-screen'},React.createElement(SyncConflictRecovery,{syncId:connection.syncId,accountId:connection.userId,onBusyChange:value=>{busy=value;}}))));
-  });
+   const panel=standalone
+    ? React.createElement((await import('/quiz/src/components/CompanionBudgetRecovery.tsx')).CompanionBudgetRecovery)
+    : React.createElement(SyncConflictRecovery,{syncId:connection.syncId,accountId:connection.userId,onBusyChange:value=>{busy=value;}});
+   createRoot(document.getElementById('root')).render(React.createElement(React.StrictMode,null,React.createElement('main',{className:'sync-screen'},panel)));
+  },standalone);
   await page.evaluate(()=>window.fixture.seed());
   await page.getByRole('heading',{name:'育成はどちらのデータを使いますか？'}).waitFor();
   assert.equal(await page.getByRole('heading',{name:'育成はどちらのデータを使いますか？'}).count(),1);

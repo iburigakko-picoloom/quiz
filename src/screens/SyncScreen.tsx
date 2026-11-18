@@ -46,6 +46,7 @@ import {
   upgradeLegacySyncId,
   type LastSyncState,
   type SyncPairingCode,
+  syncDiagnosticSummary,
   type SyncDiagnosticResult,
   type SyncPayload,
   type SyncPayloadSummary,
@@ -965,13 +966,14 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
   };
   const handleDiagnostic = async () => {
     setDiagnosticBusy(true);
-    setMessage('接続診断を実行しています...');
+    setDiagnosticResult(null);
+    setMessage('');
     setError('');
 
     try {
       const result = await runSyncDiagnostic(normalizedSyncId);
       setDiagnosticResult(result);
-      setMessage(result.ok ? '基本接続の診断が完了しました。差分同期の成否は前回の失敗欄を確認してください。' : '基本接続の診断が完了しました。NG項目を確認してください。');
+
     } catch (caughtError) {
       const detail = caughtError instanceof Error ? caughtError.message : String(caughtError);
       setDiagnosticResult({
@@ -1264,7 +1266,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
             {diagnosticResult ? (
               <div className="sync-diagnostic" aria-live="polite">
                 <div className={`sync-diagnostic__summary${diagnosticResult.ok ? ' sync-diagnostic__summary--ok' : ' sync-diagnostic__summary--ng'}`}>
-                  同期診断結果：{diagnosticResult.ok ? 'OK' : 'NG'}
+                  {syncDiagnosticSummary(diagnosticResult)}
                 </div>
                 <div className="sync-diagnostic__steps">
                   {diagnosticResult.steps.map((step) => (
@@ -1275,9 +1277,12 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
                       </div>
                       {step.message ? <p>{step.message}</p> : null}
                       {step.errorCode ? <p>code: {step.errorCode}</p> : null}
-                      {step.errorDetails ? <p>details: {step.errorDetails}</p> : null}
+                      {step.errorDetails ? <p>詳細：{step.errorDetails}</p> : null}
                       {step.errorHint ? <p>hint: {step.errorHint}</p> : null}
                       {step.suggestion ? <p className="sync-diagnostic__suggestion">{step.suggestion}</p> : null}
+                      {step.action === 'backups' && (onOpenBackups
+                        ? <button type="button" className="sync-page-link" disabled={interactionProtected} onClick={onOpenBackups}>バックアップと復旧を開く</button>
+                        : link('recovery', '同期の復旧を開く'))}
                     </div>
                   ))}
                 </div>

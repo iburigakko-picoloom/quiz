@@ -8,7 +8,7 @@ import { idbDone, idbResult, readMeta, writeMeta, blobHash, parseBlobNote, queue
 import { categoryNoteRecoveryKeys } from './noteStorage';
 import { getSyncDevice } from './syncDevice';
 import { isChunkInternal, parseChunkManifest, restoreRecordChunks } from './recordChunkFormat';
-import { SyncProtocolError } from './syncInterruption';
+import { SyncInterruptedError, SyncProtocolError } from './syncInterruption';
 import type { SyncProgress } from './syncAttemptStatus';
 import { accountCheckpointRecords, appendCheckpointStage } from './storageLedger';
 
@@ -161,7 +161,7 @@ export async function applyDeltaRows(db: IDBDatabase, connection: RecordSyncConn
     tx.objectStore('appRecordConflicts').put({ kind: 'companion-budget-conflict', connection,
       key: remote.key, local, remote, conflict: {connection,key:remote.key,local,remote,operationId:null}, archivedAt: new Date().toISOString() }, `companion:${remote.key}:${remote.revision}`);
     await done;
-    throw new Error('育成の変更が別の端末と重なっています。両方の記録を保持し、お世話と同期を停止しました。');
+    throw new SyncInterruptedError('companion_conflict', '育成の変更が別の端末と重なっています。両方の記録を保持し、お世話と同期を停止しました。');
   }
   const released: AppOutboxOperation[] = [], candidates: Array<{ local: AppOutboxOperation; remote: RemoteRecordChange }> = [];
   if (checkpoint) for (const remote of rows) {

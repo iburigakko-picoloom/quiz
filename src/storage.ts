@@ -255,6 +255,12 @@ async function saveAppDataNow(data: AppData, onFailure?: (failure: AppSaveFailur
   }
 }
 
+export class AppDataRecoveryRequiredError extends Error {
+  constructor() {
+    super('端末の問題データは復旧確認が必要な状態です。古い内容でクラウドを上書きしないよう保存を中止しました。バックアップの履歴と原本を確認してください。');
+  }
+}
+
 export async function exportAppDataRaw(
   options: { coordinationLockHeld?: boolean; mode?: 'authoritative' | 'recovery' } = {},
 ): Promise<string> {
@@ -289,7 +295,7 @@ export async function exportAppDataRaw(
       }
     }
     if (isAppDataRecoveryRequired() && options.mode !== 'recovery') {
-      throw new Error('端末の問題データは復旧確認が必要な状態です。古い内容でクラウドを上書きしないよう保存を中止しました。先にクラウドから読み込むか、バックアップを確認してください。');
+      throw new AppDataRecoveryRequiredError();
     }
     if (options.mode !== 'recovery') {
       markAppDataExpected(indexedRecord.savedAt ?? fallbackRecord.savedAt ?? new Date().toISOString());

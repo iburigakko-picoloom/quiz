@@ -126,6 +126,10 @@ export function AutoSyncController({ protectedWorkReason, canAutoImport, autoImp
         setLastSyncState({ status: '端末への保存を確認してください', error: error.message });
         return 'paused';
       }
+      if (error instanceof SyncInterruptedError && error.reason === 'companion_conflict') {
+        setLastSyncState({ status: '育成の選択を待っています', error: '' });
+        return 'paused';
+      }
       if (error instanceof SyncInterruptedError) {
         setLastSyncState({ status: '内容の確認が終わってから同期を再開します', error: '' }); return 'paused';
       }

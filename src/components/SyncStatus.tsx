@@ -57,7 +57,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   const complete = isLearningSyncComplete(presentation.text);
   const reason = complete || attempt?.background && ['running','queued'].includes(attempt.phase) && !attempt.retryAt
     ? '' : syncStatusReason(attempt, record?.conflicts ?? 0, readError, lastState.error ?? '');
-  const showProgress = complete || (!attempt?.background || Boolean(attempt?.progress))
+  const showProgress = complete || (!record?.recoveryApp && attempt?.pauseReason !== 'companion_conflict') && (!attempt?.background || Boolean(attempt?.progress))
     && (attempt?.phase === 'running' || attempt?.phase === 'queued' && !attempt.retryAt || attempt?.overallPercent !== undefined);
   const progress = attempt?.progress;
   const activeFailure=attempt?.lastFailure&&(attempt.phase==='failed'||attempt.phase==='paused'&&attempt.pauseReason===attempt.lastFailure.code)?attempt.lastFailure:null;
@@ -65,7 +65,7 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
   if(choiceOpen&&!detailsOpen&&!diagnosticsOnly)return null;
   return <section className="sync-status-card" aria-live="polite">
     {!diagnosticsOnly && complete ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
-    {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : activeFailure?'同期できませんでした':summary}</h2> : null}
+    {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : summary}</h2> : null}
     {!diagnosticsOnly && reason ? <p className="sync-status-reason">{reason}</p> : null}
     {!diagnosticsOnly && showProgress ? <SyncProgressView complete={complete} progress={progress} step={attempt?.step ?? ''} stopped={Boolean(activeFailure) || attempt?.phase==='paused'} /> : null}
     {!diagnosticsOnly && complete && attempt?.notice ? <p className="sync-status-reason">{attempt.notice}</p> : null}
