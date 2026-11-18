@@ -33,6 +33,10 @@ try{
     const cache=new MaterialPreviewCache();
     const preview=await cache.loadBackground('large-set',material.id,material.pages[0],390);
     if(!preview.url||!preview.pixelWidth)throw Error('Missing rendered page');
+    const detail=await cache.renderRegion('large-set',material.id,1,{x:0,y:0,width:0.5,height:0.5},2340,new AbortController().signal);
+    const bitmap=await createImageBitmap(detail);
+    if(bitmap.width!==1170)throw Error('Large document zoom resolution mismatch');
+    bitmap.close();
     cache.clear();
     return blob.size;
   });

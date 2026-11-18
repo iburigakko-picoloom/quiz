@@ -234,9 +234,42 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   // Re-render vector text at screen resolution once resizing/pinching settles.
   // Keep the sharper image when the note shrinks; never resample the saved PDF.
   useEffect(() => {
-    if (transitioning || !displayed || displayed.page.kind === 'blank' || memoOpen) return;
+    if (transitioning || !displayed || displayed.page.kind === 'blank' || memoOpen || view !== 'material') return;
     const target = contentRef.current?.querySelector<HTMLElement>('.category-note-page--active');
     if (!target) return;
+    const clip=target.closest<HTMLElement>('.category-note-page-viewport');
+    if(renderScale>1 && clip && displayed.page.pdfPage){
+      const pageNumber=displayed.page.pdfPage;
+      let pending:AbortController|undefined, timer:ReturnType<typeof setTimeout>, currentUrl='';
+      const refresh=()=>{
+        pending?.abort();clearTimeout(timer);
+        const controller=new AbortController();pending=controller;
+        timer=setTimeout(async()=>{
+          const rect=target.getBoundingClientRect(), bounds=clip.getBoundingClientRect();
+          const left=Math.max(rect.left,bounds.left),top=Math.max(rect.top,bounds.top);
+          const width=Math.min(rect.right,bounds.right)-left,height=Math.min(rect.bottom,bounds.bottom)-top;
+          if(width<=0||height<=0)return;
+          const region={x:(left-rect.left)/rect.width,y:(top-rect.top)/rect.height,width:width/rect.width,height:height/rect.height};
+          try{
+            const blob=await previews.current.renderRegion(displayed.ownerId,displayed.materialId,pageNumber,region,rect.width*Math.max(1,window.devicePixelRatio||1),controller.signal);
+            if(controller.signal.aborted)return;
+            const url=URL.createObjectURL(blob);
+            const layer=target.querySelector<HTMLElement>('.material-zoom-detail');
+            if(!layer){URL.revokeObjectURL(url);return;}
+            Object.assign(layer.style,{left:region.x*100+'%',top:region.y*100+'%',width:region.width*100+'%',height:region.height*100+'%',backgroundImage:'url("'+url+'")'});
+            if(currentUrl)URL.revokeObjectURL(currentUrl);
+            currentUrl=url;
+          }catch{/* Keep the full-page preview available during gestures or render failure. */}
+        },160);
+      };
+      const resize=new ResizeObserver(refresh);resize.observe(target);resize.observe(clip);
+      const movement=new MutationObserver(refresh);movement.observe(target,{attributes:true,attributeFilter:['style']});
+      refresh();
+      return ()=>{pending?.abort();clearTimeout(timer);resize.disconnect();movement.disconnect();
+        target.querySelector<HTMLElement>('.material-zoom-detail')?.removeAttribute('style');
+        if(currentUrl)URL.revokeObjectURL(currentUrl);
+      };
+    }
     let disposed = false, timer: ReturnType<typeof setTimeout>;
     const controller = new AbortController();
     const refresh = () => {
@@ -253,7 +286,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
     const observer = new ResizeObserver(refresh); observer.observe(target);
     window.addEventListener('resize', refresh); refresh();
     return () => { disposed = true; controller.abort(); clearTimeout(timer); observer.disconnect(); window.removeEventListener('resize', refresh); };
-  }, [displayed?.page.id, displayed?.materialId, displayed?.ownerId, renderScale, memoOpen, transitioning]);
+  }, [displayed?.page.id, displayed?.materialId, displayed?.ownerId, renderScale, memoOpen, transitioning, view]);
 
   const update = async (nextMaterial: StudyMaterial) => {
     if (!index) return;

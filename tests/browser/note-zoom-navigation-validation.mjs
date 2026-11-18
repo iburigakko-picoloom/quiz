@@ -12,14 +12,9 @@ try {
  const page=await browser.newPage({viewport:{width:1024,height:900},hasTouch:true});
  page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('https://**/*',route=>route.abort());
- await page.goto('http://127.0.0.1:5195/quiz/tests/browser/materials-scope-preview.html');
+ await page.goto('http://127.0.0.1:5195/quiz/tests/browser/materials-scope-preview.html?navigation=1');
  const ready=()=>page.waitForFunction(()=>document.querySelector('.materials-content[aria-busy="false"] .category-note-canvas')&&!document.querySelector('.materials-transition-cover')?.children.length);
  await ready();
- for(let i=0;i<2;i++) {
-  await page.getByLabel('資料の操作',{exact:true}).click();
-  await page.getByRole('button',{name:'後ろに白紙ページ',exact:true}).click();await ready();
- }
- await page.getByLabel('ページ',{exact:true}).selectOption({index:0});await ready();
  const cdp=await page.context().newCDPSession(page);
  const pinch=async ratio=>{
   const box=await page.locator('.materials-content > .category-note-panel .category-note-canvas').boundingBox();
@@ -31,6 +26,12 @@ try {
  };
  const zoom=()=>page.getByRole('button',{name:'倍率をリセット'}).innerText();
  await pinch(1.4);await page.waitForTimeout(80);
+ await page.waitForFunction(()=>document.querySelector('.materials-content > .category-note-panel .material-zoom-detail')?.style.backgroundImage.includes('blob:'));
+ const detail=await page.locator('.materials-content > .category-note-panel .material-zoom-detail').evaluate(async layer=>{
+   const image=new Image();image.src=layer.style.backgroundImage.slice(5,-2);await image.decode();
+   return {pixels:image.naturalWidth,displayWidth:layer.getBoundingClientRect().width,dpr:devicePixelRatio};
+ });
+ assert.ok(detail.pixels>=detail.displayWidth*detail.dpr-2,'the visible area is rendered at the zoomed screen resolution');
  const before=await zoom();assert.equal(before,'140%');
  const scales=await page.locator('.materials-content > .category-note-panel .category-note-page').evaluateAll(rows=>rows.map(row=>new DOMMatrix(getComputedStyle(row).transform).a));
  assert.ok(scales.every(n=>Math.abs(n-1.4)<.02),'adjacent previews have the same zoom as the active page');
