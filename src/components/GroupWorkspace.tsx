@@ -77,17 +77,25 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         {selectedMember!==userId && memberError ? <p role="alert" className="group-error">{memberError} <button type="button" onClick={()=>setMemberAttempt(value=>value+1)}>再試行</button></p> : null}
 
         <div className="group-material-list">{sets.map(set => {
-          const remote = materials?.find(row => row.setId === set.id && row.versionId === set.versionId);
-          const candidates = selectedMember===userId ? groupStudyCandidates(data, set, userId) : [];
+          const summary = materials?.find(row => row.setId === set.id);
+          const memberRow = selectedRows?.find(row => row.setId === set.id);
+          const versionId = set.versionId ?? summary?.versionId ?? memberRow?.versionId;
+          const remote = summary?.versionId === versionId ? summary : undefined;
+          const isOwnPublication = selectedMember === userId && set.ownerId === userId;
+          // The group list can omit the owner's local ID. Match the saved publication binding.
+          const original = isOwnPublication && !set.localSetId ? data.problemSets.find(local =>
+            local.cloudSetId === set.id && local.publicationSource?.ownerId === userId && local.publicationSource.setId === set.id) : undefined;
+          const sourceSet = {...set, versionId: versionId ?? undefined, localSetId: set.localSetId || original?.id || ''};
+          const candidates = selectedMember===userId ? groupStudyCandidates(data, sourceSet, userId) : [];
           const local = candidates.find(row => row.id === remote?.ownCopyId) ?? candidates[0];
-          const own = local && set.versionId ? importedLearning(data, local, set.id, set.versionId) : null;
-          const selected = selectedRows?.find(row=>row.setId===set.id && row.versionId===set.versionId);
+          const own = local && versionId ? importedLearning(data, local, set.id, versionId) : null;
+          const selected = memberRow?.versionId === versionId ? memberRow : undefined;
           const state = selected?.state;
           const shared = state==='shared' ? selected : null;
           const shown = selectedMember===userId ? own ?? shared : shared;
           return <button type="button" className="group-panel group-material-card" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>
             <h3><span className="group-material-card__icon"><DocumentOutlineIcon size={18} aria-hidden="true" /></span><span>{set.title}</span><ChevronRightIcon size={18} aria-hidden="true" /></h3>
-            {shown && shown.answered!==null && shown.total ? <><p>回答済み {shown.answered} / {shown.total}問・回答率 {Math.round(shown.answered / shown.total * 100)}%</p>{shown.levels ? <><LevelProgress levels={shown.levels} compact label="理解度" showCounts={false}/><div className="group-material-card__caption"><span>Level 0–3</span><span>Level 3 · {shown.levels[3]}問</span></div></> : null}</> : <p>{selectedMember===userId ? candidates.length ? '公開版の進捗を確認できません' : '未取り込み' : memberError ? '取得できません' : !selectedRows ? '取得中…' : state ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち',shared:'反映待ち'}[state]) : '公開版の更新待ち'}</p>}
+            {shown && shown.answered!==null && shown.total ? <><p>回答済み {shown.answered} / {shown.total}問・回答率 {Math.round(shown.answered / shown.total * 100)}%</p>{shown.levels ? <><LevelProgress levels={shown.levels} compact label="理解度" showCounts={false}/><div className="group-material-card__caption"><span>Level 0–3</span><span>Level 3 · {shown.levels[3]}問</span></div></> : null}</> : <p>{selectedMember===userId ? isOwnPublication ? '自分が公開した教材' : candidates.length ? '公開版の進捗を確認できません' : '未取り込み' : memberError ? '取得できません' : !selectedRows ? '取得中…' : state ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち',shared:'反映待ち'}[state]) : '公開版の更新待ち'}</p>}
           </button>;
         })}</div>
         {!sets.length && !loading ? <GroupEmpty>共有教材はまだありません。</GroupEmpty> : null}
