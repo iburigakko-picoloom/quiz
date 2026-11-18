@@ -33,9 +33,9 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
   const selectedIsMember=selectedMember===userId||members.some(member=>member.userId===selectedMember);
   useEffect(()=>{if(members.length&&!selectedIsMember){if(onOverviewMemberChange)onOverviewMemberChange(userId);else setLocalMember(userId);}},[members,selectedIsMember,userId,onOverviewMemberChange]);
   useEffect(()=>{
-    if(tab!=='overview'||!group?.id||selectedMember===userId||!selectedIsMember)return;
-    let active=true;const groupId=group.id;
-    const refresh=()=>{const request=++memberRequest.current;void readMemberMaterialProgress(groupId,selectedMember,userId).then(rows=>{if(active&&request===memberRequest.current){setMemberResult({groupId,memberId:selectedMember,rows});setMemberError('');}}).catch(()=>{if(active&&request===memberRequest.current){setMemberResult(null);setMemberError('進捗を読み込めません。再読み込みしてください。');}});};
+    if(tab!=='overview'||!group?.id||!selectedIsMember)return;
+    let active=true,reading=false;const groupId=group.id;
+    const refresh=()=>{if(reading)return;reading=true;const request=++memberRequest.current;void readMemberMaterialProgress(groupId,selectedMember,userId).then(rows=>{if(active&&request===memberRequest.current){setMemberResult({groupId,memberId:selectedMember,rows});setMemberError('');}}).catch(()=>{if(active&&request===memberRequest.current){setMemberResult(null);setMemberError('進捗を読み込めません。再読み込みしてください。');}}).finally(()=>{reading=false;});};
     setMemberError('');refresh();const stop=watchGroupProgress(refresh);
     return()=>{active=false;memberRequest.current++;stop();};
   },[group?.id,selectedMember,userId,tab,selectedIsMember,memberAttempt]);
@@ -81,9 +81,10 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
           const candidates = selectedMember===userId ? groupStudyCandidates(data, set, userId) : [];
           const local = candidates.find(row => row.id === remote?.ownCopyId) ?? candidates[0];
           const own = local && set.versionId ? importedLearning(data, local, set.id, set.versionId) : null;
-          const selected = selectedMember===userId ? null : selectedRows?.find(row=>row.setId===set.id && row.versionId===set.versionId);
+          const selected = selectedRows?.find(row=>row.setId===set.id && row.versionId===set.versionId);
           const state = selected?.state;
-          const shown = selectedMember===userId ? own : state==='shared' ? selected : null;
+          const shared = state==='shared' ? selected : null;
+          const shown = selectedMember===userId ? own ?? shared : shared;
           return <button type="button" className="group-panel group-material-card" key={set.id} disabled={busy} onClick={() => onOpenProgress?.(set)}>
             <h3><span className="group-material-card__icon"><DocumentOutlineIcon size={18} aria-hidden="true" /></span><span>{set.title}</span><ChevronRightIcon size={18} aria-hidden="true" /></h3>
             {shown && shown.answered!==null && shown.total ? <><p>回答済み {shown.answered} / {shown.total}問・回答率 {Math.round(shown.answered / shown.total * 100)}%</p>{shown.levels ? <><LevelProgress levels={shown.levels} compact label="理解度" showCounts={false}/><div className="group-material-card__caption"><span>Level 0–3</span><span>Level 3 · {shown.levels[3]}問</span></div></> : null}</> : <p>{selectedMember===userId ? candidates.length ? '公開版の進捗を確認できません' : '未取り込み' : memberError ? '取得できません' : !selectedRows ? '取得中…' : state ? ({not_shared:'未共有',update_pending:'公開版の更新待ち',reflection_pending:'反映待ち',shared:'反映待ち'}[state]) : '公開版の更新待ち'}</p>}
@@ -103,18 +104,18 @@ export function GroupWorkspace({ data, group, sets, members, userId, snapshot, l
         {current&&onImportFolder?<button type="button" className="group-primary group-folder-import" disabled={busy||loading||!groupFolderSets(current).length} onClick={()=>onImportFolder(current)}>フォルダごと取り込む</button>:null}
         <div className="group-folder-list">{(current ? current.children : folders).map(folder => renderFolder(folder))}</div>
         {current ? <div className="group-set-list">{current.sets.map(set => <LibraryContentRow key={set.id} title={set.title} questions={set.questionCount} subtitle={set.importCount===undefined?undefined:`${set.importCount}人が取り込み`} disabled={busy} onOpen={()=>onOpenSet(set,trail.map(folder=>folder.name).join(' / '))} actions={onRemoveSet && (canManage || set.ownerId === userId) ? <button type="button" className="group-library-menu" aria-label={`${set.title}の管理`} disabled={busy || loading} onClick={()=>onRemoveSet(set)}>…</button> : null}/>)}{!current.sets.length && !current.children.length ? <GroupEmpty>問題セットはまだありません。</GroupEmpty> : null}</div> : !folders.length && !loading ? <GroupEmpty>フォルダはまだありません。</GroupEmpty> : null}
-        {current?<details className="library-info"><summary>フォルダ情報</summary><p>作成者：{current.createdBy===userId?'あなた':current.creatorName}</p><p>更新：{displayGroupDate(current.updatedAt)}{current.importCount===null?'':` · ${current.importCount}人が取り込み`}</p></details>:null}
+        {current?<section className="library-info"><h3>フォルダ情報</h3><p>作成者：{current.createdBy===userId?'あなた':current.creatorName}</p><p>更新：{displayGroupDate(current.updatedAt)}{current.importCount===null?'':` · ${current.importCount}人が取り込み`}</p></section>:null}
         </LibraryPane>
       </section>
       <section id="group-panel-members" role="tabpanel" aria-labelledby="group-tab-members" hidden={tab !== 'members'}>
         <div className="group-panel group-member-panel"><h2>メンバー</h2>
         <div className="group-member-list">{members.map(member => <article className="group-member-card" key={member.userId}><div className="group-member-card__identity"><MemberAvatar name={member.displayName} userId={member.userId} self={member.userId === userId}/><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong><span className="group-member-card__role">{member.role === 'owner' ? 'オーナー' : member.role === 'admin' ? '管理者' : 'メンバー'}</span></div></article>)}</div></div>
-        <details><summary>共有された学習統計</summary><div className="group-segment" aria-label="メンバーの並び順">{([['today', '今日'], ['week', '今週'], ['l3', 'L3']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>)}</div>
+        <section><h3>共有された学習統計</h3><div className="group-segment" aria-label="メンバーの並び順">{([['today', '今日'], ['week', '今週'], ['l3', 'L3']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>)}</div>
         <div className="group-member-list">{sorted.map((member, i) => <article className="group-member-stat-card" key={member.userId}>
           <div className="group-member-card__identity"><span className={`group-rank group-rank--${i}`}>{i + 1}</span><MemberAvatar name={member.displayName} userId={member.userId} self={member.userId === userId} /><span><strong>{member.userId === userId ? 'あなた' : member.displayName}</strong>{member.role === 'owner' ? <small className="group-owner-badge">オーナー</small> : null}</span></div>
           <dl className="group-member-card__stats"><div><dt>今日</dt><dd>{member.todayCount === null ? '—' : `${member.todayCount}問`}</dd></div><div><dt>今週</dt><dd>{member.weekCount === null ? '—' : `${member.weekCount}問`}</dd></div><div><dt>教材</dt><dd>{snapshot ? `${member.importedSetCount}セット` : '—'}</dd></div><div><dt>L3</dt><dd>{member.levels ? `${levelPercentages(member.levels)[3]}%` : '—'}</dd></div></dl>
-        </article>)}</div></details>
-        {canManage ? <details className="group-member-management"><summary>メンバーを管理</summary>{members.filter(member => member.role !== 'owner' && member.userId !== userId).map(member => <div key={member.userId}><span>{member.displayName}</span><button type="button" disabled={busy} onClick={() => onRemoveMember(member)}>メンバーから外す</button></div>)}</details> : null}
+        </article>)}</div></section>
+        {canManage ? <section className="group-member-management"><h3>メンバーを管理</h3>{members.filter(member => member.role !== 'owner' && member.userId !== userId).map(member => <div key={member.userId}><span>{member.displayName}</span><button type="button" disabled={busy} onClick={() => onRemoveMember(member)}>メンバーから外す</button></div>)}</section> : null}
       </section>
     </div>
   </section>;

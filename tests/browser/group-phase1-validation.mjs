@@ -64,14 +64,16 @@ try {
     await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(result)});
   });
   await page.goto('http://127.0.0.1:5175/quiz/tests/browser/group-community-preview.html',{waitUntil:'domcontentloaded'});
+  await page.getByRole('tab',{name:'概要',exact:true}).click();
   await page.locator('.group-material-card').first().waitFor();
   assert.deepEqual(await page.getByRole('tab').allTextContents(),['タイムライン','フォルダ','メンバー','概要']);
   assert.equal(await page.getByRole('tab',{name:'概要',exact:true}).getAttribute('aria-selected'),'true');
   assert.equal(requests.filter(n=>n==='quiz_group_material_progress').length,1);
   assert.equal(requests.filter(n=>n==='get_shared_problem_set_versioned').length,0);
+  const readsBeforeMember=requests.filter(n=>n==='quiz_group_member_material_progress').length;
   await page.getByLabel('表示するメンバー').selectOption('sato');
   await page.locator('.group-material-card').first().getByText('回答済み 3 / 45問・回答率 7%',{exact:true}).waitFor();
-  assert.equal(requests.filter(n=>n==='quiz_group_member_material_progress').length,1,'one batch for all materials');
+  assert.equal(requests.filter(n=>n==='quiz_group_member_material_progress').length,readsBeforeMember+1,'one batch for all materials');
   await page.locator('.group-material-card').first().click();
   await page.getByRole('heading',{name:'自分の進捗',exact:true}).waitFor();
   await page.getByRole('button',{name:'戻る',exact:true}).click();
@@ -95,7 +97,7 @@ try {
   await page.getByRole('region',{name:'この教材の学習記録'}).getByText('3問を解答').waitFor();
   for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.equal(await page.locator('.group-set-progress').evaluate(node=>{const sections=[...node.querySelectorAll('.group-progress-section')].map(section=>section.getBoundingClientRect());return sections.every((section,index)=>index===0||section.top-sections[index-1].bottom>=12);}),true,'progress sections have spacing');assert.ok(await page.locator('.group-reflection-date').evaluate(node=>parseFloat(getComputedStyle(node).fontSize))>=12,'reflection state is readable');await page.screenshot({path:`qa/phase1/progress-${width}.png`});}
   await page.setViewportSize({width:390,height:844});
-  await page.getByText('グループ全体',{exact:true}).click();
+  await page.getByRole('heading',{name:'グループ全体',exact:true}).waitFor();
   await page.getByText('回答済み 3 / 45問・回答率 7%',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'取り込む',exact:true}).count(),0);
   assert.equal(await page.getByText('非共有の利用者',{exact:true}).count(),1);
@@ -105,12 +107,10 @@ try {
   await page.getByRole('button',{name:'戻る',exact:true}).click();
   assert.equal(await page.getByRole('tab',{name:'概要',exact:true}).getAttribute('aria-selected'),'true');
   await page.getByRole('tab',{name:'タイムライン',exact:true}).click();
-  await page.getByText('共有設定・更新',{exact:true}).click();
   await page.getByRole('button',{name:'活動を共有する',exact:true}).click();
   await page.getByRole('button',{name:'同意して共有',exact:true}).click();
   await page.getByRole('button',{name:'活動共有を停止',exact:true}).waitFor();
   assert.equal(activityEnabled,true);
-  await page.getByText('共有設定・更新',{exact:true}).click();
   for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);if(width>=390)await page.screenshot({path:`qa/phase1/timeline-${width}.png`});}
   await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'学習を記録',exact:true}).click();const manual=page.getByRole('dialog',{name:'フォルダ外の学習を記録'});
@@ -121,7 +121,6 @@ try {
   await page.evaluate(()=>window.restoreGroupTestWork());await page.getByRole('tab',{name:'タイムライン',exact:true}).click();await manual.waitFor();assert.equal(await manual.getByLabel('学習した内容').inputValue(),'講義ノート');assert.equal(await manual.getByLabel('時間（分）').inputValue(),'25');await manual.getByRole('button',{name:'確認する'}).click();
   assert.equal(manualAttempts.length,0,'no post before explicit confirmation');await manual.getByRole('button',{name:'グループに共有して記録'}).click();
   await page.getByText('端末に保存しました。接続後に送信します。').waitFor();assert.equal(manualPosts.size,0);await page.getByText('送信待ち',{exact:true}).waitFor();
-  if(!await page.locator('.group-timeline__settings').evaluate(node=>node.open))await page.getByText('共有設定・更新',{exact:true}).click();
   const manualSent=page.waitForResponse(response=>response.url().endsWith('/rpc/quiz_group_manual_activity_publish')&&response.status()===200);await page.getByRole('button',{name:'更新・送信を再試行'}).click();await manualSent;await page.locator('.group-timeline__row').filter({hasText:'講義ノート'}).waitFor();assert.equal(manualPosts.size,1);assert.equal(manualAttempts.length,2);assert.equal(manualAttempts[0].p_event_id,manualAttempts[1].p_event_id);assert.equal(manualAttempts[1].p_minutes,25);assert.equal(manualAttempts[1].p_answered,12);
   assert.equal(await page.getByRole('button',{name:'講義ノート',exact:true}).count(),0);
   failManual=true;await page.getByRole('button',{name:'学習を記録',exact:true}).click();await manual.getByLabel('学習した内容').fill('送信待ち削除');await manual.getByLabel('時間（分）').fill('3');await manual.getByRole('button',{name:'確認する'}).click();await manual.getByRole('button',{name:'グループに共有して記録'}).click();
@@ -155,7 +154,7 @@ try {
   assert.equal(await page.locator('.group-member-card dl').count(),0);
   for(const width of [320,360,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);if(width>=390)await page.screenshot({path:`qa/phase1/members-${width}.png`});}
   await page.setViewportSize({width:390,height:844});
-  await page.getByText('メンバーを管理',{exact:true}).click();
+  await page.getByRole('heading',{name:'メンバーを管理',exact:true}).waitFor();
   assert.ok(await page.getByRole('button',{name:'メンバーから外す',exact:true}).count()>0);
   for(const width of [390,768]) {
     await page.setViewportSize({width,height:844});
