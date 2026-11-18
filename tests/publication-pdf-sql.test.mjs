@@ -4,6 +4,7 @@ const pg=await createPublicationDatabase();after(()=>pg.close());
 for(const file of ['20261008151820_resumable_publication.sql','20261008172607_public_discovery.sql','20261009110333_public_catalog_soft_delete.sql','20261009001541_public_discovery_reader_authorization.sql','20261011152034_publication_owner_read_identity.sql'])await pg.exec(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
 await pg.exec(`create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,metadata jsonb,unique(bucket_id,name));alter table storage.objects enable row level security;grant usage on schema storage to anon,authenticated;grant select,insert,update,delete on storage.objects to anon,authenticated;`);
 await pg.exec(await readFile(new URL('../supabase/migrations/20261011165511_publication_pdf_materials.sql',import.meta.url),'utf8'));
+await pg.exec(await readFile(new URL('../supabase/migrations/20261118060000_publication_pdf_100mb.sql',import.meta.url),'utf8'));
 const reader='00000000-0000-4000-8000-000000000002';await pg.query('insert into auth.users(id,email)values($1,$2)',[reader,'reader@example.test']);
 const material=(hash)=>({id:'pdf',title:'Fixture.pdf',pages:[{id:'page',kind:'pdf',pdfPage:1}],pdf:{path:owner+'/'+hash.repeat(64)+'.pdf',sha256:hash.repeat(64),size:32}});
 async function actor(id,role='authenticated'){await pg.exec('reset role');await pg.query("select set_config('test.user',$1,false)",[id??'']);await pg.exec('set role '+role);}
@@ -41,4 +42,18 @@ test('PDF metadata changes create one immutable version and identical retries re
  await actor(owner);const m={...material('a'),title:'Revised PDF title'},id=await start({...publicationMetadata('pdf-public'),materials:[m]});const next=(await finish(id)).result;assert.notEqual(next.version_id,published.version_id);
  const old=await call(pg,'quiz_get_publication_version',[published.id,published.version_id,null],['uuid','uuid','text']);assert.equal(old.materials[0].title,'Fixture.pdf');
  const repeat=await start({...publicationMetadata('pdf-public'),materials:[m]});assert.equal((await finish(repeat)).result.version_id,next.version_id);await pg.exec('reset role');assert.equal((await pg.query('select count(*)::int n from private.quiz_publication_versions where set_id=$1',[published.id])).rows[0].n,2);
+});
+
+test('100 MB publication requires both objects; 100 MB plus one byte is rejected',async()=>{
+ await actor(owner);
+ const m=material('e');m.pdf.size=104857601;
+ await assert.rejects(start({...publicationMetadata('too-large'),materials:[m]}),/publication_invalid_materials/);
+ m.pdf.size=104857600;
+ const id=await start({...publicationMetadata('large-pdf'),materials:[m]});
+ for(const n of [1,2]){
+   await pg.query("insert into storage.objects(bucket_id,name,metadata)values('quiz-publication-pdfs',$1,$2)",[m.pdf.path+'.'+n,JSON.stringify({size:52428800,mimetype:'application/pdf'})]);
+   if(n===1)await assert.rejects(finish(id),/publication_pdf_missing/);
+ }
+ await finish(id);await actor(null,'anon');
+ assert.equal((await pg.query('select name from storage.objects where name in ($1,$2)',[m.pdf.path+'.1',m.pdf.path+'.2'])).rows.length,2);
 });

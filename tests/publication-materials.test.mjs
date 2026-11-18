@@ -22,13 +22,13 @@ test('missing bytes, unresolved references, foreign paths, and oversized metadat
   assert.throws(()=>planPublicImport(data,[{...set,materialFiles:{}}],{targetId:'target'}));
   assert.throws(()=>planPublicImport(data,[{...set,questions:[{...set.questions[0],materialReferences:[{materialId:material.id,pageId:'missing'}]}]}],{targetId:'target'}));
   assert.throws(()=>parsePublishedMaterials([{...material,pdf:{...material.pdf,path:`other/${sha256}.pdf`}}],owner));
-  assert.throws(()=>parsePublishedMaterials([{...material,pdf:{...material.pdf,size:50*1024*1024+1}}],owner));
+  assert.throws(()=>parsePublishedMaterials([{...material,pdf:{...material.pdf,size:100*1024*1024+1}}],owner));
 });
 test('chunked downloads verify size and SHA-256 before returning local PDF bytes',async()=>{
-  assert.equal(await readPublishedPdf(new Response(bytes),material.pdf),pdfDataUrl(bytes));
-  await assert.rejects(readPublishedPdf(new Response(new Uint8Array(bytes.length)),material.pdf),/検証/);
-  await assert.rejects(readPublishedPdf(new Response(new Uint8Array(bytes.length+1)),material.pdf),/容量/);
-  await assert.rejects(readPublishedPdf(new Response(bytes.slice(0,-1)),material.pdf),/検証/);
+  assert.equal(await readPublishedPdf(async()=>new Response(bytes),material.pdf),pdfDataUrl(bytes));
+  await assert.rejects(readPublishedPdf(async()=>new Response(new Uint8Array(bytes.length)),material.pdf),/検証/);
+  await assert.rejects(readPublishedPdf(async()=>new Response(new Uint8Array(bytes.length+1)),material.pdf),/容量/);
+  await assert.rejects(readPublishedPdf(async()=>new Response(bytes.slice(0,-1)),material.pdf),/容量/);
 });
 async function database(){return await new Promise((resolve,reject)=>{const request=indexedDB.open(crypto.randomUUID(),1);request.onupgradeneeded=()=>upgradeAppRecordStores(request.result);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
 test('problem copies and PDFs commit atomically, with sync outbox descriptors',async()=>{
@@ -51,4 +51,17 @@ test('publication identity hashes verified PDF metadata without copying large PD
   const payload={p_set:{materials:[material]},p_questions:[],materialFiles:{pdf:'first bytes'}};
   assert.equal(await publicationDigest(payload),await publicationDigest({...payload,materialFiles:{pdf:'other bytes'}}));
   assert.notEqual(await publicationDigest(payload),await publicationDigest({...payload,p_set:{materials:[{...material,pdf:{...material.pdf,sha256:'f'.repeat(64)}}]}}));
+});
+
+test('a full 100 MB publication downloads both objects and verifies the reconstructed PDF',async()=>{
+  const size=100*1024*1024, source=new Uint8Array(size);
+  source.set(bytes);source[size-1]=37;
+  const hash=await pdfHash(source),path=owner+'/'+hash+'.pdf',seen=[];
+  const url=await readPublishedPdf(async key=>{
+    seen.push(key);
+    return new Response(key===path+'.1'?source.subarray(0,size/2):source.subarray(size/2));
+  },{path,sha256:hash,size});
+  assert.deepEqual(seen,[path+'.1',path+'.2']);
+  assert.equal(url.length,'data:application/pdf;base64,'.length+Math.ceil(size/3)*4);
+  assert.equal(url.slice(-4),btoa('%'));
 });
