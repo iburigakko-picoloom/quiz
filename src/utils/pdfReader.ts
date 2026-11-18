@@ -5,7 +5,3 @@ export function openPdf(data: Uint8Array) {
   const base = new URL(import.meta.env.BASE_URL + 'assets/pdfjs/', document.baseURI).href;
   return getDocument({ data, isEvalSupported: false, stopAtErrors: true, cMapUrl: base + 'cmaps/', cMapPacked: true, standardFontDataUrl: base + 'standard_fonts/', wasmUrl: base + 'wasm/' });
 }
-export function pdfBytes(dataUrl: string): Uint8Array {
-  const binary = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));
-  return Uint8Array.from(binary, char => char.charCodeAt(0));
-}

@@ -42,11 +42,11 @@ export async function searchMaterialDocument(document: SearchablePdf, material: 
   return result;
 }
 export async function searchMaterialPdf(ownerId: string, material: StudyMaterial, query: string, signal: AbortSignal, onProgress?: (done: number, total: number) => void) {
-  const [{openPdf, pdfBytes}, {loadMaterialFile}] = await Promise.all([import('./pdfReader'), import('./materialStorage')]);
+  const [{openPdf}, {loadMaterialBytes}] = await Promise.all([import('./pdfReader'), import('./materialStorage')]);
   signal.throwIfAborted();
-  const raw = await loadMaterialFile(ownerId, material.id);
+  const raw = await loadMaterialBytes(ownerId, material.id);
   signal.throwIfAborted();
-  const task = openPdf(pdfBytes(raw));
+  const task = openPdf(raw);
   const cancel = () => { void task.destroy(); };
   signal.addEventListener('abort', cancel, {once: true});
   try { return await searchMaterialDocument(await task.promise, material, query, signal, onProgress); }

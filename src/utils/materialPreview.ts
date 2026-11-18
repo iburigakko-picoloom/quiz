@@ -1,6 +1,6 @@
 import { materialRenderScale } from './materialRenderScale';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { annotationCategory, loadMaterialFile } from './materialStorage';
+import { annotationCategory, loadMaterialBytes } from './materialStorage';
 import { loadCategoryNoteRaw } from './noteStorage';
 import type { MaterialPage } from './materialModel';
 import { ByteBudgetLruCache, estimateDataUrlMemoryBytes, estimateRgbaPixelBytes } from '../components/noteMemory';
@@ -39,9 +39,9 @@ export class MaterialPreviewCache {
     const session: NonNullable<MaterialPreviewCache['document']> = { key, cancelled: false, ready: Promise.resolve(null as unknown as PDFDocumentProxy) };
     this.document = session;
     session.ready = (async () => {
-      const [{ openPdf, pdfBytes }, raw] = await Promise.all([import('./pdfReader'), loadMaterialFile(ownerId, materialId)]);
+      const [{ openPdf }, raw] = await Promise.all([import('./pdfReader'), loadMaterialBytes(ownerId, materialId)]);
       if (session.cancelled) throw new Error('資料の読込を中止しました。');
-      session.task = openPdf(pdfBytes(raw));
+      session.task = openPdf(raw);
       return session.task.promise;
     })().catch(error => { if (this.document === session) this.clear(); throw error; });
     return session.ready;
