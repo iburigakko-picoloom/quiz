@@ -307,7 +307,7 @@ export const MaterialsPanel = forwardRef<CategoryNotePanelHandle, Props>(functio
   });
   return <section className="materials-panel" aria-label="資料" aria-busy={busy}>
     <div className="materials-controls">
-      <button type="button" className="materials-list-toggle" aria-label="資料一覧を開閉" aria-expanded={navigatorOpen} disabled={busy} onClick={()=>setNavigatorOpen(open=>!open)}>☰</button>
+      <button type="button" className="materials-list-toggle" aria-label="資料一覧を開閉" aria-expanded={navigatorOpen} disabled={busy} onClick={()=>setNavigatorOpen(open=>!open)}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M3 5h14 M3 10h14 M3 15h14" /></svg></button>
       {index && visibleMaterials.length > 0 && (visibleMaterials.length > 1 || !material) ? <select className="materials-picker" aria-label="資料を切り替え" disabled={memoOpen || busy || pagePending || transitioning} value={materialId} onChange={event => { const value = event.target.value; run(async () => { captureTransition(); setMaterialId(value); setPageId(visibleMaterials.find(item => item.id === value)?.pages[0]?.id ?? ''); }); }}>
         {!material ? <option value="" disabled hidden>資料を選ぶ</option> : null}{visibleMaterials.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
       </select> : <span className="materials-title" title={material?.title}>{material?.title ?? (index ? '資料' : '読み込み中…')}</span>}
