@@ -553,6 +553,7 @@ test('diagnostics use one bounded whole-read page without downloading snapshots 
   const before=JSON.stringify(await storage.loadAppDataAsync());
   const result=await sync.runSyncDiagnostic(syncId);
   assert.equal(result.ok,true,JSON.stringify(result));assert.equal(calls.length,3);
+  assert.equal(sync.syncDiagnosticSummary(result),'接続と端末データの書き出しを確認しました');
   assert.equal(JSON.stringify(await storage.loadAppDataAsync()),before);
 });
 
