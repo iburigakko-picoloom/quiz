@@ -11,8 +11,8 @@ import { safeSyncFailureMessage } from '../utils/syncFailureDiagnostic';
 import { syncStatusReason } from '../utils/syncStatusReason';
 import { integrityCodes } from '../utils/syncDataIntegrity';
 
-export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, lastState, disabled, onLogin, detailsOpen = false, diagnosticsOnly = false, onInitialSync,choiceOpen=false,onChooseSource }: {
-  syncId: string; accountId: string; recordEnabled: boolean; autoEnabled: boolean; lastState: LastSyncState; disabled: boolean; onLogin: () => void; detailsOpen?: boolean; diagnosticsOnly?: boolean; onInitialSync?: () => void;choiceOpen?:boolean;onChooseSource?:()=>void;
+export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, lastState, disabled, onLogin, detailsOpen = false, diagnosticsOnly = false, onInitialSync,onOpenBackups,choiceOpen=false,onChooseSource }: {
+  syncId: string; accountId: string; recordEnabled: boolean; autoEnabled: boolean; lastState: LastSyncState; disabled: boolean; onLogin: () => void; detailsOpen?: boolean; diagnosticsOnly?: boolean; onInitialSync?: () => void; onOpenBackups?: () => void;choiceOpen?:boolean;onChooseSource?:()=>void;
 }) {
   const [record, setRecord] = useState<RecordSyncStatus | null>(null);
   const [pending, setPending] = useState(false);
@@ -67,6 +67,11 @@ export function SyncStatus({ syncId, accountId, recordEnabled, autoEnabled, last
     {!diagnosticsOnly && complete ? <svg className="sync-complete-icon" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28"/><path d="m19 32 9 9 18-19"/></svg> : null}
     {!diagnosticsOnly ? <h2>{onInitialSync ? '初回のデータを確認してください' : summary}</h2> : null}
     {!diagnosticsOnly && reason ? <p className="sync-status-reason">{reason}</p> : null}
+    {record?.recoveryApp && <div>
+      <p>この端末の問題が最新か確認できず、同期を停止しています。まず「ファイルに保存」で今の記録を残してください。</p>
+      <p>最近の解答を含む完全なバックアップがあれば復元し、同期画面で「更新を確認」を押してください。どれが最新か分からない場合は、復元前に最後に学習した端末の解答履歴を確認してください。</p>
+      {onOpenBackups && <button type="button" className="sync-button" disabled={disabled} onClick={onOpenBackups}>バックアップ・復旧を開く</button>}
+    </div>}
     {!diagnosticsOnly && showProgress ? <SyncProgressView complete={complete} progress={progress} step={attempt?.step ?? ''} stopped={Boolean(activeFailure) || attempt?.phase==='paused'} /> : null}
     {!diagnosticsOnly && complete && attempt?.notice ? <p className="sync-status-reason">{attempt.notice}</p> : null}
     {!diagnosticsOnly && attempt?.phase === 'queued' && attempt.retryAt && attempt.retryAt > Date.now() ? <p>{new Date(attempt.retryAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}に再試行します。</p> : null}

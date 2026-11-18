@@ -1066,7 +1066,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
         {error ? <div className="sync-alert sync-alert--error" role="alert">操作を完了できません。変更は端末に保持しています<details><summary>詳細</summary>{error}</details></div> : null}
         {!currentPage ? <>
           {configured && authenticated && hasStrongConnection ? <section className="sync-card sync-card--transfer">
-            <SyncStatus onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id} choiceOpen={reviewOpen} onChooseSource={()=>setReviewOpen(true)}
+            <SyncStatus onOpenBackups={onOpenBackups} onLogin={() => setLoginRequested(true)} syncId={activeSyncId} accountId={cloudAccount.id} choiceOpen={reviewOpen} onChooseSource={()=>setReviewOpen(true)}
               recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={interactionProtected}
               onInitialSync={initialSyncRequired ? () => goToPage('recovery') : undefined} />
             {recordSyncOptedIn && <SyncConflictRecovery syncId={activeSyncId} accountId={cloudAccount.id} onImported={onImported} onBusyChange={setRecoveryBusy} onOpenBackups={onOpenBackups} disabled={reviewOpen} />}
@@ -1252,7 +1252,7 @@ export function SyncScreen({ onBack, onImported, onProtectionChange, onOpenBacku
           <nav className="sync-page-links" aria-label="復旧の操作">{link('diagnostics', '接続診断')}</nav>
         </> : null}
         {currentPage === 'diagnostics' ? <>
-          {configured && authenticated && hasStrongConnection ? <SyncStatus detailsOpen diagnosticsOnly syncId={activeSyncId} accountId={cloudAccount.id}
+          {configured && authenticated && hasStrongConnection ? <SyncStatus onOpenBackups={onOpenBackups} detailsOpen diagnosticsOnly syncId={activeSyncId} accountId={cloudAccount.id}
             recordEnabled={recordSyncOptedIn} autoEnabled={autoEnabled} lastState={lastState} disabled={interactionProtected} onLogin={() => setLoginRequested(true)} /> : null}
           <StorageBreakdown />
           {storageUsage ? <p className="sync-help">サイト全体の保存領域（ブラウザ概算）：{storageUsage}</p> : null}{loginStorageUsage!==null?<p className="sync-help">ログイン・設定の保存領域（概算）：{formatBytes(loginStorageUsage)}（教材用とは別の上限）</p>:null}
